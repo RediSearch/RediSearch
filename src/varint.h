@@ -13,6 +13,7 @@ typedef struct {
     VarintVector *v;
     u_char *pos;
     u_char index;
+    int lastValue;
 } VarintVectorIterator;
 
 
@@ -26,6 +27,8 @@ typedef struct {
     
     // allocated capacity
     size_t cap;
+    
+    int lastValue;
 } VarintVectorWriter;
 
 #define MAX_VARINT_LEN 5

@@ -5,15 +5,18 @@
 #include "varint.h"
 
 
+static int msb = (int)(~0ULL << 25);
+
 int decodeVarint(u_char **bufp)
 {
 	u_char *buf = *bufp;
 	u_char c = *buf++;
 	int val = c & 127;
+    
 	while (c & 128) {
-		val += 1;
+		++val;
         
-		if (!val || MSB(val, 7))
+		if (!val || val & msb)
 			return 0; /* overflow */
 		c = *buf++;
 		val = (val << 7) + (c & 127);
@@ -48,7 +51,14 @@ int encodeVarint(int value, unsigned char *buf)
 }
 
 VarintVectorIterator VarIntVector_iter(VarintVector *v) {
-     VarintVectorIterator ret = {v, (u_char*)v+sizeof(u_int16_t), 0};
+     VarintVectorIterator ret = {
+         index: 0, lastValue: 0, pos: 0, v: 0
+     };
+     ret.index = 0;
+     ret.lastValue = 0;
+     ret.pos = v+sizeof(u_int16_t);
+     ret.v = v;
+     
      return ret;
 }
 
@@ -60,7 +70,8 @@ int VV_HasNext(VarintVectorIterator *vi) {
 
 int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
-      int i = decodeVarint(&(vi->pos));
+      int i = decodeVarint(&(vi->pos)) + vi->lastValue;
+      vi->lastValue = i;
       vi->index++;
       return i;
   }  
@@ -87,6 +98,7 @@ VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
     w->nmemb = 0;
     w->v = calloc(1, cap);
     w->pos = w->v + sizeof(u_int16_t);
+    w->lastValue = 0;
     return w;
 }
 
@@ -109,11 +121,12 @@ size_t VVW_Write(VarintVectorWriter *w, int i) {
         w->v = realloc(w->v, w->cap);
         w->pos = w->v + diff;
     }
-    size_t n = encodeVarint(i, w->pos);
+    size_t n = encodeVarint(i - w->lastValue, w->pos);
     
     w->len +=n;
     w->nmemb += 1;
     w->pos += n;
+    w->lastValue = i;
     *(u_int16_t *)w->v = (u_int16_t)w->len;
     return n;
 }
