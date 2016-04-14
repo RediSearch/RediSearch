@@ -2,6 +2,7 @@
 #define __VARINT_H__
 
 #include <stdlib.h>
+#include <sys/types.h>
 
 int decodeVarint(u_char **bufp);
 int encodeVarint(int value, unsigned char *buf);

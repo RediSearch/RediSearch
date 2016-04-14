@@ -10,7 +10,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS =  -fPIC -pedantic -Wall -Wextra -g
+CFLAGS =  -pedantic -Wall -Wextra -g -O3 
 
 VARINT=varint.o
 INDEX=index.o

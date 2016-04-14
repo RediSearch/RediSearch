@@ -29,23 +29,25 @@ int IR_Next(IndexReader *ir) {
     return INDEXREAD_OK;
 }
 
-void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
+inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
     ir->lastId = docId;
-    ir->pos = ir->data + offset + sizeof(IndexHeader);
+    ir->pos = ir->data + offset;// + sizeof(IndexHeader);
 }
 
 
 int IR_SkipTo(IndexReader *ir, u_int32_t docId, IndexHit *hit) {
     
-    SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, 0);
-    if (ent != NULL || ir->skipIdx.len == 0) {
+    SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, &ir->skipIdxPos);
+    LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
+    if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
         if (ent != NULL) {
+            LG_DEBUG("Got entry %d,%d\n", ent->docId, ent->offset);
             IR_Seek(ir, ent->offset, ent->docId);
-            
         }
+        LG_DEBUG("After seek - ir docId: %d\n", ir->lastId);
         
         while(IR_Read(ir, hit) != INDEXREAD_EOF) {
-            printf("%d\n", hit->docId);
+            LG_DEBUG("finding %d, at %d %d\n", docId, hit->docId, ir->lastId);
             if (ir->lastId == docId) {
                 return INDEXREAD_OK;
             } else if (ir->lastId > docId) {
@@ -64,6 +66,7 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
     ret->data = data;
     ret->datalen = datalen;
     ret->lastId = 0;
+    ret->skipIdxPos = 0;
     ret->pos = (u_char*)data + sizeof(IndexHeader);
     if (si != NULL) {
         ret->skipIdx = *si;
@@ -122,12 +125,15 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
     w->ndocs++;
 }
 
+
+#define SKIPINDEX_STEP 5
+
 size_t IW_Close(IndexWriter *w) {
     IndexHeader *h = (IndexHeader*)w->buf;
     h->size = w->ndocs;
     w->cap = IW_Len(w);
     w->buf = realloc(w->buf, w->cap);
-    IW_MakeSkipIndex(w, 100);
+    IW_MakeSkipIndex(w, SKIPINDEX_STEP);
     return w->cap;
 }
 
@@ -143,7 +149,7 @@ void IW_MakeSkipIndex(IndexWriter *iw, int step) {
            
            entries[idx].docId = ir->lastId;
            entries[idx].offset = ir->pos - ir->data;
-           printf("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
+           LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
            idx++;
        }
           
@@ -160,63 +166,97 @@ void IW_Free(IndexWriter *w) {
     free(w);
 }
 
-int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
-    if ((i == 0 || idx->entries[i].docId < docId) &&
+inline int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
+    if (idx->entries[i].docId < docId &&
             (i < idx->len - 1 && idx->entries[i+1].docId >= docId)) {
                 return 1;
    }
    return 0;
 }
 
-SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int offset) {
-    
-    u_int top = idx->len, bottom = offset;
-    u_int i = (top+bottom)/2;
+SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
+        
+    if (docId < idx->entries[0].docId) {
+        return NULL;
+    } if (docId > idx->entries[idx->len-1].docId) {
+        *offset = idx->len - 1; 
+        return &idx->entries[idx->len-1];
+    }
+    u_int top = idx->len, bottom = *offset;
+    u_int i = *offset;
     int newi;
-    while (top > bottom) {
+    while (bottom < top) {
+        LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
        if (iw_isPos(idx, i, docId)) {
+           LG_DEBUG("IS POS!\n");
+           *offset = i;
            return &idx->entries[i];
        }
+       LG_DEBUG("NOT POS!\n");
        
-       if (docId < idx->entries[i].docId) {
-           top = i;
+       if (docId <= idx->entries[i].docId) {
+           top = i ;
        } else {
-           bottom = i;
+           bottom = i ;
        }
-       newi = (top+bottom)/2;
+       newi = (bottom + top)/2;
+       LG_DEBUG("top %d, bottom: %d, new i: %d\n", top, bottom, newi);
        if (newi == i) {
            break;
        }
        i = newi;
     }
-    if (i == 0) {
-        return &idx->entries[0];
-    }
+    // if (i == 0) {
+    //     return &idx->entries[0];
+    // }
     return NULL;
 }
 
-int IR_Intersect(IndexReader *r, IndexReader *other) {
+int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersect, void *ctx) {
     
-    IndexHit h1 = {0,0,0}, h2={0,0,0};
+    IndexHit *hits = calloc(2, sizeof(IndexHit));
+    IndexHit *h1= &hits[0];
+    IndexHit *h2= &hits[1];
+    int firstSeek = 1;
     int count = 0;
-    while (IR_Read(r, &h1) != INDEXREAD_EOF) {
-        int rc = IR_SkipTo(other, h1.docId, &h2);
-        printf("%d %d, rc %d\n", r->lastId, other->lastId, rc);
+    
+    if(IR_Read(r, h1) == INDEXREAD_EOF)  {
+        return INDEXREAD_EOF;
+    }
+    
+    do {
+        if (!firstSeek && h1->docId == h2->docId) {
+            LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
+            count++;
+            onIntersect(ctx, hits, 2);
+            firstSeek = 0;
+            goto readnext;
+        } 
+        
+        firstSeek = 0;
+        int rc = IR_SkipTo(other, h1->docId, h2);
+        LG_INFO("%d %d, rc %d\n", r->lastId, other->lastId, rc);
         switch(rc) {
             case INDEXREAD_EOF:
             return count;
             case INDEXREAD_NOTFOUND:
             
-            //if (IR_Read(r, &h1) == INDEXREAD_EOF) return count;
-            break;
+            if (IR_SkipTo(r, h2->docId, h1) == INDEXREAD_EOF) {
+                return count;
+            }
+            continue;
+            
             case INDEXREAD_OK:
-              printf("Intersection! @ %d <> %d\n", h1.docId, h2.docId);
+              LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
+              onIntersect(ctx, hits, 2);
               ++count;
-              break;   
+              
         } 
-
-    }
+           
+readnext:
+        if(IR_Read(r, h1) == INDEXREAD_EOF) break;  
+    } while(1);
     
-    return 0;
+    return count;
     
 }

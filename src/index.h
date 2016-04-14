@@ -21,7 +21,7 @@ typedef struct {
     SkipEntry *entries;
 } SkipIndex;
 
-SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int offset);
+SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
 
 
 typedef struct {
@@ -44,6 +44,7 @@ typedef struct {
     t_docId lastId;
     
     SkipIndex skipIdx;
+    u_int skipIdxPos;
     
 } IndexReader; 
 
@@ -64,11 +65,31 @@ typedef struct {
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
 
+#define L_DEBUG 1
+#define L_INFO 2
+#define L_WARN 4
+#define L_ERROR 8
+
+
+#define LOGGING_LEVEL  0 
+//L_DEBUG | L_INFO
+
+
+
+#define LG_MSG(...) fprintf(stdout, __VA_ARGS__)
+#define LG_DEBUG(...) if (LOGGING_LEVEL & L_DEBUG) { LG_MSG("[DEBUG %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
+#define LG_INFO(...) if (LOGGING_LEVEL & L_INFO) { LG_MSG("[INFO %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
+#define LG_WARN(...) if (LOGGING_LEVEL & L_WARN) { LG_MSG("[WARNING %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
+#define LG_ERROR (...) if (LOGGING_LEVEL & L_ERROR) { LG_MSG("[ERROR %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
+
+
+typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
+
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si); 
 int IR_Read(IndexReader *ir, IndexHit *e);
 int IR_Next(IndexReader *ir);
 int IR_SkipTo(IndexReader *ir, u_int32_t docId, IndexHit *hit);
-int IR_Intersect(IndexReader *r, IndexReader *other);
+int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 void IW_MakeSkipIndex(IndexWriter *iw, int step);
 
