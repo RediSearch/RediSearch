@@ -128,6 +128,7 @@ typedef struct {
 
 int onIntersect(void *ctx, IndexHit *hits, int argc) {
     
+    //printf("%d\n", hits[0].docId);
     IterationContext *ic = ctx;
     ++ic->counter;
     for (int i =0; i < argc; i++) {
@@ -135,23 +136,34 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
             ic->maxFreq = hits[i].freq;
     }
     
-    //printf("%d\n", h1->docId);
+    
     return 0;
 }
+
+
+
 void testIntersection() {
     
-    IndexWriter *w = createIndex(10000, 7);
+    IndexWriter *w = createIndex(1000000, 1);
     IndexReader *r1 = NewIndexReader(w->buf,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(1000000, 27);
+    IndexWriter *w2 = createIndex(5000, 2);
     IndexReader *r2 = NewIndexReader(w2->buf,  IW_Len(w2), &w2->skipIdx);
+    
+    IndexWriter *w3 = createIndex(10000, 3);
+    IndexReader *r3 = NewIndexReader(w3->buf,  IW_Len(w3), &w3->skipIdx);
+    
     IterationContext ctx = {0,0};
     printf ("Intersecting...\n");
+    
+    IndexReader *irs[] = {r1,r2, r3};
+    
     struct timespec start_time, end_time;
     
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
     
-    int count = IR_Intersect(r1, r2, onIntersect, &ctx);    
+    int count = IR_Intersect2(irs, 3, onIntersect, &ctx);    
     
+    //count = IR_Intersect(r1, r2, onIntersect, &ctx);
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
     long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 

@@ -1,4 +1,5 @@
 #include "index.h"
+#include <sys/param.h>
 
 int IR_Read(IndexReader *ir, IndexHit *e) {
     if (ir->pos >= ir->data + ir->datalen) {
@@ -256,6 +257,56 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersec
 readnext:
         if(IR_Read(r, h1) == INDEXREAD_EOF) break;  
     } while(1);
+    
+    return count;
+    
+}
+
+int IR_Intersect2(IndexReader **argv, int argc, IntersectHandler onIntersect, void *ctx) {
+    
+    // nothing to do
+    if (argc <= 0) {
+        return 0;
+    }
+    
+    IndexHit *hits = calloc(argc, sizeof(IndexHit));
+    
+    
+    t_docId currentDoc = 0;
+    int count = 0;
+    
+    int nh = 0;
+    do {
+        nh = 0;
+        
+        for (int i = 0; i < argc; i++) {
+            IndexHit *h = &hits[i];
+            
+            // skip to the next
+            if (h->docId != currentDoc || currentDoc == 0) {
+                
+                if (IR_SkipTo(argv[i], currentDoc, h) == INDEXREAD_EOF) {
+                    return count;
+                }
+            }
+            if (h->docId != currentDoc) {
+                currentDoc = h->docId;
+                break;
+            }
+            currentDoc = h->docId;
+            nh++;
+        }
+        
+        if (nh == argc) {
+            onIntersect(ctx, hits, argc);
+            count++;
+            
+            if (IR_Read(argv[0], &hits[0]) == INDEXREAD_EOF) {
+                return count;
+            }
+            currentDoc = hits[0].docId;
+        }
+    }while(1);
     
     return count;
     

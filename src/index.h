@@ -85,11 +85,20 @@ typedef struct {
 
 typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
 
+
+
+typedef struct {
+    int (*Read)(IndexHit *e);
+    int (*Next)(IndexReader *ir);
+    int (*SkipTo)(u_int32_t docId, IndexHit *hit);
+} IndexIterator;
+
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si); 
 int IR_Read(IndexReader *ir, IndexHit *e);
 int IR_Next(IndexReader *ir);
 int IR_SkipTo(IndexReader *ir, u_int32_t docId, IndexHit *hit);
 int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
+int IR_Intersect2(IndexReader **argv, int argc, IntersectHandler h, void *ctx);
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 void IW_MakeSkipIndex(IndexWriter *iw, int step);
 
