@@ -26,10 +26,20 @@ See example.c for an example.
 
 Short code sample:
 ```C
+// suppose that datain is an array of uint32_t integers
 size_t compsize = streamvbyte_encode(datain, N, compressedbuffer); // encoding
 // here the result is stored in compressedbuffer using compsize bytes
 streamvbyte_decode(compressedbuffer, recovdata, N); // decoding (fast)
 ```
+
+If the values are sorted, then it might be preferable to use differential coding:
+```C
+// suppose that datain is an array of uint32_t integers
+size_t compsize = streamvbyte_delta_encode(datain, N, compressedbuffer,0); // encoding
+// here the result is stored in compressedbuffer using compsize bytes
+streamvbyte_delta_decode(compressedbuffer, recovdata, N,0); // decoding (fast)
+```
+
 
 See also
 --------
