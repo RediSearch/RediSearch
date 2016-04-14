@@ -39,7 +39,8 @@ size_t compsize = streamvbyte_delta_encode(datain, N, compressedbuffer,0); // en
 // here the result is stored in compressedbuffer using compsize bytes
 streamvbyte_delta_decode(compressedbuffer, recovdata, N,0); // decoding (fast)
 ```
-
+You have to know how many integers were coded when you decompress. You can store this 
+information along with the compressed stream.
 
 See also
 --------
