@@ -30,3 +30,11 @@ size_t compsize = streamvbyte_encode(datain, N, compressedbuffer); // encoding
 // here the result is stored in compressedbuffer using compsize bytes
 streamvbyte_decode(compressedbuffer, recovdata, N); // decoding (fast)
 ```
+
+See also
+--------
+
+https://github.com/lemire/MaskedVByte
+
+https://github.com/lemire/simdcomp
+
