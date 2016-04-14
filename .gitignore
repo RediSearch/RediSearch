@@ -1,0 +1,6 @@
+*.o
+*.so
+.vscode
+test
+testung
+*.db
