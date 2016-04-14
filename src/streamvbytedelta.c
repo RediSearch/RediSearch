@@ -301,9 +301,9 @@ static uint8_t _encode_data(uint32_t val, uint8_t *__restrict__ *dataPtrPtr) {
 	return code;
 }
 
-static uint8_t *svb_encode_scalar(const uint32_t *in,
+static uint8_t *svb_encode_scalar_d1_init(const uint32_t *in,
 		uint8_t *__restrict__ keyPtr, uint8_t *__restrict__ dataPtr,
-		uint32_t count) {
+		uint32_t count, uint32_t prev) {
 	if (count == 0)
 		return dataPtr; // exit immediately if no data
 
@@ -315,7 +315,8 @@ static uint8_t *svb_encode_scalar(const uint32_t *in,
 			*keyPtr++ = key;
 			key = 0;
 		}
-		uint32_t val = in[c];
+		uint32_t val = in[c] - prev;
+		prev = in[c];
 		uint8_t code = _encode_data(val, &dataPtr);
 		key |= code << shift;
 		shift += 2;
@@ -325,28 +326,68 @@ static uint8_t *svb_encode_scalar(const uint32_t *in,
 	return dataPtr; // pointer to first unused data byte
 }
 
-// Encode an array of a given length read from in to bout in streamvbyte format.
-// Returns the number of bytes written.
-size_t streamvbyte_encode(uint32_t *in, uint32_t count, uint8_t *out) {
-	uint8_t *keyPtr = out;
+size_t streamvbyte_delta_encode(uint32_t *in, uint32_t count, uint8_t *out,
+		uint32_t prev) {
+	uint8_t *keyPtr = out;         // keys come immediately after 32-bit count
 	uint32_t keyLen = (count + 3) / 4; // 2-bits rounded to full byte
 	uint8_t *dataPtr = keyPtr + keyLen; // variable byte data after all keys
-	return svb_encode_scalar(in, keyPtr, dataPtr, count) - out;
+
+	return svb_encode_scalar_d1_init(in, keyPtr, dataPtr, count, prev) - out;
+
 }
 
-static inline __m128i _decode_avx(uint32_t key,
-		const uint8_t *__restrict__ *dataPtrPtr) {
+static inline __m128i _decode_avx(uint32_t key, const uint8_t *__restrict__ *dataPtrPtr) {
 	uint8_t len = lengthTable[key];
 	__m128i Data = _mm_loadu_si128((__m128i *) *dataPtrPtr);
 	__m128i Shuf = *(__m128i *) &shuffleTable[key];
 
 	Data = _mm_shuffle_epi8(Data, Shuf);
 	*dataPtrPtr += len;
+
 	return Data;
 }
+#define BroadcastLastXMM 0xFF // bits 0-7 all set to choose highest element
+
+
 
 static inline void _write_avx(uint32_t *out, __m128i Vec) {
 	_mm_storeu_si128((__m128i *) out, Vec);
+}
+
+static __m128i _write_avx_d1(uint32_t *out, __m128i Vec, __m128i Prev) {
+	__m128i Add = _mm_slli_si128(Vec, 4); // Cycle 1: [- A B C] (already done)
+	Prev = _mm_shuffle_epi32(Prev, BroadcastLastXMM); // Cycle 2: [P P P P]
+	Vec = _mm_add_epi32(Vec, Add);                    // Cycle 2: [A AB BC CD]
+	Add = _mm_slli_si128(Vec, 8);                     // Cycle 3: [- - A AB]
+	Vec = _mm_add_epi32(Vec, Prev);                 // Cycle 3: [PA PAB PBC PCD]
+	Vec = _mm_add_epi32(Vec, Add); // Cycle 4: [PA PAB PABC PABCD]
+
+	_write_avx(out, Vec);
+	return Vec;
+}
+
+#ifndef _MSC_VER
+static __m128i High16To32 = {0xFFFF0B0AFFFF0908, 0xFFFF0F0EFFFF0D0C};
+#else
+static __m128i High16To32 = {8,  9,  -1, -1, 10, 11, -1, -1,
+                           12, 13, -1, -1, 14, 15, -1, -1};
+#endif
+
+static inline __m128i _write_16bit_avx_d1(uint32_t *out, __m128i Vec, __m128i Prev) {
+  // vec == [A B C D E F G H] (16 bit values)
+  __m128i Add = _mm_slli_si128(Vec, 2);               // [- A B C D E F G]
+  Prev = _mm_shuffle_epi32(Prev, BroadcastLastXMM); // [P P P P] (32-bit)
+  Vec = _mm_add_epi32(Vec, Add);                    // [A AB BC CD DE FG GH]
+  Add = _mm_slli_si128(Vec, 4);                     // [- - A AB BC CD DE EF]
+  Vec = _mm_add_epi32(Vec, Add);      // [A AB ABC ABCD BCDE CDEF DEFG EFGH]
+  __m128i V1 = _mm_cvtepu16_epi32(Vec); // [A AB ABC ABCD] (32-bit)
+  V1 = _mm_add_epi32(V1, Prev);       // [PA PAB PABC PABCD] (32-bit)
+  __m128i V2 =
+      _mm_shuffle_epi8(Vec, High16To32); // [BCDE CDEF DEFG EFGH] (32-bit)
+  V2 = _mm_add_epi32(V1, V2); // [PABCDE PABCDEF PABCDEFG PABCDEFGH] (32-bit)
+  _write_avx(out, V1);
+  _write_avx(out + 4, V2);
+  return V2;
 }
 
 static inline uint32_t _decode_data(const uint8_t **dataPtrPtr, uint8_t code) {
@@ -371,33 +412,37 @@ static inline uint32_t _decode_data(const uint8_t **dataPtrPtr, uint8_t code) {
 	*dataPtrPtr = dataPtr;
 	return val;
 }
-static const uint8_t *svb_decode_scalar(uint32_t *outPtr, const uint8_t *keyPtr,
-		const uint8_t *dataPtr, uint32_t count) {
-	if (count == 0)
-		return dataPtr; // no reads or writes if no data
 
-	uint8_t shift = 0;
-	uint32_t key = *keyPtr++;
-	for (uint32_t c = 0; c < count; c++) {
-		if (shift == 8) {
-			shift = 0;
-			key = *keyPtr++;
-		}
-		uint32_t val = _decode_data(&dataPtr, (key >> shift) & 0x3);
-		*outPtr++ = val;
-		shift += 2;
-	}
+const uint8_t *svb_decode_scalar_d1_init(uint32_t *outPtr, const uint8_t *keyPtr,
+		const uint8_t *dataPtr, uint32_t count,
+                                   uint32_t prev) {
+  if (count == 0)
+    return dataPtr; // no reads or writes if no data
 
-	return dataPtr; // pointer to first unused byte after end
+  uint8_t shift = 0;
+  uint32_t key = *keyPtr++;
+
+  for (uint32_t c = 0; c < count; c++) {
+    if (shift == 8) {
+      shift = 0;
+      key = *keyPtr++;
+    }
+    uint32_t val = _decode_data(&dataPtr, (key >> shift) & 0x3);
+    val += prev;
+    *outPtr++ = val;
+    prev = val;
+    shift += 2;
+  }
+
+  return dataPtr; // pointer to first unused byte after end
 }
 
-const uint8_t *svb_decode_avx_simple(uint32_t *out,
-		const uint8_t *__restrict__ keyPtr, const uint8_t *__restrict__ dataPtr,
-		uint64_t count) {
-
+const uint8_t *svb_decode_avx_d1_init(uint32_t *out, const uint8_t *__restrict__ keyPtr,
+		const uint8_t *__restrict__ dataPtr, uint64_t count, uint32_t prev) {
 	uint64_t keybytes = count / 4; // number of key bytes
-	__m128i Data;
 	if (keybytes >= 8) {
+		__m128i Prev = _mm_set1_epi32(prev);
+		__m128i Data;
 
 		int64_t Offset = -(int64_t) keybytes / 8 + 1;
 
@@ -406,72 +451,108 @@ const uint8_t *svb_decode_avx_simple(uint32_t *out,
 		for (; Offset != 0; ++Offset) {
 			uint64_t keys = nextkeys;
 			nextkeys = keyPtr64[Offset + 1];
+			// faster 16-bit delta since we only have 8-bit values
+			if (!keys) { // 32 1-byte ints in a row
 
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out, Data);
+				Data = _mm_cvtepu8_epi16(_mm_lddqu_si128((__m128i *) (dataPtr)));
+				Prev = _write_16bit_avx_d1(out, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_lddqu_si128((__m128i *) (dataPtr + 8)));
+				Prev = _write_16bit_avx_d1(out + 8, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_lddqu_si128((__m128i *) (dataPtr + 16)));
+				Prev = _write_16bit_avx_d1(out + 16, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_lddqu_si128((__m128i *) (dataPtr + 24)));
+				Prev = _write_16bit_avx_d1(out + 24, Data, Prev);
+				out += 32;
+				dataPtr += 32;
+				continue;
+			}
+
+			Data = _decode_avx(keys & 0x00FF, &dataPtr);
+			Prev = _write_avx_d1(out, Data, Prev);
 			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 4, Data);
+			Prev = _write_avx_d1(out + 4, Data, Prev);
 
 			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 8, Data);
+			Data = _decode_avx((keys & 0x00FF), &dataPtr);
+			Prev = _write_avx_d1(out + 8, Data, Prev);
 			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 12, Data);
+			Prev = _write_avx_d1(out + 12, Data, Prev);
 
 			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 16, Data);
+			Data = _decode_avx((keys & 0x00FF), &dataPtr);
+			Prev = _write_avx_d1(out + 16, Data, Prev);
 			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 20, Data);
+			Prev = _write_avx_d1(out + 20, Data, Prev);
 
 			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 24, Data);
+			Data = _decode_avx((keys & 0x00FF), &dataPtr);
+			Prev = _write_avx_d1(out + 24, Data, Prev);
 			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 28, Data);
+			Prev = _write_avx_d1(out + 28, Data, Prev);
 
 			out += 32;
 		}
 		{
 			uint64_t keys = nextkeys;
+			// faster 16-bit delta since we only have 8-bit values
+			if (!keys) { // 32 1-byte ints in a row
+				Data = _mm_cvtepu8_epi16(_mm_lddqu_si128((__m128i *) (dataPtr)));
+				Prev = _write_16bit_avx_d1(out, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_lddqu_si128((__m128i *) (dataPtr + 8)));
+				Prev = _write_16bit_avx_d1(out + 8, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_lddqu_si128((__m128i *) (dataPtr + 16)));
+				Prev = _write_16bit_avx_d1(out + 16, Data, Prev);
+				Data = _mm_cvtepu8_epi16(
+						_mm_loadl_epi64((__m128i *) (dataPtr + 24)));
+				Prev = _write_16bit_avx_d1(out + 24, Data, Prev);
+				out += 32;
+				dataPtr += 32;
 
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out, Data);
-			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 4, Data);
+			} else {
 
-			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 8, Data);
-			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 12, Data);
+				Data = _decode_avx(keys & 0x00FF, &dataPtr);
+				Prev = _write_avx_d1(out, Data, Prev);
+				Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
+				Prev = _write_avx_d1(out + 4, Data, Prev);
 
-			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 16, Data);
-			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 20, Data);
+				keys >>= 16;
+				Data = _decode_avx((keys & 0x00FF), &dataPtr);
+				Prev = _write_avx_d1(out + 8, Data, Prev);
+				Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
+				Prev = _write_avx_d1(out + 12, Data, Prev);
 
-			keys >>= 16;
-			Data = _decode_avx((keys & 0xFF), &dataPtr);
-			_write_avx(out + 24, Data);
-			Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
-			_write_avx(out + 28, Data);
+				keys >>= 16;
+				Data = _decode_avx((keys & 0x00FF), &dataPtr);
+				Prev = _write_avx_d1(out + 16, Data, Prev);
+				Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
+				Prev = _write_avx_d1(out + 20, Data, Prev);
 
-			out += 32;
+				keys >>= 16;
+				Data = _decode_avx((keys & 0x00FF), &dataPtr);
+				Prev = _write_avx_d1(out + 24, Data, Prev);
+				Data = _decode_avx((keys & 0xFF00) >> 8, &dataPtr);
+				Prev = _write_avx_d1(out + 28, Data, Prev);
+
+				out += 32;
+			}
 		}
+		prev = out[-1];
 	}
 	uint64_t consumedkeys = keybytes - (keybytes & 7);
-	return svb_decode_scalar(out, keyPtr + consumedkeys, dataPtr, count & 31);
+	return svb_decode_scalar_d1_init(out, keyPtr + consumedkeys, dataPtr,
+			count & 31, prev);
 }
 
-// Read count 32-bit integers in maskedvbyte format from in, storing the result in out.  Returns the number of bytes read.
-size_t streamvbyte_decode(const uint8_t* in, uint32_t* out, uint32_t count) {
-	if (count == 0)
-		return 0;
-	const uint8_t *keyPtr = in;            // full list of keys is next
+size_t streamvbyte_delta_decode(const uint8_t* in, uint32_t* out,
+		uint32_t count, uint32_t prev) {
 	uint32_t keyLen = ((count + 3) / 4); // 2-bits per key (rounded up)
+	const uint8_t *keyPtr = in;
 	const uint8_t *dataPtr = keyPtr + keyLen;  // data starts at end of keys
-	return svb_decode_avx_simple(out, keyPtr, dataPtr, count) - in;
-
+	return svb_decode_avx_d1_init(out, keyPtr, dataPtr, count, prev) - in;
 }
+

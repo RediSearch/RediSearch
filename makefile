@@ -17,7 +17,7 @@ install: $(OBJECTS)
 
 
 
-HEADERS=./include/streamvbyte.h 
+HEADERS=./include/streamvbyte.h ./include/streamvbytedelta.h 
 
 uninstall:
 	for h in $(HEADERS) ; do rm  /usr/local/$$h; done
@@ -26,7 +26,12 @@ uninstall:
 	ldconfig
 
 
-OBJECTS= streamvbyte.o
+OBJECTS= streamvbyte.o streamvbytedelta.o
+
+
+
+streamvbytedelta.o: ./src/streamvbytedelta.c $(HEADERS)
+	$(CC) $(CFLAGS) -c ./src/streamvbytedelta.c -Iinclude
 
 
 streamvbyte.o: ./src/streamvbyte.c $(HEADERS)
