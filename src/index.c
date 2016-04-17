@@ -1,6 +1,9 @@
 #include "index.h"
 #include <sys/param.h>
 
+#define SKIPINDEX_STEP 100
+
+
 int IR_Read(void *ctx, IndexHit *e) {
     IndexReader *ir = ctx;
     if (ir->pos >= ir->data + ir->datalen) {
@@ -58,9 +61,10 @@ Skip to the given docId, or one place after it
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     IndexReader *ir = ctx;
     SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, &ir->skipIdxPos);
+    
     //LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
     if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
-        if (ent != NULL) {
+        if (ent != NULL && ent->offset > ir->pos - ir->data) {
             //LG_DEBUG("Got entry %d,%d\n", ent->docId, ent->offset);
             IR_Seek(ir, ent->offset, ent->docId);
         }
@@ -211,12 +215,13 @@ SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     
     if (idx->len == 0 || docId < idx->entries[0].docId) {
         return NULL;
-    } if (docId > idx->entries[idx->len-1].docId) {
+    } 
+    if (docId > idx->entries[idx->len-1].docId) {
         *offset = idx->len - 1; 
         return &idx->entries[idx->len-1];
     }
     u_int top = idx->len, bottom = *offset;
-    u_int i = *offset;
+    u_int i = bottom;
     int newi;
     while (bottom < top) {
         //LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
@@ -259,7 +264,6 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersec
     
     do {
         if (!firstSeek && h1->docId == h2->docId) {
-            //LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
             count++;
             onIntersect(ctx, hits, 2);
             firstSeek = 0;
@@ -294,7 +298,7 @@ readnext:
     
 }
 
-t_docId IR_LastDocId(void* ctx) {
+inline t_docId IR_LastDocId(void* ctx) {
     return ((IndexReader *)ctx)->lastId;
 }
 
@@ -355,7 +359,7 @@ int cmpHits(const void *h1, const void *h2) {
 }
 
 
-t_docId UI_LastDocId(void *ctx) {
+inline t_docId UI_LastDocId(void *ctx) {
     return ((UnionContext*)ctx)->minDocId;
 }
 

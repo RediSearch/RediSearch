@@ -10,7 +10,6 @@
 typedef u_int32_t t_docId;
 typedef u_int32_t t_offset;
 
-#define SKIPINDEX_STEP 100
 
 
 typedef struct {
