@@ -131,57 +131,68 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     //printf("%d\n", hits[0].docId);
     IterationContext *ic = ctx;
     ++ic->counter;
-    for (int i =0; i < argc; i++) {
-        if (hits[i].freq > ic->maxFreq) 
-            ic->maxFreq = hits[i].freq;
-    }
+    // for (int i =0; i < argc; i++) {
+    //     if (hits[i].freq > ic->maxFreq) 
+    //         ic->maxFreq = hits[i].freq;
+    // }
     
     
     return 0;
 }
 
+int printIntersect(void *ctx, IndexHit *hits, int argc) {
+    
+    printf("%d\n", hits[0].docId);
+    return 0;
+}
+
+
 void testUnion() {
-    IndexWriter *w = createIndex(10, 2);
+    IndexWriter *w = createIndex(20, 1);
     IndexReader *r1 = NewIndexReader(w->buf,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(10, 3);
+    IndexWriter *w2 = createIndex(10, 2);
     IndexReader *r2 = NewIndexReader(w2->buf,  IW_Len(w2), &w2->skipIdx);
     printf("Reading!\n");
     IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2)};
     IndexIterator *ui = NewUnionIterator(irs, 2);
     
-    
+    IndexWriter *w3 = createIndex(30, 5);
+    IndexReader *r3 = NewIndexReader(w3->buf,  IW_Len(w3), &w3->skipIdx);
     IndexHit h;
     
-    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-        printf("Read %d\n", h.docId);
-    }
+    IndexIterator *irs2[] = {ui, NewIndexTerator(r3)};
+    // while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    //     printf("Read %d\n", h.docId);
+    // }
+     IterationContext ctx = {0,0};
+    int count = IR_Intersect2(irs2, 2, printIntersect, &ctx);
     IndexIterator_Free(ui);
     
 }
 
 void testIntersection() {
     
-    IndexWriter *w = createIndex(1000000, 1);
+    IndexWriter *w = createIndex(1000000, 4);
     IndexReader *r1 = NewIndexReader(w->buf,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(5000, 2);
+    IndexWriter *w2 = createIndex(1000000, 2);
     IndexReader *r2 = NewIndexReader(w2->buf,  IW_Len(w2), &w2->skipIdx);
     
     IndexWriter *w3 = createIndex(10000, 3);
     IndexReader *r3 = NewIndexReader(w3->buf,  IW_Len(w3), &w3->skipIdx);
     
     IterationContext ctx = {0,0};
-    printf ("Intersecting...\n");
     
     
     IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2),NewIndexTerator(r2)};
     
-    struct timespec start_time, end_time;
+    printf ("Intersecting...\n");
     
+    struct timespec start_time, end_time;
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
     
-    int count = IR_Intersect2(irs, 3, onIntersect, &ctx);    
+    //int count = IR_Intersect2(irs, 2, onIntersect, &ctx);    
     
-    //count = IR_Intersect(r1, r2, onIntersect, &ctx);
+    int count = IR_Intersect(r1, r2, onIntersect, &ctx);
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
     long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
@@ -192,6 +203,6 @@ int main(int argc, char **argv) {
   
    //testVarint();
   //testIndexReadWrite();
-  //testIntersection();
-  testUnion();
+  testIntersection();
+  //testUnion();
 }

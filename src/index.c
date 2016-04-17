@@ -17,6 +17,16 @@ int IR_Read(void *ctx, IndexHit *e) {
     return INDEXREAD_OK;
 }
 
+
+inline int IR_HasNext(void *ctx) {
+    IndexReader *ir = ctx;
+    if (ir->pos >= ir->data + ir->datalen) {
+        return 0;
+    }
+        
+    return 1;
+}
+
 int IR_Next(void *ctx) {
     IndexReader *ir = ctx;
     if (ir->pos >= ir->data + ir->datalen) {
@@ -38,19 +48,26 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
 }
 
 
+/**
+Skip to the given docId, or one place after it
+@param ctx IndexReader context
+@param docId docId to seek to
+@param hit an index hit we put our reads into
+@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
+*/
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     IndexReader *ir = ctx;
     SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, &ir->skipIdxPos);
-    LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
+    //LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
     if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
         if (ent != NULL) {
-            LG_DEBUG("Got entry %d,%d\n", ent->docId, ent->offset);
+            //LG_DEBUG("Got entry %d,%d\n", ent->docId, ent->offset);
             IR_Seek(ir, ent->offset, ent->docId);
         }
-        LG_DEBUG("After seek - ir docId: %d\n", ir->lastId);
+        //LG_DEBUG("After seek - ir docId: %d\n", ir->lastId);
         
         while(IR_Read(ir, hit) != INDEXREAD_EOF) {
-            LG_DEBUG("finding %d, at %d %d\n", docId, hit->docId, ir->lastId);
+            //LG_DEBUG("finding %d, at %d %d\n", docId, hit->docId, ir->lastId);
             if (ir->lastId == docId) {
                 return INDEXREAD_OK;
             } else if (ir->lastId > docId) {
@@ -84,6 +101,7 @@ IndexIterator *NewIndexTerator(IndexReader *ir) {
     ri->Read = IR_Read;
     ri->SkipTo = IR_SkipTo;
     ri->LastDocId = IR_LastDocId; 
+    ri->HasNext = IR_HasNext;
     return ri;
 }
 
@@ -142,8 +160,6 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
 }
 
 
-#define SKIPINDEX_STEP 5
-
 size_t IW_Close(IndexWriter *w) {
     IndexHeader *h = (IndexHeader*)w->buf;
     h->size = w->ndocs;
@@ -165,7 +181,7 @@ void IW_MakeSkipIndex(IndexWriter *iw, int step) {
            
            entries[idx].docId = ir->lastId;
            entries[idx].offset = ir->pos - ir->data;
-           LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
+           //LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
            idx++;
        }
           
@@ -191,8 +207,9 @@ inline int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
 }
 
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
-        
-    if (docId < idx->entries[0].docId) {
+    
+    
+    if (idx->len == 0 || docId < idx->entries[0].docId) {
         return NULL;
     } if (docId > idx->entries[idx->len-1].docId) {
         *offset = idx->len - 1; 
@@ -202,13 +219,13 @@ SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     u_int i = *offset;
     int newi;
     while (bottom < top) {
-        LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
+        //LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
        if (iw_isPos(idx, i, docId)) {
-           LG_DEBUG("IS POS!\n");
+           //LG_DEBUG("IS POS!\n");
            *offset = i;
            return &idx->entries[i];
        }
-       LG_DEBUG("NOT POS!\n");
+       //LG_DEBUG("NOT POS!\n");
        
        if (docId <= idx->entries[i].docId) {
            top = i ;
@@ -216,7 +233,7 @@ SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
            bottom = i ;
        }
        newi = (bottom + top)/2;
-       LG_DEBUG("top %d, bottom: %d, new i: %d\n", top, bottom, newi);
+       //LG_DEBUG("top %d, bottom: %d, new i: %d\n", top, bottom, newi);
        if (newi == i) {
            break;
        }
@@ -242,7 +259,7 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersec
     
     do {
         if (!firstSeek && h1->docId == h2->docId) {
-            LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
+            //LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
             count++;
             onIntersect(ctx, hits, 2);
             firstSeek = 0;
@@ -251,7 +268,7 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersec
         
         firstSeek = 0;
         int rc = IR_SkipTo(other, h1->docId, h2);
-        LG_INFO("%d %d, rc %d\n", r->lastId, other->lastId, rc);
+        //LG_INFO("%d %d, rc %d\n", r->lastId, other->lastId, rc);
         switch(rc) {
             case INDEXREAD_EOF:
             return count;
@@ -263,7 +280,7 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersec
             continue;
             
             case INDEXREAD_OK:
-              LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
+              //LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
               onIntersect(ctx, hits, 2);
               ++count;
               
@@ -295,16 +312,14 @@ int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, 
     
     t_docId currentDoc = 0;
     int count = 0;
-
+    int nh = 0;
     do {
-        int nh = 0;
+        nh = 0;    
         
         for (int i = 0; i < argc; i++) {
             IndexHit *h = &hits[i];
-            
             // skip to the next
             if (h->docId != currentDoc || currentDoc == 0) {
-                
                 if (argv[i]->SkipTo(argv[i]->ctx, currentDoc, h) == INDEXREAD_EOF) {
                     return count;
                 }
@@ -319,7 +334,7 @@ int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, 
         
         if (nh == argc) {
             onIntersect(ctx, hits, argc);
-            count++;
+            ++count;
             
             if (argv[0]->Read(argv[0]->ctx, &hits[0]) == INDEXREAD_EOF) {
                return count;
@@ -347,9 +362,10 @@ t_docId UI_LastDocId(void *ctx) {
 IndexIterator *NewUnionIterator(IndexIterator **its, int num) {
     
     // create union context
-    UnionContext *ctx = (UnionContext*)calloc(1, sizeof(UnionContext));
+    UnionContext *ctx = calloc(1, sizeof(UnionContext));
     ctx->its =its;
     ctx->num = num;
+    ctx->currentHits = calloc(num, sizeof(IndexHit));
     
     // bind the union iterator calls
     IndexIterator *it = malloc(sizeof(IndexIterator));
@@ -357,7 +373,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num) {
     it->LastDocId = UI_LastDocId;
     it->Read = UI_Read;
     it->SkipTo = UI_SkipTo;
-    
+    it->HasNext = UI_HasNext;
     return it;
     
 }
@@ -371,17 +387,24 @@ int UI_Read(void *ctx, IndexHit *hit) {
         return 0;
     }
     
-    t_docId minDocId = 0xFFFFFFFF;
+    t_docId minDocId = __UINT32_MAX__;
     int minIdx = 0;
     
     do {
         minIdx = -1;
-        // find the lowest and second lowest docId iterator
         for (int i = 0; i < ui->num; i++) {
-            t_docId id = ui->its[i]->LastDocId(ui->its[i]->ctx);
-            if (id < minDocId) {
-                minIdx = i;
-                minDocId = id;  
+            IndexIterator *it = ui->its[i];
+            if (it->HasNext(it->ctx)) {
+                // if this hit is behind the min id - read the next entry
+                if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
+                    if (it->Read(it->ctx, &ui->currentHits[i]) == INDEXREAD_EOF) {
+                        continue;
+                    }
+                }
+                if (ui->currentHits[i].docId < minDocId) {
+                    minDocId = ui->currentHits[i].docId;
+                    minIdx = i;
+                }
             }
         }
         
@@ -390,25 +413,11 @@ int UI_Read(void *ctx, IndexHit *hit) {
             return INDEXREAD_EOF;
         }
         
-        
-        // read one from the lowest iterator
-        IndexIterator *it = ui->its[minIdx];
-            
-        // if the last docId we read was the same skip one
-        if (it->Read(it->ctx, hit) == INDEXREAD_EOF) {
-             break;
-        }
-        if (hit->docId <= ui->minDocId) {
-            if (it->Read(it->ctx, hit) == INDEXREAD_EOF) {
-                break;
-            }
-        } 
-        ui->minDocId = hit->docId;
+        *hit = ui->currentHits[minIdx];
+        ui->minDocId = ui->currentHits[minIdx].docId;
         return INDEXREAD_OK;
     
-         
-            
-    }while(1);
+    }while(minIdx >= 0);
 
     return INDEXREAD_EOF;
     
@@ -419,33 +428,61 @@ int UI_Read(void *ctx, IndexHit *hit) {
      return UI_Read(ctx, &h);
  }
  
+ // return 1 if at least one sub iterator has next
+ int UI_HasNext(void *ctx) {
+     
+     UnionContext *u = ctx;
+     for (int i = 0; i < u->num; i++) {
+         if (u->its[i]->HasNext(u->its[i]->ctx)) {
+             return 1;
+         }
+     }
+     return 0;
+ }
+ 
+ /**
+Skip to the given docId, or one place after it
+@param ctx IndexReader context
+@param docId docId to seek to
+@param hit an index hit we put our reads into
+@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
+*/
  int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
      UnionContext *ui = ctx;
      
      int n = 0;
-     
-     IndexHit hits[ui->num];
-     
+     int rc;
      // skip all iterators to docId
      for (int i = 0; i < ui->num; i++) {
-         if (ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &hits[i]) == INDEXREAD_EOF) {
-             hits[i].docId = __UINT32_MAX__;
-         } else {
-             n++;
+         rc = ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &ui->currentHits[i]);
+         if (rc == INDEXREAD_EOF) {
+             continue;
+         } else if (rc == INDEXREAD_OK) {
+             // YAY! found!
+             ui->minDocId = docId;
+             *hit = ui->currentHits[i];
          }
+        n++;
      }
-     
+     if (rc == INDEXREAD_OK) {
+         return rc;
+     }
      // all iterators are at the end
      if (n == 0) {
          return INDEXREAD_EOF;
      }
      
+     
      ui->minDocId = __UINT32_MAX__;
      int minIdx = -1;
      // copy the lowest one to *hit
      for (int i =0; i < ui->num; i++) {
-         if (hits[i].docId < ui->minDocId){
-             ui->minDocId = hits[i].docId;
+         if (!ui->its[i]->HasNext(ui->its[i]->ctx)) {
+            continue;
+         }
+            
+         if (ui->currentHits[i].docId < ui->minDocId) {
+             ui->minDocId = ui->currentHits[i].docId; 
              minIdx = i;
          }
      }
@@ -453,8 +490,9 @@ int UI_Read(void *ctx, IndexHit *hit) {
          return INDEXREAD_EOF;
      }
      
-     memcpy(hit, &hits[minIdx], sizeof(IndexHit));
-     return INDEXREAD_OK;
+     ui->minDocId = ui->currentHits[minIdx].docId;
+     *hit = ui->currentHits[minIdx];
+     return INDEXREAD_NOTFOUND;
  }
  
  void IndexIterator_Free(IndexIterator *it) {

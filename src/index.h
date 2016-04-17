@@ -9,7 +9,9 @@
 
 typedef u_int32_t t_docId;
 typedef u_int32_t t_offset;
- 
+
+#define SKIPINDEX_STEP 100
+
 
 typedef struct {
     t_docId docId;
@@ -90,13 +92,15 @@ typedef struct {
     int (*Read)(void *ctx, IndexHit *e);
     int (*SkipTo)(void *ctx, u_int32_t docId, IndexHit *hit);
     t_docId (*LastDocId)(void *ctx);
+    int (*HasNext)(void *ctx);
 } IndexIterator;
 void IndexIterator_Free(IndexIterator *it);
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si); 
 int IR_Read(void *ctx, IndexHit *e);
-int IR_Next(void *);
-int IR_SkipTo(void *, u_int32_t docId, IndexHit *hit);
+int IR_Next(void *ctx);
+int IR_HasNext(void *ctx);
+int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 t_docId IR_LastDocId(void* ctx);
 int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
 int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx);
@@ -117,6 +121,7 @@ typedef struct {
     int num;
     int pos;
     t_docId minDocId;
+    IndexHit *currentHits;
 } UnionContext;
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num);
@@ -124,6 +129,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num);
 int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
 int UI_Next(void *ctx);
 int UI_Read(void *ctx, IndexHit *hit);
+int UI_HasNext(void *ctx);
 t_docId UI_LastDocId(void *ctx);
  
 #endif
