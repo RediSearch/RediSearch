@@ -1,7 +1,8 @@
 #include "index.h"
 #include <sys/param.h>
 
-int IR_Read(IndexReader *ir, IndexHit *e) {
+int IR_Read(void *ctx, IndexHit *e) {
+    IndexReader *ir = ctx;
     if (ir->pos >= ir->data + ir->datalen) {
         return INDEXREAD_EOF;
     }
@@ -16,7 +17,8 @@ int IR_Read(IndexReader *ir, IndexHit *e) {
     return INDEXREAD_OK;
 }
 
-int IR_Next(IndexReader *ir) {
+int IR_Next(void *ctx) {
+    IndexReader *ir = ctx;
     if (ir->pos >= ir->data + ir->datalen) {
         return INDEXREAD_EOF;
     }
@@ -36,8 +38,8 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
 }
 
 
-int IR_SkipTo(IndexReader *ir, u_int32_t docId, IndexHit *hit) {
-    
+int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+    IndexReader *ir = ctx;
     SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, &ir->skipIdxPos);
     LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
     if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
@@ -74,6 +76,19 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
     }
     return ret;
 } 
+
+
+IndexIterator *NewIndexTerator(IndexReader *ir) {
+    IndexIterator *ri = malloc(sizeof(IndexIterator));
+    ri->ctx = ir;
+    ri->Read = IR_Read;
+    ri->SkipTo = IR_SkipTo;
+    ri->LastDocId = IR_LastDocId; 
+    return ri;
+}
+
+
+
 
 
 size_t IW_Len(IndexWriter *w) {
@@ -262,22 +277,27 @@ readnext:
     
 }
 
-int IR_Intersect2(IndexReader **argv, int argc, IntersectHandler onIntersect, void *ctx) {
+t_docId IR_LastDocId(void* ctx) {
+    return ((IndexReader *)ctx)->lastId;
+}
+
+int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx) {
     
     // nothing to do
     if (argc <= 0) {
         return 0;
     }
     
-    IndexHit *hits = calloc(argc, sizeof(IndexHit));
-    
+    IndexHit hits[argc];
+    for (int i =0; i < argc; i++) {
+        hits[i].docId = 0;
+    }
     
     t_docId currentDoc = 0;
     int count = 0;
-    
-    int nh = 0;
+
     do {
-        nh = 0;
+        int nh = 0;
         
         for (int i = 0; i < argc; i++) {
             IndexHit *h = &hits[i];
@@ -285,7 +305,7 @@ int IR_Intersect2(IndexReader **argv, int argc, IntersectHandler onIntersect, vo
             // skip to the next
             if (h->docId != currentDoc || currentDoc == 0) {
                 
-                if (IR_SkipTo(argv[i], currentDoc, h) == INDEXREAD_EOF) {
+                if (argv[i]->SkipTo(argv[i]->ctx, currentDoc, h) == INDEXREAD_EOF) {
                     return count;
                 }
             }
@@ -301,13 +321,143 @@ int IR_Intersect2(IndexReader **argv, int argc, IntersectHandler onIntersect, vo
             onIntersect(ctx, hits, argc);
             count++;
             
-            if (IR_Read(argv[0], &hits[0]) == INDEXREAD_EOF) {
-                return count;
+            if (argv[0]->Read(argv[0]->ctx, &hits[0]) == INDEXREAD_EOF) {
+               return count;
             }
             currentDoc = hits[0].docId;
         }
     }while(1);
-    
+
     return count;
     
 }
+
+
+
+
+int cmpHits(const void *h1, const void *h2) {
+    return ((IndexHit*)h1)->docId - ((IndexHit*)h2)->docId; 
+}
+
+
+t_docId UI_LastDocId(void *ctx) {
+    return ((UnionContext*)ctx)->minDocId;
+}
+
+IndexIterator *NewUnionIterator(IndexIterator **its, int num) {
+    
+    // create union context
+    UnionContext *ctx = (UnionContext*)calloc(1, sizeof(UnionContext));
+    ctx->its =its;
+    ctx->num = num;
+    
+    // bind the union iterator calls
+    IndexIterator *it = malloc(sizeof(IndexIterator));
+    it->ctx = ctx;
+    it->LastDocId = UI_LastDocId;
+    it->Read = UI_Read;
+    it->SkipTo = UI_SkipTo;
+    
+    return it;
+    
+}
+
+
+int UI_Read(void *ctx, IndexHit *hit) {
+    
+    UnionContext *ui = ctx;
+    // nothing to do
+    if (ui->num <= 0) {
+        return 0;
+    }
+    
+    t_docId minDocId = 0xFFFFFFFF;
+    int minIdx = 0;
+    
+    do {
+        minIdx = -1;
+        // find the lowest and second lowest docId iterator
+        for (int i = 0; i < ui->num; i++) {
+            t_docId id = ui->its[i]->LastDocId(ui->its[i]->ctx);
+            if (id < minDocId) {
+                minIdx = i;
+                minDocId = id;  
+            }
+        }
+        
+        // not found a new minimal docId
+        if (minIdx == -1) {
+            return INDEXREAD_EOF;
+        }
+        
+        
+        // read one from the lowest iterator
+        IndexIterator *it = ui->its[minIdx];
+            
+        // if the last docId we read was the same skip one
+        if (it->Read(it->ctx, hit) == INDEXREAD_EOF) {
+             break;
+        }
+        if (hit->docId <= ui->minDocId) {
+            if (it->Read(it->ctx, hit) == INDEXREAD_EOF) {
+                break;
+            }
+        } 
+        ui->minDocId = hit->docId;
+        return INDEXREAD_OK;
+    
+         
+            
+    }while(1);
+
+    return INDEXREAD_EOF;
+    
+}
+
+ int UI_Next(void *ctx) {
+     IndexHit h;
+     return UI_Read(ctx, &h);
+ }
+ 
+ int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+     UnionContext *ui = ctx;
+     
+     int n = 0;
+     
+     IndexHit hits[ui->num];
+     
+     // skip all iterators to docId
+     for (int i = 0; i < ui->num; i++) {
+         if (ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &hits[i]) == INDEXREAD_EOF) {
+             hits[i].docId = __UINT32_MAX__;
+         } else {
+             n++;
+         }
+     }
+     
+     // all iterators are at the end
+     if (n == 0) {
+         return INDEXREAD_EOF;
+     }
+     
+     ui->minDocId = __UINT32_MAX__;
+     int minIdx = -1;
+     // copy the lowest one to *hit
+     for (int i =0; i < ui->num; i++) {
+         if (hits[i].docId < ui->minDocId){
+             ui->minDocId = hits[i].docId;
+             minIdx = i;
+         }
+     }
+     if (minIdx == -1) {
+         return INDEXREAD_EOF;
+     }
+     
+     memcpy(hit, &hits[minIdx], sizeof(IndexHit));
+     return INDEXREAD_OK;
+ }
+ 
+ void IndexIterator_Free(IndexIterator *it) {
+     free(it->ctx);
+     free(it);
+ }

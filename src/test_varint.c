@@ -140,7 +140,24 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     return 0;
 }
 
-
+void testUnion() {
+    IndexWriter *w = createIndex(10, 2);
+    IndexReader *r1 = NewIndexReader(w->buf,  IW_Len(w), &w->skipIdx);
+    IndexWriter *w2 = createIndex(10, 3);
+    IndexReader *r2 = NewIndexReader(w2->buf,  IW_Len(w2), &w2->skipIdx);
+    printf("Reading!\n");
+    IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2)};
+    IndexIterator *ui = NewUnionIterator(irs, 2);
+    
+    
+    IndexHit h;
+    
+    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+        printf("Read %d\n", h.docId);
+    }
+    IndexIterator_Free(ui);
+    
+}
 
 void testIntersection() {
     
@@ -155,7 +172,8 @@ void testIntersection() {
     IterationContext ctx = {0,0};
     printf ("Intersecting...\n");
     
-    IndexReader *irs[] = {r1,r2, r3};
+    
+    IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2),NewIndexTerator(r2)};
     
     struct timespec start_time, end_time;
     
@@ -174,5 +192,6 @@ int main(int argc, char **argv) {
   
    //testVarint();
   //testIndexReadWrite();
-  testIntersection();
+  //testIntersection();
+  testUnion();
 }
