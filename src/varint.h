@@ -38,6 +38,15 @@ VarintVectorIterator VarIntVector_iter(VarintVector *v);
 int VV_HasNext(VarintVectorIterator *vi);
 int VV_Next(VarintVectorIterator *vi);
 
+/** 
+Find the minimal distance between members of the vectos.
+e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
+@param vs a list of vector pointers
+@param num the size of the list 
+*/
+int VV_MinDistance(VarintVector **vs, int num);
+
+
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, int i);
 size_t VVW_Truncate(VarintVectorWriter *w);

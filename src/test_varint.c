@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "varint.h"
 #include "index.h"
+#include <math.h>
 #include <time.h>
 
 void testVarint() {
@@ -20,6 +21,35 @@ void testVarint() {
 
 
   VVW_Free(vw);
+}
+
+void testDistance() {
+    VarintVectorWriter *vw = NewVarintVectorWriter(8);
+     VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
+    VVW_Write(vw, 1);
+    VVW_Write(vw2, 4);
+    
+    //VVW_Write(vw, 9);
+    VVW_Write(vw2, 7);
+    
+    VVW_Write(vw, 9);
+    VVW_Write(vw, 13);
+    
+    VVW_Write(vw, 16);
+    VVW_Write(vw, 22);
+    VVW_Truncate(vw);
+    VVW_Truncate(vw2);
+    
+    VarintVector *v[2] = {vw->v, vw2->v};
+    int delta = VV_MinDistance(v, 2);
+    printf("%d\n", delta);
+    
+    VVW_Free(vw);
+    VVW_Free(vw2);
+    
+    
+    
+    
 }
 
 
@@ -102,7 +132,7 @@ IndexWriter *createIndex(int size, int idStep) {
     h.freq = i % 10;
 
     VarintVectorWriter *vw = NewVarintVectorWriter(8);
-    for (int n = 0; n < i % 4; n++) {
+    for (int n = idStep; n < idStep + i % 4; n++) {
       VVW_Write(vw, n);
     }
     VVW_Truncate(vw);
@@ -131,12 +161,18 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     //printf("%d\n", hits[0].docId);
     IterationContext *ic = ctx;
     ++ic->counter;
+    VarintVector *viv[argc];
+    double score = 0;
     for (int i =0; i < argc; i++) {
-        if (hits[i].freq > ic->maxFreq) 
-            ic->maxFreq = hits[i].freq;
+        viv[i] = hits[i].offsets;
+        score += log((double)hits[i].freq+2);
+        // if (hits[i].freq > ic->maxFreq) 
+        //     ic->maxFreq = hits[i].freq;
     }
     
-    
+    int dist = VV_MinDistance(viv, argc);
+    score /= pow ((double)(dist+1), 2.0);
+    //printf("%lf %d %lf\n", score, dist, score/pow ((double)(dist+1), 2.0) );
     return 0;
 }
 
@@ -172,9 +208,9 @@ void testUnion() {
 
 void testIntersection() {
     
-    IndexWriter *w = createIndex(1000000, 200);
+    IndexWriter *w = createIndex(1000000, 7);
     IndexReader *r1 = NewIndexReader(w->buf,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(1000000, 400);
+    IndexWriter *w2 = createIndex(1000000, 3);
     IndexReader *r2 = NewIndexReader(w2->buf,  IW_Len(w2), &w2->skipIdx);
     
     IndexWriter *w3 = createIndex(10000, 3);
@@ -202,6 +238,7 @@ void testIntersection() {
 int main(int argc, char **argv) {
   
    //testVarint();
+   testDistance();
   //testIndexReadWrite();
   testIntersection();
   //testUnion();

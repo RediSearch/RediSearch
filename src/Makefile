@@ -10,7 +10,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS =  -g -O3     -fPIC
+CFLAGS =  -g -O3 -fPIC -lc -lm
 
 VARINT=varint.o
 INDEX=index.o
@@ -26,11 +26,11 @@ all: mdma.so
 #mdma.xo: ./index.h
 
 mdma.so: $(INDEX) $(VARINT)
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
 
 clean:
 	rm -rf *.xo *.so *.o
 
 test: $(VARINT) $(INDEX) $(TESTS)
-	$(CC) $(CFLAGS) -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc 
+	$(CC) $(CFLAGS) -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc -lm
 	@(sh -c ./testung)

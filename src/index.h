@@ -11,7 +11,6 @@ typedef u_int32_t t_docId;
 typedef u_int32_t t_offset;
 
 
-
 typedef struct {
     t_docId docId;
     t_offset offset;
