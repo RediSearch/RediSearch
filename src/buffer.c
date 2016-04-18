@@ -17,6 +17,7 @@ size_t memwriterWrite(Buffer *b, void *data, size_t len) {
     return len;
 }
    
+   
 /**
 Truncate the buffer to newlen. If newlen is 0 - trunacte capacity
 */

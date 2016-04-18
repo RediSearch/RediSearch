@@ -29,7 +29,7 @@ typedef struct {
     u_int16_t len; 
     u_int16_t freq;
     u_char flags;
-    VarintVector *offsets; 
+    VarintVector offsets; 
 } IndexHit;
 
 typedef struct  {

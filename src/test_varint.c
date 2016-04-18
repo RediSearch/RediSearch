@@ -76,7 +76,7 @@ void testIndexReadWrite() {
       VVW_Write(vw, n);
     }
     VVW_Truncate(vw);
-    h.offsets = vw->v;
+    h.offsets = *vw->v;
 
     IW_Write(w, &h);
     VVW_Free(vw);
@@ -140,7 +140,7 @@ IndexWriter *createIndex(int size, int idStep) {
       VVW_Write(vw, n);
     }
     VVW_Truncate(vw);
-    h.offsets = vw->bw.buf;
+    h.offsets = *vw->bw.buf;
 
     IW_Write(w, &h);
     VVW_Free(vw);
@@ -170,7 +170,7 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     VarintVector *viv[argc];
     double score = 0;
     for (int i =0; i < argc; i++) {
-        viv[i] = hits[i].offsets;
+        viv[i] = &hits[i].offsets;
         score += log((double)hits[i].freq+2);
         
         
@@ -180,7 +180,7 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     
     
     
-    //int dist = VV_MinDistance(viv, argc);
+    int dist = VV_MinDistance(viv, argc);
     //score /= pow ((double)(dist+1), 2.0);
     //printf("%lf %d %lf\n", score, dist, score/pow ((double)(dist+1), 2.0) );
     return 0;

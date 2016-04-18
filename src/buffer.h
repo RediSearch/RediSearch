@@ -23,7 +23,7 @@ inline size_t BufferOffset(Buffer *ctx) {
     return ctx->offset;
 }
 
-inline int BufferAtEnd(Buffer *ctx) {
+inline static int BufferAtEnd(Buffer *ctx) {
     return ctx->offset >= ctx->cap;
 }
 typedef struct {

@@ -11,19 +11,22 @@ int IR_Read(void *ctx, IndexHit *e) {
         return INDEXREAD_EOF;
     }
     
-    char *pos = ir->br.buf->pos;
     e->docId = ReadVarint(&ir->br) + ir->lastId;
     e->len = ReadVarint(&ir->br);
-    //e->freq = ReadVarint(&ir->br);
-    //ir->br.ReadByte(ir->br.buf, (char *)&e->flags);
+    e->freq = ReadVarint(&ir->br);
+    ir->br.ReadByte(ir->br.buf, (char *)&e->flags);
     
-    //size_t offsetsLen = ReadVarint(&ir->br); 
-   
-    //e->offsets =  NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
-    //ir->br.Skip(ir->br.buf, offsetsLen);
+    size_t offsetsLen = ReadVarint(&ir->br); 
+    //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
+    
+    e->offsets.data = ir->br.buf->data;
+    e->offsets.cap = offsetsLen;
+    e->offsets.offset = 0;
+    e->offsets.pos = e->offsets.data;
+    e->offsets.type = BUFFER_READ;
+    
+    ir->br.Skip(ir->br.buf, offsetsLen);
     ir->lastId = e->docId;
-    size_t skip = e->len - (ir->br.buf->pos - pos);
-    ir->br.Skip(ir->br.buf, skip);
     return INDEXREAD_OK;
 }
 
@@ -140,7 +143,7 @@ IndexWriter *NewIndexWriter(size_t cap) {
 
 void IW_Write(IndexWriter *w, IndexHit *e) {
     
-    size_t offsetsSz = VV_Size(e->offsets);
+    size_t offsetsSz = VV_Size(&e->offsets);
     // calculate the overall len
     size_t len = varintSize(e->docId - w->lastId) + varintSize(e->freq) + 1 + varintSize(offsetsSz) + offsetsSz;
     size_t lensize = varintSize(len);
@@ -158,7 +161,7 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
     
     //write offsets size
     WriteVarint(offsetsSz, &w->bw);
-    w->bw.Write(w->bw.buf, e->offsets->data, e->offsets->cap);
+    w->bw.Write(w->bw.buf, e->offsets.data, e->offsets.cap);
     
     w->ndocs++;
 }
