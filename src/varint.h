@@ -3,16 +3,19 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
+#include "buffer.h"
 
 int decodeVarint(u_char **bufp);
 int encodeVarint(int value, unsigned char *buf);
 size_t varintSize(int value);
 
-typedef u_char VarintVector;
+int ReadVarint(BufferReader *r);
+int WriteVarint(int value, BufferWriter *w);
+
+typedef Buffer VarintVector;
 
 typedef struct {
-    VarintVector *v;
-    u_char *pos;
+    BufferReader br;
     u_char index;
     int lastValue;
 } VarintVectorIterator;
@@ -20,15 +23,9 @@ typedef struct {
 
 typedef struct {
     VarintVector *v;
-    u_char *pos;
-    // actual data length 
-    size_t len;
+    BufferWriter bw;
     // how many members we've put in
     size_t nmemb;
-    
-    // allocated capacity
-    size_t cap;
-    
     int lastValue;
 } VarintVectorWriter;
 
@@ -50,18 +47,8 @@ int VV_MinDistance(VarintVector **vs, int num);
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, int i);
 size_t VVW_Truncate(VarintVectorWriter *w);
-u_char VV_Size(VarintVector *vv);
+size_t VV_Size(VarintVector *vv);
 void VVW_Free(VarintVectorWriter *w);
-
-
-
-#define bitsizeof(x)  (8 * sizeof(x))
-#ifdef __GNUC__
-#define TYPEOF(x) (__typeof__(x))
-#else
-#define TYPEOF(x)
-#endif
-#define MSB(x, bits) ((x) & TYPEOF(x)(~0ULL << (bitsizeof(x) - (bits))))
 
 
 

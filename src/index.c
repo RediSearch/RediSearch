@@ -1,4 +1,5 @@
 #include "index.h"
+#include "varint.h"
 #include <sys/param.h>
 
 #define SKIPINDEX_STEP 100
@@ -6,16 +7,20 @@
 
 int IR_Read(void *ctx, IndexHit *e) {
     IndexReader *ir = ctx;
-    if (ir->pos >= ir->data + ir->datalen) {
+    if (BufferAtEnd(ir->br.buf)) {
         return INDEXREAD_EOF;
     }
     
-    e->docId = decodeVarint(&(ir->pos)) + ir->lastId;
-    e->len = decodeVarint(&(ir->pos));
-    e->freq = decodeVarint(&(ir->pos));
-    e->flags = *ir->pos++;
-    e->offsets = (VarintVector*)ir->pos;
-    ir->pos += VV_Size(e->offsets);
+    e->docId = ReadVarint(&ir->br) + ir->lastId;
+    e->len = ReadVarint(&ir->br);
+    e->freq = ReadVarint(&ir->br);
+    ir->br.ReadByte(ir->br.buf, (char *)&e->flags);
+    
+    size_t offsetsLen = ReadVarint(&ir->br); 
+    Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
+    
+    e->offsets = b;
+    ir->br.Skip(ir->br.buf, offsetsLen);
     ir->lastId = e->docId;
     return INDEXREAD_OK;
 }
@@ -23,31 +28,28 @@ int IR_Read(void *ctx, IndexHit *e) {
 
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
-    if (ir->pos >= ir->data + ir->datalen) {
-        return 0;
-    }
-        
-    return 1;
+    return !BufferAtEnd(ir->br.buf);
 }
 
 int IR_Next(void *ctx) {
     IndexReader *ir = ctx;
-    if (ir->pos >= ir->data + ir->datalen) {
+    if (!IR_HasNext(ir)) {
         return INDEXREAD_EOF;
     }
     
-    u_char *pos = ir->pos;
-    ir->lastId = decodeVarint(&(ir->pos)) + ir->lastId;
-    u_int16_t len = decodeVarint(&(ir->pos));
     
-    ir->pos = pos + len;
-   
+    char *pos = ir->br.buf->pos;
+    ir->lastId = ReadVarint(&ir->br) + ir->lastId;
+    u_int16_t len = ReadVarint(&ir->br);
+    
+    size_t skip = len - (ir->br.buf->pos - pos);
+    ir->br.Skip(ir->br.buf, skip);
     return INDEXREAD_OK;
 }
 
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
+    ir->br.Seek(ir->br.buf, offset);
     ir->lastId = docId;
-    ir->pos = ir->data + offset;// + sizeof(IndexHeader);
 }
 
 
@@ -64,7 +66,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     
     //LG_DEBUG("docId %d, ir first docId %d, ent: %p\n",  docId,  ir->skipIdx.entries[0].docId, ent);
     if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
-        if (ent != NULL && ent->offset > ir->pos - ir->data) {
+        if (ent != NULL && ent->offset > ir->br.buf->pos - ir->br.buf->data) {
             //LG_DEBUG("Got entry %d,%d\n", ent->docId, ent->offset);
             IR_Seek(ir, ent->offset, ent->docId);
         }
@@ -86,12 +88,12 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
     IndexReader *ret = malloc(sizeof(IndexReader));
-    ret->header = (IndexHeader *)data;
-    ret->data = data;
-    ret->datalen = datalen;
+    ret->br = NewBufferReader(data, datalen);
+    ret->br.Read(ret->br.buf, &ret->header, sizeof(IndexHeader));
+    
     ret->lastId = 0;
     ret->skipIdxPos = 0;
-    ret->pos = (u_char*)data + sizeof(IndexHeader);
+    
     if (si != NULL) {
         ret->skipIdx = *si;
     }
@@ -114,16 +116,20 @@ IndexIterator *NewIndexTerator(IndexReader *ir) {
 
 
 size_t IW_Len(IndexWriter *w) {
-    return w->pos - w->buf;
+    return BufferLen(w->bw.buf);
+}
+
+void writeIndexHeader(IndexWriter *w) {
+    IndexHeader h = {w->ndocs};
+    w->bw.Write(w->bw.buf, &h, sizeof(h));
 }
 
 IndexWriter *NewIndexWriter(size_t cap) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
-    w->buf = malloc(cap + sizeof(IndexHeader));
-    w->pos = w->buf + sizeof(IndexHeader);
-    w->cap = cap + sizeof(IndexHeader);
+    w->bw = NewBufferWriter(cap);
     w->ndocs = 0;
     w->lastId = 0;
+    writeIndexHeader(w);
     return w;
 }
 
@@ -132,59 +138,56 @@ IndexWriter *NewIndexWriter(size_t cap) {
 
 void IW_Write(IndexWriter *w, IndexHit *e) {
     
-    size_t len = varintSize(e->docId - w->lastId) + varintSize(e->freq) + 1 + VV_Size(e->offsets);
+    size_t offsetsSz = VV_Size(e->offsets);
+    // calculate the overall len
+    size_t len = varintSize(e->docId - w->lastId) + varintSize(e->freq) + 1 + varintSize(offsetsSz) + offsetsSz;
     size_t lensize = varintSize(len);
     len += lensize;
     //just in case we jumped one order of magnitude
     len += varintSize(len) - lensize;
-    
-    
-    if (IW_Len(w) + len > w->cap) {
-        size_t offset = IW_Len(w);
-      
-        w->cap *=2;
-        w->buf = (u_char*)realloc(w->buf, w->cap);
-        w->pos = w->buf + offset;
-    }
-    
-    
-    // encode docId
-    w->pos += encodeVarint(e->docId - w->lastId, w->pos);
+    WriteVarint(e->docId - w->lastId, &w->bw);
     w->lastId = e->docId;
     // encode len
-    w->pos += encodeVarint(len, w->pos);
+    WriteVarint(len, &w->bw);
     //encode freq
-    w->pos += encodeVarint(e->freq, w->pos);
+    WriteVarint(e->freq, &w->bw);
     //encode flags
-    *(w->pos++) = e->flags;
-    //write 
-    memcpy(w->pos, e->offsets, VV_Size(e->offsets));
-    w->pos += VV_Size(e->offsets);
+    w->bw.Write(w->bw.buf, &e->flags, sizeof(e->flags));
+    
+    //write offsets size
+    WriteVarint(offsetsSz, &w->bw);
+    w->bw.Write(w->bw.buf, e->offsets->data, e->offsets->cap);
+    
     w->ndocs++;
 }
 
 
 size_t IW_Close(IndexWriter *w) {
-    IndexHeader *h = (IndexHeader*)w->buf;
-    h->size = w->ndocs;
-    w->cap = IW_Len(w);
-    w->buf = realloc(w->buf, w->cap);
+   
+
+    w->bw.Truncate(w->bw.buf, 0);
+    
+    // write the header at the beginning
+    membufferSeek(w->bw.buf, 0);
+    writeIndexHeader(w);
+    membufferSeek(w->bw.buf, w->bw.buf->cap);
+
     IW_MakeSkipIndex(w, SKIPINDEX_STEP);
-    return w->cap;
+    return w->bw.buf->cap;
 }
 
 void IW_MakeSkipIndex(IndexWriter *iw, int step) {
-    IndexReader *ir = NewIndexReader(iw->buf, IW_Len(iw), NULL);
+    IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL);
     
     
-    SkipEntry *entries = calloc(ir->header->size/step, sizeof(SkipEntry));
+    SkipEntry *entries = calloc(ir->header.size/step, sizeof(SkipEntry));
     
     int i = 0, idx = 0;
     while (IR_Next(ir) != INDEXREAD_EOF) {
        if (++i % step == 0) {
            
            entries[idx].docId = ir->lastId;
-           entries[idx].offset = ir->pos - ir->data;
+           entries[idx].offset = ir->br.buf->pos - ir->br.buf->data;
            //LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
            idx++;
        }
@@ -198,11 +201,11 @@ void IW_MakeSkipIndex(IndexWriter *iw, int step) {
 
 void IW_Free(IndexWriter *w) {
     free(w->skipIdx.entries);
-    free(w->buf);
+    w->bw.Release(w->bw.buf);
     free(w);
 }
 
-inline int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
+int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
     if (idx->entries[i].docId < docId &&
             (i < idx->len - 1 && idx->entries[i+1].docId >= docId)) {
                 return 1;

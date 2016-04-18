@@ -10,9 +10,9 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS =  -g -O3 -fPIC -lc -lm
+CFLAGS =  -g -fPIC -lc -lm -O3
 
-VARINT=varint.o
+VARINT=varint.o buffer.o
 INDEX=index.o
 TESTS=test_varint.o
 CC=gcc
@@ -32,5 +32,5 @@ clean:
 	rm -rf *.xo *.so *.o
 
 test: $(VARINT) $(INDEX) $(TESTS)
-	$(CC) $(CFLAGS) -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc -lm
+	$(CC) $(CFLAGS) -O3 -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc -lm
 	@(sh -c ./testung)

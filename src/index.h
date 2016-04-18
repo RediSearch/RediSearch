@@ -37,10 +37,9 @@ typedef struct  {
 } IndexHeader;
 
 typedef struct {
-    IndexHeader *header;
-    u_char *data;
-    t_offset datalen;
-    u_char *pos;
+    BufferReader br;
+    IndexHeader header;
+    
     t_docId lastId;
     
     SkipIndex skipIdx;
@@ -51,9 +50,7 @@ typedef struct {
 
 
 typedef struct {
-    u_char *buf;
-    size_t cap;
-    u_char *pos;
+    BufferWriter bw;
     
     t_docId lastId;
     u_int32_t ndocs;
