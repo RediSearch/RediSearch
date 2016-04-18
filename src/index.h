@@ -37,7 +37,7 @@ typedef struct  {
 } IndexHeader;
 
 typedef struct {
-    BufferReader br;
+    Buffer *buf;
     IndexHeader header;
     
     t_docId lastId;
@@ -91,7 +91,8 @@ typedef struct {
 } IndexIterator;
 void IndexIterator_Free(IndexIterator *it);
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si); 
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si);
+void IR_Free(IndexReader *ir); 
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);
 int IR_HasNext(void *ctx);

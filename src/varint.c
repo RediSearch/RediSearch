@@ -26,9 +26,9 @@ static int msb = (int)(~0ULL << 25);
 // 	return val;
 // }
 
-int ReadVarint(BufferReader *r) {
+int ReadVarint(Buffer *b) {
     u_char c;
-    if (r->ReadByte(r->buf, (char*)&c) == 0) {
+    if (BufferReadByte(b, (char*)&c) == 0) {
         return 0;
     }
 	int val = c & 127;
@@ -38,7 +38,7 @@ int ReadVarint(BufferReader *r) {
         
 		if (!val || val & msb)
 			return 0; /* overflow */
-		if (r->ReadByte(r->buf, (char*)&c) == 0) { //EOF
+		if (BufferReadByte(b, (char*)&c) == 0) { //EOF
             return 0;
         }
 		val = (val << 7) + (c & 127);
@@ -83,9 +83,10 @@ size_t varintSize(int value) {
 // 	return sizeof(varint) - pos;
 // }
 
+
 VarintVectorIterator VarIntVector_iter(VarintVector *v) {
      VarintVectorIterator ret;
-     ret.br = NewBufferReader(v->data, v->cap);
+     ret.buf = v;
      ret.index = 0;
      ret.lastValue = 0;
      
@@ -94,13 +95,13 @@ VarintVectorIterator VarIntVector_iter(VarintVector *v) {
 
 
 int VV_HasNext(VarintVectorIterator *vi) {
-    return !BufferAtEnd(vi->br.buf);
+    return !BufferAtEnd(vi->buf);
 }
 
 
 int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
-      int i = ReadVarint(&vi->br);
+      int i = ReadVarint(vi->buf);
       vi->lastValue = i;
       vi->index++;
       return i;

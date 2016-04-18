@@ -34,28 +34,18 @@ typedef struct {
 } BufferWriter;
 
 
-typedef struct {    
-    Buffer *buf;
-    size_t (*Read)(Buffer *ctx, void *data, size_t len);
-    size_t (*ReadByte)(Buffer *ctx, char *c);
-    void (*Release)(Buffer *ctx);
-    size_t (*Skip)(Buffer *ctx, int bytes);
-    size_t (*Seek)(Buffer *ctx, size_t offset);
-} BufferReader;
-
-
-
 size_t memwriterWrite(Buffer *b, void *data, size_t len);
 void memwriterTruncate(Buffer *b, size_t newlen);
 void membufferRelease(Buffer *b);
-size_t membufferSkip(Buffer *b, int bytes);
-size_t membufferSeek(Buffer *b, size_t offset);
+
+size_t BufferSkip(Buffer *b, int bytes);
+size_t BufferSeek(Buffer *b, size_t offset);
 
 Buffer *NewBuffer(char *data, size_t len, int bufferMode);
 BufferWriter NewBufferWriter(size_t cap);
-size_t memreaderReadByte(Buffer *b, char *c);
-size_t memreaderRead(Buffer *b, void *data, size_t len) ;
-BufferReader NewBufferReader(char *data, size_t len);
+size_t BufferReadByte(Buffer *b, char *c);
+size_t BufferRead(Buffer *b, void *data, size_t len) ;
+
 
 
 

@@ -69,7 +69,7 @@ Buffer *NewBuffer(char *data, size_t len, int type) {
     return buf;
 }
 
-size_t memreaderRead(Buffer *b, void *data, size_t len) {
+size_t BufferRead(Buffer *b, void *data, size_t len) {
     // no capacity - return 0
     if (BufferLen(b) + len > b->cap) {
         return 0;
@@ -81,7 +81,7 @@ size_t memreaderRead(Buffer *b, void *data, size_t len) {
     return len;
 }
 
-size_t memreaderReadByte(Buffer *b, char *c) {
+size_t BufferReadByte(Buffer *b, char *c) {
     // if (BufferAtEnd(b)) {
     //     return 0;
     // }
@@ -93,7 +93,7 @@ size_t memreaderReadByte(Buffer *b, char *c) {
 /**
 Seek forward N bytes, returning the resulting offset on success or the end position if where is outside bounds
 */ 
-size_t membufferSkip(Buffer *b, int bytes) {
+size_t BufferSkip(Buffer *b, int bytes) {
   
   // if overflow - just skip to the end
   if (b->pos + bytes > b->data + b->cap) {
@@ -107,24 +107,10 @@ size_t membufferSkip(Buffer *b, int bytes) {
   return b->offset;
 }
 
-size_t membufferSeek(Buffer *b, size_t where) {
+size_t BufferSeek(Buffer *b, size_t where) {
   
   where = MIN(where, b->cap);
   b->pos = b->data + where;
   b->offset = where;
   return where;
-}
-
-BufferReader NewBufferReader(char *data, size_t len) {
-    Buffer *buf = NewBuffer(data, len, BUFFER_READ);
-    
-    BufferReader ret = {
-        buf,
-        memreaderRead,
-        memreaderReadByte,
-        membufferRelease,
-        membufferSkip,
-        membufferSeek
-    };
-    return ret;
 }

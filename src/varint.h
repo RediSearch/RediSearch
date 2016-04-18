@@ -9,13 +9,13 @@ int decodeVarint(u_char **bufp);
 int encodeVarint(int value, unsigned char *buf);
 size_t varintSize(int value);
 
-int ReadVarint(BufferReader *r);
+int ReadVarint(Buffer *b);
 int WriteVarint(int value, BufferWriter *w);
 
 typedef Buffer VarintVector;
 
 typedef struct {
-    BufferReader br;
+    Buffer *buf;
     u_char index;
     int lastValue;
 } VarintVectorIterator;

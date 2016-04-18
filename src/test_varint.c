@@ -43,6 +43,7 @@ int testDistance() {
     VVW_Truncate(vw);
     VVW_Truncate(vw2);
     
+    
     VarintVector *v[2] = {vw->v, vw2->v};
     int delta = VV_MinDistance(v, 2);
     printf("%d\n", delta);
@@ -58,7 +59,7 @@ int testDistance() {
 
 
 
-void testIndexReadWrite() {
+int testIndexReadWrite() {
   IndexWriter *w = NewIndexWriter(10000);
 
   for (int i = 0; i < 1000000; i++) {
@@ -116,9 +117,12 @@ void testIndexReadWrite() {
     
 
     printf("Time elapsed: %ldnano\n", diffInNanos);
+    //IR_Free(ir);
     }
   }
   IW_Free(w);
+  
+  return 0;
 }
 
 IndexWriter *createIndex(int size, int idStep) {
@@ -193,7 +197,7 @@ int printIntersect(void *ctx, IndexHit *hits, int argc) {
 }
 
 
-void testUnion() {
+int testUnion() {
     IndexWriter *w = createIndex(20, 1);
     IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
     IndexWriter *w2 = createIndex(10, 2);
@@ -213,10 +217,10 @@ void testUnion() {
      IterationContext ctx = {0,0};
     int count = IR_Intersect2(irs2, 2, printIntersect, &ctx);
     IndexIterator_Free(ui);
-    
+    return 0;
 }
 
-void testIntersection() {
+int testIntersection() {
     
     IndexWriter *w = createIndex(1000000, 2);
     IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
@@ -244,6 +248,8 @@ void testIntersection() {
 
     printf("%d intersections in %ldns\n", ctx.counter, diffInNanos); 
     printf("top freq: %d\n", ctx.maxFreq);
+    
+    return 0;
 }
 
 #define TESTFUNC(f) printf("Testing %s ...\t", __STRING(f)); fflush(stdout); printf("%s\n\n", f() == 0 ? "PASS" : "FAIL")
@@ -278,22 +284,22 @@ int testMemBuffer() {
     w.Truncate(w.buf, 0);
     ASSERT( w.buf->cap == 7);
     
-    BufferReader r = NewBufferReader(w.buf->data, w.buf->cap);
-    ASSERT(r.buf->cap = w.buf->cap);
-    ASSERT(r.buf->data = w.buf->data);
-    ASSERT(r.buf->pos == r.buf->data);
+    Buffer *b = NewBuffer(w.buf->data, w.buf->cap, BUFFER_READ);
+    ASSERT(b->cap = w.buf->cap);
+    ASSERT(b->data = w.buf->data);
+    ASSERT(b->pos == b->data);
     
     
     char *y = malloc(5);
-    l = r.Read(r.buf, y, 5);
+    l = BufferRead(b, y, 5);
     ASSERT(l == l);
     
     ASSERT( strcmp(y, "helo") == 0 );
-    ASSERT( BufferLen(r.buf) == 5);
+    ASSERT( BufferLen(b) == 5);
     
     free(y);
     
-    int n = ReadVarint(&r);
+    int n = ReadVarint(b);
     ASSERT (n == 1337);
     
     w.Release(w.buf);
@@ -304,13 +310,13 @@ int testMemBuffer() {
 
 int main(int argc, char **argv) {
   
-   //TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  //testIndexReadWrite();
-  testIntersection();
-  //testUnion();
+   TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testIntersection);
+  TESTFUNC(testUnion);
   
-  //TESTFUNC(testMemBuffer);
+  TESTFUNC(testMemBuffer);
   
   return 0;
 }

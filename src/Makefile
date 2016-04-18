@@ -10,7 +10,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS =  -g -fPIC -lc -lm -O3 
+CFLAGS =  -g -fPIC -lc -lm -O3 -std=gnu99
 
 VARINT=varint.o buffer.o
 INDEX=index.o
