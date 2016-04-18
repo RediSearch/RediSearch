@@ -2,17 +2,18 @@
 #include <sys/param.h>
 
 size_t memwriterWrite(Buffer *b, void *data, size_t len) {
-    if (b->pos + len > b->data + b->cap) {
+    if (b->offset + len > b->cap) {
         do {
             b->cap *= 2;
         } while(b->pos + len > b->data + b->cap);
         
-        size_t diff = b->pos - b->data;
+        
         b->data = realloc(b->data, b->cap);
-        b->pos = b->data + diff;
+        b->pos = b->data + b->offset;
     }
     memmove(b->pos, data, len);
     b->pos += len;
+    b->offset += len;
     return len;
 }
    
@@ -25,10 +26,10 @@ void memwriterTruncate(Buffer *b, size_t newlen) {
         newlen = BufferLen(b);
     }
     
-    size_t diff = b->pos - b->data;
+    
     b->data = realloc(b->data, newlen);
     b->cap = newlen;
-    b->pos = b->data + diff;
+    b->pos = b->data + b->offset;
 }
 
 void membufferRelease(Buffer *b) {
@@ -54,13 +55,8 @@ BufferWriter NewBufferWriter(size_t cap) {
     };
     return ret;
 }
- size_t BufferLen(Buffer *ctx) {
-    return ctx->pos - ctx->data;
-}
 
-int BufferAtEnd(Buffer *ctx) {
-    return ctx->pos - ctx->data >= ctx->cap;
-}
+
 
 Buffer *NewBuffer(char *data, size_t len, int type) {
     Buffer *buf = malloc(sizeof(Buffer));
@@ -68,6 +64,7 @@ Buffer *NewBuffer(char *data, size_t len, int type) {
     buf->data = data;
     buf->pos = data;
     buf->type = type;
+    buf->offset = 0;
     return buf;
 }
 
@@ -79,14 +76,16 @@ size_t memreaderRead(Buffer *b, void *data, size_t len) {
     
     data = memcpy(data, b->pos,len);
     b->pos += len;
+    b->offset += len;
     return len;
 }
 
 size_t memreaderReadByte(Buffer *b, char *c) {
-     if (BufferLen(b) + 1 > b->cap) {
-        return 0;
-    }
+    // if (BufferAtEnd(b)) {
+    //     return 0;
+    // }
     *c = *b->pos++;
+    ++b->offset;
     return 1;
 }
 
@@ -98,17 +97,20 @@ size_t membufferSkip(Buffer *b, int bytes) {
   // if overflow - just skip to the end
   if (b->pos + bytes > b->data + b->cap) {
       b->pos = b->data + b->cap;
+      b->offset = b->cap; 
       return b->cap;
   }
   
   b->pos += bytes;
-  return b->pos - b->data;
+  b->offset += bytes;
+  return b->offset;
 }
 
 size_t membufferSeek(Buffer *b, size_t where) {
   
   where = MIN(where, b->cap);
   b->pos = b->data + where;
+  b->offset = where;
   return where;
 }
 

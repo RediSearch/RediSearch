@@ -12,13 +12,20 @@ typedef struct {
     size_t cap;
     char *pos;
     int  type;
+    size_t offset;
 } Buffer;
-size_t BufferLen(Buffer *ctx);
-inline size_t BufferOffset(Buffer *ctx) {
-    return ctx->pos - ctx->data;
-}
-int BufferAtEnd(Buffer *ctx);
 
+inline size_t BufferLen(Buffer *ctx) {
+    return ctx->offset;
+}
+
+inline size_t BufferOffset(Buffer *ctx) {
+    return ctx->offset;
+}
+
+inline int BufferAtEnd(Buffer *ctx) {
+    return ctx->offset >= ctx->cap;
+}
 typedef struct {
     Buffer *buf;    
     size_t (*Write)(Buffer *ctx, void *data, size_t len);

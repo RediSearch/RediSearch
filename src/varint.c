@@ -29,7 +29,6 @@ static int msb = (int)(~0ULL << 25);
 int ReadVarint(BufferReader *r) {
     u_char c;
     if (r->ReadByte(r->buf, (char*)&c) == 0) {
-        
         return 0;
     }
 	int val = c & 127;
