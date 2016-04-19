@@ -184,7 +184,7 @@ int onIntersect(void *ctx, IndexHit *hits, int argc) {
     
     
     
-    int dist = VV_MinDistance(viv, argc);
+    //int dist = VV_MinDistance(viv, argc);
     //score /= pow ((double)(dist+1), 2.0);
     //printf("%lf %d %lf\n", score, dist, score/pow ((double)(dist+1), 2.0) );
     return 0;
@@ -222,9 +222,9 @@ int testUnion() {
 
 int testIntersection() {
     
-    IndexWriter *w = createIndex(1000000, 2);
+    IndexWriter *w = createIndex(1000000, 4);
     IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(1000000, 4);
+    IndexWriter *w2 = createIndex(1000000, 2);
     IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &w2->skipIdx);
     
     // IndexWriter *w3 = createIndex(10000, 3);
@@ -310,13 +310,13 @@ int testMemBuffer() {
 
 int main(int argc, char **argv) {
   
-   TESTFUNC(testVarint);
-  TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
+  //TESTFUNC(testVarint);
+  //TESTFUNC(testDistance);
+  //TESTFUNC(testIndexReadWrite);
   TESTFUNC(testIntersection);
-  TESTFUNC(testUnion);
+  //TESTFUNC(testUnion);
   
-  TESTFUNC(testMemBuffer);
+  //TESTFUNC(testMemBuffer);
   
   return 0;
 }

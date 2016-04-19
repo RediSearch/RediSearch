@@ -10,10 +10,11 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS =  -g -fPIC -lc -lm -O3 -std=gnu99
+CFLAGS = -g -fPIC -lc -lm -O3 -std=gnu99
 
 VARINT=varint.o buffer.o
 INDEX=index.o
+REDIS=redis_buffer.o mdma.o
 TESTS=test_varint.o
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -25,7 +26,7 @@ all: mdma.so
 
 #mdma.xo: ./index.h
 
-mdma.so: $(INDEX) $(VARINT)
+mdma.so: $(INDEX) $(VARINT) $(REDIS)
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
 
 clean:
