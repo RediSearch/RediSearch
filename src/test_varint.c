@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <math.h>
 #include <time.h>
+#include "tokenize.h"
 
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
@@ -308,15 +309,59 @@ int testMemBuffer() {
 }
 
 
+typedef struct{
+    int num;
+    char **expected;
+    
+} tokenContext;
+
+int tokenFunc(void *ctx, Token t) {
+    tokenContext *tx = ctx;
+    
+    assert( strcmp(t.s, tx->expected[tx->num++]) == 0);
+    assert(t.len == strlen(t.s));
+    assert(t.fieldId == 1);
+    assert(t.pos > 0);
+    assert(t.score == 1);
+    return 0;    
+}
+
+int testTokenize() {
+    
+    char *txt = strdup("Hello? world...   ? __WAZZ@UP? שלום");
+    tokenContext ctx = {0};
+    const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
+    ctx.expected = (char **)expected;
+    
+    tokenize(txt, 1, 1, &ctx, tokenFunc);
+    ASSERT(ctx.num == 5);
+    
+    free(txt);
+    
+    return 0;
+    
+}
+
+int testForwardIndex() {
+    
+    ForwardIndex *idx = NewForwardIndex(1,  1.0);
+    char *txt = strdup("Hello? world...  hello hello ? __WAZZ@UP? שלום");
+    tokenize(txt, 1, 1, idx, forwardIndexTokenFunc);
+
+    return 0;
+}
+
+
 int main(int argc, char **argv) {
   
   //TESTFUNC(testVarint);
   //TESTFUNC(testDistance);
   //TESTFUNC(testIndexReadWrite);
-  TESTFUNC(testIntersection);
+  //TESTFUNC(testIntersection);
   //TESTFUNC(testUnion);
   
   //TESTFUNC(testMemBuffer);
-  
+  //TESTFUNC(testTokenize);
+  TESTFUNC(testForwardIndex);
   return 0;
 }

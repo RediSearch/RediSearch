@@ -19,7 +19,7 @@ size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
 }
 
 size_t redisWriterTruncate(Buffer *b, size_t newlen) {
-    
+    // len 0 means "truncate to current len"
     if (newlen == 0) {
         newlen = b->offset;
     }
