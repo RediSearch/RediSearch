@@ -27,7 +27,8 @@ IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term) {
 
 
 void Redis_CloseWriter(IndexWriter *w) {
-    IW_Free(w);
+    IW_Close(w);
+    RedisBufferFree(w->bw.buf);
 }
 
 SkipIndex *LoadRedisSkipIndex(RedisModuleCtx *ctx, const char *term) {
@@ -75,7 +76,7 @@ t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey, int *isne
         if (rep == NULL) return 0;
         
         long long ll = RedisModule_CallReplyInteger(increp);
-        RedisModule_Call(ctx, "HSET", "csl", REDISINDEX_DOCIDS_MAP, docKey, ll);
+        //RedisModule_Call(ctx, "HSET", "csl", REDISINDEX_DOCIDS_MAP, docKey, ll);
         *isnew = 1;
         return (t_docId)ll;
     }  

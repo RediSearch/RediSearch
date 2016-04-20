@@ -97,7 +97,6 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
      
     ret->lastId = 0;
     ret->skipIdxPos = 0;
-    
     if (si != NULL) {
         ret->skipIdx = si;
     }

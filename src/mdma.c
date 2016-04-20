@@ -18,7 +18,7 @@ typedef struct {
 typedef struct {
     RedisModuleString *docKey;
     DocumentField *fields;
-    int numFiels;
+    int numFields;
     float score; 
 } Document;
 
@@ -37,14 +37,16 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
         return REDISMODULE_ERR;
     }
     
-    ForwardIndex *idx = NewForwardIndex(1,  doc.score);
+    ForwardIndex *idx = NewForwardIndex(docId,  doc.score);
     
     
     int totalTokens = 0;
-    for (int i = 0; i < doc.numFiels; i++) {
+    for (int i = 0; i < doc.numFields; i++) {
+        printf ("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
         totalTokens += tokenize(doc.fields[i].text, 1, 1, idx, forwardIndexTokenFunc);        
     }
     
+    printf("totaltokens :%d\n", totalTokens);
     if (totalTokens > 0) {
         ForwardIndexIterator it = ForwardIndex_Iterate(idx);
         
@@ -53,7 +55,10 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
             
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term);
             IW_WriteEntry(w, entry);
+            
             Redis_CloseWriter(w);
+            
+            entry = ForwardIndexIterator_Next(&it); 
         }
         
     }
@@ -80,12 +85,16 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     Document doc;
     doc.docKey = argv[1];
     doc.score = 1.0;
-    doc.fields = calloc((argc-3)/2, sizeof(DocumentField));
-    for (int i = 3; i < argc; i+=2) {
-        doc.fields[i].name = RedisModule_StringPtrLen(argv[i], NULL);
-        doc.fields[i].text = RedisModule_StringPtrLen(argv[i+1], NULL);
-    }
+    doc.numFields = (argc-3)/2;
+    doc.fields = calloc(doc.numFields, sizeof(DocumentField));
     
+    size_t len;
+    for (int i = 3; i < argc; i+=2) {
+        printf("%s\n", RedisModule_StringPtrLen(argv[i], &len));
+        doc.fields[i-3].name = RedisModule_StringPtrLen(argv[i], &len);
+        doc.fields[i-3].text = RedisModule_StringPtrLen(argv[i+1], &len);;
+    }
+    printf("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
     int rc = AddDocument(ctx, doc);
     if (rc == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not index document");

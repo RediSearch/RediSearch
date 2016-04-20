@@ -39,7 +39,7 @@ size_t redisWriterTruncate(Buffer *b, size_t newlen) {
     
 }
 
-void redisWriterRelease(Buffer *b) {
+void RedisBufferFree(Buffer *b) {
     //RedisModule_CloseKey(((RedisBufferCtx*)b->ctx)->
     if (b->ctx != NULL) {
         free(b->ctx);
@@ -65,6 +65,10 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
     return NULL;
   }
   
+  // if we need to write to an empty buffer, allocate a new string
+  if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+      RedisModule_StringTruncate(key,8);
+  }
   
   size_t len;
   char *data = RedisModule_StringDMA(key, &len, flags);

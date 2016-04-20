@@ -13,7 +13,7 @@ endif
 CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99
 
 VARINT=varint.o buffer.o
-INDEX=index.o tokenize.o forward_index.c
+INDEX=index.o tokenize.o forward_index.o
 REDIS=redis_buffer.o mdma.o redis_index.o 
 TESTS=test_varint.o
 CC=gcc
@@ -26,8 +26,8 @@ all: mdma.so
 
 #mdma.xo: ./index.h
 
-mdma.so: $(INDEX) $(VARINT) $(REDIS)
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
+mdma.so: $(VARINT) $(INDEX) $(REDIS)
+	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
 
 clean:
 	rm -rf *.xo *.so *.o
