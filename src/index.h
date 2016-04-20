@@ -5,10 +5,9 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include "types.h"
 #include "varint.h"
-
-typedef u_int32_t t_docId;
-typedef u_int32_t t_offset;
+#include "forward_index.h"
 
 
 typedef struct {
@@ -42,7 +41,7 @@ typedef struct {
     
     t_docId lastId;
     
-    SkipIndex skipIdx;
+    SkipIndex *skipIdx;
     u_int skipIdxPos;
     
 } IndexReader; 
@@ -92,6 +91,7 @@ typedef struct {
 void IndexIterator_Free(IndexIterator *it);
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si);
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si);
 void IR_Free(IndexReader *ir); 
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);
@@ -103,13 +103,15 @@ int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, 
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 void IW_MakeSkipIndex(IndexWriter *iw, int step);
 
-IndexIterator *NewIndexTerator(IndexReader *ir);
+IndexIterator *NewIndexIterator(IndexReader *ir);
 
 size_t IW_Close(IndexWriter *w); 
 void IW_Write(IndexWriter *w, IndexHit *e); 
+void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
 IndexWriter *NewIndexWriter(size_t cap);
+IndexWriter *NewIndexWriterBuf(BufferWriter bw);
 
 
 typedef struct {
@@ -127,5 +129,7 @@ int UI_Next(void *ctx);
 int UI_Read(void *ctx, IndexHit *hit);
 int UI_HasNext(void *ctx);
 t_docId UI_LastDocId(void *ctx);
- 
+
+
+
 #endif

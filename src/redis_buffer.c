@@ -86,7 +86,7 @@ BufferWriter NewRedisWriter(RedisModuleCtx *ctx, RedisModuleString *keyname) {
         buf,
         redisWriterWrite,
         redisWriterTruncate,
-        redisWriterRelease,
+        RedisBufferFree,
     };
     return ret;
 }

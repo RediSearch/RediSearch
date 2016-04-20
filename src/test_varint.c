@@ -204,14 +204,14 @@ int testUnion() {
     IndexWriter *w2 = createIndex(10, 2);
     IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &w2->skipIdx);
     printf("Reading!\n");
-    IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2)};
+    IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
     IndexIterator *ui = NewUnionIterator(irs, 2);
     
     IndexWriter *w3 = createIndex(30, 5);
     IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
     IndexHit h;
     
-    IndexIterator *irs2[] = {ui, NewIndexTerator(r3)};
+    IndexIterator *irs2[] = {ui, NewIndexIterator(r3)};
     // while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     //     printf("Read %d\n", h.docId);
     // }
@@ -234,7 +234,7 @@ int testIntersection() {
     IterationContext ctx = {0,0};
     
     
-    IndexIterator *irs[] = {NewIndexTerator(r1), NewIndexTerator(r2)};//,NewIndexTerator(r2)};
+    IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};//,NewIndexTerator(r2)};
     
     printf ("Intersecting...\n");
     

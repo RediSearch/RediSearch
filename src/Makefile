@@ -13,8 +13,8 @@ endif
 CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99
 
 VARINT=varint.o buffer.o
-INDEX=index.o tokenize.o
-REDIS=redis_buffer.o mdma.o
+INDEX=index.o tokenize.o forward_index.c
+REDIS=redis_buffer.o mdma.o redis_index.o 
 TESTS=test_varint.o
 CC=gcc
 .SUFFIXES: .c .so .xo .o

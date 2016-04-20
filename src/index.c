@@ -1,5 +1,6 @@
 #include "index.h"
 #include "varint.h"
+#include "forward_index.h"
 #include <sys/param.h>
 
 #define SKIPINDEX_STEP 100
@@ -67,9 +68,11 @@ Skip to the given docId, or one place after it
 */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     IndexReader *ir = ctx;
-    SkipEntry *ent = SkipIndex_Find(&ir->skipIdx, docId, &ir->skipIdxPos);
+    SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
     
-    if (ent != NULL || ir->skipIdx.len == 0 || docId <= ir->skipIdx.entries[0].docId) {
+    if (ent != NULL || ir->skipIdx == NULL || ir->skipIdx->len == 0 
+    || docId <= ir->skipIdx->entries[0].docId) {
+        
         if (ent != NULL && ent->offset > BufferOffset(ir->buf)) {
             IR_Seek(ir, ent->offset, ent->docId);
         }
@@ -96,10 +99,25 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
     ret->skipIdxPos = 0;
     
     if (si != NULL) {
-        ret->skipIdx = *si;
+        ret->skipIdx = si;
     }
     return ret;
 } 
+
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
+    IndexReader *ret = malloc(sizeof(IndexReader));
+    ret->buf = buf;
+    BufferRead(ret->buf, &ret->header, sizeof(IndexHeader));
+     
+    ret->lastId = 0;
+    ret->skipIdxPos = 0;
+    ret->skipIdx = NULL;
+    if (si != NULL) {
+        ret->skipIdx = si;
+    }
+    return ret;
+} 
+
 
 void IR_Free(IndexReader *ir) {
     membufferRelease(ir->buf);
@@ -107,7 +125,7 @@ void IR_Free(IndexReader *ir) {
 }
 
 
-IndexIterator *NewIndexTerator(IndexReader *ir) {
+IndexIterator *NewIndexIterator(IndexReader *ir) {
     IndexIterator *ri = malloc(sizeof(IndexIterator));
     ri->ctx = ir;
     ri->Read = IR_Read;
@@ -140,6 +158,14 @@ IndexWriter *NewIndexWriter(size_t cap) {
 }
 
 
+IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
+    IndexWriter *w = malloc(sizeof(IndexWriter));
+    w->bw = bw;
+    w->ndocs = 0;
+    w->lastId = 0;
+    writeIndexHeader(w);
+    return w;
+}
 
 
 void IW_Write(IndexWriter *w, IndexHit *e) {
@@ -166,6 +192,36 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
     
     w->ndocs++;
 }
+
+void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
+    
+    VVW_Truncate(ent->vw);
+    VarintVector *offsets = ent->vw->v;
+    
+    
+    size_t offsetsSz = VV_Size(offsets);
+    // calculate the overall len
+    size_t len = varintSize(ent->docId - w->lastId) + varintSize(ent->freq) + 1 + varintSize(offsetsSz) + offsetsSz;
+    size_t lensize = varintSize(len);
+    len += lensize;
+    //just in case we jumped one order of magnitude
+    len += varintSize(len) - lensize;
+    WriteVarint(ent->docId - w->lastId, &w->bw);
+    w->lastId = ent->docId;
+    // encode len
+    WriteVarint(len, &w->bw);
+    //encode freq
+    WriteVarint(ent->freq, &w->bw);
+    //encode flags
+    w->bw.Write(w->bw.buf, &ent->flags, sizeof(ent->flags));
+    
+    //write offsets size
+    WriteVarint(offsetsSz, &w->bw);
+    w->bw.Write(w->bw.buf, offsets->data, offsets->cap);
+    
+    w->ndocs++;
+}
+
 
 
 size_t IW_Close(IndexWriter *w) {
@@ -203,6 +259,7 @@ void IW_MakeSkipIndex(IndexWriter *iw, int step) {
     iw->skipIdx.len = idx;
      
 }
+
 
 void IW_Free(IndexWriter *w) {
     free(w->skipIdx.entries);

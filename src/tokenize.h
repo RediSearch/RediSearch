@@ -4,9 +4,9 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <ctype.h>
-
+#include "types.h"
 #include "util/khash.h"
-#include "index.h"
+#include "varint.h"
 
 typedef struct  {
     const char *s;
@@ -38,19 +38,6 @@ typedef struct {
     
 } TokenizerCtx;
 
-
-KHASH_MAP_INIT_STR(32, IndexHit*);
-typedef struct {
-    khash_t(32) *hits;
-    u_int totalFreq;
-    t_docId docId;
-    float docScore;
-} ForwardIndex;
-
-
-int forwardIndexTokenFunc(void *ctx, Token t);
-void ForwardIndexFree(ForwardIndex *idx);
-ForwardIndex *NewForwardIndex(t_docId docId, float docScore);
 
 int _tokenize(TokenizerCtx *ctx);
 int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFunc f);

@@ -2,6 +2,7 @@
 #include <strings.h>
 #include <ctype.h>
 #include "tokenize.h"
+#include "forward_index.h"
 
 
 int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFunc f) {
@@ -76,50 +77,3 @@ char*DefaultNormalize(char *s, size_t *len) {
     return s;
 }
 
-
-ForwardIndex *NewForwardIndex(t_docId docId, float docScore) {
-    
-    ForwardIndex *idx = malloc(sizeof(ForwardIndex));
-    
-    idx->hits = kh_init(32);
-    idx->docScore = docScore;
-    idx->docId = docId;
-    idx->totalFreq = 0;
-    
-    return idx;
-}
-
-void ForwardIndexFree(ForwardIndex *idx) {
-    kh_destroy(32, idx->hits);
-    free(idx);
-    //TODO: check if we need to free each entry separately
-}
-
-
-int forwardIndexTokenFunc(void *ctx, Token t) {
-    ForwardIndex *idx = ctx;
-    
-    IndexHit *h = NULL;
-    // Retrieve the value for key "apple"
-    khiter_t k = kh_get(32, idx->hits, t.s);  // first have to get ieter
-    if (k == kh_end(idx->hits)) {  // k will be equal to kh_end if key not present
-        h = calloc(1, sizeof(IndexHit));
-        h->docId = idx->docId;
-        //h->offsets = NewBuffer
-        
-        int ret;
-        
-        k = kh_put(32, idx->hits, t.s, &ret);
-        kh_value(idx->hits, k) = h;
-    } else {
-        h = kh_val(idx->hits, k);
-    }
-
-    h->flags |= t.fieldId;
-    h->freq += t.score;
-    idx->totalFreq += t.score;
-    
-    printf("token freq: %d total freq: %d\n", h->freq, idx->totalFreq);
-    return 0;
-    
-}
