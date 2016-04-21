@@ -9,6 +9,9 @@
 #include "forward_index.h"
 #include "tokenize.h"
 #include "redis_index.h"
+#include "util/logging.h"
+#include "util/pqueue.h"
+
 
 typedef struct {
     const char *name;
@@ -42,18 +45,20 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
     
     int totalTokens = 0;
     for (int i = 0; i < doc.numFields; i++) {
-        printf ("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
+        LG_DEBUG("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
         totalTokens += tokenize(doc.fields[i].text, 1, 1, idx, forwardIndexTokenFunc);        
     }
     
-    printf("totaltokens :%d\n", totalTokens);
+    LG_DEBUG("totaltokens :%d\n", totalTokens);
     if (totalTokens > 0) {
         ForwardIndexIterator it = ForwardIndex_Iterate(idx);
         
         ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+        
         while (entry != NULL) {
-            
+            LG_DEBUG("entry: %s freq %d\n", entry->term, entry->freq);
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term);
+            
             IW_WriteEntry(w, entry);
             
             Redis_CloseWriter(w);
@@ -61,8 +66,10 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
             entry = ForwardIndexIterator_Next(&it); 
         }
         
+        
     }
-    ForwardIndexFree(idx);
+    
+    //ForwardIndexFree(idx);
     return 0;
 }
 
@@ -90,11 +97,10 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
     size_t len;
     for (int i = 3; i < argc; i+=2) {
-        printf("%s\n", RedisModule_StringPtrLen(argv[i], &len));
         doc.fields[i-3].name = RedisModule_StringPtrLen(argv[i], &len);
         doc.fields[i-3].text = RedisModule_StringPtrLen(argv[i+1], &len);;
     }
-    printf("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
+    LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
     int rc = AddDocument(ctx, doc);
     if (rc == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not index document");
@@ -106,14 +112,97 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
 }
 
+
+u_int32_t getHitScore(void * ctx) {
+    return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
+}
+/** SEARCH <term> <term> */
+int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    
+    // at least one field, and number of field/text args must be even
+    if (argc < 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+    RedisModule_AutoMemory(ctx);
+    
+    IndexReader *ir = Redis_OpenReader(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+    if (ir == NULL) {
+        RedisModule_ReplyWithError(ctx, "Could not open index");
+        return REDISMODULE_OK;        
+    } 
+    
+    IndexIterator *it = NewIndexIterator(ir);
+    
+    
+    PQUEUE pq; 
+    PQueueInitialise(&pq, 5, 0, 0);
+    
+    size_t totalResults = 0; 
+    while (it->HasNext(it->ctx)) {
+        IndexHit *h = malloc(sizeof(IndexHit));
+        if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
+            free(h);
+            break;
+        }
+        
+        ++totalResults;
+        PQueuePush(&pq, h, getHitScore);
+        
+    }
+    
+    
+    
+    size_t n = pq.CurrentSize;
+    IndexHit *result[n];
+    
+    for (int i = n-1; i >=0; --i) {
+        result[i] = PQueuePop(&pq, getHitScore);
+    }
+
+    PQueueFree(&pq);
+    
+
+    RedisModule_ReplyWithArray(ctx, 1+n);
+    RedisModule_ReplyWithLongLong(ctx, (long long)totalResults);
+    char idbuf[16];
+    for (int i = 0; i < n; i++) {
+        IndexHit *h = result[i];
+        
+        if (h != NULL) {
+            RedisModuleString *s = Redis_GetDocKey(ctx, h->docId);
+            
+            if (s != NULL){
+                RedisModule_ReplyWithString(ctx, s);
+            }  else {
+                RedisModule_ReplyWithNull(ctx);
+            }
+            free(h);
+        }
+         else {
+                RedisModule_ReplyWithNull(ctx);
+            }
+    }
+    
+    
+    
+    return REDISMODULE_OK;
+    
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
+    LOGGING_LEVEL = 0xFFFFFFFF;
+
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"ft.add",
         AddDocumentCommand) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+        
+    if (RedisModule_CreateCommand(ctx,"ft.search",
+        SearchCommand) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
         
 //  if (RedisModule_CreateCommand(ctx,"hgetset",

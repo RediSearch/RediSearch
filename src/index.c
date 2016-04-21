@@ -34,7 +34,11 @@ int IR_Read(void *ctx, IndexHit *e) {
 
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
-    return !BufferAtEnd(ir->buf);
+    printf ("%d <> %d\n", ir->header.size, ir->buf->offset);
+    if (BufferAtEnd(ir->buf) || ir->header.size > ir->buf->offset) {
+        return 1;
+    }
+    return 0;
 }
 
 int IR_Next(void *ctx) {
@@ -94,7 +98,7 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
     IndexReader *ret = malloc(sizeof(IndexReader));
     ret->buf = NewBuffer(data, datalen, BUFFER_READ);
     BufferRead(ret->buf, &ret->header, sizeof(IndexHeader));
-     
+    
     ret->lastId = 0;
     ret->skipIdxPos = 0;
     if (si != NULL) {
@@ -104,10 +108,12 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
 } 
 
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
+    
     IndexReader *ret = malloc(sizeof(IndexReader));
     ret->buf = buf;
-    BufferRead(ret->buf, &ret->header, sizeof(IndexHeader));
-     
+    
+    indexReadHeader(buf, &ret->header);
+
     ret->lastId = 0;
     ret->skipIdxPos = 0;
     ret->skipIdx = NULL;
@@ -143,8 +149,13 @@ size_t IW_Len(IndexWriter *w) {
 }
 
 void writeIndexHeader(IndexWriter *w) {
-    IndexHeader h = {w->ndocs};
+    size_t offset = w->bw.buf->offset;
+    BufferSeek(w->bw.buf, 0);
+    IndexHeader h = {offset, w->lastId};
+    printf("Writing index header. offest %d , lastId %d\n", h.size, h.lastId);
     w->bw.Write(w->bw.buf, &h, sizeof(h));
+    BufferSeek(w->bw.buf, offset);
+
 }
 
 IndexWriter *NewIndexWriter(size_t cap) {
@@ -156,13 +167,35 @@ IndexWriter *NewIndexWriter(size_t cap) {
     return w;
 }
 
-
+int indexReadHeader(Buffer *b, IndexHeader *h) {
+    
+    if (b->cap > sizeof(IndexHeader)) {
+        
+        BufferSeek(b, 0);
+        BufferRead(b, h, sizeof(IndexHeader));
+        printf("read buffer header. size %d, lastId %d at pos %zd\n", h->size, h->lastId, b->offset);
+        //BufferSeek(b, pos);
+        return 1;     
+    }
+    
+    return 0;
+    
+}
 IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
     w->bw = bw;
     w->ndocs = 0;
     w->lastId = 0;
-    writeIndexHeader(w);
+    
+    IndexHeader h = {0, 0};
+    if (indexReadHeader(w->bw.buf, &h) && h.size > 0) {
+        w->lastId = h.lastId;
+        BufferSeek(w->bw.buf, h.size);
+    } else {
+        writeIndexHeader(w);
+        BufferSeek(w->bw.buf, sizeof(h));    
+    }
+    
     return w;
 }
 
@@ -194,6 +227,7 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
 
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
     
+    LG_DEBUG("Writing entry %s\n", ent->term);
     VVW_Truncate(ent->vw);
     VarintVector *offsets = ent->vw->v;
     
@@ -226,14 +260,12 @@ void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
 size_t IW_Close(IndexWriter *w) {
    
 
-    w->bw.Truncate(w->bw.buf, 0);
+    //w->bw.Truncate(w->bw.buf, 0);
     
     // write the header at the beginning
-    BufferSeek(w->bw.buf, 0);
-    writeIndexHeader(w);
-    BufferSeek(w->bw.buf, w->bw.buf->cap);
-
-    IW_MakeSkipIndex(w, SKIPINDEX_STEP);
+     writeIndexHeader(w);
+    
+    
     return w->bw.buf->cap;
 }
 

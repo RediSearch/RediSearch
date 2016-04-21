@@ -1,6 +1,8 @@
+#include <stdio.h>
 #include "forward_index.h"
 #include "tokenize.h"
-#include <stdio.h>
+#include "util/logging.h"
+
 
 ForwardIndex *NewForwardIndex(t_docId docId, float docScore) {
     
@@ -45,7 +47,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     idx->totalFreq += t.score;
     
     VVW_Write(h->vw, t.pos);
-    printf("%d) %s, token freq: %d total freq: %d\n", t.pos,t.s, h->freq, idx->totalFreq);
+    LG_DEBUG("%d) %s, token freq: %d total freq: %d\n", t.pos,t.s, h->freq, idx->totalFreq);
     return 0;
     
 }
@@ -55,6 +57,7 @@ ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
     ForwardIndexIterator iter;
     iter.idx = i;
     iter.k = kh_begin(i->hits);
+    
     return iter;
 }
 
@@ -68,6 +71,9 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
          iter->k++;
          return entry;
       
+   } else {
+       iter->k++;
+       return ForwardIndexIterator_Next(iter);
    }
    return NULL;
 }

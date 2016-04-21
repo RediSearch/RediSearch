@@ -1,4 +1,5 @@
 #include "redis_buffer.h"
+#include "util/logging.h"
 
 size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     if (b->offset + len > b->cap) {
@@ -15,6 +16,8 @@ size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     memcpy(b->pos, data, len);
     b->pos += len;
     b->offset += len;
+    
+    LG_DEBUG("Written %d bytes to redis buffer cap %d\n", len, b->cap);
     return len;
 }
 
@@ -65,14 +68,18 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
     return NULL;
   }
   
+  
   // if we need to write to an empty buffer, allocate a new string
   if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
       RedisModule_StringTruncate(key,8);
-  }
-  
+  } 
   size_t len;
   char *data = RedisModule_StringDMA(key, &len, flags);
+  printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL), len);
   Buffer *buf = NewBuffer(data, len, bufferMode);
+  
+  // if the buffer is not new, seek to the end of it.
+  // at this stage we must be in write mode if the buffer is empty, so it's ok
   
   // set the redis buffer context
   RedisBufferCtx *bcx = calloc(1, sizeof(RedisBufferCtx));

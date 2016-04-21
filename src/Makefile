@@ -15,23 +15,34 @@ CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99
 VARINT=varint.o buffer.o
 INDEX=index.o tokenize.o forward_index.o
 REDIS=redis_buffer.o mdma.o redis_index.o 
+UTILOBJS=util/pqueue.o util/list.o 
 TESTS=test_varint.o
 CC=gcc
 .SUFFIXES: .c .so .xo .o
 
-all: mdma.so
+UTIL = util
+
+.PHONY: util $(UTIL)
+
+# util: $(UTIL)
+
+$(UTIL):
+	$(MAKE) -C $@
+
+
+all: util mdma.so 
 
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 #mdma.xo: ./index.h
 
-mdma.so: $(VARINT) $(INDEX) $(REDIS)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
+mdma.so: $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS)
+	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
 
 clean:
 	rm -rf *.xo *.so *.o
 
-test: $(VARINT) $(INDEX) $(TESTS)
+test: $(VARINT) $(INDEX) $(TESTS) $(UTILOBJS)
 	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc -lm 
 	@(sh -c ./testung)

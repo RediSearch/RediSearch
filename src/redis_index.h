@@ -31,5 +31,5 @@ void Redis_CloseReader(IndexReader *r);
 #define REDISINDEX_DOCIDCOUNTER "__redis_docIdCounter__"
 
 t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey, int *isnew); 
-
+RedisModuleString *Redis_GetDocKey(RedisModuleCtx *ctx, t_docId docId);
 #endif

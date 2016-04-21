@@ -8,6 +8,7 @@
 #include "types.h"
 #include "varint.h"
 #include "forward_index.h"
+#include "util/logging.h"
 
 
 typedef struct {
@@ -33,14 +34,13 @@ typedef struct {
 
 typedef struct  {
     t_offset size;
+    t_docId lastId;
 } IndexHeader;
 
 typedef struct {
     Buffer *buf;
     IndexHeader header;
-    
     t_docId lastId;
-    
     SkipIndex *skipIdx;
     u_int skipIdxPos;
     
@@ -60,24 +60,6 @@ typedef struct {
 #define INDEXREAD_EOF 0
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
-
-#define L_DEBUG 1
-#define L_INFO 2
-#define L_WARN 4
-#define L_ERROR 8
-
-
-#define LOGGING_LEVEL  0 
-//L_DEBUG | L_INFO
-
-
-
-#define LG_MSG(...) fprintf(stdout, __VA_ARGS__)
-#define LG_DEBUG(...) if (LOGGING_LEVEL & L_DEBUG) { LG_MSG("[DEBUG %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
-#define LG_INFO(...) if (LOGGING_LEVEL & L_INFO) { LG_MSG("[INFO %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
-#define LG_WARN(...) if (LOGGING_LEVEL & L_WARN) { LG_MSG("[WARNING %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
-#define LG_ERROR(...) if (LOGGING_LEVEL & L_ERROR) { LG_MSG("[ERROR %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }
-
 
 typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
 
@@ -102,6 +84,7 @@ int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *c
 int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx);
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 void IW_MakeSkipIndex(IndexWriter *iw, int step);
+int indexReadHeader(Buffer *b, IndexHeader *h);
 
 IndexIterator *NewIndexIterator(IndexReader *ir);
 

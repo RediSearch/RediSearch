@@ -17,7 +17,6 @@ size_t memwriterWrite(Buffer *b, void *data, size_t len) {
     return len;
 }
    
-   
 /**
 Truncate the buffer to newlen. If newlen is 0 - trunacte capacity
 */
@@ -44,6 +43,8 @@ void membufferRelease(Buffer *b) {
     b->pos = NULL;
     free(b);
 }
+
+
 
 BufferWriter NewBufferWriter(size_t cap) {
     
