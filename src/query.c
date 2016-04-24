@@ -38,6 +38,9 @@ IndexIterator *evalLoadStage(RedisModuleCtx *ctx, QueryStage *stage) {
 
 IndexIterator *evalIntersectStage(RedisModuleCtx *ctx, QueryStage *stage) {
     
+    if (stage->nchildren == 1) {
+        return Query_EvalStage(ctx, stage->children[0]);
+    }
     IndexIterator *iters[stage->nchildren];
     for (int i = 0; i < stage->nchildren; i++) {
         iters[i] = Query_EvalStage(ctx, stage->children[i]);

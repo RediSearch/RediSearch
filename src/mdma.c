@@ -11,6 +11,7 @@
 #include "redis_index.h"
 #include "util/logging.h"
 #include "util/pqueue.h"
+#include "query.h"
 
 
 typedef struct {
@@ -126,86 +127,29 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     RedisModule_AutoMemory(ctx);
     
-    // char b[32], bb[32];
+    Query *q = ParseQuery(RedisModule_StringPtrLen(argv[1], NULL), 0, 10);
     
-    // for (int i =0; i < 1000000; i++) {
-    //     sprintf(b, "k%d", i);
-    //     sprintf(bb, "v%d", i);
-    //     RedisModule_Call(ctx, "HSET", "scc", argv[1], b, bb);
-    // }
-        
-   
-    // RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
-    // clock_t start = clock();
-    
-    // for (int i =0; i < 1000000; i++) {
-    //     sprintf(b, "k%d", i);
-    //     RedisModuleString *s = RedisModule_HashGet(key, RedisModule_CreateString(ctx, b, strlen(b)));    
-    // }
-    
-    // clock_t end = clock();
-    // printf ("1M hgets took %fsec\n", (float)(end - start) / (float)CLOCKS_PER_SEC * 1000.0f);
-    
-    IndexReader *ir = Redis_OpenReader(ctx, RedisModule_StringPtrLen(argv[1], NULL));
-    if (ir == NULL) {
-        RedisModule_ReplyWithError(ctx, "Could not open index");
-        return REDISMODULE_OK;        
-    } 
-    
-    IndexIterator *it = NewIndexIterator(ir);
-    
-    
-    PQUEUE pq; 
-    PQueueInitialise(&pq, 5, 0, 0);
-    
-    size_t totalResults = 0; 
-    while (it->HasNext(it->ctx)) {
-        IndexHit *h = malloc(sizeof(IndexHit));
-        if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
-            free(h);
-            break;
-        }
-        
-        ++totalResults;
-        PQueuePush(&pq, h, _getHitScore);
-        
+    QueryResult *r = Query_Execute(ctx, q);
+    if (r == NULL) {
+        RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+        return REDISMODULE_OK;
     }
     
-    
-    
-    size_t n = pq.CurrentSize;
-    IndexHit *result[n];
-    
-    for (int i = n-1; i >=0; --i) {
-        result[i] = PQueuePop(&pq, _getHitScore);
-    }
-
-    PQueueFree(&pq);
-    
-
-    RedisModule_ReplyWithArray(ctx, 1+n);
-    RedisModule_ReplyWithLongLong(ctx, (long long)totalResults);
-    char idbuf[16];
-    for (int i = 0; i < n; i++) {
-        IndexHit *h = result[i];
-        
-        if (h != NULL) {
-            RedisModuleString *s = Redis_GetDocKey(ctx, h->docId);
-            
-            if (s != NULL){
-                RedisModule_ReplyWithString(ctx, s);
-            }  else {
-                RedisModule_ReplyWithNull(ctx);
-            }
-            free(h);
-        }
-         else {
-                RedisModule_ReplyWithNull(ctx);
-            }
+    if (r->errorString != NULL) {
+        RedisModule_ReplyWithError(ctx, r->errorString);
+        goto cleanup;
     }
     
+    RedisModule_ReplyWithArray(ctx, r->numIds+1);
+    RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
     
+    for (int i = 0; i < r->numIds; i++) {
+        RedisModule_ReplyWithString(ctx, r->ids[i]);
+    }
     
+cleanup:    
+    QueryResult_Free(r);
+    Query_Free(q);
     return REDISMODULE_OK;
     
 }

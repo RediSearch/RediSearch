@@ -14,7 +14,7 @@ CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99
 
 VARINT=varint.o buffer.o
 INDEX=index.o tokenize.o forward_index.o
-REDIS=redis_buffer.o mdma.o redis_index.o search.o
+REDIS=redis_buffer.o mdma.o redis_index.o query.o
 UTILOBJS=util/pqueue.o util/list.o 
 TESTS=test_varint.o
 CC=gcc
