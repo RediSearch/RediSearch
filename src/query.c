@@ -8,47 +8,7 @@
 #include "redis_index.h"
 #include "util/logging.h"
 #include "util/pqueue.h"
-
-
-typedef enum {
-    Q_INTERSECT,
-    Q_UNION,
-    Q_EXACT,
-    Q_LOAD
-} QueryOp;
-
-typedef struct queryStage {
-    const char *term;
-    QueryOp op;
-    
-    struct queryStage **children;
-    int nchildren;
-} QueryStage;
-
-
-
-typedef struct {
-    const char *raw;
-    size_t offset;
-    size_t limit;
-        
-    QueryStage *root;
-    RedisModuleCtx *ctx;
-} Query;
-
-
-typedef struct {
-    size_t totalResults;
-    RedisModuleString **ids;
-    size_t numIds;
-    
-    
-    int error;
-    char *errorString;
-} QueryResult;
-
-
-IndexIterator *Query_EvalStage(RedisModuleCtx *ctx, QueryStage *s);
+#include "query.h"
 
 void QueryStage_Free(QueryStage *s) {
     for (int i = 0; i < s->nchildren; i++) {
@@ -162,9 +122,6 @@ void Query_Free(Query *q) {
     free(q);
 }
 
-
-#define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
-#define QUERY_ERROR_INTERNAL -1
 u_int32_t getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
 }
@@ -229,6 +186,7 @@ QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
     PQueueFree(&pq);
     return res;
 }
+
 
 void QueryResult_Free(QueryResult *q) {
    
