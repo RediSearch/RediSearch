@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-
+#include <time.h>
 #include "index.h"
 #include "varint.h"
 #include "redismodule.h"
@@ -113,7 +113,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 
-u_int32_t getHitScore(void * ctx) {
+u_int32_t _getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
 }
 /** SEARCH <term> <term> */
@@ -123,7 +123,28 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 2) {
         return RedisModule_WrongArity(ctx);
     }
+    
     RedisModule_AutoMemory(ctx);
+    
+    // char b[32], bb[32];
+    
+    // for (int i =0; i < 1000000; i++) {
+    //     sprintf(b, "k%d", i);
+    //     sprintf(bb, "v%d", i);
+    //     RedisModule_Call(ctx, "HSET", "scc", argv[1], b, bb);
+    // }
+        
+   
+    // RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    // clock_t start = clock();
+    
+    // for (int i =0; i < 1000000; i++) {
+    //     sprintf(b, "k%d", i);
+    //     RedisModuleString *s = RedisModule_HashGet(key, RedisModule_CreateString(ctx, b, strlen(b)));    
+    // }
+    
+    // clock_t end = clock();
+    // printf ("1M hgets took %fsec\n", (float)(end - start) / (float)CLOCKS_PER_SEC * 1000.0f);
     
     IndexReader *ir = Redis_OpenReader(ctx, RedisModule_StringPtrLen(argv[1], NULL));
     if (ir == NULL) {
@@ -146,7 +167,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         }
         
         ++totalResults;
-        PQueuePush(&pq, h, getHitScore);
+        PQueuePush(&pq, h, _getHitScore);
         
     }
     
@@ -156,7 +177,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     IndexHit *result[n];
     
     for (int i = n-1; i >=0; --i) {
-        result[i] = PQueuePop(&pq, getHitScore);
+        result[i] = PQueuePop(&pq, _getHitScore);
     }
 
     PQueueFree(&pq);

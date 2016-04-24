@@ -595,6 +595,10 @@ Skip to the given docId, or one place after it
  }
  
  void IndexIterator_Free(IndexIterator *it) {
+     UnionContext *ui = it->ctx;
+     for (int i = 0; i < ui->num; i++) {
+         IndexIterator_Free(ui->its[i]);
+     }
      free(it->ctx);
      free(it);
  }

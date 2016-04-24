@@ -44,8 +44,6 @@ void membufferRelease(Buffer *b) {
     free(b);
 }
 
-
-
 BufferWriter NewBufferWriter(size_t cap) {
     
     Buffer *b = NewBuffer(malloc(cap), cap, BUFFER_WRITE);
