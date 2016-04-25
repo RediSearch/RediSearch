@@ -7,7 +7,11 @@
 #include <time.h>
 #include "tokenize.h"
 
-#define TESTFUNC(f) printf("Testing %s ...\t", __STRING(f)); fflush(stdout); printf("%s\n\n", f() == 0 ? "PASS" : "FAIL")
+#define TESTFUNC(f) \
+                printf("Testing %s ...\t", __STRING(f)); \
+                fflush(stdout); \
+                if (f()) {printf ("FAIL\n"); exit(1); } else printf("PASS\n");
+                
 #define ASSERTM(expr, ...) if (!(expr)) { fprintf (stderr, "Assertion '%s' Failed: " __VA_ARGS__ "\n", __STRING(expr)); return -1; }
 #define ASSERT(expr) if (!(expr)) { fprintf (stderr, "Assertion '%s' Failed\n", __STRING(expr)); return -1; }
 #define ASSERT_EQUAL_INT(x,y,...) if (x!=y) { fprintf (stderr, "%d != %d: " __VA_ARGS__ "\n", x, y); return -1; }
@@ -79,7 +83,7 @@ int testDistance() {
 int testIndexReadWrite() {
   IndexWriter *w = NewIndexWriter(10000);
 
-  for (int i = 0; i < 1000000; i++) {
+  for (int i = 0; i < 100; i++) {
     // if (i % 10000 == 1) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
     //     w->ndocs);
@@ -94,6 +98,7 @@ int testIndexReadWrite() {
       VVW_Write(vw, n);
     }
     VVW_Truncate(vw);
+    
     h.offsets = *vw->bw.buf;
 
     IW_Write(w, &h);
@@ -103,7 +108,7 @@ int testIndexReadWrite() {
   printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
   IW_Close(w);
-  //IW_MakeSkipIndex(w, 10);
+  IW_MakeSkipIndex(w, 10);
   
 //   for (int x = 0; x < w->skipIdx.len; x++) {
 //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId, w->skipIdx.entries[x].offset);
@@ -170,8 +175,12 @@ IndexWriter *createIndex(int size, int idStep) {
    printf("BEFORE: iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
   
+  
   w->bw.Truncate(w->bw.buf, 0);
+  
+  IW_MakeSkipIndex(w, 100);
   IW_Close(w);
+  
   printf("iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
   return w;
@@ -242,8 +251,11 @@ int testUnion() {
     IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
     IndexIterator *ui =  NewUnionIterator(irs, 2);
     IndexHit h;
+    int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
+    int i = 0;
     while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-         printf("Read -> %d\n", h.docId);
+        ASSERT(h.docId == expected[i++]);
+         //printf("%d, ", h.docId);
     }
     // IndexWriter *w3 = createIndex(30, 5);
     // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
@@ -262,9 +274,9 @@ int testUnion() {
 
 int testIntersection() {
     
-    IndexWriter *w = createIndex(1000000, 4);
+    IndexWriter *w = createIndex(100000, 4);
     IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
-    IndexWriter *w2 = createIndex(1000000, 2);
+    IndexWriter *w2 = createIndex(100000, 2);
     IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &w2->skipIdx);
     
     // IndexWriter *w3 = createIndex(10000, 3);
@@ -277,18 +289,23 @@ int testIntersection() {
     
     printf ("Intersecting...\n");
     
+    int count = 0;
+    IndexIterator *ii = NewIntersecIterator(irs, 2, 0);
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
-    
-    int count = IR_Intersect2(irs, 2, onIntersect, &ctx);    
+    IndexHit h;
+    while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
+        //printf("%d\n", h.docId);
+        ++count;
+    }    
     
     //int count = IR_Intersect(r1, r2, onIntersect, &ctx);
     clock_gettime(CLOCK_REALTIME, &end_time);
     long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-    printf("%d intersections in %ldns\n", ctx.counter, diffInNanos); 
+    printf("%d intersections in %ldns\n", count, diffInNanos); 
     printf("top freq: %d\n", ctx.maxFreq);
-    
+    ASSERT(count == 50000)
     return 0;
 }
 
@@ -386,16 +403,16 @@ int testForwardIndex() {
 
 int main(int argc, char **argv) {
   
-  LOGGING_LEVEL = L_DEBUG;
-  //TESTFUNC(testVarint);
-  //TESTFUNC(testDistance);
-  //TESTFUNC(testIndexReadWrite);
-  //TESTFUNC(testIntersection);
-  //TESTFUNC(testReadIterator);
-  TESTFUNC(testUnion);
-  
-  //TESTFUNC(testMemBuffer);
-  //TESTFUNC(testTokenize);
-  //TESTFUNC(testForwardIndex);
+    LOGGING_LEVEL = L_DEBUG;
+    TESTFUNC(testVarint);
+    TESTFUNC(testDistance);
+    TESTFUNC(testIndexReadWrite);
+     TESTFUNC(testIntersection);
+    TESTFUNC(testReadIterator);
+    TESTFUNC(testUnion);
+
+    TESTFUNC(testMemBuffer);
+    TESTFUNC(testTokenize);
+    TESTFUNC(testForwardIndex);
   return 0;
 }

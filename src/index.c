@@ -71,6 +71,7 @@ Skip to the given docId, or one place after it
 */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     IndexReader *ir = ctx;
+    
     SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
     
     if (ent != NULL || ir->skipIdx == NULL || ir->skipIdx->len == 0 
