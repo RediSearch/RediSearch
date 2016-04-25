@@ -46,7 +46,9 @@ int ReadVarint(Buffer *b) {
 	return val;
 }
 
+
 int WriteVarint(int value, BufferWriter *w) {
+    //printf("Writing %d @ %zd\n", value, w->buf->offset);
     unsigned char varint[16];
 	unsigned pos = sizeof(varint) - 1;
 	varint[pos] = value & 127;
@@ -101,7 +103,7 @@ int VV_HasNext(VarintVectorIterator *vi) {
 
 int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
-      int i = ReadVarint(vi->buf);
+      int i = ReadVarint(vi->buf) + vi->lastValue;
       vi->lastValue = i;
       vi->index++;
       return i;
@@ -120,7 +122,7 @@ size_t VV_Size(VarintVector *vv) {
 
 
 void VVW_Free(VarintVectorWriter *w) {
-    w->bw.Release(w->v);
+    w->bw.Release(w->bw.buf);
     free(w);
 }
 
@@ -129,7 +131,6 @@ void VVW_Free(VarintVectorWriter *w) {
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
     VarintVectorWriter *w = malloc(sizeof(VarintVectorWriter));
     w->bw = NewBufferWriter(cap);
-    w->v = w->bw.buf;
     w->lastValue = 0;
     w->nmemb = 0;
     
@@ -155,9 +156,7 @@ size_t VVW_Write(VarintVectorWriter *w, int i) {
 // Truncate the vector 
 size_t VVW_Truncate(VarintVectorWriter *w) {
     
-    w->bw.Truncate(w->bw.buf, 0);
-    w->v = w->bw.buf;
-    return w->v->cap;
+    return w->bw.Truncate(w->bw.buf, 0);
 }
 
 /** 

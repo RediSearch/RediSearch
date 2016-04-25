@@ -2,11 +2,11 @@
 #include <sys/param.h>
 
 size_t memwriterWrite(Buffer *b, void *data, size_t len) {
+    
     if (b->offset + len > b->cap) {
         do {
             b->cap *= 2;
         } while(b->pos + len > b->data + b->cap);
-        
         
         b->data = realloc(b->data, b->cap);
         b->pos = b->data + b->offset;
@@ -34,9 +34,10 @@ size_t memwriterTruncate(Buffer *b, size_t newlen) {
 }
 
 void membufferRelease(Buffer *b) {
+    
     // only release the data if we created the buffer
     if (b->type & BUFFER_WRITE) {
-        free(b->data);
+        //free(b->data);
     }
     b->cap = 0;
     b->data = NULL;
@@ -80,14 +81,16 @@ Read len bytes from the buffer into data. If offset + len are over capacity
 @return the number of bytes consumed
 */
 size_t BufferRead(Buffer *b, void *data, size_t len) {
+    
     // no capacity - return 0
-    if (BufferLen(b) + len > b->cap) {
+    if (b->offset + len > b->cap) {
         return 0;
     }
     
     data = memcpy(data, b->pos,len);
     b->pos += len;
     b->offset += len;
+
     return len;
 }
 

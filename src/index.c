@@ -98,16 +98,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
-    IndexReader *ret = malloc(sizeof(IndexReader));
-    ret->buf = NewBuffer(data, datalen, BUFFER_READ);
-    BufferRead(ret->buf, &ret->header, sizeof(IndexHeader));
-    
-    ret->lastId = 0;
-    ret->skipIdxPos = 0;
-    if (si != NULL) {
-        ret->skipIdx = si;
-    }
-    return ret;
+    return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si);
 } 
 
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
@@ -115,14 +106,16 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
     IndexReader *ret = malloc(sizeof(IndexReader));
     ret->buf = buf;
     
+    
     indexReadHeader(buf, &ret->header);
-
+    
     ret->lastId = 0;
     ret->skipIdxPos = 0;
     ret->skipIdx = NULL;
     if (si != NULL) {
         ret->skipIdx = si;
     }
+    
     return ret;
 } 
 
@@ -140,6 +133,7 @@ IndexIterator *NewIndexIterator(IndexReader *ir) {
     ri->SkipTo = IR_SkipTo;
     ri->LastDocId = IR_LastDocId; 
     ri->HasNext = IR_HasNext;
+    ri->Free = ReadIterator_Free;
     return ri;
 }
 
@@ -155,7 +149,7 @@ void writeIndexHeader(IndexWriter *w) {
     size_t offset = w->bw.buf->offset;
     BufferSeek(w->bw.buf, 0);
     IndexHeader h = {offset, w->lastId};
-    LG_DEBUG("Writing index header. offest %d , lastId %d\n", h.size, h.lastId);
+    LG_DEBUG("Writing index header. offest %d , lastId %d will seek to %zd\n", h.size, h.lastId, offset);
     w->bw.Write(w->bw.buf, &h, sizeof(h));
     BufferSeek(w->bw.buf, offset);
 
@@ -167,23 +161,10 @@ IndexWriter *NewIndexWriter(size_t cap) {
     w->ndocs = 0;
     w->lastId = 0;
     writeIndexHeader(w);
+    BufferSeek(w->bw.buf, sizeof(IndexHeader));
     return w;
 }
 
-int indexReadHeader(Buffer *b, IndexHeader *h) {
-    
-    if (b->cap > sizeof(IndexHeader)) {
-        
-        BufferSeek(b, 0);
-        BufferRead(b, h, sizeof(IndexHeader));
-        LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd\n", h->size, h->lastId, b->offset);
-        //BufferSeek(b, pos);
-        return 1;     
-    }
-    
-    return 0;
-    
-}
 IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
     w->bw = bw;
@@ -196,11 +177,26 @@ IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
         BufferSeek(w->bw.buf, h.size);
     } else {
         writeIndexHeader(w);
-        BufferSeek(w->bw.buf, sizeof(h));    
+        BufferSeek(w->bw.buf, sizeof(IndexHeader));    
     }
     
     return w;
 }
+
+int indexReadHeader(Buffer *b, IndexHeader *h) {
+    
+    if (b->cap > sizeof(IndexHeader)) {
+        
+        BufferSeek(b, 0);
+        BufferRead(b, h, sizeof(IndexHeader));
+        LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd\n", h->size, h->lastId, b->offset);
+        //BufferSeek(b, pos);
+        return 1;     
+    } 
+    return 0;
+    
+}
+
 
 
 void IW_Write(IndexWriter *w, IndexHit *e) {
@@ -214,6 +210,7 @@ void IW_Write(IndexWriter *w, IndexHit *e) {
     len += varintSize(len) - lensize;
     WriteVarint(e->docId - w->lastId, &w->bw);
     w->lastId = e->docId;
+    
     // encode len
     WriteVarint(len, &w->bw);
     //encode freq
@@ -232,7 +229,8 @@ void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
     
     LG_DEBUG("Writing entry %s\n", ent->term);
     VVW_Truncate(ent->vw);
-    VarintVector *offsets = ent->vw->v;
+    VarintVector *offsets = ent->vw->bw.buf;
+    BufferSeek(offsets, 0);
     
     
     size_t offsetsSz = VV_Size(offsets);
@@ -476,6 +474,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num) {
     it->Read = UI_Read;
     it->SkipTo = UI_SkipTo;
     it->HasNext = UI_HasNext;
+    it->Free = UnionIterator_Free;
     return it;
     
 }
@@ -603,15 +602,33 @@ Skip to the given docId, or one place after it
      return INDEXREAD_NOTFOUND;
  }
  
- void IndexIterator_Free(IndexIterator *it) {
+ void UnionIterator_Free(IndexIterator *it) {
+     if (it == NULL) return;
+     
+     
      UnionContext *ui = it->ctx;
      for (int i = 0; i < ui->num; i++) {
-         IndexIterator_Free(ui->its[i]);
+         ui->its[i]->Free(ui->its[i]);
      }
      free(it->ctx);
      free(it);
  }
  
+ void IntersectIterator_Free(IndexIterator *it) {
+     if (it == NULL) return;
+     IntersectContext *ui = it->ctx;
+     for (int i = 0; i < ui->num; i++) {
+         ui->its[i]->Free(ui->its[i]);
+     }
+     free(it->ctx);
+     free(it);
+ }
+
+void ReadIterator_Free(IndexIterator *it) {
+    if (it==NULL) return;
+    IR_Free(it->ctx);
+    free(it);
+}
  
  
  
@@ -632,6 +649,7 @@ Skip to the given docId, or one place after it
     it->Read = II_Read;
     it->SkipTo = II_SkipTo;
     it->HasNext = II_HasNext;
+    it->Free = IntersectIterator_Free;
     return it;
 }
  

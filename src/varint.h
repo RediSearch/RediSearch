@@ -12,6 +12,7 @@ size_t varintSize(int value);
 int ReadVarint(Buffer *b);
 int WriteVarint(int value, BufferWriter *w);
 
+
 typedef Buffer VarintVector;
 
 typedef struct {
@@ -22,7 +23,6 @@ typedef struct {
 
 
 typedef struct {
-    VarintVector *v;
     BufferWriter bw;
     // how many members we've put in
     size_t nmemb;

@@ -34,7 +34,6 @@ inline static int BufferAtEnd(Buffer *ctx) {
     return ctx->offset >= ctx->cap;
 }
 
-
 typedef struct {
     Buffer *buf;    
     size_t (*Write)(Buffer *ctx, void *data, size_t len);

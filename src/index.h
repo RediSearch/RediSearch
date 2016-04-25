@@ -32,10 +32,13 @@ typedef struct {
     VarintVector offsets; 
 } IndexHit;
 
+#pragma pack(1)
 typedef struct  {
     t_offset size;
     t_docId lastId;
 } IndexHeader;
+#pragma pack()
+
 
 typedef struct {
     Buffer *buf;
@@ -63,14 +66,19 @@ typedef struct {
 
 typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
 
-typedef struct {
+typedef struct indexIterator {
     void *ctx;
     int (*Read)(void *ctx, IndexHit *e);
     int (*SkipTo)(void *ctx, u_int32_t docId, IndexHit *hit);
     t_docId (*LastDocId)(void *ctx);
     int (*HasNext)(void *ctx);
+    void (*Free)(struct indexIterator *self);
 } IndexIterator;
-void IndexIterator_Free(IndexIterator *it);
+
+
+void UnionIterator_Free(IndexIterator *it);
+void IntersectIterator_Free(IndexIterator *it);
+void ReadIterator_Free(IndexIterator *it);
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si);
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si);
