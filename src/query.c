@@ -85,6 +85,8 @@ IndexIterator *Query_EvalStage(RedisModuleCtx *ctx, QueryStage *s) {
            return evalUnionStage(ctx, s);
     }
     
+    return NULL;
+    
 }
 
 void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
@@ -103,15 +105,13 @@ int queryTokenFunc(void *ctx, Token t) {
     
 }
 
-Query *ParseQuery(const char *query, int offset, int limit) {
+Query *ParseQuery(const char *query, size_t len, int offset, int limit) {
     Query *ret = calloc(1, sizeof(Query));
     
     ret->limit = limit;
     ret->offset = offset;
-    ret->raw = strdup(query);
+    ret->raw = strndup(query, len);
     ret->root = NewQueryStage(NULL, Q_INTERSECT);
-    
-    
     tokenize(ret->raw, 1, 1, ret, queryTokenFunc);
     
     return ret;

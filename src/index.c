@@ -34,8 +34,7 @@ int IR_Read(void *ctx, IndexHit *e) {
 
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
-    printf ("%d <> %d\n", ir->header.size, ir->buf->offset);
-    if (BufferAtEnd(ir->buf) || ir->header.size > ir->buf->offset) {
+    if (!BufferAtEnd(ir->buf) && ir->header.size > ir->buf->offset) {
         return 1;
     }
     return 0;
@@ -493,6 +492,9 @@ int UI_Read(void *ctx, IndexHit *hit) {
         minIdx = -1;
         for (int i = 0; i < ui->num; i++) {
             IndexIterator *it = ui->its[i];
+
+            if (it == NULL) continue;
+            
             if (it->HasNext(it->ctx)) {
                 // if this hit is behind the min id - read the next entry
                 if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
@@ -532,6 +534,9 @@ int UI_Read(void *ctx, IndexHit *hit) {
      
      UnionContext *u = ctx;
      for (int i = 0; i < u->num; i++) {
+         IndexIterator *it = u->its[i];
+         if (it == NULL) continue;
+         
          if (u->its[i]->HasNext(u->its[i]->ctx)) {
              return 1;
          }

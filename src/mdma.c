@@ -126,8 +126,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     
     RedisModule_AutoMemory(ctx);
-    
-    Query *q = ParseQuery(RedisModule_StringPtrLen(argv[1], NULL), 0, 10);
+    size_t len;
+    const char *qs = RedisModule_StringPtrLen(argv[1], &len);
+    Query *q = ParseQuery((char *)qs, len, 0, 10);
     
     QueryResult *r = Query_Execute(ctx, q);
     if (r == NULL) {

@@ -63,7 +63,7 @@ IndexIterator *Query_EvalStage(RedisModuleCtx *ctx, QueryStage *s);
 void QueryStage_AddChild(QueryStage *parent, QueryStage *child);
     
 int queryTokenFunc(void *ctx, Token t);
-Query *ParseQuery(const char *query, int offset, int limit); 
+Query *ParseQuery(const char *query, size_t len, int offset, int limit); 
 void Query_Free(Query *q);
 u_int32_t getHitScore(void * ctx); 
 QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query); 
