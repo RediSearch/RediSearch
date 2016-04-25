@@ -16,7 +16,7 @@ typedef struct {
 
 
 
-KHASH_MAP_INIT_STR(32, ForwardIndexEntry*);
+KHASH_MAP_INIT_STR(32, ForwardIndexEntry*)
 typedef struct {
     khash_t(32) *hits;
     u_int totalFreq;

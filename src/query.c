@@ -41,12 +41,15 @@ IndexIterator *evalIntersectStage(RedisModuleCtx *ctx, QueryStage *stage) {
     if (stage->nchildren == 1) {
         return Query_EvalStage(ctx, stage->children[0]);
     }
-    IndexIterator *iters[stage->nchildren];
+    IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator*));
     for (int i = 0; i < stage->nchildren; i++) {
         iters[i] = Query_EvalStage(ctx, stage->children[i]);
+        if (iters[i] == NULL) {
+            printf("Got NULL!\n");
+        }
     }
     
-    IndexIterator *ret = NewUnionIterator(iters, stage->nchildren);
+    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 0);
     return ret;
 }
 
@@ -68,7 +71,7 @@ IndexIterator *evalExactIntersectStage(RedisModuleCtx *ctx, QueryStage *stage) {
         iters[i] = Query_EvalStage(ctx, stage->children[i]);
     }
     
-    IndexIterator *ret = NewUnionIterator(iters, stage->nchildren);
+    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 1);
     return ret;
 }
 
@@ -91,18 +94,19 @@ IndexIterator *Query_EvalStage(RedisModuleCtx *ctx, QueryStage *s) {
 
 void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
     
-    parent->nchildren++;
-    parent->children = realloc(parent->children, sizeof(QueryStage*)*parent->nchildren);
-    parent->children[parent->nchildren-1] = child;
+    
+    parent->children = realloc(parent->children, sizeof(QueryStage*)*(parent->nchildren+1));
+    parent->children[parent->nchildren++] = child;
     
 }
 
 
 int queryTokenFunc(void *ctx, Token t) {
     Query *q = ctx;
-    
+    printf("Adding token %s\n", t.s);
     QueryStage_AddChild(q->root, NewQueryStage(t.s, Q_LOAD));
-    
+
+    return 0;
 }
 
 Query *ParseQuery(const char *query, size_t len, int offset, int limit) {

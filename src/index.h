@@ -114,5 +114,19 @@ int UI_HasNext(void *ctx);
 t_docId UI_LastDocId(void *ctx);
 
 
+typedef struct {
+    IndexIterator **its;
+    int num;
+    int exact;
+    t_docId lastDocId;
+    IndexHit *currentHits;
+} IntersectContext;
+
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact);
+int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
+int II_Next(void *ctx);
+int II_Read(void *ctx, IndexHit *hit);
+int II_HasNext(void *ctx);
+t_docId II_LastDocId(void *ctx);
 
 #endif

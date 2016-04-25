@@ -24,7 +24,7 @@ typedef int(*TokenFunc)(void *ctx, Token t);
 typedef char*(*NormalizeFunc)(char*, size_t*);
 
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
-static const char *DEFAULT_SEPARATORS = " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
+#define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
 
 typedef struct {
     const char *text;

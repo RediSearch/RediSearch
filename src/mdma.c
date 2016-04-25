@@ -152,7 +152,6 @@ cleanup:
     QueryResult_Free(r);
     Query_Free(q);
     return REDISMODULE_OK;
-    
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {

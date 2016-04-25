@@ -8,7 +8,7 @@
 
 int IR_Read(void *ctx, IndexHit *e) {
     IndexReader *ir = ctx;
-    if (BufferAtEnd(ir->buf)) {
+    if (!IR_HasNext(ir)) {
         return INDEXREAD_EOF;
     }
     
@@ -81,12 +81,16 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
         }
         
         while(IR_Read(ir, hit) != INDEXREAD_EOF) {
+            // we found the doc we were looking for!
             if (ir->lastId == docId) {
                 return INDEXREAD_OK;
-            } else if (ir->lastId > docId) {
+                
+            } else if (ir->lastId > docId) { 
+                // this is not the droid you are looking for 
                 return INDEXREAD_NOTFOUND;
             }
         }
+        
     }
     
     return INDEXREAD_EOF;
@@ -151,7 +155,7 @@ void writeIndexHeader(IndexWriter *w) {
     size_t offset = w->bw.buf->offset;
     BufferSeek(w->bw.buf, 0);
     IndexHeader h = {offset, w->lastId};
-    printf("Writing index header. offest %d , lastId %d\n", h.size, h.lastId);
+    LG_DEBUG("Writing index header. offest %d , lastId %d\n", h.size, h.lastId);
     w->bw.Write(w->bw.buf, &h, sizeof(h));
     BufferSeek(w->bw.buf, offset);
 
@@ -172,7 +176,7 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
         
         BufferSeek(b, 0);
         BufferRead(b, h, sizeof(IndexHeader));
-        printf("read buffer header. size %d, lastId %d at pos %zd\n", h->size, h->lastId, b->offset);
+        LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd\n", h->size, h->lastId, b->offset);
         //BufferSeek(b, pos);
         return 1;     
     }
@@ -307,7 +311,7 @@ int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
 
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     
-    if (idx->len == 0 || docId < idx->entries[0].docId) {
+    if (idx == NULL || idx->len == 0 || docId < idx->entries[0].docId) {
         return NULL;
     } 
     if (docId > idx->entries[idx->len-1].docId) {
@@ -537,7 +541,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
          IndexIterator *it = u->its[i];
          if (it == NULL) continue;
          
-         if (u->its[i]->HasNext(u->its[i]->ctx)) {
+         if (it->HasNext(it->ctx)) {
              return 1;
          }
      }
@@ -555,7 +559,7 @@ Skip to the given docId, or one place after it
      UnionContext *ui = ctx;
      
      int n = 0;
-     int rc;
+     int rc = INDEXREAD_EOF;
      // skip all iterators to docId
      for (int i = 0; i < ui->num; i++) {
          rc = ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &ui->currentHits[i]);
@@ -607,3 +611,122 @@ Skip to the given docId, or one place after it
      free(it->ctx);
      free(it);
  }
+ 
+ 
+ 
+ 
+ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact) {
+     // create context
+    IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
+    ctx->its =its;
+    ctx->num = num;
+    ctx->lastDocId = 0;
+    ctx->exact = exact;
+    ctx->currentHits = calloc(num, sizeof(IndexHit));
+
+    
+    // bind the iterator calls
+    IndexIterator *it = malloc(sizeof(IndexIterator));
+    it->ctx = ctx;
+    it->LastDocId = II_LastDocId;
+    it->Read = II_Read;
+    it->SkipTo = II_SkipTo;
+    it->HasNext = II_HasNext;
+    return it;
+}
+ 
+ 
+int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+    
+    IntersectContext *ic = ctx;
+     
+     int nfound = 0;
+     
+     int rc = INDEXREAD_EOF;
+     // skip all iterators to docId
+     for (int i = 0; i < ic->num; i++) {
+         IndexIterator *it = ic->its[i];
+         rc = it->SkipTo(it->ctx, docId, &ic->currentHits[i]);
+         if (rc == INDEXREAD_EOF) {
+             return rc;
+         } else if (rc == INDEXREAD_OK) {
+             // YAY! found!
+             ic->lastDocId = docId;
+             *hit = ic->currentHits[i];
+             nfound++;
+         } else if (ic->currentHits[i].docId > ic->lastDocId){
+             ic->lastDocId = ic->currentHits[i].docId;
+         }
+         
+     }
+     if (nfound == ic->num) {
+         return INDEXREAD_OK;
+     }
+     
+     
+     return INDEXREAD_NOTFOUND;
+}
+
+
+int II_Next(void *ctx) {
+    IndexHit h;
+    return II_Read(ctx, &h);
+}
+
+int II_Read(void *ctx, IndexHit *hit) {
+   
+    IntersectContext *ic = (IntersectContext*)ctx;
+    
+    int nh = 0;
+    int i = 0;
+    do {
+        nh = 0;    
+        for (i = 0; i < ic->num; i++) {
+            IndexHit *h = &ic->currentHits[i];
+            // skip to the next
+            if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
+                IndexIterator *it = ic->its[i];
+                
+                if (it == NULL || !it->HasNext(it->ctx)) {
+                    return INDEXREAD_EOF;
+                }
+                if (it->SkipTo(it->ctx, ic->lastDocId, h) == INDEXREAD_EOF) {
+                    return INDEXREAD_EOF;
+                }
+            }
+            if (h->docId != ic->lastDocId) {
+                ic->lastDocId = h->docId;
+                break;
+            }
+            ic->lastDocId = h->docId;
+            ++nh;
+        }
+        
+        if (nh == ic->num) {
+            *hit = ic->currentHits[0];
+            
+            // advance to the next iterator
+            ic->its[0]->Read(ic->its[0]->ctx, &ic->currentHits[0]);
+            
+            ic->lastDocId = ic->currentHits[0].docId;
+            return INDEXREAD_OK;
+        } 
+    }while(1);
+
+    return INDEXREAD_EOF;
+}
+
+int II_HasNext(void *ctx) {
+    IntersectContext *ic = ctx;
+    for (int i = 0; i < ic->num; i++) {
+        IndexIterator *it = ic->its[i];
+        if (it == NULL || !it->HasNext(it->ctx)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+t_docId II_LastDocId(void *ctx) {
+    return ((IntersectContext *)ctx)->lastDocId;
+}

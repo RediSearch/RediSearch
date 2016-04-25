@@ -10,7 +10,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99
+CFLAGS = -g -fPIC -lc -lm -Og -std=gnu99 -Wall -pedantic
 
 VARINT=varint.o buffer.o
 INDEX=index.o tokenize.o forward_index.o
@@ -38,7 +38,7 @@ all: util mdma.so
 #mdma.xo: ./index.h
 
 mdma.so: $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm
+	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm 
 
 clean:
 	rm -rf *.xo *.so *.o
