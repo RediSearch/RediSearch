@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "redis_index.h"
 #include "util/logging.h"
+#include "doc_table.h"
 
 /**
 * Format redis key for a term.
@@ -34,13 +35,14 @@ SkipIndex *LoadRedisSkipIndex(RedisModuleCtx *ctx, const char *term) {
   return NULL;
 }
 
-IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term) {
+
+IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term, DocTable *dt) {
   Buffer *b = NewRedisBuffer(ctx, fmtRedisTermKey(ctx, term), BUFFER_READ);
   if (b == NULL) {  // not found
     return NULL;
   }
   SkipIndex *si = LoadRedisSkipIndex(ctx, term);
-  return NewIndexReaderBuf(b, si);
+  return NewIndexReaderBuf(b, si, dt);
 }
 
 void Redis_CloseReader(IndexReader *r) {
@@ -79,7 +81,8 @@ t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
     if (rep == NULL) return 0;
 
     long long ll = RedisModule_CallReplyInteger(increp);
-    RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCIDS_MAP, RedisModule_CreateStringFromLongLong(ctx, ll), docKey);
+    RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCIDS_MAP,
+                     RedisModule_CreateStringFromLongLong(ctx, ll), docKey);
     *isnew = 1;
     return (t_docId)ll;
   }
@@ -96,12 +99,73 @@ t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
 }
 
 RedisModuleString *Redis_GetDocKey(RedisModuleCtx *ctx, t_docId docId) {
-  RedisModuleCallReply *rep = RedisModule_Call(
-      ctx, "HGET", "cs", REDISINDEX_DOCIDS_MAP, RedisModule_CreateStringFromLongLong(ctx, docId));
-      
+  RedisModuleCallReply *rep =
+      RedisModule_Call(ctx, "HGET", "cs", REDISINDEX_DOCIDS_MAP,
+                       RedisModule_CreateStringFromLongLong(ctx, docId));
+
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL ||
       RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
     return NULL;
-  
+
   return RedisModule_CreateStringFromCallReply(rep);
+}
+
+/**
+Open the doc table key. Return REDISMODULE_ERR if failed
+*/
+int InitDocTable(RedisModuleCtx *ctx, DocTable *t) {
+  RedisModuleKey *k = RedisModule_OpenKey(
+      ctx, 
+      RedisModule_CreateString(ctx, DOCTABLE_KEY, strlen(DOCTABLE_KEY)),
+      REDISMODULE_READ|REDISMODULE_WRITE);
+
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH &&
+                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
+    return REDISMODULE_ERR;
+  }
+
+  t->ctx = ctx;
+  t->key = k;
+  return REDISMODULE_OK;
+}
+
+int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
+
+    char buf[32];
+    snprintf(buf, 32, DOCTABLE_DOCID_KEY_FMT, docId);
+    
+    RedisModuleString *data;
+    int rc = RedisModule_HashGet(t->key, REDISMODULE_HASH_CFIELDS, buf, &data, NULL);
+    if (rc == REDISMODULE_ERR || data == NULL) {
+      return REDISMODULE_ERR;
+    }
+    
+    size_t len;
+    const char *p = RedisModule_StringPtrLen(data, &len);
+    int ret = REDISMODULE_ERR;
+    if (len == sizeof(DocumentMetadata)) {
+      memcpy(md, p, sizeof(DocumentMetadata));
+      ret = REDISMODULE_OK;
+    }
+    
+    RedisModule_FreeString(t->ctx, data);
+    return ret;
+      
+}
+
+int DocTable_PutDocument(DocTable *t, t_docId docId, double score, u_short flags) {
+    char buf[32];
+    int sz = snprintf(buf, 32, DOCTABLE_DOCID_KEY_FMT, docId);
+    
+    DocumentMetadata md = {score, flags};
+    
+    RedisModuleString *data = RedisModule_CreateString(t->ctx, (char *)&md, sizeof(DocumentMetadata));
+    
+    printf("Writing %s -> %p\n", buf, data);
+    int rc = RedisModule_HashSet(t->key, REDISMODULE_HASH_CFIELDS, 
+                buf, 
+                data, NULL);
+    RedisModule_FreeString(t->ctx, data);
+    return rc;
+    
 }

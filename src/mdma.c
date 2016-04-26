@@ -14,23 +14,7 @@
 #include "query.h"
 
 
-typedef struct {
-    const char *name;
-    const char *text;
-} DocumentField;
 
-typedef struct {
-    RedisModuleString *docKey;
-    DocumentField *fields;
-    int numFields;
-    float score; 
-} Document;
-
-typedef struct {
-    t_docId *docIds;
-    size_t totalResults;
-    t_offset limit;
-} Result;
 
 int AddDocument(RedisModuleCtx *ctx, Document doc) {
     
@@ -38,6 +22,13 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
     t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
     if (docId == 0 || isnew == 0) {
         LG_ERROR("Not a new doc");
+        return REDISMODULE_ERR;
+    }
+    
+    DocTable dt;
+    if (InitDocTable(ctx, &dt) == REDISMODULE_ERR)  return REDISMODULE_ERR;
+    
+    if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     
@@ -75,10 +66,6 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
 }
 
 
-Result *Search(const char *query) {
-    return NULL;
-}
-
 /*
 FT.ADD <docId> <score> [<field> <text>, ....] 
 */
@@ -90,9 +77,17 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
     RedisModule_AutoMemory(ctx);
     
+  
+    double ds = 0;
+    if (RedisModule_StringToDouble(argv[2], &ds) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "Could not parse document score");
+        return REDISMODULE_OK;
+    }
+    
+    
     Document doc;
     doc.docKey = argv[1];
-    doc.score = 1.0;
+    doc.score = (float)ds;
     doc.numFields = (argc-3)/2;
     doc.fields = calloc(doc.numFields, sizeof(DocumentField));
     
@@ -113,10 +108,10 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
 }
 
-
 u_int32_t _getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
 }
+
 /** SEARCH <term> <term> */
 int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
@@ -126,10 +121,16 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     
     RedisModule_AutoMemory(ctx);
+    
+    DocTable dt;
+    InitDocTable(ctx, &dt);
+    
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[1], &len);
-    Query *q = ParseQuery((char *)qs, len, 0, 10);
+    Query *q = ParseQuery(ctx, (char *)qs, len, 0, 10);
+    q->docTable = &dt;
     
+    // Execute the query 
     QueryResult *r = Query_Execute(ctx, q);
     if (r == NULL) {
         RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
@@ -141,6 +142,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         goto cleanup;
     }
     
+    // format response
     RedisModule_ReplyWithArray(ctx, r->numIds+1);
     RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
     

@@ -9,6 +9,7 @@
 #include "varint.h"
 #include "forward_index.h"
 #include "util/logging.h"
+#include "doc_table.h"
 
 
 typedef struct {
@@ -46,7 +47,7 @@ typedef struct {
     t_docId lastId;
     SkipIndex *skipIdx;
     u_int skipIdxPos;
-    
+    DocTable *docTable;
 } IndexReader; 
 
 
@@ -68,6 +69,7 @@ typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
 
 typedef struct indexIterator {
     void *ctx;
+
     int (*Read)(void *ctx, IndexHit *e);
     int (*SkipTo)(void *ctx, u_int32_t docId, IndexHit *hit);
     t_docId (*LastDocId)(void *ctx);
@@ -80,8 +82,8 @@ void UnionIterator_Free(IndexIterator *it);
 void IntersectIterator_Free(IndexIterator *it);
 void ReadIterator_Free(IndexIterator *it);
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si);
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si);
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable);
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable);
 void IR_Free(IndexReader *ir); 
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);
@@ -111,9 +113,10 @@ typedef struct {
     int pos;
     t_docId minDocId;
     IndexHit *currentHits;
+    DocTable *docTable;
 } UnionContext;
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num);
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
 
 int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
 int UI_Next(void *ctx);
@@ -128,9 +131,10 @@ typedef struct {
     int exact;
     t_docId lastDocId;
     IndexHit *currentHits;
+    DocTable *docTable;
 } IntersectContext;
 
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact);
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t);
 int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexHit *hit);

@@ -50,6 +50,17 @@
 #define REDISMODULE_ZADD_UPDATED (1<<3)
 #define REDISMODULE_ZADD_NOP     (1<<4)
 
+/* Hash API flags. */
+#define REDISMODULE_HASH_NONE       0
+#define REDISMODULE_HASH_NX         (1<<0)
+#define REDISMODULE_HASH_XX         (1<<1)
+#define REDISMODULE_HASH_CFIELDS    (1<<2)
+#define REDISMODULE_HASH_EXISTS     (1<<3)
+
+/* A special pointer that we can use between the core and the module to signal
+ * field deletion, and that is impossible to be a valid pointer. */
+#define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
+
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"
 
@@ -85,7 +96,6 @@ int REDISMODULE_API_FUNC(RedisModule_SelectDb)(RedisModuleCtx *ctx, int newid);
 void *REDISMODULE_API_FUNC(RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode);
 void REDISMODULE_API_FUNC(RedisModule_CloseKey)(RedisModuleKey *kp);
 int REDISMODULE_API_FUNC(RedisModule_KeyType)(RedisModuleKey *kp);
-RedisModuleString *REDISMODULE_API_FUNC(RedisModule_HashGet)(RedisModuleKey *key, RedisModuleString *ele);
 size_t REDISMODULE_API_FUNC(RedisModule_ValueLength)(RedisModuleKey *kp);
 int REDISMODULE_API_FUNC(RedisModule_ListPush)(RedisModuleKey *kp, int where, RedisModuleString *ele);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ListPop)(RedisModuleKey *key, int where);
@@ -135,6 +145,8 @@ RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ZsetRangeCurrentElement)(Red
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeNext)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangePrev)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeEndReached)(RedisModuleKey *key);
+int REDISMODULE_API_FUNC(RedisModule_HashSet)(RedisModuleKey *key, int flags, ...);
+int REDISMODULE_API_FUNC(RedisModule_HashGet)(RedisModuleKey *key, int flags, ...);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
@@ -199,7 +211,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRangeNext);
     REDISMODULE_GET_API(ZsetRangePrev);
     REDISMODULE_GET_API(ZsetRangeEndReached);
+    REDISMODULE_GET_API(HashSet);
     REDISMODULE_GET_API(HashGet);
+
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
 }

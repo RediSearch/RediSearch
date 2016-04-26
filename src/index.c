@@ -98,11 +98,11 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 }
 
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si) {
-    return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si);
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *dt) {
+    return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt);
 } 
 
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt) {
     
     IndexReader *ret = malloc(sizeof(IndexReader));
     ret->buf = buf;
@@ -113,6 +113,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si) {
     ret->lastId = 0;
     ret->skipIdxPos = 0;
     ret->skipIdx = NULL;
+    ret->docTable = dt;
     if (si != NULL) {
         ret->skipIdx = si;
     }
@@ -272,7 +273,7 @@ size_t IW_Close(IndexWriter *w) {
 }
 
 void IW_MakeSkipIndex(IndexWriter *iw, int step) {
-    IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL);
+    IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL, NULL);
 
     SkipEntry *entries = calloc(ir->header.size/step, sizeof(SkipEntry));
     
@@ -347,53 +348,6 @@ SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     return NULL;
 }
 
-int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler onIntersect, void *ctx) {
-    
-    IndexHit *hits = calloc(2, sizeof(IndexHit));
-    IndexHit *h1= &hits[0];
-    IndexHit *h2= &hits[1];
-    int firstSeek = 1;
-    int count = 0;
-    
-    if(IR_Read(r, h1) == INDEXREAD_EOF)  {
-        return INDEXREAD_EOF;
-    }
-    
-    do {
-        if (!firstSeek && h1->docId == h2->docId) {
-            count++;
-            onIntersect(ctx, hits, 2);
-            firstSeek = 0;
-            goto readnext;
-        } 
-        
-        firstSeek = 0;
-        int rc = IR_SkipTo(other, h1->docId, h2);
-        //LG_INFO("%d %d, rc %d\n", r->lastId, other->lastId, rc);
-        switch(rc) {
-            case INDEXREAD_EOF:
-            return count;
-            case INDEXREAD_NOTFOUND:
-            
-            if (IR_SkipTo(r, h2->docId, h1) == INDEXREAD_EOF) {
-                return count;
-            }
-            continue;
-            
-            case INDEXREAD_OK:
-              //LG_INFO("Intersection! @ %d <> %d\n", h1->docId, h2->docId);
-              onIntersect(ctx, hits, 2);
-              ++count;
-              
-        } 
-           
-readnext:
-        if(IR_Read(r, h1) == INDEXREAD_EOF) break;  
-    } while(1);
-    
-    return count;
-    
-}
 
 inline t_docId IR_LastDocId(void* ctx) {
     return ((IndexReader *)ctx)->lastId;
@@ -460,12 +414,13 @@ inline t_docId UI_LastDocId(void *ctx) {
     return ((UnionContext*)ctx)->minDocId;
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num) {
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
     
     // create union context
     UnionContext *ctx = calloc(1, sizeof(UnionContext));
     ctx->its =its;
     ctx->num = num;
+    ctx->docTable = dt;
     ctx->currentHits = calloc(num, sizeof(IndexHit));
     
     // bind the union iterator calls
@@ -633,7 +588,7 @@ void ReadIterator_Free(IndexIterator *it) {
  
  
  
- IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact) {
+ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *dt) {
      // create context
     IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
     ctx->its =its;
@@ -641,6 +596,7 @@ void ReadIterator_Free(IndexIterator *it) {
     ctx->lastDocId = 0;
     ctx->exact = exact;
     ctx->currentHits = calloc(num, sizeof(IndexHit));
+    ctx->docTable = dt;
 
     
     // bind the iterator calls

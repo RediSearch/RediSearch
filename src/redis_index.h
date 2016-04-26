@@ -7,8 +7,9 @@
 
 IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term);
 void Redis_CloseWriter(IndexWriter *w);
-IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term);
+IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term, DocTable *dt);
 void Redis_CloseReader(IndexReader *r);
+SkipIndex *Redis_LoadSkipIndex(RedisModuleCtx *ctx, const char *term);
 
 
 #define TERM_KEY_FORMAT "ft:%s"
@@ -22,9 +23,7 @@ RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term);
 */
 IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term);
 void Redis_CloseWriter(IndexWriter *w);
-SkipIndex *Redis_LoadSkipIndex(RedisModuleCtx *ctx, const char *term);
-IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term);
-void Redis_CloseReader(IndexReader *r);
+
 
 
 #define REDISINDEX_DOCIDS_MAP "__redis_docIds__"
@@ -32,4 +31,20 @@ void Redis_CloseReader(IndexReader *r);
 
 t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey, int *isnew); 
 RedisModuleString *Redis_GetDocKey(RedisModuleCtx *ctx, t_docId docId);
+
+typedef struct {
+    const char *name;
+    const char *text;
+} DocumentField;
+
+typedef struct {
+    RedisModuleString *docKey;
+    DocumentField *fields;
+    int numFields;
+    float score; 
+} Document;
+
+
+
+
 #endif

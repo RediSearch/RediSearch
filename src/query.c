@@ -27,8 +27,8 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
     return s;
 }
 
-IndexIterator *evalLoadStage(RedisModuleCtx *ctx, QueryStage *stage) {
-    IndexReader *ir = Redis_OpenReader(ctx, stage->term);
+IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
+    IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable);
     if (ir == NULL) {
         return NULL;
     } 
@@ -36,56 +36,56 @@ IndexIterator *evalLoadStage(RedisModuleCtx *ctx, QueryStage *stage) {
     return NewIndexIterator(ir);
 }
 
-IndexIterator *evalIntersectStage(RedisModuleCtx *ctx, QueryStage *stage) {
+IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
     
     if (stage->nchildren == 1) {
-        return Query_EvalStage(ctx, stage->children[0]);
+        return Query_EvalStage(q, stage->children[0]);
     }
     IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator*));
     for (int i = 0; i < stage->nchildren; i++) {
-        iters[i] = Query_EvalStage(ctx, stage->children[i]);
+        iters[i] = Query_EvalStage(q, stage->children[i]);
         if (iters[i] == NULL) {
             printf("Got NULL!\n");
         }
     }
     
-    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 0);
+    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 0, q->docTable);
     return ret;
 }
 
 
-IndexIterator *evalUnionStage(RedisModuleCtx *ctx, QueryStage *stage) {
+IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage) {
     IndexIterator *iters[stage->nchildren];
     for (int i = 0; i < stage->nchildren; i++) {
-        iters[i] = Query_EvalStage(ctx, stage->children[i]);
+        iters[i] = Query_EvalStage(q, stage->children[i]);
     }
     
-    IndexIterator *ret = NewUnionIterator(iters, stage->nchildren);
+    IndexIterator *ret = NewUnionIterator(iters, stage->nchildren, q->docTable);
     return ret;
 }
 
 
-IndexIterator *evalExactIntersectStage(RedisModuleCtx *ctx, QueryStage *stage) {
+IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage) {
     IndexIterator *iters[stage->nchildren];
     for (int i = 0; i < stage->nchildren; i++) {
-        iters[i] = Query_EvalStage(ctx, stage->children[i]);
+        iters[i] = Query_EvalStage(q, stage->children[i]);
     }
     
-    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 1);
+    IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 1, q->docTable);
     return ret;
 }
 
-IndexIterator *Query_EvalStage(RedisModuleCtx *ctx, QueryStage *s) {
+IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
     
     switch (s->op) {
         case Q_LOAD:
-            return evalLoadStage(ctx, s);
+            return query_EvalLoadStage(q, s);
         case Q_INTERSECT:
-            return evalIntersectStage(ctx, s);
+            return query_EvalIntersectStage(q, s);
         case Q_EXACT:
-            return evalExactIntersectStage(ctx, s);
+            return query_EvalExactIntersectStage(q, s);
         case Q_UNION:
-           return evalUnionStage(ctx, s);
+           return query_EvalUnionStage(q, s);
     }
     
     return NULL;
@@ -109,9 +109,9 @@ int queryTokenFunc(void *ctx, Token t) {
     return 0;
 }
 
-Query *ParseQuery(const char *query, size_t len, int offset, int limit) {
+Query *ParseQuery(RedisModuleCtx * ctx, const char *query, size_t len, int offset, int limit) {
     Query *ret = calloc(1, sizeof(Query));
-    
+    ret->ctx = ctx;
     ret->limit = limit;
     ret->offset = offset;
     ret->raw = strndup(query, len);
