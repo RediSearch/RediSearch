@@ -32,7 +32,7 @@ int ReadVarint(Buffer *b) {
         return 0;
     }
 	int val = c & 127;
-    
+    size_t o = b->offset;
 	while (c & 128) {
 		++val;
         
@@ -43,6 +43,7 @@ int ReadVarint(Buffer *b) {
         }
 		val = (val << 7) + (c & 127);
 	}
+    printf("read %d @ %zd\n", val, o);
 	return val;
 }
 
@@ -103,7 +104,9 @@ int VV_HasNext(VarintVectorIterator *vi) {
 
 int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
+      printf("last value %d\n", vi->lastValue);
       int i = ReadVarint(vi->buf) + vi->lastValue;
+      printf("read %d\n", i);
       vi->lastValue = i;
       vi->index++;
       return i;
@@ -144,7 +147,7 @@ Write an integer to the vector.
 @retur 0 if we're out of capacity, the varint's actual size otherwise
 */
 size_t VVW_Write(VarintVectorWriter *w, int i) {
-    
+    printf("writing %d, last value %d\n", i, w->lastValue);
     size_t n = WriteVarint( i - w->lastValue, &w->bw);
     if (n != 0) {
         w->nmemb += 1;
@@ -166,6 +169,9 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list 
 */
 int VV_MinDistance(VarintVector **vs, int num) {
+    if (num <= 1) {
+        return 1;
+    }
     
     int minDist = 0;
     int dist = 0;
@@ -174,8 +180,10 @@ int VV_MinDistance(VarintVector **vs, int num) {
     int vals[num];
     int i;
     for (i = 0; i < num; i++) {
+        BufferSeek(vs[i], 0);
         iters[i] = VarIntVector_iter(vs[i]);
         vals[i] = VV_Next(&iters[i]);
+        printf("vals %d: %d\n", i, vals[i]);
         if (i >= 1) {
             dist += abs(vals[i] - vals[i-1]);
         }
@@ -200,12 +208,15 @@ int VV_MinDistance(VarintVector **vs, int num) {
        dist -= minIdx < num -1 ? abs(vals[minIdx+1] - vals[minIdx]) : 0;
        
        vals[minIdx] = VV_Next(&iters[minIdx]);
-       
+       printf("vals %d: %d\n", minIdx, vals[minIdx]);
        dist += minIdx > 0 ? abs(vals[minIdx] - vals[minIdx-1]) : 0;
        dist += minIdx < num -1 ? abs(vals[minIdx+1] - vals[minIdx]) : 0;
        
        
        minDist = MIN(dist,minDist);
+       if (minDist<num) {
+           break;
+       }
     }
     
     return minDist;

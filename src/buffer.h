@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1
@@ -31,6 +32,7 @@ inline size_t BufferOffset(Buffer *ctx) {
 }
 
 inline static int BufferAtEnd(Buffer *ctx) {
+    printf("offset %d, cap %d\n", ctx->offset, ctx->cap);
     return ctx->offset >= ctx->cap;
 }
 

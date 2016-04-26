@@ -43,6 +43,6 @@ mdma.so: $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS)
 clean:
 	rm -rf *.xo *.so *.o
 
-test: $(VARINT) $(INDEX) $(TESTS) $(UTILOBJS)
-	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(VARINT) $(TESTS) $(LIBS) -lc -lm 
+test: $(VARINT) $(INDEX) $(TESTS) $(UTILOBJS) $(REDIS) 
+	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(VARINT) $(TESTS) $(REDIS) $(UTILOBJS) $(LIBS) -lc -lm 
 	@(sh -c ./testung)

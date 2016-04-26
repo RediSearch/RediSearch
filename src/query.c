@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <math.h>
 
 #include "index.h"
 #include "tokenize.h"
@@ -44,9 +45,6 @@ IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
     IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator*));
     for (int i = 0; i < stage->nchildren; i++) {
         iters[i] = Query_EvalStage(q, stage->children[i]);
-        if (iters[i] == NULL) {
-            printf("Got NULL!\n");
-        }
     }
     
     IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 0, q->docTable);
@@ -103,7 +101,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
 
 int queryTokenFunc(void *ctx, Token t) {
     Query *q = ctx;
-    printf("Adding token %s\n", t.s);
+    
     QueryStage_AddChild(q->root, NewQueryStage(t.s, Q_LOAD));
 
     return 0;
@@ -133,15 +131,18 @@ u_int32_t getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
 }
 
+/* Factor document score (and TBD - other factors) in the hit's score.
+This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
     
     if(!h->hasMetadata) {
-        printf("Loading meta!\n");
         IndexHit_LoadMetadata(h, dt);
     }
         
-    printf("totalfreq: %f, score: %f\n", h->totalFreq, h->metadata.score);
-    return h->totalFreq*h->metadata.score; 
+    
+    int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
+    printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
+    return (h->totalFreq*h->metadata.score)/pow((double)md, 2); 
     
 }
 
@@ -180,6 +181,7 @@ QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
             free(h);
             break;
         }
+        
         
         h->totalFreq = processHitScore(h, query->docTable);
         

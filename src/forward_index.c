@@ -26,11 +26,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
 
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-    
-    printf("Pre norm: %d\n", e->freq);
     e->freq = 1+(u_int16_t)((FREQ_QUANTIZE_FACTOR-1) * ((float)e->freq/(float)idx->maxFreq));
-    printf("Post norm: %d\n", e->freq);
-
 }
 
 int forwardIndexTokenFunc(void *ctx, Token t) {

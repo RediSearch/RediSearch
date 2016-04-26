@@ -381,15 +381,15 @@ int testForwardIndex() {
 int main(int argc, char **argv) {
   
     LOGGING_LEVEL = L_DEBUG;
-      TESTFUNC(testVarint);
-      TESTFUNC(testDistance);
-      TESTFUNC(testIndexReadWrite);
-      TESTFUNC(testIntersection);
-    TESTFUNC(testReadIterator);
-     TESTFUNC(testUnion);
+    //   TESTFUNC(testVarint);
+       TESTFUNC(testDistance);
+    //   TESTFUNC(testIndexReadWrite);
+    //   TESTFUNC(testIntersection);
+    // TESTFUNC(testReadIterator);
+    //  TESTFUNC(testUnion);
 
-     TESTFUNC(testMemBuffer);
-     TESTFUNC(testTokenize);
-     TESTFUNC(testForwardIndex);
+    //  TESTFUNC(testMemBuffer);
+    //  TESTFUNC(testTokenize);
+    //  TESTFUNC(testForwardIndex);
   return 0;
 }

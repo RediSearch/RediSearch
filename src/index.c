@@ -19,14 +19,13 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *fla
     BufferReadByte(ir->buf, (char*)flags);
     
     size_t offsetsLen = ReadVarint(ir->buf); 
+    printf("Offsetslen :%d\n", offsetsLen);
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
     if (offsets != NULL) {
-        offsets->data = ir->buf->data;
-        offsets->cap = offsetsLen;
-        offsets->offset = 0;
-        offsets->pos = offsets->data;
-        offsets->type = BUFFER_READ;
+        offsets = NewBuffer(ir->buf->pos, offsetsLen, BUFFER_READ);
+        printf("offsets: %d/%d\n", offsets->offset, offsets->cap);
     }
+    
     
     BufferSkip(ir->buf, offsetsLen);
     ir->lastId = *docId;
@@ -48,9 +47,10 @@ int IR_Read(void *ctx, IndexHit *e) {
     IndexReader *ir = ctx;
     // if the entry doesn't have an offset vector, allocate one for it
     if (e->numOffsetVecs == 0) {
-        e->offsetVecs = realloc(e->offsetVecs, 1*sizeof(VarintVector*));
+        printf("Allocating offset vec\n");
+        e->offsetVecs = malloc(1*sizeof(VarintVector*));
         e->numOffsetVecs++;
-        e->offsetVecs[0] = (VarintVector*) malloc(sizeof(VarintVector));
+        e->offsetVecs[0] = calloc(1, sizeof(VarintVector));
     }
     
     int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, e->offsetVecs[0]);
@@ -114,21 +114,23 @@ IndexHit NewIndexHit() {
 
 
 void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
+    printf("Appending %d offset vectors\n", numOffsetVecs);
     if (numOffsetVecs == 0) return;
     
     int nv = h->numOffsetVecs + numOffsetVecs;
     h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
     int n = 0;
     for (int i = h->numOffsetVecs; i < nv; i++) {
+        printf("Appending %d\n", i);
         h->offsetVecs[i] = offsetVecs[n++];
     }
+    h->numOffsetVecs = nv;
 }
 
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
     
     int rc = 0;
     if ((rc = DocTable_GetMetadata(dt, h->docId, &h->metadata)) == REDISMODULE_OK) {
-        printf("loaded metadata %f\n", h->metadata.score);
         h->hasMetadata = 1;
     }
     return rc;
@@ -751,7 +753,7 @@ int II_Read(void *ctx, IndexHit *hit) {
             printf("INTERSECTION! %d\n", ic->lastDocId);
             // sum up all hits
             for (int i = 0; i < nh; i++) {
-                IndexHit *hh = &ic->currentHits[0];
+                IndexHit *hh = &ic->currentHits[i];
                 hit->docId = hh->docId;
                 hit->flags |= hh->flags;
                 hit->totalFreq += hh->totalFreq;
