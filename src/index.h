@@ -27,16 +27,26 @@ SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
 
 typedef struct {
     t_docId docId;
-    u_int16_t len; 
-    u_int16_t freq;
+    double totalFreq;
     u_char flags;
-    VarintVector offsets; 
+    VarintVector **offsetVecs;
+    int numOffsetVecs;
+    int hasMetadata;
+    DocumentMetadata metadata;
 } IndexHit;
 
-#pragma pack(1)
+
+void IndexHit_Init(IndexHit *h);
+IndexHit NewIndexHit();
+void IndexHit_Terminate(IndexHit *h);
+int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt);
+
+
+#pragma pack(4)
 typedef struct  {
     t_offset size;
     t_docId lastId;
+    u_int32_t numDocs;
 } IndexHeader;
 #pragma pack()
 
@@ -85,10 +95,12 @@ void ReadIterator_Free(IndexIterator *it);
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable);
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable);
 void IR_Free(IndexReader *ir); 
+int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, VarintVector *offsets);
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);
 int IR_HasNext(void *ctx);
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
+u_int32_t IR_NumDocs(IndexReader *ir);
 t_docId IR_LastDocId(void* ctx);
 int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
 int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx);
@@ -99,7 +111,6 @@ int indexReadHeader(Buffer *b, IndexHeader *h);
 IndexIterator *NewIndexIterator(IndexReader *ir);
 
 size_t IW_Close(IndexWriter *w); 
-void IW_Write(IndexWriter *w, IndexHit *e); 
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
@@ -140,5 +151,7 @@ int II_Next(void *ctx);
 int II_Read(void *ctx, IndexHit *hit);
 int II_HasNext(void *ctx);
 t_docId II_LastDocId(void *ctx);
+
+
 
 #endif

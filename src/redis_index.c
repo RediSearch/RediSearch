@@ -134,7 +134,7 @@ int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
     char buf[32];
     snprintf(buf, 32, DOCTABLE_DOCID_KEY_FMT, docId);
     
-    RedisModuleString *data;
+    RedisModuleString *data = NULL;
     int rc = RedisModule_HashGet(t->key, REDISMODULE_HASH_CFIELDS, buf, &data, NULL);
     if (rc == REDISMODULE_ERR || data == NULL) {
       return REDISMODULE_ERR;
@@ -147,6 +147,7 @@ int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
       memcpy(md, p, sizeof(DocumentMetadata));
       ret = REDISMODULE_OK;
     }
+    LG_DEBUG("READ META: score %f\n", md->score);
     
     RedisModule_FreeString(t->ctx, data);
     return ret;
@@ -161,7 +162,7 @@ int DocTable_PutDocument(DocTable *t, t_docId docId, double score, u_short flags
     
     RedisModuleString *data = RedisModule_CreateString(t->ctx, (char *)&md, sizeof(DocumentMetadata));
     
-    printf("Writing %s -> %p\n", buf, data);
+    LG_DEBUG("Writing META %s -> %p. doc score :%f\n", buf, data, score);
     int rc = RedisModule_HashSet(t->key, REDISMODULE_HASH_CFIELDS, 
                 buf, 
                 data, NULL);

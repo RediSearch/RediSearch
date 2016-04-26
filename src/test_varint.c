@@ -88,21 +88,20 @@ int testIndexReadWrite() {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
     //     w->ndocs);
     // }
-    IndexHit h;
+    
+    ForwardIndexEntry h;
     h.docId = i;
     h.flags = 0;
     h.freq = i % 10;
 
-    VarintVectorWriter *vw = NewVarintVectorWriter(8);
+    h.vw = NewVarintVectorWriter(8);
     for (int n = 0; n < i % 4; n++) {
-      VVW_Write(vw, n);
+      VVW_Write(h.vw, n);
     }
-    VVW_Truncate(vw);
+    VVW_Truncate(h.vw);
     
-    h.offsets = *vw->bw.buf;
-
-    IW_Write(w, &h);
-    VVW_Free(vw);
+    IW_WriteEntry(w, &h);
+    VVW_Free(h.vw);
   }
 
   printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
@@ -117,12 +116,14 @@ int testIndexReadWrite() {
          w->ndocs);
 
   
-  IndexHit h;
+  
+  
   int n = 0;
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &w->skipIdx);
-    IndexHit h;
+    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &w->skipIdx, NULL);
+    IndexHit h = NewIndexHit();
+    
 
     struct timespec start_time, end_time;
     for (int z= 0; z < 10; z++) {
@@ -154,20 +155,18 @@ IndexWriter *createIndex(int size, int idStep) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
     //     w->ndocs);
     // }
-    IndexHit h;
+    ForwardIndexEntry h;
     h.docId = id;
     h.flags = 0;
     h.freq = i % 10;
     
-    VarintVectorWriter *vw = NewVarintVectorWriter(8);
+    h.vw = NewVarintVectorWriter(8);
     for (int n = idStep; n < idStep + i % 4; n++) {
-      VVW_Write(vw, n);
+      VVW_Write(h.vw, n);
     }
-    VVW_Truncate(vw);
-    h.offsets = *vw->bw.buf;
-
-    IW_Write(w, &h);
-    VVW_Free(vw);
+    IW_WriteEntry(w, &h);
+    VVW_Free(h.vw);
+    
     id += idStep;
   }
 
@@ -192,30 +191,6 @@ typedef struct {
     int counter;
 } IterationContext;
 
-int onIntersect(void *ctx, IndexHit *hits, int argc) {
-    
-    //printf("%d\n", hits[0].docId);
-    IterationContext *ic = ctx;
-    ++ic->counter;
-    VarintVector *viv[argc];
-    double score = 0;
-    for (int i =0; i < argc; i++) {
-        viv[i] = &hits[i].offsets;
-        score += log((double)hits[i].freq+2);
-        
-        
-        // if (hits[i].freq > ic->maxFreq) 
-        //     ic->maxFreq = hits[i].freq;
-    }
-    
-    
-    
-    //int dist = VV_MinDistance(viv, argc);
-    //score /= pow ((double)(dist+1), 2.0);
-    //printf("%lf %d %lf\n", score, dist, score/pow ((double)(dist+1), 2.0) );
-    return 0;
-}
-
 int printIntersect(void *ctx, IndexHit *hits, int argc) {
     
     printf("intersect: %d\n", hits[0].docId);
@@ -226,17 +201,18 @@ int testReadIterator() {
     IndexWriter *w = createIndex(10, 1);
     
     
-    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL);
-    IndexHit h;
-        
+    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL);
+    IndexHit h = NewIndexHit();
+            
     IndexIterator *it = NewIndexIterator(r1);
     int i = 1;
     while(it->HasNext(it->ctx)) {
         if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
             return -1;
         }
-        ASSERT(h.docId == i++);
         //printf("Iter got %d\n", h.docId);
+        ASSERT(h.docId == i++);
+        
     }
     return i == 11 ? 0 : -1;
 }
@@ -244,13 +220,13 @@ int testReadIterator() {
 
 int testUnion() {
     IndexWriter *w = createIndex(10, 2);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx, NULL);
     IndexWriter *w2 = createIndex(10, 3);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &w2->skipIdx);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &w2->skipIdx, NULL);
     printf("Reading!\n");
     IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
-    IndexIterator *ui =  NewUnionIterator(irs, 2);
-    IndexHit h;
+    IndexIterator *ui =  NewUnionIterator(irs, 2, NULL);
+    IndexHit h = NewIndexHit();
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
     while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -275,9 +251,9 @@ int testUnion() {
 int testIntersection() {
     
     IndexWriter *w = createIndex(100000, 4);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx, NULL);
     IndexWriter *w2 = createIndex(100000, 2);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &w2->skipIdx);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &w2->skipIdx, NULL);
     
     // IndexWriter *w3 = createIndex(10000, 3);
     // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
@@ -290,10 +266,11 @@ int testIntersection() {
     printf ("Intersecting...\n");
     
     int count = 0;
-    IndexIterator *ii = NewIntersecIterator(irs, 2, 0);
+    IndexIterator *ii = NewIntersecIterator(irs, 2, 0, NULL);
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
-    IndexHit h;
+    IndexHit h = NewIndexHit();
+    
     while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
         //printf("%d\n", h.docId);
         ++count;
@@ -404,15 +381,15 @@ int testForwardIndex() {
 int main(int argc, char **argv) {
   
     LOGGING_LEVEL = L_DEBUG;
-    TESTFUNC(testVarint);
-    TESTFUNC(testDistance);
-    TESTFUNC(testIndexReadWrite);
-     TESTFUNC(testIntersection);
+      TESTFUNC(testVarint);
+      TESTFUNC(testDistance);
+      TESTFUNC(testIndexReadWrite);
+      TESTFUNC(testIntersection);
     TESTFUNC(testReadIterator);
-    TESTFUNC(testUnion);
+     TESTFUNC(testUnion);
 
-    TESTFUNC(testMemBuffer);
-    TESTFUNC(testTokenize);
-    TESTFUNC(testForwardIndex);
+     TESTFUNC(testMemBuffer);
+     TESTFUNC(testTokenize);
+     TESTFUNC(testForwardIndex);
   return 0;
 }

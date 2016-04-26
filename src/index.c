@@ -2,33 +2,67 @@
 #include "varint.h"
 #include "forward_index.h"
 #include <sys/param.h>
-
+#include <math.h>
 #define SKIPINDEX_STEP 100
 
 
-int IR_Read(void *ctx, IndexHit *e) {
-    IndexReader *ir = ctx;
+int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, VarintVector *offsets) {
     if (!IR_HasNext(ir)) {
         return INDEXREAD_EOF;
     }
     
-    e->docId = ReadVarint(ir->buf) + ir->lastId;
-    e->len = ReadVarint(ir->buf);
-    e->freq = ReadVarint(ir->buf);
-    BufferReadByte(ir->buf, (char *)&e->flags);
+    *docId = ReadVarint(ir->buf) + ir->lastId;
+    //printf("Read docId %d @ %d/%d\n", *docId, ir->buf->offset, ir->buf->cap);
+    /*int len =*/ ReadVarint(ir->buf); //we read this because it's written to the buffer
+    
+    *freq = ReadVarint(ir->buf);
+    BufferReadByte(ir->buf, (char*)flags);
     
     size_t offsetsLen = ReadVarint(ir->buf); 
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
-    
-    e->offsets.data = ir->buf->data;
-    e->offsets.cap = offsetsLen;
-    e->offsets.offset = 0;
-    e->offsets.pos = e->offsets.data;
-    e->offsets.type = BUFFER_READ;
+    if (offsets != NULL) {
+        offsets->data = ir->buf->data;
+        offsets->cap = offsetsLen;
+        offsets->offset = 0;
+        offsets->pos = offsets->data;
+        offsets->type = BUFFER_READ;
+    }
     
     BufferSkip(ir->buf, offsetsLen);
-    ir->lastId = e->docId;
+    ir->lastId = *docId;
     return INDEXREAD_OK;
+}
+
+#define TOTALDOCS_PLACEHOLDER (double)10000000
+double tfidf(u_int16_t freq, u_int32_t docFreq) {
+    
+    double tf = (double)freq/(double)FREQ_QUANTIZE_FACTOR;
+    double idf = log(1.0F + TOTALDOCS_PLACEHOLDER/(double)(docFreq ? docFreq : 1));
+    printf("FREQ: %d TF: %.04f, IDF: %.04f, TFIDF: %f\n",freq, tf, idf, tf*idf); 
+    return tf*idf;
+}
+
+int IR_Read(void *ctx, IndexHit *e) {
+    u_int16_t freq;
+    
+    IndexReader *ir = ctx;
+    // if the entry doesn't have an offset vector, allocate one for it
+    if (e->numOffsetVecs == 0) {
+        e->offsetVecs = realloc(e->offsetVecs, 1*sizeof(VarintVector*));
+        e->numOffsetVecs++;
+        e->offsetVecs[0] = (VarintVector*) malloc(sizeof(VarintVector));
+    }
+    
+    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, e->offsetVecs[0]);
+    
+    // add tf-idf score of the entry to the hit
+    if (rc == INDEXREAD_OK) {
+        
+        
+        e->totalFreq += tfidf(freq, ir->header.numDocs);
+    }
+    
+    return rc;
 }
 
 
@@ -62,6 +96,53 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
 }
 
 
+void IndexHit_Init(IndexHit *h) {
+    h->docId = 0;
+    h->flags = 0;
+    h->numOffsetVecs = 0;
+    h->offsetVecs = NULL;
+    h->totalFreq = 0; 
+    h->metadata = (DocumentMetadata){0,0};
+    h->hasMetadata = 0;
+}
+
+IndexHit NewIndexHit() {
+    IndexHit h;
+    IndexHit_Init(&h);
+    return h;
+}
+
+
+void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
+    if (numOffsetVecs == 0) return;
+    
+    int nv = h->numOffsetVecs + numOffsetVecs;
+    h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
+    int n = 0;
+    for (int i = h->numOffsetVecs; i < nv; i++) {
+        h->offsetVecs[i] = offsetVecs[n++];
+    }
+}
+
+int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
+    
+    int rc = 0;
+    if ((rc = DocTable_GetMetadata(dt, h->docId, &h->metadata)) == REDISMODULE_OK) {
+        printf("loaded metadata %f\n", h->metadata.score);
+        h->hasMetadata = 1;
+    }
+    return rc;
+}
+
+void IndexHit_Terminate(IndexHit *h) {
+    if (h->offsetVecs) {
+        for (int i = 0; i < h->numOffsetVecs; i++) {
+            free(h->offsetVecs[i]);
+        }
+        free(h->offsetVecs);
+
+    }
+}
 /**
 Skip to the given docId, or one place after it
 @param ctx IndexReader context
@@ -95,6 +176,10 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
     }
     
     return INDEXREAD_EOF;
+}
+
+u_int32_t IR_NumDocs(IndexReader *ir) {
+    return ir->header.numDocs;
 }
 
 
@@ -150,9 +235,9 @@ size_t IW_Len(IndexWriter *w) {
 void writeIndexHeader(IndexWriter *w) {
     size_t offset = w->bw.buf->offset;
     BufferSeek(w->bw.buf, 0);
-    IndexHeader h = {offset, w->lastId};
-    LG_DEBUG("Writing index header. offest %d , lastId %d will seek to %zd\n", h.size, h.lastId, offset);
-    w->bw.Write(w->bw.buf, &h, sizeof(h));
+    IndexHeader h = {offset, w->lastId, w->ndocs};
+    printf("Writing index header. offest %d , lastId %d, ndocs %d, will seek to %zd\n", h.size, h.lastId, w->ndocs, offset);
+    w->bw.Write(w->bw.buf, &h, sizeof(IndexHeader));
     BufferSeek(w->bw.buf, offset);
 
 }
@@ -173,9 +258,10 @@ IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
     w->ndocs = 0;
     w->lastId = 0;
     
-    IndexHeader h = {0, 0};
+    IndexHeader h = {0, 0, 0};
     if (indexReadHeader(w->bw.buf, &h) && h.size > 0) {
         w->lastId = h.lastId;
+        w->ndocs = h.numDocs;
         BufferSeek(w->bw.buf, h.size);
     } else {
         writeIndexHeader(w);
@@ -201,61 +287,42 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
 
 
 
-void IW_Write(IndexWriter *w, IndexHit *e) {
-    
-    size_t offsetsSz = VV_Size(&e->offsets);
-    // calculate the overall len
-    size_t len = varintSize(e->docId - w->lastId) + varintSize(e->freq) + 1 + varintSize(offsetsSz) + offsetsSz;
-    size_t lensize = varintSize(len);
-    len += lensize;
-    //just in case we jumped one order of magnitude
-    len += varintSize(len) - lensize;
-    WriteVarint(e->docId - w->lastId, &w->bw);
-    w->lastId = e->docId;
-    
-    // encode len
-    WriteVarint(len, &w->bw);
-    //encode freq
-    WriteVarint(e->freq, &w->bw);
-    //encode flags
-    w->bw.Write(w->bw.buf, &e->flags, sizeof(e->flags));
-    
-    //write offsets size
-    WriteVarint(offsetsSz, &w->bw);
-    w->bw.Write(w->bw.buf, e->offsets.data, e->offsets.cap);
-    
-    w->ndocs++;
-}
 
-void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
-    
-    LG_DEBUG("Writing entry %s\n", ent->term);
-    VVW_Truncate(ent->vw);
-    VarintVector *offsets = ent->vw->bw.buf;
-    BufferSeek(offsets, 0);
-    
+void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq, 
+                    u_char flags, VarintVector *offsets) {
+
     
     size_t offsetsSz = VV_Size(offsets);
     // calculate the overall len
-    size_t len = varintSize(ent->docId - w->lastId) + varintSize(ent->freq) + 1 + varintSize(offsetsSz) + offsetsSz;
+    size_t len = varintSize(docId - w->lastId) + varintSize(freq) + 1 + varintSize(offsetsSz) + offsetsSz;
     size_t lensize = varintSize(len);
     len += lensize;
     //just in case we jumped one order of magnitude
     len += varintSize(len) - lensize;
-    WriteVarint(ent->docId - w->lastId, &w->bw);
-    w->lastId = ent->docId;
+    
+    // Write docId
+    WriteVarint(docId - w->lastId, &w->bw);
     // encode len
     WriteVarint(len, &w->bw);
     //encode freq
-    WriteVarint(ent->freq, &w->bw);
+    WriteVarint(freq, &w->bw);
     //encode flags
-    w->bw.Write(w->bw.buf, &ent->flags, sizeof(ent->flags));
-    
+    w->bw.Write(w->bw.buf, &flags, 1);
     //write offsets size
     WriteVarint(offsetsSz, &w->bw);
     w->bw.Write(w->bw.buf, offsets->data, offsets->cap);
     
+    w->lastId = docId;
     w->ndocs++;
+    
+}
+
+/* Write a forward-index entry to an index writer */ 
+void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
+    VVW_Truncate(ent->vw);
+    VarintVector *offsets = ent->vw->bw.buf;
+   
+    IW_GenericWrite(w, ent->docId, ent->freq, ent->flags, offsets);
 }
 
 
@@ -275,10 +342,12 @@ size_t IW_Close(IndexWriter *w) {
 void IW_MakeSkipIndex(IndexWriter *iw, int step) {
     IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL, NULL);
 
-    SkipEntry *entries = calloc(ir->header.size/step, sizeof(SkipEntry));
+    int nents = ir->header.numDocs/step;
+    SkipEntry *entries = calloc(nents, sizeof(SkipEntry));
     
     int i = 0, idx = 0;
-    while (IR_Next(ir) != INDEXREAD_EOF) {
+    while (IR_Next(ir) != INDEXREAD_EOF && idx < nents) {
+        
        if (++i % step == 0) {
            
            entries[idx].docId = ir->lastId;
@@ -362,7 +431,7 @@ int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, 
     
     IndexHit hits[argc];
     for (int i =0; i < argc; i++) {
-        hits[i].docId = 0;
+        IndexHit_Init(&hits[i]);
     }
     
     t_docId currentDoc = 0;
@@ -484,7 +553,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
 }
 
  int UI_Next(void *ctx) {
-     IndexHit h;
+     IndexHit h = NewIndexHit();
      return UI_Read(ctx, &h);
  }
  
@@ -677,8 +746,17 @@ int II_Read(void *ctx, IndexHit *hit) {
             ++nh;
         }
         
+        printf("doc %d NH: %d/%d\n", ic->lastDocId, nh, ic->num);
         if (nh == ic->num) {
-            *hit = ic->currentHits[0];
+            printf("INTERSECTION! %d\n", ic->lastDocId);
+            // sum up all hits
+            for (int i = 0; i < nh; i++) {
+                IndexHit *hh = &ic->currentHits[0];
+                hit->docId = hh->docId;
+                hit->flags |= hh->flags;
+                hit->totalFreq += hh->totalFreq;
+                IndexHit_AppendOffsetVecs(hit, hh->offsetVecs, hh->numOffsetVecs);
+            } 
             
             // advance to the next iterator
             ic->its[0]->Read(ic->its[0]->ctx, &ic->currentHits[0]);

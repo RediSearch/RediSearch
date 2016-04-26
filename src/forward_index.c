@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <sys/param.h>
 #include "forward_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -12,6 +13,7 @@ ForwardIndex *NewForwardIndex(t_docId docId, float docScore) {
     idx->docScore = docScore;
     idx->docId = docId;
     idx->totalFreq = 0;
+    idx->maxFreq = 0;
     
     return idx;
 }
@@ -22,6 +24,14 @@ void ForwardIndexFree(ForwardIndex *idx) {
     //TODO: check if we need to free each entry separately
 }
 
+
+void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
+    
+    printf("Pre norm: %d\n", e->freq);
+    e->freq = 1+(u_int16_t)((FREQ_QUANTIZE_FACTOR-1) * ((float)e->freq/(float)idx->maxFreq));
+    printf("Post norm: %d\n", e->freq);
+
+}
 
 int forwardIndexTokenFunc(void *ctx, Token t) {
     ForwardIndex *idx = ctx;
@@ -45,7 +55,8 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h->flags |= t.fieldId;
     h->freq += t.score;
     idx->totalFreq += t.score;
-    
+
+    idx->maxFreq = MAX(h->freq, idx->maxFreq);
     VVW_Write(h->vw, t.pos);
     LG_DEBUG("%d) %s, token freq: %d total freq: %d\n", t.pos,t.s, h->freq, idx->totalFreq);
     return 0;

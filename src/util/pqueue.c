@@ -125,6 +125,7 @@ void *PQueuePop(PQUEUE *pq, u_int32_t (*PGetRating)(void *)) {
     return NULL;
   }
 
+
   pMaxElement = pq->Elements[PQ_FIRST_ENTRY];
 
   // get pointer to last element in tree

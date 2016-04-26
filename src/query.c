@@ -130,7 +130,19 @@ void Query_Free(Query *q) {
 }
 
 u_int32_t getHitScore(void * ctx) {
-    return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
+    return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
+}
+
+double processHitScore(IndexHit *h, DocTable *dt) {
+    
+    if(!h->hasMetadata) {
+        printf("Loading meta!\n");
+        IndexHit_LoadMetadata(h, dt);
+    }
+        
+    printf("totalfreq: %f, score: %f\n", h->totalFreq, h->metadata.score);
+    return h->totalFreq*h->metadata.score; 
+    
 }
 
 QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
@@ -149,7 +161,7 @@ QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
     //  start lazy evaluation of all query steps
     IndexIterator *it = NULL;
     if (query->root != NULL) {
-        it = Query_EvalStage(ctx, query->root);
+        it = Query_EvalStage(query, query->root);
     }
 
     // no query evaluation plan?    
@@ -163,10 +175,13 @@ QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
     while (it->HasNext(it->ctx)) {
         // TODO - Use static allocation
         IndexHit *h = malloc(sizeof(IndexHit));
+        IndexHit_Init(h);       
         if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
             free(h);
             break;
         }
+        
+        h->totalFreq = processHitScore(h, query->docTable);
         
         ++res->totalResults;
         if (PQueueIsFull(&pq)) {

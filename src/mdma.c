@@ -27,7 +27,6 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
     
     DocTable dt;
     if (InitDocTable(ctx, &dt) == REDISMODULE_ERR)  return REDISMODULE_ERR;
-    
     if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
@@ -49,6 +48,7 @@ int AddDocument(RedisModuleCtx *ctx, Document doc) {
         
         while (entry != NULL) {
             LG_DEBUG("entry: %s freq %d\n", entry->term, entry->freq);
+            ForwardIndex_NormalizeFreq(idx, entry);
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term);
             
             IW_WriteEntry(w, entry);
@@ -109,7 +109,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 u_int32_t _getHitScore(void * ctx) {
-    return ctx ? (u_int32_t)((IndexHit *)ctx)->freq : 0;
+    return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
 }
 
 /** SEARCH <term> <term> */
@@ -158,7 +158,7 @@ cleanup:
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    LOGGING_LEVEL = 0xFFFFFFFF;
+    LOGGING_INIT(0xFFFFFFFF);
 
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
