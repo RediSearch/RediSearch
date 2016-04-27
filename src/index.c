@@ -22,7 +22,12 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *fla
     printf("Offsetslen :%d\n", offsetsLen);
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
     if (offsets != NULL) {
-        offsets = NewBuffer(ir->buf->pos, offsetsLen, BUFFER_READ);
+        offsets->cap = offsetsLen;
+        offsets->data = ir->buf->pos;
+        offsets->pos = offsets->data;
+        offsets->ctx = NULL;
+        offsets->offset = 0;
+        offsets->type = BUFFER_READ; 
         printf("offsets: %d/%d\n", offsets->offset, offsets->cap);
     }
     
@@ -121,7 +126,7 @@ void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOf
     h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
     int n = 0;
     for (int i = h->numOffsetVecs; i < nv; i++) {
-        printf("Appending %d\n", i);
+        printf("Appending %d offset %zd cap %zd\n", i, offsetVecs[n]->offset, offsetVecs[n]->cap);
         h->offsetVecs[i] = offsetVecs[n++];
     }
     h->numOffsetVecs = nv;
