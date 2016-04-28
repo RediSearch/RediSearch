@@ -78,9 +78,6 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
   printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL), len);
   Buffer *buf = NewBuffer(data, len, bufferMode);
   
-  // if the buffer is not new, seek to the end of it.
-  // at this stage we must be in write mode if the buffer is empty, so it's ok
-  
   // set the redis buffer context
   RedisBufferCtx *bcx = calloc(1, sizeof(RedisBufferCtx));
   bcx->ctx = ctx;

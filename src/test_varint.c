@@ -106,8 +106,10 @@ int testIndexReadWrite() {
 
   printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
+         
+  ASSERT(w->skipIndexWriter.buf->offset > 0);
   IW_Close(w);
-  IW_MakeSkipIndex(w, 10);
+  //IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
   
 //   for (int x = 0; x < w->skipIdx.len; x++) {
 //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId, w->skipIdx.entries[x].offset);
@@ -121,7 +123,9 @@ int testIndexReadWrite() {
   int n = 0;
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &w->skipIdx, NULL);
+    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
+    printf("si: %d\n", si.len);
+    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &si, NULL);
     IndexHit h = NewIndexHit();
     
 
@@ -177,7 +181,7 @@ IndexWriter *createIndex(int size, int idStep) {
   
   w->bw.Truncate(w->bw.buf, 0);
   
-  IW_MakeSkipIndex(w, 100);
+//  IW_MakeSkipIndex(w, NewMemoryBuffer(100, BUFFER_WRITE));
   IW_Close(w);
   
   printf("iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
@@ -220,9 +224,11 @@ int testReadIterator() {
 
 int testUnion() {
     IndexWriter *w = createIndex(10, 2);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx, NULL);
+    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL);
     IndexWriter *w2 = createIndex(10, 3);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &w2->skipIdx, NULL);
+    si = NewSkipIndex(w2->skipIndexWriter.buf);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &si, NULL);
     printf("Reading!\n");
     IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
     IndexIterator *ui =  NewUnionIterator(irs, 2, NULL);
@@ -251,9 +257,11 @@ int testUnion() {
 int testIntersection() {
     
     IndexWriter *w = createIndex(100000, 4);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &w->skipIdx, NULL);
+    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL);
     IndexWriter *w2 = createIndex(100000, 2);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &w2->skipIdx, NULL);
+    si = NewSkipIndex(w2->skipIndexWriter.buf);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &si, NULL);
     
     // IndexWriter *w3 = createIndex(10000, 3);
     // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
@@ -289,7 +297,7 @@ int testIntersection() {
 int testMemBuffer() {
     //TEST_START();
     
-    BufferWriter w = NewBufferWriter(2);
+    BufferWriter w = NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE));
     ASSERTM( w.buf->cap == 2, "Wrong capacity");
     ASSERT (w.buf->data != NULL);
     ASSERT( BufferLen(w.buf) == 0);
@@ -380,16 +388,17 @@ int testForwardIndex() {
 
 int main(int argc, char **argv) {
   
+    LOGGING_INIT(L_DEBUG);
     LOGGING_LEVEL = L_DEBUG;
-    //   TESTFUNC(testVarint);
-       TESTFUNC(testDistance);
-    //   TESTFUNC(testIndexReadWrite);
-    //   TESTFUNC(testIntersection);
-    // TESTFUNC(testReadIterator);
-    //  TESTFUNC(testUnion);
+        TESTFUNC(testVarint);
+        TESTFUNC(testDistance);
+        TESTFUNC(testIndexReadWrite);
+        TESTFUNC(testIntersection);
+     TESTFUNC(testReadIterator);
+      TESTFUNC(testUnion);
 
-    //  TESTFUNC(testMemBuffer);
-    //  TESTFUNC(testTokenize);
-    //  TESTFUNC(testForwardIndex);
+      TESTFUNC(testMemBuffer);
+      TESTFUNC(testTokenize);
+      TESTFUNC(testForwardIndex);
   return 0;
 }

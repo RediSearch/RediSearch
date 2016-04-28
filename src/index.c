@@ -19,7 +19,6 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *fla
     BufferReadByte(ir->buf, (char*)flags);
     
     size_t offsetsLen = ReadVarint(ir->buf); 
-    printf("Offsetslen :%d\n", offsetsLen);
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
     if (offsets != NULL) {
         offsets->cap = offsetsLen;
@@ -28,7 +27,7 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *fla
         offsets->ctx = NULL;
         offsets->offset = 0;
         offsets->type = BUFFER_READ; 
-        printf("offsets: %d/%d\n", offsets->offset, offsets->cap);
+        
     }
     
     
@@ -42,7 +41,7 @@ double tfidf(u_int16_t freq, u_int32_t docFreq) {
     
     double tf = (double)freq/(double)FREQ_QUANTIZE_FACTOR;
     double idf = log(1.0F + TOTALDOCS_PLACEHOLDER/(double)(docFreq ? docFreq : 1));
-    printf("FREQ: %d TF: %.04f, IDF: %.04f, TFIDF: %f\n",freq, tf, idf, tf*idf); 
+    LG_INFO("FREQ: %d TF: %.04f, IDF: %.04f, TFIDF: %f\n",freq, tf, idf, tf*idf); 
     return tf*idf;
 }
 
@@ -52,7 +51,6 @@ int IR_Read(void *ctx, IndexHit *e) {
     IndexReader *ir = ctx;
     // if the entry doesn't have an offset vector, allocate one for it
     if (e->numOffsetVecs == 0) {
-        printf("Allocating offset vec\n");
         e->offsetVecs = malloc(1*sizeof(VarintVector*));
         e->numOffsetVecs++;
         e->offsetVecs[0] = calloc(1, sizeof(VarintVector));
@@ -119,14 +117,12 @@ IndexHit NewIndexHit() {
 
 
 void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
-    printf("Appending %d offset vectors\n", numOffsetVecs);
     if (numOffsetVecs == 0) return;
     
     int nv = h->numOffsetVecs + numOffsetVecs;
     h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
     int n = 0;
     for (int i = h->numOffsetVecs; i < nv; i++) {
-        printf("Appending %d offset %zd cap %zd\n", i, offsetVecs[n]->offset, offsetVecs[n]->cap);
         h->offsetVecs[i] = offsetVecs[n++];
     }
     h->numOffsetVecs = nv;
@@ -243,7 +239,7 @@ void writeIndexHeader(IndexWriter *w) {
     size_t offset = w->bw.buf->offset;
     BufferSeek(w->bw.buf, 0);
     IndexHeader h = {offset, w->lastId, w->ndocs};
-    printf("Writing index header. offest %d , lastId %d, ndocs %d, will seek to %zd\n", h.size, h.lastId, w->ndocs, offset);
+    LG_DEBUG("Writing index header. offest %d , lastId %d, ndocs %d, will seek to %zd\n", h.size, h.lastId, w->ndocs, offset);
     w->bw.Write(w->bw.buf, &h, sizeof(IndexHeader));
     BufferSeek(w->bw.buf, offset);
 
@@ -251,7 +247,8 @@ void writeIndexHeader(IndexWriter *w) {
 
 IndexWriter *NewIndexWriter(size_t cap) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
-    w->bw = NewBufferWriter(cap);
+    w->bw = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
+    w->skipIndexWriter = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
     w->ndocs = 0;
     w->lastId = 0;
     writeIndexHeader(w);
@@ -259,9 +256,10 @@ IndexWriter *NewIndexWriter(size_t cap) {
     return w;
 }
 
-IndexWriter *NewIndexWriterBuf(BufferWriter bw) {
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
     w->bw = bw;
+    w->skipIndexWriter = skipIdnexWriter;
     w->ndocs = 0;
     w->lastId = 0;
     
@@ -293,7 +291,29 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
 }
 
 
+SkipIndex NewSkipIndex(Buffer *b) {
+    SkipIndex ret;
+    
+    u_int32_t len = 0;
+    BufferRead(b, &len, sizeof(len));
+    
+    ret.entries = (SkipEntry*)b->pos;
+    ret.len = len;
+    return ret;
+}
 
+void IW_WriteSkipIndexEntry(IndexWriter *w) {
+     SkipEntry se = {w->lastId, BufferOffset(w->bw.buf)};
+     Buffer *b = w->skipIndexWriter.buf;
+     w->skipIndexWriter.Write(b, &se, sizeof(SkipEntry));
+     // Write the number of entries at the beginning of the buffer
+     size_t off = b->offset;
+     BufferSkip(b, 0);
+     w->skipIndexWriter.Write(b, (u_int32_t*)&w->ndocs, sizeof(u_int32_t));
+     if (off > 0) {
+        BufferSkip(b, off);
+     }
+}
 
 void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq, 
                     u_char flags, VarintVector *offsets) {
@@ -319,8 +339,15 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq,
     WriteVarint(offsetsSz, &w->bw);
     w->bw.Write(w->bw.buf, offsets->data, offsets->cap);
     
+    
     w->lastId = docId;
+    if (w->ndocs % SKIPINDEX_STEP == 0) {
+        IW_WriteSkipIndexEntry(w);        
+    }
+    
     w->ndocs++;
+    
+    
     
 }
 
@@ -346,33 +373,35 @@ size_t IW_Close(IndexWriter *w) {
     return w->bw.buf->cap;
 }
 
-void IW_MakeSkipIndex(IndexWriter *iw, int step) {
-    IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL, NULL);
-
-    int nents = ir->header.numDocs/step;
-    SkipEntry *entries = calloc(nents, sizeof(SkipEntry));
+// void IW_MakeSkipIndex(IndexWriter *iw, Buffer *buf) {
+//     IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL, NULL);
     
-    int i = 0, idx = 0;
-    while (IR_Next(ir) != INDEXREAD_EOF && idx < nents) {
+//     int nents = ir->header.numDocs/SKIPINDEX_STEP;
+    
+//     BufferWriter bw = NewBufferWriter(buf);
+//     int i = 0, idx = 0;
+//     while (IR_Next(ir) != INDEXREAD_EOF && idx < nents) {
         
-       if (++i % step == 0) {
-           
-           entries[idx].docId = ir->lastId;
-           entries[idx].offset = BufferOffset(ir->buf);
-           //LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
-           idx++;
-       }
+//        if (++i % SKIPINDEX_STEP == 0) {
           
-    }
+//            SkipEntry se = {ir->lastId, ir->buf->offset};
+//            bw.Write(buf, &se, sizeof(SkipEntry));
+//            //LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
+//            idx++;
+//        }
+          
+//     }
     
-    iw->skipIdx.entries = entries;
-    iw->skipIdx.len = idx;
+//     bw.Truncate(buf, 0);
+//     bw.Release(buf);
+//     iw->skipIdx.entries = (SkipEntry*)buf->data;
+//     iw->skipIdx.len = idx;
      
-}
+// }
 
 
 void IW_Free(IndexWriter *w) {
-    free(w->skipIdx.entries);
+    w->skipIndexWriter.Release(w->skipIndexWriter.buf);
     w->bw.Release(w->bw.buf);
     free(w);
 }
@@ -753,9 +782,8 @@ int II_Read(void *ctx, IndexHit *hit) {
             ++nh;
         }
         
-        printf("doc %d NH: %d/%d\n", ic->lastDocId, nh, ic->num);
         if (nh == ic->num) {
-            printf("INTERSECTION! %d\n", ic->lastDocId);
+            
             // sum up all hits
             for (int i = 0; i < nh; i++) {
                 IndexHit *hh = &ic->currentHits[i];

@@ -12,12 +12,15 @@ void Redis_CloseReader(IndexReader *r);
 SkipIndex *Redis_LoadSkipIndex(RedisModuleCtx *ctx, const char *term);
 
 
+
 #define TERM_KEY_FORMAT "ft:%s"
+#define SKIPINDEX_KEY_FORMAT "si:%s"
 /**
 * Format redis key for a term.
 * TODO: Add index name to it
 */
 RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term);
+RedisModuleString *fmtRedisSkipIndexKey(RedisModuleCtx *ctx, const char *term);
 /**
 * Open a redis index writer on a redis key
 */

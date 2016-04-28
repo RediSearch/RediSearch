@@ -15,13 +15,25 @@ RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term) {
   return ret;
 }
 
+
+RedisModuleString *fmtRedisSkipIndexKey(RedisModuleCtx *ctx, const char *term) {
+  char *k = malloc(strlen(term) + 5);
+  int len = sprintf(k, SKIPINDEX_KEY_FORMAT, term);
+  RedisModuleString *ret = RedisModule_CreateString(ctx, k, len);
+  free(k);
+  return ret;
+}
 /**
 * Open a redis index writer on a redis key
 */
 IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term) {
-  LG_DEBUG("Opening writer for %s\n", term);
-  BufferWriter br = NewRedisWriter(ctx, fmtRedisTermKey(ctx, term));
-  IndexWriter *w = NewIndexWriterBuf(br);
+  
+  // Open the index writer
+  BufferWriter bw = NewRedisWriter(ctx, fmtRedisTermKey(ctx, term));
+  
+  // Open the skip index writer
+  BufferWriter sw = NewRedisWriter(ctx, fmtRedisSkipIndexKey(ctx, term));
+  IndexWriter *w = NewIndexWriterBuf(bw, sw);
 
   return w;
 }
@@ -32,6 +44,17 @@ void Redis_CloseWriter(IndexWriter *w) {
 }
 
 SkipIndex *LoadRedisSkipIndex(RedisModuleCtx *ctx, const char *term) {
+  Buffer *b = NewRedisBuffer(ctx, fmtRedisSkipIndexKey(ctx, term), BUFFER_READ);
+  if (b && b->cap > sizeof(SkipEntry)) {
+    
+    SkipIndex *si = malloc(sizeof(SkipIndex));
+    BufferRead(b, &si->len, sizeof(si->len));
+    si->entries = (SkipEntry*)b->pos;
+    
+    RedisBufferFree(b);
+    return si;
+  }
+  RedisBufferFree(b);
   return NULL;
 }
 
@@ -42,6 +65,7 @@ IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term, DocTable *d
     return NULL;
   }
   SkipIndex *si = LoadRedisSkipIndex(ctx, term);
+  printf("Loaded skip index %p\n", si);
   return NewIndexReaderBuf(b, si, dt);
 }
 

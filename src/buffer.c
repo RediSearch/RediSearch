@@ -36,8 +36,8 @@ size_t memwriterTruncate(Buffer *b, size_t newlen) {
 void membufferRelease(Buffer *b) {
     
     // only release the data if we created the buffer
-    if (b->type & BUFFER_WRITE) {
-        //free(b->data);
+    if (b->type & BUFFER_FREEABLE) {
+        free(b->data);
     }
     b->cap = 0;
     b->data = NULL;
@@ -45,9 +45,7 @@ void membufferRelease(Buffer *b) {
     free(b);
 }
 
-BufferWriter NewBufferWriter(size_t cap) {
-    
-    Buffer *b = NewBuffer(malloc(cap), cap, BUFFER_WRITE);
+BufferWriter NewBufferWriter(Buffer *b) {
     
     BufferWriter ret = {
         b,
@@ -134,4 +132,11 @@ size_t BufferSeek(Buffer *b, size_t where) {
   b->pos = b->data + where;
   b->offset = where;
   return where;
+}
+
+
+/* Create a buffer in memory, mainly for redis-less tests */
+Buffer *NewMemoryBuffer(size_t cap, int bufferType) {
+    char *data = malloc(cap);
+    return NewBuffer(data, cap, bufferType | BUFFER_FREEABLE);
 }

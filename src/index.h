@@ -23,6 +23,7 @@ typedef struct {
 } SkipIndex;
 
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
+SkipIndex NewSkipIndex(Buffer *b);
 
 
 typedef struct {
@@ -67,7 +68,7 @@ typedef struct {
     
     t_docId lastId;
     u_int32_t ndocs;
-    SkipIndex skipIdx;
+    BufferWriter skipIndexWriter;
 } IndexWriter;
 
 
@@ -105,7 +106,9 @@ t_docId IR_LastDocId(void* ctx);
 int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
 int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx);
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
-void IW_MakeSkipIndex(IndexWriter *iw, int step);
+
+
+//void IW_MakeSkipIndex(IndexWriter *iw, Buffer *b);
 int indexReadHeader(Buffer *b, IndexHeader *h);
 
 IndexIterator *NewIndexIterator(IndexReader *ir);
@@ -115,7 +118,7 @@ void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
 IndexWriter *NewIndexWriter(size_t cap);
-IndexWriter *NewIndexWriterBuf(BufferWriter bw);
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter);
 
 
 typedef struct {

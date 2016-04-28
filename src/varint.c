@@ -43,8 +43,7 @@ int ReadVarint(Buffer *b) {
         }
 		val = (val << 7) + (c & 127);
 	}
-    printf("read %d @ %zd\n", val, o);
-	return val;
+    return val;
 }
 
 
@@ -104,9 +103,7 @@ int VV_HasNext(VarintVectorIterator *vi) {
 
 int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
-      printf("last value %d\n", vi->lastValue);
       int i = ReadVarint(vi->buf) + vi->lastValue;
-      printf("read %d\n", i);
       vi->lastValue = i;
       vi->index++;
       return i;
@@ -133,7 +130,7 @@ void VVW_Free(VarintVectorWriter *w) {
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
     VarintVectorWriter *w = malloc(sizeof(VarintVectorWriter));
-    w->bw = NewBufferWriter(cap);
+    w->bw = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
     w->lastValue = 0;
     w->nmemb = 0;
     
@@ -147,7 +144,6 @@ Write an integer to the vector.
 @retur 0 if we're out of capacity, the varint's actual size otherwise
 */
 size_t VVW_Write(VarintVectorWriter *w, int i) {
-    printf("writing %d, last value %d\n", i, w->lastValue);
     size_t n = WriteVarint( i - w->lastValue, &w->bw);
     if (n != 0) {
         w->nmemb += 1;
@@ -183,7 +179,7 @@ int VV_MinDistance(VarintVector **vs, int num) {
         BufferSeek(vs[i], 0);
         iters[i] = VarIntVector_iter(vs[i]);
         vals[i] = VV_Next(&iters[i]);
-        printf("vals %d: %d\n", i, vals[i]);
+
         if (i >= 1) {
             dist += abs(vals[i] - vals[i-1]);
         }
@@ -208,7 +204,6 @@ int VV_MinDistance(VarintVector **vs, int num) {
        dist -= minIdx < num -1 ? abs(vals[minIdx+1] - vals[minIdx]) : 0;
        
        vals[minIdx] = VV_Next(&iters[minIdx]);
-       printf("vals %d: %d\n", minIdx, vals[minIdx]);
        dist += minIdx > 0 ? abs(vals[minIdx] - vals[minIdx-1]) : 0;
        dist += minIdx < num -1 ? abs(vals[minIdx+1] - vals[minIdx]) : 0;
        

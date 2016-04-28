@@ -7,7 +7,7 @@
 
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1
-
+#define BUFFER_FREEABLE 2 // if set, we free the buffer on Release
 typedef struct {
     char *data;
     size_t cap;
@@ -32,7 +32,6 @@ inline size_t BufferOffset(Buffer *ctx) {
 }
 
 inline static int BufferAtEnd(Buffer *ctx) {
-    printf("offset %d, cap %d\n", ctx->offset, ctx->cap);
     return ctx->offset >= ctx->cap;
 }
 
@@ -49,8 +48,9 @@ size_t memwriterTruncate(Buffer *b, size_t newlen);
 void membufferRelease(Buffer *b);
 
 Buffer *NewBuffer(char *data, size_t len, int bufferMode);
-BufferWriter NewBufferWriter(size_t cap);
+BufferWriter NewBufferWriter(Buffer *b);
 
+Buffer *NewMemoryBuffer(size_t cap, int type);
 
 
 
