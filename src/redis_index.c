@@ -92,9 +92,9 @@ TODO: Detect if the id is numeric and don't convert it
 t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
                        int *isnew) {
   *isnew = 0;
-  const char *k = RedisModule_StringPtrLen(docKey, NULL);
+  
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "HGET", "cc", REDISINDEX_DOCIDS_MAP, docKey);
+      RedisModule_Call(ctx, "HGET", "cs", REDISINDEX_DOCKEY_MAP, docKey);
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
     return 0;
 
@@ -105,8 +105,14 @@ t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
     if (rep == NULL) return 0;
 
     long long ll = RedisModule_CallReplyInteger(increp);
+    RedisModuleString *ls = RedisModule_CreateStringFromLongLong(ctx, ll);
+    
+    // map docId => key
     RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCIDS_MAP,
-                     RedisModule_CreateStringFromLongLong(ctx, ll), docKey);
+                     ls, docKey);
+    // map key => docId                
+    RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCKEY_MAP,
+                    docKey, ls);                     
     *isnew = 1;
     return (t_docId)ll;
   }

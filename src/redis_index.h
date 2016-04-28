@@ -29,7 +29,11 @@ void Redis_CloseWriter(IndexWriter *w);
 
 
 
+// A key mapping docId => docKey string
 #define REDISINDEX_DOCIDS_MAP "__redis_docIds__"
+// A key mapping docKey => internal docId
+#define REDISINDEX_DOCKEY_MAP "__redis_docKeys__"
+// The counter incrementing internal docIds
 #define REDISINDEX_DOCIDCOUNTER "__redis_docIdCounter__"
 
 t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey, int *isnew); 

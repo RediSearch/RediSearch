@@ -16,18 +16,20 @@
 
 
 
-int AddDocument(RedisModuleCtx *ctx, Document doc) {
+int AddDocument(RedisModuleCtx *ctx, Document doc, const char **errorString) {
     
     int isnew;
     t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
-    if (docId == 0 || isnew == 0) {
-        LG_ERROR("Not a new doc");
+    printf("docId:%d\n", docId);
+    if (docId == 0 || !isnew) {
+        *errorString = "Document already in index";
         return REDISMODULE_ERR;
     }
     
     DocTable dt;
     if (InitDocTable(ctx, &dt) == REDISMODULE_ERR)  return REDISMODULE_ERR;
     if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
+        *errorString = "Could not save document metadata";
         return REDISMODULE_ERR;
     }
     
@@ -97,9 +99,10 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         doc.fields[i-3].text = RedisModule_StringPtrLen(argv[i+1], &len);;
     }
     LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
-    int rc = AddDocument(ctx, doc);
+    const char *msg = NULL;
+    int rc = AddDocument(ctx, doc, &msg);
     if (rc == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "Could not index document");
+        RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
