@@ -6,6 +6,7 @@
 #include <math.h>
 #include <time.h>
 #include "tokenize.h"
+#include "spec.h"
 
 #define TESTFUNC(f) \
                 printf("Testing %s ...\t", __STRING(f)); \
@@ -385,6 +386,26 @@ int testForwardIndex() {
     return 0;
 }
 
+int testIndexSpec() {
+    
+    const char *args[4] = {"title", "0.1", "body", "2.0" };
+    IndexSpec s;
+    
+    int rc = IndexSpec_Parse(&s, args, 4);
+    ASSERT(rc == REDISMODULE_OK);
+    ASSERT( s.numFields == 2)
+    
+    FieldSpec *f = IndexSpec_GetField(&s, args[0], strlen(args[0]));
+    ASSERT( f != NULL);
+    assert( strcmp(f->name, args[0]) == 0);
+    assert( f->weight == 0.1 );
+    
+    ASSERT (IndexSpec_GetField(&s, "foo", 3) == NULL)
+    
+    return 0;
+    
+}
+
 
 int main(int argc, char **argv) {
   
@@ -400,5 +421,6 @@ int main(int argc, char **argv) {
       TESTFUNC(testMemBuffer);
       TESTFUNC(testTokenize);
       TESTFUNC(testForwardIndex);
+      TESTFUNC(testIndexSpec);
   return 0;
 }

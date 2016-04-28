@@ -1,6 +1,6 @@
 * [DONE] DocTable lookup during queries
 * [DONE] TF-IDF
-* Redis skip-indexes
+* [DONE] Redis skip-indexes
 * Index spec storage
 * Document store
 * finalize API
