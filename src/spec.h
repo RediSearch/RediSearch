@@ -43,4 +43,7 @@ int IndexSpec_Parse(IndexSpec *s, const char **argv, int argc);
 void IndexSpec_Free(IndexSpec *spec);
 
 
+int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
+int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
+
 #endif

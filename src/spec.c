@@ -75,3 +75,49 @@ void IndexSpec_Free(IndexSpec *spec) {
         free(spec->fields);
     }
 }
+
+int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
+    
+    char buf[strlen(name)+5];
+    sprintf(buf, "idx:%s", name);
+    
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, 
+                                            RedisModule_CreateString(ctx, buf, strlen(buf)),
+                                            REDISMODULE_WRITE);
+    if (k == NULL) {
+        return REDISMODULE_ERR;
+    }
+    
+    for (int i = 0; i < sp->numFields; i++) {
+        
+        char lb[32];
+        snprintf(lb, 32, "%f", sp->fields[i].weight);
+        if (REDISMODULE_ERR == RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, 
+                            sp->fields[i].name,
+                            RedisModule_CreateString(ctx, lb, strlen(lb)), 
+                            NULL)) {
+          return REDISMODULE_ERR;
+        }
+        
+    }
+    
+    return REDISMODULE_OK;
+}
+
+int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
+    char buf[strlen(name)+5];
+    sprintf(buf, "idx:%s", name);
+    
+    RedisModuleCallReply *resp = RedisModule_Call(ctx, "HGETALL", "c", buf);
+    if (resp == NULL | RedisModule_CallReplyType(resp) != REDISMODULE_REPLY_ARRAY) {
+        return REDISMODULE_ERR;
+    }
+    
+    size_t arrlen = RedisModule_CallReplyLength(resp);
+    RedisModuleString *arr[arrlen];
+    for (size_t i = 0; i < arrlen; i++) {
+        RedisModuleCallReply *r = RedisModule_CallReplyArrayElement(resp, i);
+        arr[i] = RedisModule_CreateStringFromCallReply(r);
+    }
+    return IndexSpec_ParseRedisArgs(sp, ctx, arr, arrlen);
+}

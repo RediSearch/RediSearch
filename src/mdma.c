@@ -12,6 +12,7 @@
 #include "util/logging.h"
 #include "util/pqueue.h"
 #include "query.h"
+#include "spec.h"
 
 
 
@@ -115,11 +116,11 @@ u_int32_t _getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
 }
 
-/** SEARCH <term> <term> */
+/** SEARCH <index> <query> LIMIT  */
 int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     // at least one field, and number of field/text args must be even
-    if (argc < 2) {
+    if (argc < 3) {
         return RedisModule_WrongArity(ctx);
     }
     
@@ -159,6 +160,32 @@ cleanup:
     return REDISMODULE_OK;
 }
 
+/* FT.CREATE <index name> <field> <weight>, ... */
+int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    
+    // at least one field, and number of field/text args must be even
+    if (argc < 4 || argc % 2==1) {
+        return RedisModule_WrongArity(ctx);
+    }
+    
+    IndexSpec sp;
+    if (IndexSpec_ParseRedisArgs(&sp, ctx, &argv[2], argc-2) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Could not parse field specs");
+        return REDISMODULE_OK;
+    }
+    
+    
+    size_t len;
+    const char *name = RedisModule_StringPtrLen(argv[1], &len);
+    if (IndexSpec_Save(ctx, &sp, name) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "Could not save index spec");
+        return REDISMODULE_OK;
+    }
+    
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+    
+}
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
     LOGGING_INIT(0xFFFFFFFF);
@@ -175,6 +202,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
         SearchCommand,
         "readonly deny-oom no-cluster", 1,1,1)
          == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+   
+   
+   if (RedisModule_CreateCommand(ctx,"ft.create",
+        CreateIndexCommand, "write no-cluster", 1,1,1)
+        == REDISMODULE_ERR)
         return REDISMODULE_ERR;
         
 //  if (RedisModule_CreateCommand(ctx,"hgetset",
