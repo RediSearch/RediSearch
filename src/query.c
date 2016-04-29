@@ -91,11 +91,8 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
 }
 
 void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
-    
-    
     parent->children = realloc(parent->children, sizeof(QueryStage*)*(parent->nchildren+1));
     parent->children[parent->nchildren++] = child;
-    
 }
 
 
@@ -107,13 +104,14 @@ int queryTokenFunc(void *ctx, Token t) {
     return 0;
 }
 
-Query *ParseQuery(RedisModuleCtx * ctx, const char *query, size_t len, int offset, int limit) {
+Query *ParseQuery(RedisModuleCtx * ctx, IndexSpec *sp, const char *query, size_t len, int offset, int limit) {
     Query *ret = calloc(1, sizeof(Query));
     ret->ctx = ctx;
     ret->limit = limit;
     ret->offset = offset;
     ret->raw = strndup(query, len);
     ret->root = NewQueryStage(NULL, Q_INTERSECT);
+    ret->spec = sp;
     tokenize(ret->raw, 1, 1, ret, queryTokenFunc);
     
     return ret;
@@ -141,12 +139,12 @@ double processHitScore(IndexHit *h, DocTable *dt) {
         
     
     int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-    printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
+   // printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
     return (h->totalFreq*h->metadata.score)/pow((double)md, 2); 
     
 }
 
-QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
+QueryResult *Query_Execute( Query *query) {
     
     QueryResult *res = malloc(sizeof(QueryResult));
     res->error = 0;
@@ -203,7 +201,7 @@ QueryResult *Query_Execute(RedisModuleCtx *ctx, Query *query) {
     
     for (int i = n-1; i >=0; --i) {
         IndexHit *h = PQueuePop(&pq, getHitScore);
-        res->ids[i] = Redis_GetDocKey(ctx, h->docId);
+        res->ids[i] = Redis_GetDocKey(query->ctx, h->docId);
         free(h);
     }
 

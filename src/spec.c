@@ -76,10 +76,10 @@ void IndexSpec_Free(IndexSpec *spec) {
     }
 }
 
-int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
+int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
     
-    char buf[strlen(name)+5];
-    sprintf(buf, "idx:%s", name);
+    char buf[strlen(sp->name)+5];
+    sprintf(buf, "idx:%s", sp->name);
     
     RedisModuleKey *k = RedisModule_OpenKey(ctx, 
                                             RedisModule_CreateString(ctx, buf, strlen(buf)),
@@ -107,9 +107,10 @@ int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
 int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
     char buf[strlen(name)+5];
     sprintf(buf, "idx:%s", name);
+    sp->name = name;
     
     RedisModuleCallReply *resp = RedisModule_Call(ctx, "HGETALL", "c", buf);
-    if (resp == NULL | RedisModule_CallReplyType(resp) != REDISMODULE_REPLY_ARRAY) {
+    if (resp == NULL || RedisModule_CallReplyType(resp) != REDISMODULE_REPLY_ARRAY) {
         return REDISMODULE_ERR;
     }
     
@@ -117,6 +118,7 @@ int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
     RedisModuleString *arr[arrlen];
     for (size_t i = 0; i < arrlen; i++) {
         RedisModuleCallReply *r = RedisModule_CallReplyArrayElement(resp, i);
+        if (r != NULL)
         arr[i] = RedisModule_CreateStringFromCallReply(r);
     }
     return IndexSpec_ParseRedisArgs(sp, ctx, arr, arrlen);

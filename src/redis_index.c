@@ -7,7 +7,7 @@
 * Format redis key for a term.
 * TODO: Add index name to it
 */
-RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term) {
+RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term) {
   char *k = malloc(strlen(term) + 5);
   int len = sprintf(k, TERM_KEY_FORMAT, term);
   RedisModuleString *ret = RedisModule_CreateString(ctx, k, len);
@@ -16,7 +16,7 @@ RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term) {
 }
 
 
-RedisModuleString *fmtRedisSkipIndexKey(RedisModuleCtx *ctx, const char *term) {
+RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
   char *k = malloc(strlen(term) + 5);
   int len = sprintf(k, SKIPINDEX_KEY_FORMAT, term);
   RedisModuleString *ret = RedisModule_CreateString(ctx, k, len);
@@ -26,7 +26,7 @@ RedisModuleString *fmtRedisSkipIndexKey(RedisModuleCtx *ctx, const char *term) {
 /**
 * Open a redis index writer on a redis key
 */
-IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term) {
+IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
   
   // Open the index writer
   BufferWriter bw = NewRedisWriter(ctx, fmtRedisTermKey(ctx, term));
@@ -43,7 +43,7 @@ void Redis_CloseWriter(IndexWriter *w) {
   RedisBufferFree(w->bw.buf);
 }
 
-SkipIndex *LoadRedisSkipIndex(RedisModuleCtx *ctx, const char *term) {
+SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
   Buffer *b = NewRedisBuffer(ctx, fmtRedisSkipIndexKey(ctx, term), BUFFER_READ);
   if (b && b->cap > sizeof(SkipEntry)) {
     
@@ -59,7 +59,7 @@ SkipIndex *LoadRedisSkipIndex(RedisModuleCtx *ctx, const char *term) {
 }
 
 
-IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term, DocTable *dt) {
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt) {
   Buffer *b = NewRedisBuffer(ctx, fmtRedisTermKey(ctx, term), BUFFER_READ);
   if (b == NULL) {  // not found
     return NULL;
@@ -89,7 +89,7 @@ write to that map
 
 TODO: Detect if the id is numeric and don't convert it
 */
-t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
+t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
                        int *isnew) {
   *isnew = 0;
   
@@ -128,7 +128,8 @@ t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey,
   return 0;
 }
 
-RedisModuleString *Redis_GetDocKey(RedisModuleCtx *ctx, t_docId docId) {
+
+RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
   RedisModuleCallReply *rep =
       RedisModule_Call(ctx, "HGET", "cs", REDISINDEX_DOCIDS_MAP,
                        RedisModule_CreateStringFromLongLong(ctx, docId));

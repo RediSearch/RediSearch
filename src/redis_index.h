@@ -3,13 +3,18 @@
 
 #include "redis_buffer.h"
 #include "index.h"
+#include "spec.h"
 
+typedef struct {
+    RedisModuleCtx *redisCtx;
+    IndexSpec *spec;
+} RedisSearchCtx;
 
-IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term);
+IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term);
 void Redis_CloseWriter(IndexWriter *w);
-IndexReader *Redis_OpenReader(RedisModuleCtx *ctx, const char *term, DocTable *dt);
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt);
 void Redis_CloseReader(IndexReader *r);
-SkipIndex *Redis_LoadSkipIndex(RedisModuleCtx *ctx, const char *term);
+SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term);
 
 
 
@@ -19,12 +24,12 @@ SkipIndex *Redis_LoadSkipIndex(RedisModuleCtx *ctx, const char *term);
 * Format redis key for a term.
 * TODO: Add index name to it
 */
-RedisModuleString *fmtRedisTermKey(RedisModuleCtx *ctx, const char *term);
-RedisModuleString *fmtRedisSkipIndexKey(RedisModuleCtx *ctx, const char *term);
+RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term);
+RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term);
 /**
 * Open a redis index writer on a redis key
 */
-IndexWriter *Redis_OpenWriter(RedisModuleCtx *ctx, const char *term);
+IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term);
 void Redis_CloseWriter(IndexWriter *w);
 
 
@@ -36,8 +41,8 @@ void Redis_CloseWriter(IndexWriter *w);
 // The counter incrementing internal docIds
 #define REDISINDEX_DOCIDCOUNTER "__redis_docIdCounter__"
 
-t_docId Redis_GetDocId(RedisModuleCtx *ctx, RedisModuleString *docKey, int *isnew); 
-RedisModuleString *Redis_GetDocKey(RedisModuleCtx *ctx, t_docId docId);
+t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey, int *isnew); 
+RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId);
 
 typedef struct {
     const char *name;

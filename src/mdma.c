@@ -116,7 +116,7 @@ u_int32_t _getHitScore(void * ctx) {
     return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
 }
 
-/** SEARCH <index> <query> LIMIT  */
+/** SEARCH <index> <query> [LIMIT first num] */
 int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     // at least one field, and number of field/text args must be even
@@ -127,11 +127,22 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     
     DocTable dt;
+    IndexSpec sp;
+    
+    // open the documents metadata table
     InitDocTable(ctx, &dt);
     
+    // load the index by name
+    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
+        REDISMODULE_OK) {
+        
+        RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+        return REDISMODULE_OK;
+    }
+    
     size_t len;
-    const char *qs = RedisModule_StringPtrLen(argv[1], &len);
-    Query *q = ParseQuery(ctx, (char *)qs, len, 0, 10);
+    const char *qs = RedisModule_StringPtrLen(argv[2], &len);
+    Query *q = ParseQuery(ctx, &sp, (char *)qs, len, 0, 10);
     q->docTable = &dt;
     
     // Execute the query 
@@ -174,10 +185,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_OK;
     }
     
-    
     size_t len;
-    const char *name = RedisModule_StringPtrLen(argv[1], &len);
-    if (IndexSpec_Save(ctx, &sp, name) == REDISMODULE_ERR) {
+    sp.name = RedisModule_StringPtrLen(argv[1], &len);
+   
+    if (IndexSpec_Save(ctx, &sp) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not save index spec");
         return REDISMODULE_OK;
     }

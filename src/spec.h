@@ -14,7 +14,7 @@ typedef struct {
 typedef struct {
     FieldSpec *fields;
     int numFields;
-        
+    const char *name;    
 } IndexSpec;
 
 
@@ -44,6 +44,6 @@ void IndexSpec_Free(IndexSpec *spec);
 
 
 int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
-int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
+int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp);
 
 #endif
