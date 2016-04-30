@@ -28,6 +28,7 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
     return s;
 }
 
+
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
     IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable);
     if (ir == NULL) {
@@ -104,14 +105,13 @@ int queryTokenFunc(void *ctx, Token t) {
     return 0;
 }
 
-Query *ParseQuery(RedisModuleCtx * ctx, IndexSpec *sp, const char *query, size_t len, int offset, int limit) {
+Query *ParseQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit) {
     Query *ret = calloc(1, sizeof(Query));
     ret->ctx = ctx;
     ret->limit = limit;
     ret->offset = offset;
     ret->raw = strndup(query, len);
     ret->root = NewQueryStage(NULL, Q_INTERSECT);
-    ret->spec = sp;
     tokenize(ret->raw, 1, 1, ret, queryTokenFunc);
     
     return ret;

@@ -9,8 +9,8 @@
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term) {
   char *k = malloc(strlen(term) + 5);
-  int len = sprintf(k, TERM_KEY_FORMAT, term);
-  RedisModuleString *ret = RedisModule_CreateString(ctx, k, len);
+  int len = sprintf(k, TERM_KEY_FORMAT, ctx->spec->name, term);
+  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, k, len);
   free(k);
   return ret;
 }
@@ -18,8 +18,8 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term) {
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
   char *k = malloc(strlen(term) + 5);
-  int len = sprintf(k, SKIPINDEX_KEY_FORMAT, term);
-  RedisModuleString *ret = RedisModule_CreateString(ctx, k, len);
+  int len = sprintf(k, SKIPINDEX_KEY_FORMAT, ctx->spec->name, term);
+  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, k, len);
   free(k);
   return ret;
 }
@@ -29,10 +29,10 @@ RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
   
   // Open the index writer
-  BufferWriter bw = NewRedisWriter(ctx, fmtRedisTermKey(ctx, term));
+  BufferWriter bw = NewRedisWriter(ctx->redisCtx, fmtRedisTermKey(ctx, term));
   
   // Open the skip index writer
-  BufferWriter sw = NewRedisWriter(ctx, fmtRedisSkipIndexKey(ctx, term));
+  BufferWriter sw = NewRedisWriter(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term));
   IndexWriter *w = NewIndexWriterBuf(bw, sw);
 
   return w;
@@ -44,7 +44,7 @@ void Redis_CloseWriter(IndexWriter *w) {
 }
 
 SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
-  Buffer *b = NewRedisBuffer(ctx, fmtRedisSkipIndexKey(ctx, term), BUFFER_READ);
+  Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_READ);
   if (b && b->cap > sizeof(SkipEntry)) {
     
     SkipIndex *si = malloc(sizeof(SkipIndex));
@@ -60,7 +60,7 @@ SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
 
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt) {
-  Buffer *b = NewRedisBuffer(ctx, fmtRedisTermKey(ctx, term), BUFFER_READ);
+  Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term), BUFFER_READ);
   if (b == NULL) {  // not found
     return NULL;
   }
@@ -94,24 +94,24 @@ t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
   *isnew = 0;
   
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "HGET", "cs", REDISINDEX_DOCKEY_MAP, docKey);
+      RedisModule_Call(ctx->redisCtx, "HGET", "cs", REDISINDEX_DOCKEY_MAP, docKey);
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
     return 0;
 
   // not found - increment the global id counter and set in the map
   if (RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL) {
     RedisModuleCallReply *increp =
-        RedisModule_Call(ctx, "INCR", "c", REDISINDEX_DOCIDCOUNTER);
+        RedisModule_Call(ctx->redisCtx, "INCR", "c", REDISINDEX_DOCIDCOUNTER);
     if (rep == NULL) return 0;
 
     long long ll = RedisModule_CallReplyInteger(increp);
-    RedisModuleString *ls = RedisModule_CreateStringFromLongLong(ctx, ll);
+    RedisModuleString *ls = RedisModule_CreateStringFromLongLong(ctx->redisCtx, ll);
     
     // map docId => key
-    RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCIDS_MAP,
+    RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCIDS_MAP,
                      ls, docKey);
     // map key => docId                
-    RedisModule_Call(ctx, "HSET", "css", REDISINDEX_DOCKEY_MAP,
+    RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCKEY_MAP,
                     docKey, ls);                     
     *isnew = 1;
     return (t_docId)ll;
@@ -131,8 +131,8 @@ t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
 
 RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "HGET", "cs", REDISINDEX_DOCIDS_MAP,
-                       RedisModule_CreateStringFromLongLong(ctx, docId));
+      RedisModule_Call(ctx->redisCtx, "HGET", "cs", REDISINDEX_DOCIDS_MAP,
+                       RedisModule_CreateStringFromLongLong(ctx->redisCtx, docId));
 
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL ||
       RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
@@ -144,10 +144,14 @@ RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
 /**
 Open the doc table key. Return REDISMODULE_ERR if failed
 */
-int InitDocTable(RedisModuleCtx *ctx, DocTable *t) {
+int InitDocTable(RedisSearchCtx *ctx, DocTable *t) {
+  
+  char buf[strlen(ctx->spec->name)+16];
+  sprintf(buf, DOCTABLE_KEY_FMT, ctx->spec->name);
+  
   RedisModuleKey *k = RedisModule_OpenKey(
-      ctx, 
-      RedisModule_CreateString(ctx, DOCTABLE_KEY, strlen(DOCTABLE_KEY)),
+      ctx->redisCtx, 
+      RedisModule_CreateString(ctx->redisCtx, buf, strlen(buf)),
       REDISMODULE_READ|REDISMODULE_WRITE);
 
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH &&
@@ -155,7 +159,7 @@ int InitDocTable(RedisModuleCtx *ctx, DocTable *t) {
     return REDISMODULE_ERR;
   }
 
-  t->ctx = ctx;
+  t->ctx = ctx->redisCtx;
   t->key = k;
   return REDISMODULE_OK;
 }

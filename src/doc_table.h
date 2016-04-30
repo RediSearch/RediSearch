@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "redismodule.h"
 #include "types.h"
+#include "search_ctx.h"
 
 #pragma pack(1)
 typedef struct {
@@ -18,9 +19,9 @@ typedef struct {
 } DocTable;
 
 
-#define DOCTABLE_KEY "__redis_dmd__"
+#define DOCTABLE_KEY_FMT "__dmd:%s__"
 #define DOCTABLE_DOCID_KEY_FMT "d:%d"
-int InitDocTable(RedisModuleCtx *ctx, DocTable *t); 
+int InitDocTable(RedisSearchCtx *ctx, DocTable *t); 
 int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md);
 int DocTable_PutDocument(DocTable *t, t_docId docId, double score, u_short flags);
 

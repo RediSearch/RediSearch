@@ -17,7 +17,7 @@
 
 
 
-int AddDocument(RedisModuleCtx *ctx, Document doc, const char **errorString) {
+int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     
     int isnew;
     t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
@@ -70,38 +70,47 @@ int AddDocument(RedisModuleCtx *ctx, Document doc, const char **errorString) {
 
 
 /*
-FT.ADD <docId> <score> [<field> <text>, ....] 
+FT.ADD <index> <docId> <score> [<field> <text>, ....] 
 */
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     // at least one field, and number of field/text args must be even
-    if (argc < 5 || (argc - 3) % 2 == 1) {
+    if (argc < 6 || (argc - 4) % 2 == 1) {
         return RedisModule_WrongArity(ctx);
     }
     RedisModule_AutoMemory(ctx);
     
+    
+    IndexSpec sp;
+    // load the index by name
+    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {        
+        RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+        return REDISMODULE_OK;
+    }
+    
+    RedisSearchCtx sctx = {ctx, &sp};
   
     double ds = 0;
-    if (RedisModule_StringToDouble(argv[2], &ds) == REDISMODULE_ERR) {
+    if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not parse document score");
         return REDISMODULE_OK;
     }
     
     
     Document doc;
-    doc.docKey = argv[1];
+    doc.docKey = argv[2];
     doc.score = (float)ds;
     doc.numFields = (argc-3)/2;
     doc.fields = calloc(doc.numFields, sizeof(DocumentField));
     
     size_t len;
-    for (int i = 3; i < argc; i+=2) {
-        doc.fields[i-3].name = RedisModule_StringPtrLen(argv[i], &len);
-        doc.fields[i-3].text = RedisModule_StringPtrLen(argv[i+1], &len);;
+    for (int i = 4; i < argc; i+=2) {
+        doc.fields[i-4].name = RedisModule_StringPtrLen(argv[i], &len);
+        doc.fields[i-4].text = RedisModule_StringPtrLen(argv[i+1], &len);;
     }
     LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
     const char *msg = NULL;
-    int rc = AddDocument(ctx, doc, &msg);
+    int rc = AddDocument(&sctx, doc, &msg);
     if (rc == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
     } else {
@@ -129,9 +138,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DocTable dt;
     IndexSpec sp;
     
-    // open the documents metadata table
-    InitDocTable(ctx, &dt);
-    
     // load the index by name
     if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
         REDISMODULE_OK) {
@@ -140,13 +146,18 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
     }
     
+    RedisSearchCtx sctx = {ctx, &sp};
+    
+    // open the documents metadata table
+    InitDocTable(&sctx, &dt);
+    
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-    Query *q = ParseQuery(ctx, &sp, (char *)qs, len, 0, 10);
+    Query *q = ParseQuery(&sctx, (char *)qs, len, 0, 10);
     q->docTable = &dt;
     
     // Execute the query 
-    QueryResult *r = Query_Execute(ctx, q);
+    QueryResult *r = Query_Execute(q);
     if (r == NULL) {
         RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
         return REDISMODULE_OK;
