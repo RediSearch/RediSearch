@@ -1,12 +1,12 @@
 * [DONE] DocTable lookup during queries
 * [DONE] TF-IDF
 * [DONE] Redis skip-indexes
-* Index spec storage
+* [DONE]Index spec storage
 * Document store
 * finalize API
 * Complex query parsing
 * Query expansion
-* 
+* Index HASH values 
 
 Bugs:
 - intersect loads N-1

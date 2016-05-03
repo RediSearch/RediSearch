@@ -32,7 +32,7 @@ int ReadVarint(Buffer *b) {
         return 0;
     }
 	int val = c & 127;
-    size_t o = b->offset;
+    
 	while (c & 128) {
 		++val;
         
@@ -41,7 +41,7 @@ int ReadVarint(Buffer *b) {
 		if (BufferReadByte(b, (char*)&c) == 0) { //EOF
             return 0;
         }
-		val = (val << 7) + (c & 127);
+		val = (val << 7) | (c & 127);
 	}
     return val;
 }

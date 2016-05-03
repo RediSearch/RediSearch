@@ -1,10 +1,12 @@
 #include "redis_buffer.h"
 #include "util/logging.h"
+#include <sys/param.h>
 
 size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     if (b->offset + len > b->cap) {
         do {
-            b->cap *= 2;
+            //size_t cap = MIN(b->cap*2, 10000);
+            b->cap = b->cap ? b->cap * 2 : 1;
         } while(b->pos + len > b->data + b->cap);
         
         if (redisWriterTruncate(b, b->cap) == 0) {
@@ -17,7 +19,7 @@ size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     b->pos += len;
     b->offset += len;
     
-    LG_DEBUG("Written %d bytes to redis buffer cap %d\n", len, b->cap);
+    LG_DEBUG("Written %zd bytes to redis buffer cap %zd\n", len, b->cap);
     return len;
 }
 
@@ -43,7 +45,7 @@ size_t redisWriterTruncate(Buffer *b, size_t newlen) {
 }
 
 void RedisBufferFree(Buffer *b) {
-    //RedisModule_CloseKey(((RedisBufferCtx*)b->ctx)->
+    //RedisModule_CloseKey(((RedisBufferCtx*)b->ctx)->key);
     if (b->ctx != NULL) {
         free(b->ctx);
     }
@@ -52,8 +54,6 @@ void RedisBufferFree(Buffer *b) {
 
 Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
                        int bufferMode) {
-  
-  RedisModule_AutoMemory(ctx);
   
   int flags = REDISMODULE_READ | (bufferMode & BUFFER_WRITE ? REDISMODULE_WRITE : 0);
   
@@ -75,7 +75,7 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
   } 
   size_t len;
   char *data = RedisModule_StringDMA(key, &len, flags);
-  printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL), len);
+  //printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL), len);
   Buffer *buf = NewBuffer(data, len, bufferMode);
   
   // set the redis buffer context

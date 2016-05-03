@@ -13,17 +13,27 @@
 #include "util/pqueue.h"
 #include "query.h"
 #include "spec.h"
+#include "rmutil/util.h"
+#include "rmutil/strings.h"
 
 
 
 
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     
+    
     int isnew;
     t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
-    printf("docId:%d\n", docId);
+    
+    // Make sure the document is not already in the index - it needs to be incremental!
     if (docId == 0 || !isnew) {
         *errorString = "Document already in index";
+        return REDISMODULE_ERR;
+    }
+    
+    // first save the document as hash
+    if (Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
+        *errorString = "Could not save document data";
         return REDISMODULE_ERR;
     }
     
@@ -39,8 +49,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     
     int totalTokens = 0;
     for (int i = 0; i < doc.numFields; i++) {
-        LG_DEBUG("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
-        totalTokens += tokenize(doc.fields[i].text, 1, 1, idx, forwardIndexTokenFunc);        
+        //LG_DEBUG("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
+        size_t len;
+        const char *c = RedisModule_StringPtrLen(doc.fields[i].text, &len);
+        totalTokens += tokenize(c, 1, 1, idx, forwardIndexTokenFunc);        
     }
     
     LG_DEBUG("totaltokens :%d\n", totalTokens);
@@ -64,7 +76,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
         
     }
     
-    //ForwardIndexFree(idx);
+    ForwardIndexFree(idx);
     return 0;
 }
 
@@ -100,14 +112,16 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     Document doc;
     doc.docKey = argv[2];
     doc.score = (float)ds;
-    doc.numFields = (argc-3)/2;
+    doc.numFields = (argc-4)/2;
     doc.fields = calloc(doc.numFields, sizeof(DocumentField));
     
     size_t len;
-    for (int i = 4; i < argc; i+=2) {
-        doc.fields[i-4].name = RedisModule_StringPtrLen(argv[i], &len);
-        doc.fields[i-4].text = RedisModule_StringPtrLen(argv[i+1], &len);;
+    int n = 0;
+    for (int i = 4; i < argc; i+=2, n++) {
+        doc.fields[n].name = argv[i];
+        doc.fields[n].text = argv[i+1];
     }
+    
     LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
     const char *msg = NULL;
     int rc = AddDocument(&sctx, doc, &msg);
@@ -116,6 +130,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
+    free(doc.fields);
     
     return REDISMODULE_OK;
     
@@ -137,6 +152,14 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     DocTable dt;
     IndexSpec sp;
+    sp.numFields = 0;
+    sp.name = RedisModule_StringPtrLen(argv[1], NULL);
+    
+    long long first = 0, limit = 10;
+    RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &first, &limit);
+    if (limit <= 0) {
+       return RedisModule_WrongArity(ctx);
+    }
     
     // load the index by name
     if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
@@ -153,9 +176,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-    Query *q = ParseQuery(&sctx, (char *)qs, len, 0, 10);
+    Query *q = ParseQuery(&sctx, (char *)qs, len, first, limit);
     q->docTable = &dt;
-    
+        
     // Execute the query 
     QueryResult *r = Query_Execute(q);
     if (r == NULL) {
@@ -168,15 +191,28 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         goto cleanup;
     }
     
+    
+    int ndocs;
+    Document *docs = Redis_LoadDocuments(&sctx, r->ids, r->numIds, &ndocs);
     // format response
-    RedisModule_ReplyWithArray(ctx, r->numIds+1);
+    RedisModule_ReplyWithArray(ctx, 2*ndocs+1);
     RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
     
-    for (int i = 0; i < r->numIds; i++) {
-        RedisModule_ReplyWithString(ctx, r->ids[i]);
-    }
     
+    
+    for (int i = 0; i < ndocs; i++) {
+        Document doc = docs[i];
+        RedisModule_ReplyWithString(ctx, doc.docKey);
+        RedisModule_ReplyWithArray(ctx, doc.numFields*2);        
+        for (int f = 0; f < doc.numFields; f++) {
+            RedisModule_ReplyWithString(ctx, doc.fields[f].name);
+            RedisModule_ReplyWithString(ctx, doc.fields[f].text);
+        }
+        
+    }
+    free(docs);
 cleanup:    
+    
     QueryResult_Free(r);
     Query_Free(q);
     return REDISMODULE_OK;
@@ -185,11 +221,13 @@ cleanup:
 /* FT.CREATE <index name> <field> <weight>, ... */
 int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
+  
     // at least one field, and number of field/text args must be even
     if (argc < 4 || argc % 2==1) {
         return RedisModule_WrongArity(ctx);
     }
-    
+    RedisModule_AutoMemory(ctx);
+        
     IndexSpec sp;
     if (IndexSpec_ParseRedisArgs(&sp, ctx, &argv[2], argc-2) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Could not parse field specs");
@@ -210,7 +248,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    LOGGING_INIT(0xFFFFFFFF);
+    //LOGGING_INIT(0xFFFFFFFF);
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;

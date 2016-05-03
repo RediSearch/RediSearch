@@ -2,26 +2,23 @@
 #include "redis_index.h"
 #include "util/logging.h"
 #include "doc_table.h"
+#include "rmutil/util.h"
+#include "rmutil/strings.h"
 
 /**
 * Format redis key for a term.
 * TODO: Add index name to it
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term) {
-  char *k = malloc(strlen(term) + 5);
-  int len = sprintf(k, TERM_KEY_FORMAT, ctx->spec->name, term);
-  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, k, len);
-  free(k);
-  return ret;
+  
+  return RMUtil_CreateFormattedString(ctx->redisCtx, TERM_KEY_FORMAT, ctx->spec->name, term);
+
 }
 
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
-  char *k = malloc(strlen(term) + 5);
-  int len = sprintf(k, SKIPINDEX_KEY_FORMAT, ctx->spec->name, term);
-  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, k, len);
-  free(k);
-  return ret;
+  
+  return RMUtil_CreateFormattedString(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, term);
 }
 /**
 * Open a redis index writer on a redis key
@@ -41,6 +38,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
 void Redis_CloseWriter(IndexWriter *w) {
   IW_Close(w);
   RedisBufferFree(w->bw.buf);
+  
 }
 
 SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
@@ -65,7 +63,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *d
     return NULL;
   }
   SkipIndex *si = LoadRedisSkipIndex(ctx, term);
-  printf("Loaded skip index %p\n", si);
+  //printf("Loaded skip index %p\n", si);
   return NewIndexReaderBuf(b, si, dt);
 }
 
@@ -165,7 +163,10 @@ int InitDocTable(RedisSearchCtx *ctx, DocTable *t) {
 }
 
 int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
-
+  md->score = 0;
+  md->flags = 0;
+    //memset(md, 0, sizeof(DocumentMetadata));
+    return REDISMODULE_OK;
     char buf[32];
     snprintf(buf, 32, DOCTABLE_DOCID_KEY_FMT, docId);
     
@@ -174,6 +175,7 @@ int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
     if (rc == REDISMODULE_ERR || data == NULL) {
       return REDISMODULE_ERR;
     }
+    RedisModule_FreeString(t->ctx, data);
     
     size_t len;
     const char *p = RedisModule_StringPtrLen(data, &len);
@@ -182,7 +184,6 @@ int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md) {
       memcpy(md, p, sizeof(DocumentMetadata));
       ret = REDISMODULE_OK;
     }
-    LG_DEBUG("READ META: score %f\n", md->score);
     
     RedisModule_FreeString(t->ctx, data);
     return ret;
@@ -204,4 +205,70 @@ int DocTable_PutDocument(DocTable *t, t_docId docId, double score, u_short flags
     RedisModule_FreeString(t->ctx, data);
     return rc;
     
+}
+
+void Document_Free(Document doc) {
+    free(doc.fields);
+}
+
+
+int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+  
+    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
+    RMUTIL_ASSERT_NOERROR(ctx->redisCtx, rep);
+    if (RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL) {
+      return REDISMODULE_ERR;
+    }
+    
+    size_t len = RedisModule_CallReplyLength(rep);
+    doc->fields = calloc(len/2, sizeof(DocumentField));
+    doc->numFields = len/2;
+    int n = 0;
+    RedisModuleCallReply *k, *v;
+    for (int i = 0; i < len; i+=2, ++n) {
+      k = RedisModule_CallReplyArrayElement(rep, i);
+      v = RedisModule_CallReplyArrayElement(rep, i+1);
+      doc->fields[n].name = RedisModule_CreateStringFromCallReply(k);
+      doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
+    }
+    
+    return REDISMODULE_OK;
+    
+}
+
+Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys, int *nump) {
+  
+   Document *docs = calloc(numKeys, sizeof(Document));
+   int n = 0;
+   
+   for (int i = 0; i < numKeys; i++) {
+     
+      if (Redis_LoadDocument(ctx, keys[i], &docs[n]) == REDISMODULE_OK) {
+        docs[n].docKey = keys[i];
+        
+         n++;
+      }
+   }
+   
+   *nump = n;
+   return docs;
+  
+}
+
+int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
+  
+  RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE);
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+  RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+    return REDISMODULE_ERR;
+  }
+  
+  for (int i = 0; i < doc->numFields; i++) {
+    if (RedisModule_HashSet(k, REDISMODULE_HASH_NONE, doc->fields[i].name, doc->fields[i].text, NULL) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  
+  return REDISMODULE_OK;
+  
 }

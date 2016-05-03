@@ -18,7 +18,14 @@ typedef struct {
     // opaque context, e.g. redis context and key name for redis buffers
     void *ctx;
 } Buffer;
-size_t BufferReadByte(Buffer *b, char *c);
+inline size_t BufferReadByte(Buffer *b, char *c) {
+    // if (BufferAtEnd(b)) {
+    //     return 0;
+    // }
+    *c = *b->pos++;
+    ++b->offset;
+    return 1;
+}
 size_t BufferRead(Buffer *b, void *data, size_t len) ;
 size_t BufferSkip(Buffer *b, int bytes);
 size_t BufferSeek(Buffer *b, size_t offset);
@@ -31,7 +38,8 @@ inline size_t BufferOffset(Buffer *ctx) {
     return ctx->offset;
 }
 
-inline static int BufferAtEnd(Buffer *ctx) {
+
+inline int BufferAtEnd(Buffer *ctx) {
     return ctx->offset >= ctx->cap;
 }
 

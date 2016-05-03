@@ -92,18 +92,19 @@ size_t BufferRead(Buffer *b, void *data, size_t len) {
     return len;
 }
 
+
 /**
 Consme one byte from the buffer
 @return 0 if at end, 1 if consumed
 */
-size_t BufferReadByte(Buffer *b, char *c) {
-    if (BufferAtEnd(b)) {
-        return 0;
-    }
-    *c = *b->pos++;
-    ++b->offset;
-    return 1;
-}
+// size_t BufferReadByte(Buffer *b, char *c) {
+//     if (BufferAtEnd(b)) {
+//         return 0;
+//     }
+//     *c = *b->pos++;
+//     ++b->offset;
+//     return 1;
+// }
 
 /**
 Skip forward N bytes, returning the resulting offset on success or the end position if where is outside bounds

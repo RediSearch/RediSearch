@@ -19,6 +19,7 @@ void QueryStage_Free(QueryStage *s) {
     free(s);
 }
 
+
 QueryStage *NewQueryStage(const char *term, QueryOp op) {
     QueryStage *s = malloc(sizeof(QueryStage));
     s->children = NULL;
@@ -133,12 +134,13 @@ u_int32_t getHitScore(void * ctx) {
 This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
     
+   
     if(!h->hasMetadata) {
         IndexHit_LoadMetadata(h, dt);
     }
         
     
-    int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
+    int md = 1;// VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
    // printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
     return (h->totalFreq*h->metadata.score)/pow((double)md, 2); 
     
@@ -154,6 +156,7 @@ QueryResult *Query_Execute( Query *query) {
     res->numIds = 0;
     
     
+    
     PQUEUE pq; 
     PQueueInitialise(&pq, query->limit, 0, 0);
     
@@ -162,6 +165,7 @@ QueryResult *Query_Execute( Query *query) {
     if (query->root != NULL) {
         it = Query_EvalStage(query, query->root);
     }
+    
 
     // no query evaluation plan?    
     if (query->root == NULL || it == NULL) {
@@ -170,16 +174,19 @@ QueryResult *Query_Execute( Query *query) {
         return res;
     }
     
+    IndexHit *pooledHit = NULL;
     // iterate the root iterator and push everything to the PQ
     while (it->HasNext(it->ctx)) {
         // TODO - Use static allocation
-        IndexHit *h = malloc(sizeof(IndexHit));
+        if (pooledHit == NULL) {
+            pooledHit = malloc(sizeof(IndexHit));
+        }
+        IndexHit *h = pooledHit;
         IndexHit_Init(h);       
         if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
-            free(h);
             break;
         }
-        
+      
         
         h->totalFreq = processHitScore(h, query->docTable);
         
@@ -187,12 +194,19 @@ QueryResult *Query_Execute( Query *query) {
         if (PQueueIsFull(&pq)) {
             void *popped = PQueuePop(&pq, getHitScore);
             if (popped != NULL) {
-                free(popped);
+                pooledHit = popped;
+                IndexHit_Terminate(pooledHit);
             }
+        } else {
+            pooledHit = NULL;
         }
         PQueuePush(&pq, h, getHitScore);
         
     }
+    
+    it->Free(it);
+    
+    
     
     // Reverse the results into the final result
     size_t n = pq.CurrentSize;
@@ -208,7 +222,6 @@ QueryResult *Query_Execute( Query *query) {
     PQueueFree(&pq);
     return res;
 }
-
 
 void QueryResult_Free(QueryResult *q) {
    
