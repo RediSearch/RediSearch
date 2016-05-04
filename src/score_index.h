@@ -10,22 +10,22 @@
 typedef struct {
     t_offset offset;
     float score;
+    t_docId docId;
 } ScoreIndexEntry;
 #pragma pack()
 
 static int ScoreEntry_cmp(const void *e1,  const void *e2, const void *udata);
 
-#pragma pack(1)
  typedef struct {
     u_short numEntries;
     u_short lowestIndex;
     float lowestScore;
  } ScoreIndexHeader;
-#pragma pack()
 
 typedef struct {
     ScoreIndexEntry *entries;
     ScoreIndexHeader header;
+    u_short offset;
 } ScoreIndex;
 
 typedef struct {
@@ -33,9 +33,11 @@ typedef struct {
     ScoreIndexHeader header;
 } ScoreIndexWriter;
 
-ScoreIndex NewScoreIndex(Buffer *b);
+ScoreIndex *NewScoreIndex(Buffer *b);
+ScoreIndexEntry *ScoreIndex_Next(ScoreIndex *si);
+void ScoreIndex_Free(ScoreIndex *si);
 ScoreIndexWriter NewScoreIndexWriter(BufferWriter bw);
 static inline int ScoreEntry_cmp(const void *e1,  const void *e2, const void *udata); 
-int ScoreIndexWriter_AddEntry(ScoreIndexWriter *w, float score, t_offset offset) ;
+int ScoreIndexWriter_AddEntry(ScoreIndexWriter *w, float score, t_offset offset, t_docId docId) ;
 
 #endif

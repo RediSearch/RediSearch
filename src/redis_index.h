@@ -16,6 +16,8 @@ SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term);
 
 #define TERM_KEY_FORMAT "ft:%s/%s"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%s"
+#define SCOREINDEX_KEY_FORMAT "ss:%s/%s"
+
 /**
 * Format redis key for a term.
 * TODO: Add index name to it

@@ -59,7 +59,8 @@ typedef struct {
     SkipIndex *skipIdx;
     u_int skipIdxPos;
     DocTable *docTable;
-    int loadOffsets;
+    int singleWordMode;
+    ScoreIndex *scoreIndex;
 } IndexReader; 
 
 
@@ -95,8 +96,12 @@ void UnionIterator_Free(IndexIterator *it);
 void IntersectIterator_Free(IndexIterator *it);
 void ReadIterator_Free(IndexIterator *it);
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, int loadOffsets);
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int loadOffsets);
+// used only internally for unit testing
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, 
+                            int singleWordMode);
+                            
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode, 
+                              ScoreIndex *sci);
 void IR_Free(IndexReader *ir); 
 int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, 
                    VarintVector *offsets, t_docId expectedDocdId);

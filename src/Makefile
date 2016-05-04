@@ -49,7 +49,7 @@ all: util rmutil mdma.so
 #mdma.xo: ./index.h
 
 mdma.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -lprofiler
+	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
 
 clean:
 	rm -rf *.xo *.so *.o

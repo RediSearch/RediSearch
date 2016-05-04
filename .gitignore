@@ -1,7 +1,13 @@
 *.o
 *.so
+*.a
 .vscode
 test
 testung
 *.db
 /mdma
+**/callgrind.*
+**/*.out
+**/*.rdb
+**.csv
+

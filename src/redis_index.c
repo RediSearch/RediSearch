@@ -20,6 +20,11 @@ RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
   
   return RMUtil_CreateFormattedString(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, term);
 }
+
+RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term) {
+  
+  return RMUtil_CreateFormattedString(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, term);
+}
 /**
 * Open a redis index writer on a redis key
 */
@@ -29,7 +34,6 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
   BufferWriter bw = NewRedisWriter(ctx->redisCtx, fmtRedisTermKey(ctx, term));
   
   // Open the skip index writer
-  
   Buffer*sb = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_WRITE);
   BufferWriter skw = {
         sb,
@@ -45,8 +49,10 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
     BufferSeek(sb, sizeof(len) + len*sizeof(SkipEntry));
   } 
   
+  // Open the score index writer
+  ScoreIndexWriter scw = NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term)));
   
-  IndexWriter *w = NewIndexWriterBuf(bw, skw);
+  IndexWriter *w = NewIndexWriterBuf(bw, skw, scw);
   return w;
 }
 
@@ -54,6 +60,7 @@ void Redis_CloseWriter(IndexWriter *w) {
   IW_Close(w);
   RedisBufferFree(w->bw.buf);
   RedisBufferFree(w->skipIndexWriter.buf);
+  RedisBufferFree(w->scoreWriter.bw.buf);
   
 }
 
@@ -72,6 +79,15 @@ SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
   return NULL;
 }
 
+ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term) {
+   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term), BUFFER_READ);
+   if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {
+     return NULL;
+   }
+   return NewScoreIndex(b);
+  
+}
+
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode) {
   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term), BUFFER_READ);
@@ -79,11 +95,14 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *d
     return NULL;
   }
   SkipIndex *si = NULL;
-  if (!singleWordMode) {
+  ScoreIndex *sci = NULL;
+  if (singleWordMode) {
+    sci = LoadRedisScoreIndex(ctx, term);
+  } else {
     si = LoadRedisSkipIndex(ctx, term);
-  }
+  } 
   
-  return NewIndexReaderBuf(b, si, dt, singleWordMode ? 0 : 1);
+  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci);
 }
 
 void Redis_CloseReader(IndexReader *r) {
@@ -93,6 +112,9 @@ void Redis_CloseReader(IndexReader *r) {
 
   if (r->skipIdx != NULL) {
     free(r->skipIdx);
+  }
+  if (r->scoreIndex!=NULL) {
+    ScoreIndex_Free(r->scoreIndex);
   }
   free(r);
 }

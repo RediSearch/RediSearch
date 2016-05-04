@@ -19,8 +19,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
     
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
-    
-    
+        
     if (expectedDocId != 0 && *docId != expectedDocId) {
         
         BufferSkip(ir->buf, len);
@@ -33,7 +32,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
     
     size_t offsetsLen = ReadVarint(ir->buf); 
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
-    if (offsets != NULL && ir->loadOffsets && (expectedDocId == 0 || *docId==expectedDocId)) {
+    if (offsets != NULL && ir->singleWordMode && (expectedDocId == 0 || *docId==expectedDocId)) {
         offsets->cap = offsetsLen;
         offsets->data = ir->buf->pos;
         offsets->pos = offsets->data;
@@ -60,9 +59,20 @@ inline double tfidf(u_int16_t freq, u_int32_t docFreq) {
 }
 
 int IR_Read(void *ctx, IndexHit *e) {
-    u_int16_t freq;
     
+    u_int16_t freq;
     IndexReader *ir = ctx;
+    
+    if (ir->singleWordMode && ir->scoreIndex) {
+        
+        ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
+        if (ent == NULL) {
+            return INDEXREAD_EOF;
+        }
+        
+        IR_Seek(ir, ent->offset, ent->docId);
+        
+    }
     // if the entry doesn't have an offset vector, allocate one for it
     // if (e->numOffsetVecs == 0) {
     //     e->offsetVecs = malloc(1*sizeof(VarintVector*));
@@ -203,11 +213,12 @@ u_int32_t IR_NumDocs(IndexReader *ir) {
 }
 
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *dt, int loadOffsets) {
-    return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt, loadOffsets);
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *dt, int singleWordMode) {
+    return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt, singleWordMode, NULL);
 } 
 
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int loadOffsets) {
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int singleWordMode, 
+    ScoreIndex *sci) {
     
     IndexReader *ret = malloc(sizeof(IndexReader));
     ret->buf = buf;
@@ -219,8 +230,9 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int loa
     ret->skipIdxPos = 0;
     ret->skipIdx = NULL;
     ret->docTable = dt;
-    ret->loadOffsets = loadOffsets;
-    //printf("Load offsets %d, si: %p\n", loadOffsets, si);
+    ret->singleWordMode = singleWordMode;
+    ret->scoreIndex = sci;
+    //printf("Load offsets %d, si: %p\n", singleWordMode, si);
     if (si != NULL) {
         ret->skipIdx = si;
     }
@@ -368,13 +380,14 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq,
     w->bw.Write(w->bw.buf, offsets->data, offsets->cap);
     
     
+    ScoreIndexWriter_AddEntry(&w->scoreWriter, (float)freq, BufferOffset(w->bw.buf), w->lastId);
+    
     w->lastId = docId;
     if (w->ndocs % SKIPINDEX_STEP == 0) {
         IW_WriteSkipIndexEntry(w);        
     }
     
-    
-    ScoreIndexWriter_AddEntry(&w->scoreWriter, (float)freq, BufferOffset(w->bw.buf)); 
+     
     w->ndocs++;
     
     
