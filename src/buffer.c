@@ -105,6 +105,14 @@ Consme one byte from the buffer
 //     ++b->offset;
 //     return 1;
 // }
+inline size_t BufferReadByte(Buffer *b, char *c) {
+    // if (BufferAtEnd(b)) {
+    //     return 0;
+    // }
+    *c = *b->pos++;
+    ++b->offset;
+    return 1;
+}
 
 /**
 Skip forward N bytes, returning the resulting offset on success or the end position if where is outside bounds

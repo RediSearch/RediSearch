@@ -80,9 +80,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *d
   }
   SkipIndex *si = NULL;
   if (!singleWordMode) {
-    SkipIndex *si = LoadRedisSkipIndex(ctx, term);
+    si = LoadRedisSkipIndex(ctx, term);
   }
-  //printf("Loaded skip index %p\n", si);
+  
   return NewIndexReaderBuf(b, si, dt, singleWordMode ? 0 : 1);
 }
 

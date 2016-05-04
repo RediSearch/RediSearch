@@ -19,14 +19,7 @@ typedef struct {
     void *ctx;
 } Buffer;
 
-inline size_t BufferReadByte(Buffer *b, char *c) {
-    // if (BufferAtEnd(b)) {
-    //     return 0;
-    // }
-    *c = *b->pos++;
-    ++b->offset;
-    return 1;
-}
+size_t BufferReadByte(Buffer *b, char *c);
 size_t BufferRead(Buffer *b, void *data, size_t len) ;
 size_t BufferSkip(Buffer *b, int bytes);
 size_t BufferSeek(Buffer *b, size_t offset);

@@ -107,9 +107,15 @@ int testIndexReadWrite() {
 
   printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
-         
+        
+  printf("Score writer: numEntries: %d, minscore: %f\n", w->scoreWriter.header.numEntries, w->scoreWriter.header.lowestScore);
+  ScoreIndex si = NewScoreIndex(w->scoreWriter.bw.buf);
+  for (int i = 0; i < si.header.numEntries; i++) {
+      printf("Entry %d, offset %d, score %f\n", i, si.entries[i].offset, si.entries[i].score);
+  }
   ASSERT(w->skipIndexWriter.buf->offset > 0);
   IW_Close(w);
+  
   //IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
   
 //   for (int x = 0; x < w->skipIdx.len; x++) {
@@ -126,25 +132,29 @@ int testIndexReadWrite() {
   for (int xx = 0; xx < 1; xx++) {
     SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
     printf("si: %d\n", si.len);
-    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &si, NULL);
+    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &si, NULL, 1);
     IndexHit h = NewIndexHit();
     
 
     struct timespec start_time, end_time;
-    for (int z= 0; z < 10; z++) {
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
-
-    IR_SkipTo(ir, 900001, &h);
-    
-    
-    
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
-    long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-    
-
-    printf("Time elapsed: %ldnano\n", diffInNanos);
-    //IR_Free(ir);
+    while (IR_HasNext(ir)) {
+        IR_Read(ir, &h);
+        //printf("%d\n", h.docId);
     }
+    // for (int z= 0; z < 10; z++) {
+    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
+
+    // IR_SkipTo(ir, 900001, &h);
+    
+    
+    
+    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
+    // long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+    
+
+    // printf("Time elapsed: %ldnano\n", diffInNanos);
+    // //IR_Free(ir);
+    // }
   }
   IW_Free(w);
   
@@ -185,7 +195,7 @@ IndexWriter *createIndex(int size, int idStep) {
 //  IW_MakeSkipIndex(w, NewMemoryBuffer(100, BUFFER_WRITE));
   IW_Close(w);
   
-  printf("iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
+  printf("AFTER iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
   return w;
 }
@@ -206,7 +216,7 @@ int testReadIterator() {
     IndexWriter *w = createIndex(10, 1);
     
     
-    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL);
+    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0);
     IndexHit h = NewIndexHit();
             
     IndexIterator *it = NewIndexIterator(r1);
@@ -215,7 +225,7 @@ int testReadIterator() {
         if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
             return -1;
         }
-        //printf("Iter got %d\n", h.docId);
+        printf("Iter got %d\n", h.docId);
         ASSERT(h.docId == i++);
         
     }
@@ -226,10 +236,10 @@ int testReadIterator() {
 int testUnion() {
     IndexWriter *w = createIndex(10, 2);
     SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL, 1);
     IndexWriter *w2 = createIndex(10, 3);
     si = NewSkipIndex(w2->skipIndexWriter.buf);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &si, NULL);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &si, NULL, 1);
     printf("Reading!\n");
     IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
     IndexIterator *ui =  NewUnionIterator(irs, 2, NULL);
@@ -259,10 +269,10 @@ int testIntersection() {
     
     IndexWriter *w = createIndex(100000, 4);
     SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL, 0);
     IndexWriter *w2 = createIndex(100000, 2);
     si = NewSkipIndex(w2->skipIndexWriter.buf);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &si, NULL);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &si, NULL, 0);
     
     // IndexWriter *w3 = createIndex(10000, 3);
     // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
@@ -409,18 +419,18 @@ int testIndexSpec() {
 
 int main(int argc, char **argv) {
   
-    LOGGING_INIT(L_DEBUG);
-    LOGGING_LEVEL = L_DEBUG;
-        TESTFUNC(testVarint);
-        TESTFUNC(testDistance);
-        TESTFUNC(testIndexReadWrite);
-        TESTFUNC(testIntersection);
-     TESTFUNC(testReadIterator);
-      TESTFUNC(testUnion);
+    // LOGGING_INIT(L_DEBUG);
+    // LOGGING_LEVEL = L_DEBUG;
+    //     TESTFUNC(testVarint);
+    //     TESTFUNC(testDistance);
+     TESTFUNC(testIndexReadWrite);
+    //TESTFUNC(testIntersection);
+    //  TESTFUNC(testReadIterator);
+    //   TESTFUNC(testUnion);
 
-      TESTFUNC(testMemBuffer);
-      TESTFUNC(testTokenize);
-      TESTFUNC(testForwardIndex);
-      TESTFUNC(testIndexSpec);
+    //   TESTFUNC(testMemBuffer);
+    //   TESTFUNC(testTokenize);
+    //   TESTFUNC(testForwardIndex);
+    //   TESTFUNC(testIndexSpec);
   return 0;
 }

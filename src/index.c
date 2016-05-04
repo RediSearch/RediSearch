@@ -5,7 +5,7 @@
 #include <math.h>
 
 
-#define SKIPINDEX_STEP 15
+#define SKIPINDEX_STEP 25
 
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
@@ -20,8 +20,11 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
     
-    if (*docId != expectedDocId) {
+    
+    if (expectedDocId != 0 && *docId != expectedDocId) {
+        
         BufferSkip(ir->buf, len);
+        ir->lastId = *docId;
         return INDEXREAD_OK;
     }
     
@@ -77,7 +80,7 @@ int IR_Read(void *ctx, IndexHit *e) {
     return rc;
 }
 
-int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
+inline int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
     u_int16_t freq;
     
     IndexReader *ir = ctx;
@@ -217,6 +220,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int loa
     ret->skipIdx = NULL;
     ret->docTable = dt;
     ret->loadOffsets = loadOffsets;
+    //printf("Load offsets %d, si: %p\n", loadOffsets, si);
     if (si != NULL) {
         ret->skipIdx = si;
     }
@@ -264,6 +268,10 @@ IndexWriter *NewIndexWriter(size_t cap) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
     w->bw = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
     w->skipIndexWriter = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
+    w->scoreWriter = NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE)));
+    w->scoreWriter.header.numEntries = 0;
+    w->scoreWriter.header.lowestIndex = 0;
+    w->scoreWriter.header.lowestScore = 0;
     w->ndocs = 0;
     w->lastId = 0;
     writeIndexHeader(w);
@@ -271,12 +279,13 @@ IndexWriter *NewIndexWriter(size_t cap) {
     return w;
 }
 
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter) {
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter, ScoreIndexWriter siw) {
     IndexWriter *w = malloc(sizeof(IndexWriter));
     w->bw = bw;
     w->skipIndexWriter = skipIdnexWriter;
     w->ndocs = 0;
     w->lastId = 0;
+    w->scoreWriter = siw;
     
     IndexHeader h = {0, 0, 0};
     if (indexReadHeader(w->bw.buf, &h) && h.size > 0) {
@@ -343,14 +352,12 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq,
     size_t offsetsSz = VV_Size(offsets);
     // // calculate the overall len
     size_t len = varintSize(freq) + 1 + varintSize(offsetsSz) + offsetsSz;
-    size_t lensize = varintSize(len);
-    len += lensize;
-    //just in case we jumped one order of magnitude
-    len += varintSize(len) - lensize;
+    
     
     // Write docId
     WriteVarint(docId - w->lastId, &w->bw);
     // encode len
+
     WriteVarint(len, &w->bw);
     //encode freq
     WriteVarint(freq, &w->bw);
@@ -366,6 +373,8 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq,
         IW_WriteSkipIndexEntry(w);        
     }
     
+    
+    ScoreIndexWriter_AddEntry(&w->scoreWriter, (float)freq, BufferOffset(w->bw.buf)); 
     w->ndocs++;
     
     
@@ -435,7 +444,7 @@ inline int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
    return 0;
 }
 
-SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
+inline SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     
     if (idx == NULL || idx->len == 0 || docId < idx->entries[0].docId) {
         return NULL;

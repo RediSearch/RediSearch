@@ -8,7 +8,7 @@
 #include "tokenize.h"
 #include "redis_index.h"
 #include "util/logging.h"
-#include "util/pqueue.h"
+#include "util/heap.h"
 #include "query.h"
 
 void QueryStage_Free(QueryStage *s) {
@@ -30,7 +30,8 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
 }
 
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage, int isSingleWordQuery) {
-    IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable, !isSingleWordQuery);
+    //printf("Query tokens: %d\n, single word? %d\n", q->numTokens, isSingleWordQuery);
+    IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable, isSingleWordQuery);
     if (ir == NULL) {
         return NULL;
     } 
@@ -126,10 +127,16 @@ void Query_Free(Query *q) {
     free(q);
 }
 
-u_int32_t getHitScore(void * ctx) {
-    return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
+static int cmpHits(const void *e1,  const void *e2, const void *udata) {
+    const IndexHit *h1 = e1, *h2 = e2;
+    
+    if (h1->totalFreq < h2->totalFreq) {
+        return -1;
+    } else if (h1->totalFreq > h2->totalFreq) {
+        return 1;
+    }
+    return 0;
 }
-
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
@@ -142,7 +149,7 @@ double processHitScore(IndexHit *h, DocTable *dt) {
     
     int md = 1;// VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
    // printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
-    return (h->totalFreq*h->metadata.score)/pow((double)md, 2); 
+    return (h->totalFreq)/pow((double)md, 2); 
     
 }
 
@@ -157,8 +164,9 @@ QueryResult *Query_Execute( Query *query) {
     
     
     
-    PQUEUE pq; 
-    PQueueInitialise(&pq, query->limit, 0, 0);
+    heap_t *pq = malloc(heap_sizeof(query->limit));
+    heap_init(pq, cmpHits, NULL, query->limit);
+    
     
     //  start lazy evaluation of all query steps
     IndexIterator *it = NULL;
@@ -190,35 +198,40 @@ QueryResult *Query_Execute( Query *query) {
         h->totalFreq = processHitScore(h, query->docTable);
         
         ++res->totalResults;
-        if (PQueueIsFull(&pq)) {
-            void *popped = PQueuePop(&pq, getHitScore);
-            if (popped != NULL) {
-                pooledHit = popped;
+        
+        if (heap_count(pq) < heap_size(pq)) {
+            heap_offerx(pq, h);
+            pooledHit = NULL;
+        } else {
+            IndexHit *qh = heap_peek(pq);
+            if (qh->totalFreq < h->totalFreq) {
+                pooledHit = heap_poll(pq);
+                heap_offerx(pq, h);
+                IndexHit_Terminate(pooledHit);
+            } else{
+                pooledHit = h;
                 IndexHit_Terminate(pooledHit);
             }
-        } else {
-            pooledHit = NULL;
+            
         }
-        PQueuePush(&pq, h, getHitScore);
         
     }
     
     it->Free(it);
     
-    
-    
     // Reverse the results into the final result
-    size_t n = pq.CurrentSize;
+    size_t n = heap_count(pq);
     res->numIds = n;
     res->ids = calloc(n, sizeof(RedisModuleString*));
     
-    for (int i = n-1; i >=0; --i) {
-        IndexHit *h = PQueuePop(&pq, getHitScore);
+    for (int i = 0; i < n; ++i) {
+        IndexHit *h = heap_poll(pq);
+        //printf("Popping %d freq %f\n", h->docId, h->totalFreq);
         res->ids[i] = Redis_GetDocKey(query->ctx, h->docId);
         free(h);
     }
 
-    PQueueFree(&pq);
+    heap_free(pq);
     return res;
 }
 

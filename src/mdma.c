@@ -10,7 +10,6 @@
 #include "tokenize.h"
 #include "redis_index.h"
 #include "util/logging.h"
-#include "util/pqueue.h"
 #include "query.h"
 #include "spec.h"
 #include "rmutil/util.h"
@@ -80,7 +79,6 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     
     return 0;
 }
-
 
 /*
 FT.ADD <index> <docId> <score> [<field> <text>, ....] 

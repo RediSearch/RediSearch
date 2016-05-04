@@ -10,7 +10,7 @@
 #include "forward_index.h"
 #include "util/logging.h"
 #include "doc_table.h"
-
+#include "score_index.h"
 
 typedef struct {
     t_docId docId;
@@ -70,6 +70,7 @@ typedef struct {
     t_docId lastId;
     u_int32_t ndocs;
     BufferWriter skipIndexWriter;
+    ScoreIndexWriter scoreWriter;
 } IndexWriter;
 
 
@@ -120,7 +121,7 @@ void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
 IndexWriter *NewIndexWriter(size_t cap);
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter);
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter, ScoreIndexWriter scoreWriter);
 
 
 typedef struct {

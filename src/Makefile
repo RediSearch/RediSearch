@@ -13,9 +13,9 @@ else
 endif
 CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -O3 
 VARINT=varint.o buffer.o
-INDEX=index.o tokenize.o forward_index.o
+INDEX=index.o tokenize.o forward_index.o score_index.o
 REDIS=redis_buffer.o mdma.o redis_index.o query.o spec.o
-UTILOBJS=util/pqueue.o util/list.o  
+UTILOBJS=util/heap.o
 RMUTILOBJS=rmutil/librmutil.a
 TESTS=test.o
 
