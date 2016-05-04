@@ -29,9 +29,8 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
     return s;
 }
 
-
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
-    IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable);
+IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage, int isSingleWordQuery) {
+    IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable, !isSingleWordQuery);
     if (ir == NULL) {
         return NULL;
     } 
@@ -79,7 +78,7 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
     
     switch (s->op) {
         case Q_LOAD:
-            return query_EvalLoadStage(q, s);
+            return query_EvalLoadStage(q, s, q->numTokens == 1);
         case Q_INTERSECT:
             return query_EvalIntersectStage(q, s);
         case Q_EXACT:
@@ -100,7 +99,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
 
 int queryTokenFunc(void *ctx, Token t) {
     Query *q = ctx;
-    
+    q->numTokens++;
     QueryStage_AddChild(q->root, NewQueryStage(t.s, Q_LOAD));
 
     return 0;
@@ -113,6 +112,7 @@ Query *ParseQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset
     ret->offset = offset;
     ret->raw = strndup(query, len);
     ret->root = NewQueryStage(NULL, Q_INTERSECT);
+    ret->numTokens = 0;
     tokenize(ret->raw, 1, 1, ret, queryTokenFunc);
     
     return ret;
@@ -176,7 +176,7 @@ QueryResult *Query_Execute( Query *query) {
     
     IndexHit *pooledHit = NULL;
     // iterate the root iterator and push everything to the PQ
-    while (it->HasNext(it->ctx)) {
+    while (1) {
         // TODO - Use static allocation
         if (pooledHit == NULL) {
             pooledHit = malloc(sizeof(IndexHit));
@@ -186,7 +186,6 @@ QueryResult *Query_Execute( Query *query) {
         if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
             break;
         }
-      
         
         h->totalFreq = processHitScore(h, query->docTable);
         

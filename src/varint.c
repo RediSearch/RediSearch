@@ -26,18 +26,44 @@ static int msb = (int)(~0ULL << 25);
 // 	return val;
 // }
 
-int ReadVarint(Buffer *b) {
+// _pbcV_encode32(uint32_t number, uint8_t buffer[10])
+// {
+// 	if (number < 0x80) {
+// 		buffer[0] = (uint8_t) number ; 
+// 		return 1;
+// 	}
+// 	buffer[0] = (uint8_t) (number | 0x80 );
+// 	if (number < 0x4000) {
+// 		buffer[1] = (uint8_t) (number >> 7 );
+// 		return 2;
+// 	}
+// 	buffer[1] = (uint8_t) ((number >> 7) | 0x80 );
+// 	if (number < 0x200000) {
+// 		buffer[2] = (uint8_t) (number >> 14);
+// 		return 3;
+// 	}
+// 	buffer[2] = (uint8_t) ((number >> 14) | 0x80 );
+// 	if (number < 0x10000000) {
+// 		buffer[3] = (uint8_t) (number >> 21);
+// 		return 4;
+// 	}
+// 	buffer[3] = (uint8_t) ((number >> 21) | 0x80 );
+// 	buffer[4] = (uint8_t) (number >> 28);
+// 	return 5;
+// }
+
+inline int ReadVarint(Buffer *b) {
     u_char c;
     if (BufferReadByte(b, (char*)&c) == 0) {
         return 0;
     }
 	int val = c & 127;
     
-	while (c & 128) {
+	while (c & 0x80) {
 		++val;
         
-		if (!val || val & msb)
-			return 0; /* overflow */
+		// if (!val || val & msb)
+		// 	return 0; /* overflow */
 		if (BufferReadByte(b, (char*)&c) == 0) { //EOF
             return 0;
         }
@@ -45,6 +71,7 @@ int ReadVarint(Buffer *b) {
 	}
     return val;
 }
+
 
 
 int WriteVarint(int value, BufferWriter *w) {

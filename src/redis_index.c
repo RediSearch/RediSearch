@@ -29,15 +29,31 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
   BufferWriter bw = NewRedisWriter(ctx->redisCtx, fmtRedisTermKey(ctx, term));
   
   // Open the skip index writer
-  BufferWriter sw = NewRedisWriter(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term));
-  IndexWriter *w = NewIndexWriterBuf(bw, sw);
-
+  
+  Buffer*sb = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_WRITE);
+  BufferWriter skw = {
+        sb,
+        redisWriterWrite,
+        redisWriterTruncate,
+        RedisBufferFree,
+    };
+  
+  if (sb->cap > sizeof(u_int32_t)) {
+    u_int32_t len;
+    
+    BufferRead(sb, &len, sizeof(len));
+    BufferSeek(sb, sizeof(len) + len*sizeof(SkipEntry));
+  } 
+  
+  
+  IndexWriter *w = NewIndexWriterBuf(bw, skw);
   return w;
 }
 
 void Redis_CloseWriter(IndexWriter *w) {
   IW_Close(w);
   RedisBufferFree(w->bw.buf);
+  RedisBufferFree(w->skipIndexWriter.buf);
   
 }
 
@@ -57,14 +73,17 @@ SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
 }
 
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt) {
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode) {
   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term), BUFFER_READ);
   if (b == NULL) {  // not found
     return NULL;
   }
-  SkipIndex *si = LoadRedisSkipIndex(ctx, term);
+  SkipIndex *si = NULL;
+  if (!singleWordMode) {
+    SkipIndex *si = LoadRedisSkipIndex(ctx, term);
+  }
   //printf("Loaded skip index %p\n", si);
-  return NewIndexReaderBuf(b, si, dt);
+  return NewIndexReaderBuf(b, si, dt, singleWordMode ? 0 : 1);
 }
 
 void Redis_CloseReader(IndexReader *r) {

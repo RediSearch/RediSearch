@@ -2,6 +2,8 @@
 #include "util/logging.h"
 #include <sys/param.h>
 
+#define REDISBUFFER_MAX_REALLOC 1024*1024
+
 size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     if (b->offset + len > b->cap) {
         do {
@@ -48,6 +50,7 @@ void RedisBufferFree(Buffer *b) {
     //RedisModule_CloseKey(((RedisBufferCtx*)b->ctx)->key);
     if (b->ctx != NULL) {
         free(b->ctx);
+        b->ctx = NULL;
     }
     free(b);
 }
@@ -71,7 +74,7 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname,
   
   // if we need to write to an empty buffer, allocate a new string
   if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
-      RedisModule_StringTruncate(key,8);
+      RedisModule_StringTruncate(key,4);
   } 
   size_t len;
   char *data = RedisModule_StringDMA(key, &len, flags);
@@ -98,3 +101,4 @@ BufferWriter NewRedisWriter(RedisModuleCtx *ctx, RedisModuleString *keyname) {
     };
     return ret;
 }
+

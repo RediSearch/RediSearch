@@ -8,7 +8,7 @@
 
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term);
 void Redis_CloseWriter(IndexWriter *w);
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt);
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode);
 void Redis_CloseReader(IndexReader *r);
 SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term);
 

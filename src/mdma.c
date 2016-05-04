@@ -77,6 +77,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     }
     
     ForwardIndexFree(idx);
+    
     return 0;
 }
 

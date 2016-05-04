@@ -59,6 +59,7 @@ typedef struct {
     SkipIndex *skipIdx;
     u_int skipIdxPos;
     DocTable *docTable;
+    int loadOffsets;
 } IndexReader; 
 
 
@@ -93,10 +94,11 @@ void UnionIterator_Free(IndexIterator *it);
 void IntersectIterator_Free(IndexIterator *it);
 void ReadIterator_Free(IndexIterator *it);
 
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable);
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable);
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, int loadOffsets);
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int loadOffsets);
 void IR_Free(IndexReader *ir); 
-int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, VarintVector *offsets);
+int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, 
+                   VarintVector *offsets, t_docId expectedDocdId);
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);
 int IR_HasNext(void *ctx);

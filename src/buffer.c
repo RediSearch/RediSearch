@@ -78,7 +78,7 @@ Read len bytes from the buffer into data. If offset + len are over capacity
 - we do not read and return 0
 @return the number of bytes consumed
 */
-size_t BufferRead(Buffer *b, void *data, size_t len) {
+inline size_t BufferRead(Buffer *b, void *data, size_t len) {
     
     // no capacity - return 0
     if (b->offset + len > b->cap) {
@@ -109,7 +109,7 @@ Consme one byte from the buffer
 /**
 Skip forward N bytes, returning the resulting offset on success or the end position if where is outside bounds
 */ 
-size_t BufferSkip(Buffer *b, int bytes) {
+inline size_t BufferSkip(Buffer *b, int bytes) {
   
   // if overflow - just skip to the end
   if (b->pos + bytes > b->data + b->cap) {
@@ -127,7 +127,7 @@ size_t BufferSkip(Buffer *b, int bytes) {
 Seek to a specific offset. If offset is out of bounds we seek to the end.
 @return the effective seek position
 */
-size_t BufferSeek(Buffer *b, size_t where) {
+inline size_t BufferSeek(Buffer *b, size_t where) {
   
   where = MIN(where, b->cap);
   b->pos = b->data + where;

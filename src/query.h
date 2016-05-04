@@ -31,6 +31,8 @@ typedef struct {
     const char *raw;
     size_t offset;
     size_t limit;
+    
+    int numTokens;
         
     QueryStage *root;
     
@@ -53,7 +55,7 @@ typedef struct {
 IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 void QueryStage_Free(QueryStage *s);
 QueryStage *NewQueryStage(const char *term, QueryOp op);
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage);
+IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage, int isSingleWordQuery);
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage);

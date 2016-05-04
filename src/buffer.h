@@ -18,6 +18,7 @@ typedef struct {
     // opaque context, e.g. redis context and key name for redis buffers
     void *ctx;
 } Buffer;
+
 inline size_t BufferReadByte(Buffer *b, char *c) {
     // if (BufferAtEnd(b)) {
     //     return 0;
