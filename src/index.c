@@ -5,7 +5,7 @@
 #include <math.h>
 
 
-#define SKIPINDEX_STEP 25
+#define SKIPINDEX_STEP 50
 
 
 inline int IR_HasNext(void *ctx) {

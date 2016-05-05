@@ -1,7 +1,5 @@
 * [DONE] DocTable lookup during queries
 * [DONE] TF-IDF
-* [DONE] Redis skip-indexes
-* [DONE]Index spec storage
 * [DONE] Document store
 * [DONE] finalize API
 * Complex query parsing
@@ -9,16 +7,7 @@
 * Index HASH values
 * NOSAVE / IDS ONLY
 * Snippets
-* Stopwords
 
-Bugs:
-- intersect loads N-1
-- empty query
-- empty tokens in intersect crash
 
 Optimizations:
-- Don't load offsets in a single token query
-- Don't concatenate vectors in intersect. Just drop them and keep the minimal offset maybe
-- By score table?
 - Reduce skiplist step
-- Directly encode tfidf into inverted, to avoid lookups
