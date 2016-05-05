@@ -93,8 +93,9 @@ int testIndexReadWrite() {
     ForwardIndexEntry h;
     h.docId = i;
     h.flags = 0;
-    h.freq = i % 10;
-
+    h.freq = (1 + i % 100) / (float)101;
+    h.docScore = (1 + (i + 2) % 30) / (float)31;
+    
     h.vw = NewVarintVectorWriter(8);
     for (int n = 0; n < i % 4; n++) {
       VVW_Write(h.vw, n);
@@ -102,19 +103,21 @@ int testIndexReadWrite() {
     VVW_Truncate(h.vw);
     
     IW_WriteEntry(w, &h);
+    printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
   }
 
-  printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
+  LG_INFO("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
          w->ndocs);
         
-  printf("Score writer: numEntries: %d, minscore: %f\n", w->scoreWriter.header.numEntries, w->scoreWriter.header.lowestScore);
-  ScoreIndex si = NewScoreIndex(w->scoreWriter.bw.buf);
-  for (int i = 0; i < si.header.numEntries; i++) {
-      printf("Entry %d, offset %d, score %f\n", i, si.entries[i].offset, si.entries[i].score);
+  LG_INFO("Score writer: numEntries: %d, minscore: %f\n", w->scoreWriter.header.numEntries, w->scoreWriter.header.lowestScore);
+  ScoreIndex *si = NewScoreIndex(w->scoreWriter.bw.buf);
+  for (int i = 0; i < si->header.numEntries; i++) {
+      printf("Entry %d, offset %d, score %f docId %d\n", i, si->entries[i].offset, si->entries[i].score, si->entries[i].docId);
   }
   ASSERT(w->skipIndexWriter.buf->offset > 0);
   IW_Close(w);
+  ScoreIndex_Free(si);
   
   //IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
   
@@ -216,7 +219,7 @@ int testReadIterator() {
     IndexWriter *w = createIndex(10, 1);
     
     
-    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0);
+    IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL);
     IndexHit h = NewIndexHit();
             
     IndexIterator *it = NewIndexIterator(r1);
@@ -416,14 +419,22 @@ int testIndexSpec() {
     
 }
 
-
+typedef union {
+  int i;
+  float f;
+ } u;
+ 
 int main(int argc, char **argv) {
-  
-    // LOGGING_INIT(L_DEBUG);
+//   u u1;
+//  u1.f = 3.0;
+//  /* now u1.i refers to the int version of the float */
+//  printf("%d",u1.i);
+
+     LOGGING_INIT(L_INFO);
     // LOGGING_LEVEL = L_DEBUG;
     //     TESTFUNC(testVarint);
     //     TESTFUNC(testDistance);
-     TESTFUNC(testIndexReadWrite);
+    TESTFUNC(testIndexReadWrite);
     //TESTFUNC(testIntersection);
     //  TESTFUNC(testReadIterator);
     //   TESTFUNC(testUnion);

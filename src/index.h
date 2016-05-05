@@ -25,12 +25,13 @@ typedef struct {
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
 SkipIndex NewSkipIndex(Buffer *b);
 
+#define MAX_INTERSECT_WORDS 8
 
 typedef struct {
     t_docId docId;
     double totalFreq;
     u_char flags;
-    VarintVector **offsetVecs;
+    VarintVector offsetVecs[MAX_INTERSECT_WORDS];
     int numOffsetVecs;
     int hasMetadata;
     DocumentMetadata metadata;
@@ -103,7 +104,7 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable 
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode, 
                               ScoreIndex *sci);
 void IR_Free(IndexReader *ir); 
-int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, 
+int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
                    VarintVector *offsets, t_docId expectedDocdId);
 int IR_Read(void *ctx, IndexHit *e);
 int IR_Next(void *ctx);

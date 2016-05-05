@@ -61,7 +61,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
         ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
         
         while (entry != NULL) {
-            LG_DEBUG("entry: %s freq %d\n", entry->term, entry->freq);
+            LG_DEBUG("entry: %s freq %f\n", entry->term, entry->freq);
             ForwardIndex_NormalizeFreq(idx, entry);
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term);
             
@@ -106,7 +106,11 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModule_ReplyWithError(ctx, "Could not parse document score");
         return REDISMODULE_OK;
     }
-    
+    if (ds > 1 || ds < 0) {
+        RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
+        return REDISMODULE_OK;
+    }
+       
     
     Document doc;
     doc.docKey = argv[2];

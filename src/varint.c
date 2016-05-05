@@ -191,7 +191,8 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param vs a list of vector pointers
 @param num the size of the list 
 */
-int VV_MinDistance(VarintVector **vs, int num) {
+int VV_MinDistance(VarintVector *vs, int num) {
+    
     if (num <= 1) {
         return 1;
     }
@@ -203,8 +204,8 @@ int VV_MinDistance(VarintVector **vs, int num) {
     int vals[num];
     int i;
     for (i = 0; i < num; i++) {
-        BufferSeek(vs[i], 0);
-        iters[i] = VarIntVector_iter(vs[i]);
+        BufferSeek(&vs[i], 0);
+        iters[i] = VarIntVector_iter(&vs[i]);
         vals[i] = VV_Next(&iters[i]);
 
         if (i >= 1) {

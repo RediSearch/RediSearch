@@ -8,7 +8,8 @@
 typedef struct {
     const char *term;
     t_docId docId;
-    u_int16_t freq;
+    float freq;
+    float docScore;
     u_char flags;
     VarintVectorWriter *vw; 
 } ForwardIndexEntry;
@@ -20,13 +21,14 @@ typedef struct {
 KHASH_MAP_INIT_STR(32, ForwardIndexEntry*)
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
-#define FREQ_QUANTIZE_FACTOR 127
+#define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct {
     khash_t(32) *hits;
-    u_int totalFreq;
-    u_int maxFreq;
+    
     t_docId docId;
+    float totalFreq;
+    float maxFreq;
     float docScore;
     int uniqueTokens;
 } ForwardIndex;

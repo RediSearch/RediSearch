@@ -6,7 +6,10 @@
 * [DONE] finalize API
 * Complex query parsing
 * Query expansion
-* Index HASH values 
+* Index HASH values
+* NOSAVE / IDS ONLY
+* Snippets
+* Stopwords
 
 Bugs:
 - intersect loads N-1

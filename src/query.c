@@ -140,14 +140,8 @@ static int cmpHits(const void *e1,  const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
-    
-   
-    if(!h->hasMetadata) {
-        IndexHit_LoadMetadata(h, dt);
-    }
-        
-    
-    int md = 1;// VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
+  
+    int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
    // printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
     return (h->totalFreq)/pow((double)md, 2); 
     
@@ -190,7 +184,8 @@ QueryResult *Query_Execute( Query *query) {
             pooledHit = malloc(sizeof(IndexHit));
         }
         IndexHit *h = pooledHit;
-        IndexHit_Init(h);       
+        IndexHit_Init(h);      
+         
         if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
             break;
         }
@@ -207,10 +202,10 @@ QueryResult *Query_Execute( Query *query) {
             if (qh->totalFreq < h->totalFreq) {
                 pooledHit = heap_poll(pq);
                 heap_offerx(pq, h);
-                IndexHit_Terminate(pooledHit);
+                //IndexHit_Terminate(pooledHit);
             } else{
                 pooledHit = h;
-                IndexHit_Terminate(pooledHit);
+                //IndexHit_Terminate(pooledHit);
             }
             
         }

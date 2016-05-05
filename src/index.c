@@ -7,11 +7,13 @@
 
 #define SKIPINDEX_STEP 25
 
+
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
     return ir->header.size > ir->buf->offset;
 }
-inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_char *flags, 
+
+inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
                             VarintVector *offsets, t_docId expectedDocId) {
     if (!IR_HasNext(ir)) {
         return INDEXREAD_EOF;
@@ -19,7 +21,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
     
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
-        
+    
     if (expectedDocId != 0 && *docId != expectedDocId) {
         
         BufferSkip(ir->buf, len);
@@ -27,21 +29,29 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
         return INDEXREAD_OK;
     }
     
-    *freq = ReadVarint(ir->buf);
+    
+    int quantizedScore = ReadVarint(ir->buf);
+    if (freq != NULL) {
+        *freq = (float)quantizedScore/FREQ_QUANTIZE_FACTOR;
+        LG_DEBUG("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
+    }
+    
     BufferReadByte(ir->buf, (char*)flags);
     
     size_t offsetsLen = ReadVarint(ir->buf); 
     //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
-    if (offsets != NULL && ir->singleWordMode && (expectedDocId == 0 || *docId==expectedDocId)) {
+    
+    // If needed - read offset vectors
+    if (offsets != NULL && !ir->singleWordMode && 
+        (expectedDocId == 0 || *docId==expectedDocId)) {
+            
         offsets->cap = offsetsLen;
         offsets->data = ir->buf->pos;
         offsets->pos = offsets->data;
         offsets->ctx = NULL;
         offsets->offset = 0;
         offsets->type = BUFFER_READ; 
-        
     }
-    
     
     BufferSkip(ir->buf, offsetsLen);
     ir->lastId = *docId;
@@ -49,18 +59,16 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, u_int16_t *freq, u_ch
 }
 
 #define TOTALDOCS_PLACEHOLDER (double)10000000
-inline double tfidf(u_int16_t freq, u_int32_t docFreq) {
-    
-    double tf = (float)freq/(float)FREQ_QUANTIZE_FACTOR;
-    return tf*logb(1.0F + TOTALDOCS_PLACEHOLDER/(double)(docFreq ? docFreq : 1)); //IDF
-    
-    //LG_INFO("FREQ: %d TF: %.04f, IDF: %.04f, TFIDF: %f\n",freq, tf, idf, tf*idf); 
-    //return tf*idf;
+inline double tfidf(float freq, u_int32_t docFreq) {
+    double idf =logb(1.0F + TOTALDOCS_PLACEHOLDER/(docFreq ? docFreq : (double)1)); //IDF  
+    LG_DEBUG("FREQ: %f  IDF: %.04f, TFIDF: %f\n",freq, idf, freq*idf);
+    return freq*idf;
 }
 
 int IR_Read(void *ctx, IndexHit *e) {
     
-    u_int16_t freq;
+    
+    float freq;
     IndexReader *ir = ctx;
     
     if (ir->singleWordMode && ir->scoreIndex) {
@@ -73,14 +81,15 @@ int IR_Read(void *ctx, IndexHit *e) {
         IR_Seek(ir, ent->offset, ent->docId);
         
     }
-    // if the entry doesn't have an offset vector, allocate one for it
-    // if (e->numOffsetVecs == 0) {
-    //     e->offsetVecs = malloc(1*sizeof(VarintVector*));
-    //     e->numOffsetVecs++;
-    //     e->offsetVecs[0] = calloc(1, sizeof(VarintVector));
-    // }
     
-    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, NULL, 0);
+    VarintVector *offsets = NULL;
+    if (!ir->singleWordMode) {
+        offsets = &e->offsetVecs[0];
+        e->numOffsetVecs = 1; 
+    }
+    
+    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, 
+                            offsets, 0);
     
     // add tf-idf score of the entry to the hit
     if (rc == INDEXREAD_OK) {
@@ -91,17 +100,18 @@ int IR_Read(void *ctx, IndexHit *e) {
 }
 
 inline int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
-    u_int16_t freq;
+    float freq;
     
     IndexReader *ir = ctx;
-    // if the entry doesn't have an offset vector, allocate one for it
-    // if (e->numOffsetVecs == 0) {
-    //     e->offsetVecs = malloc(1*sizeof(VarintVector*));
-    //     e->numOffsetVecs++;
-    //     e->offsetVecs[0] = calloc(1, sizeof(VarintVector));
-    // }
+    VarintVector *offsets = NULL;
+    if (!ir->singleWordMode) {
+        offsets = &e->offsetVecs[0];
+        e->numOffsetVecs = 1; 
+    }
     
-    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, NULL, expectedDocId);
+    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, 
+                            offsets, 
+                            expectedDocId);
     
     // add tf-idf score of the entry to the hit
     if (rc == INDEXREAD_OK && e->docId == expectedDocId) {
@@ -114,13 +124,14 @@ inline int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
 int IR_Next(void *ctx) {
     
     static t_docId docId;
-    static u_int16_t freq;
+    //static float freq;
     static u_char flags;
-    return IR_GenericRead(ctx,&docId, &freq, &flags, NULL, 0);
+    return IR_GenericRead(ctx,&docId, NULL, &flags, NULL, 0);
         
 }
 
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
+    LG_DEBUG("Seeking to %d, lastId %d\n", offset, docId);
     BufferSeek(ir->buf, offset);
     ir->lastId = docId;
 }
@@ -129,9 +140,8 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
 void IndexHit_Init(IndexHit *h) {
     memset(h, 0, sizeof(IndexHit));
      h->docId = 0;
-    // h->flags = 0;
      h->numOffsetVecs = 0;
-     h->offsetVecs = NULL;
+    // h->flags = 0;
      h->totalFreq = 0; 
      //h->metadata = (DocumentMetadata){0,0};
      h->hasMetadata = 0;
@@ -143,18 +153,17 @@ IndexHit NewIndexHit() {
     return h;
 }
 
-
-void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
-    if (numOffsetVecs == 0) return;
+// void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
+//     if (numOffsetVecs == 0) return;
     
-    int nv = h->numOffsetVecs + numOffsetVecs;
-    h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
-    int n = 0;
-    for (int i = h->numOffsetVecs; i < nv; i++) {
-        h->offsetVecs[i] = offsetVecs[n++];
-    }
-    h->numOffsetVecs = nv;
-}
+//     int nv = h->numOffsetVecs + numOffsetVecs;
+//     h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
+//     int n = 0;
+//     for (int i = h->numOffsetVecs; i < nv; i++) {
+//         h->offsetVecs[i] = offsetVecs[n++];
+//     }
+//     h->numOffsetVecs = nv;
+// }
 
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
     
@@ -165,14 +174,6 @@ int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
     return rc;
 }
 
-void IndexHit_Terminate(IndexHit *h) {
-    if (h->offsetVecs) {
-        for (int i = 0; i < h->numOffsetVecs; i++) {
-            free(h->offsetVecs[i]);
-        }
-        free(h->offsetVecs);
-    }
-}
 /**
 Skip to the given docId, or one place after it
 @param ctx IndexReader context
@@ -232,7 +233,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
     ret->docTable = dt;
     ret->singleWordMode = singleWordMode;
     ret->scoreIndex = sci;
-    //printf("Load offsets %d, si: %p\n", singleWordMode, si);
+    //LG_DEBUG("Load offsets %d, si: %p\n", singleWordMode, si);
     if (si != NULL) {
         ret->skipIdx = si;
     }
@@ -357,13 +358,18 @@ void IW_WriteSkipIndexEntry(IndexWriter *w) {
      
 }
 
-void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq, 
+void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, 
                     u_char flags, VarintVector *offsets) {
 
+    ScoreIndexWriter_AddEntry(&w->scoreWriter, freq, BufferOffset(w->bw.buf), w->lastId);
+    // quantize the score to compress it to max 4 bytes
+    // freq is between 0 and 1
+    int quantizedScore = floorl(freq * (double)FREQ_QUANTIZE_FACTOR);
+    LG_DEBUG("Score %f, quantized score %d\n", freq, quantizedScore);
     
     size_t offsetsSz = VV_Size(offsets);
     // // calculate the overall len
-    size_t len = varintSize(freq) + 1 + varintSize(offsetsSz) + offsetsSz;
+    size_t len = varintSize(quantizedScore) + 1 + varintSize(offsetsSz) + offsetsSz;
     
     
     // Write docId
@@ -372,15 +378,14 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, u_int16_t freq,
 
     WriteVarint(len, &w->bw);
     //encode freq
-    WriteVarint(freq, &w->bw);
+    WriteVarint(quantizedScore, &w->bw);
     //encode flags
     w->bw.Write(w->bw.buf, &flags, 1);
     //write offsets size
     WriteVarint(offsetsSz, &w->bw);
-    w->bw.Write(w->bw.buf, offsets->data, offsets->cap);
+    w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
     
     
-    ScoreIndexWriter_AddEntry(&w->scoreWriter, (float)freq, BufferOffset(w->bw.buf), w->lastId);
     
     w->lastId = docId;
     if (w->ndocs % SKIPINDEX_STEP == 0) {
@@ -399,7 +404,7 @@ void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
     VVW_Truncate(ent->vw);
     VarintVector *offsets = ent->vw->bw.buf;
    
-    IW_GenericWrite(w, ent->docId, ent->freq, ent->flags, offsets);
+    IW_GenericWrite(w, ent->docId, ent->freq*ent->docScore, ent->flags, offsets);
 }
 
 
@@ -470,7 +475,7 @@ inline SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
     u_int i = bottom;
     int newi;
     while (bottom < top) {
-        //printf("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
+        //LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
        if (iw_isPos(idx, i, docId)) {
            //LG_DEBUG("IS POS!\n");
            *offset = i;
@@ -744,6 +749,9 @@ void ReadIterator_Free(IndexIterator *it) {
     ctx->lastDocId = 0;
     ctx->exact = exact;
     ctx->currentHits = calloc(num, sizeof(IndexHit));
+    for (int i = 0; i < num; i++) {
+        IndexHit_Init(&ctx->currentHits[i]);
+    }
     ctx->docTable = dt;
 
     
@@ -769,6 +777,7 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
      // skip all iterators to docId
      for (int i = 0; i < ic->num; i++) {
          IndexIterator *it = ic->its[i];
+         
          rc = it->SkipTo(it->ctx, docId, &ic->currentHits[i]);
          if (rc == INDEXREAD_EOF) {
              return rc;
@@ -836,7 +845,12 @@ int II_Read(void *ctx, IndexHit *hit) {
                     hit->docId = hh->docId;
                     hit->flags |= hh->flags;
                     hit->totalFreq += hh->totalFreq;
-                    IndexHit_AppendOffsetVecs(hit, hh->offsetVecs, hh->numOffsetVecs);
+                    
+                    int n = 0;
+                    // Copy the offset vectors of the hits
+                    while(hit->numOffsetVecs < MAX_INTERSECT_WORDS && n < hh->numOffsetVecs) {
+                        hit->offsetVecs[hit->numOffsetVecs++] = hh->offsetVecs[n++];
+                    }
                 } 
             }
             

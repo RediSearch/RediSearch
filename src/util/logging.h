@@ -8,13 +8,11 @@
 #define L_TRACE 16
 
 
-static int LOGGING_LEVEL = 0; 
+int LOGGING_LEVEL; 
 //L_DEBUG | L_INFO
 
 
-static void LOGGING_INIT(int level) {
-    LOGGING_LEVEL = level;
-}
+void LOGGING_INIT(int level);
 
 #define LG_MSG(...) fprintf(stdout, __VA_ARGS__)
 #define LG_DEBUG(...) if (LOGGING_LEVEL & L_DEBUG) { LG_MSG("[DEBUG %s:%d] ", __FILE__ , __LINE__); LG_MSG(__VA_ARGS__); }

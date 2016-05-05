@@ -26,7 +26,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
 
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-    e->freq = 1+(u_int16_t)((FREQ_QUANTIZE_FACTOR-1) * ((float)e->freq/(float)idx->maxFreq));
+    e->freq = e->freq/idx->maxFreq;
 }
 
 int forwardIndexTokenFunc(void *ctx, Token t) {
@@ -40,6 +40,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
         h->docId = idx->docId;
         h->term = t.s;
         h->vw = NewVarintVectorWriter(4);
+        h->docScore = idx->docScore;
 
         int ret;
         k = kh_put(32, idx->hits, t.s, &ret);
@@ -49,12 +50,12 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     }
 
     h->flags |= t.fieldId;
-    h->freq += t.score;
-    idx->totalFreq += t.score;
+    h->freq += (float)t.score;
+    idx->totalFreq += (float)t.score;
 
     idx->maxFreq = MAX(h->freq, idx->maxFreq);
     VVW_Write(h->vw, t.pos);
-    LG_DEBUG("%d) %s, token freq: %d total freq: %d\n", t.pos,t.s, h->freq, idx->totalFreq);
+    LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos,t.s, h->freq, idx->totalFreq);
     return 0;
     
 }
