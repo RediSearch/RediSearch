@@ -15,10 +15,12 @@ Check if an argument exists in an argument list (argv,argc), starting at offset.
 */
 int RMUtil_ArgExists(const char *arg, RedisModuleString **argv, int argc, int offset) {
 
+    size_t larg = strlen(arg);
     for (; offset < argc; offset++) {
         size_t l;
         const char *carg = RedisModule_StringPtrLen(argv[offset], &l);
-        if (carg != NULL && strncasecmp(carg, arg, l) == 0) {
+        if (l != larg) continue;
+        if (carg != NULL && strncasecmp(carg, arg, larg) == 0) {
             return offset;
         }
     }

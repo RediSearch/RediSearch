@@ -18,7 +18,6 @@ void QueryStage_Free(QueryStage *s) {
     if (s->children) {
         free(s->children);
     }
-    
     free(s);
 }
 

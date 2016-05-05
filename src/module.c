@@ -18,7 +18,7 @@
 
 
 
-int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
+int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
     
     
     int isnew;
@@ -31,7 +31,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString) {
     }
     
     // first save the document as hash
-    if (Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
+    if (nosave == 0 && Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
         *errorString = "Could not save document data";
         return REDISMODULE_ERR;
     }
@@ -105,10 +105,15 @@ Returns OK on success, or an error if something went wrong.
 */
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
-    // at least one field, and number of field/text args must be even
-    if (argc < 6 || (argc - 4) % 2 == 1) {
+    int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
+    int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
+    
+    //printf("argc: %d, fieldsIdx: %d, argc - fieldsIdx: %d, nosave: %d\n", argc, fieldsIdx, argc-fieldsIdx, nosave); 
+    // nosave must be at place 4 and we must have at least 7 fields
+    if (argc < 7 || fieldsIdx == 0 || (argc - fieldsIdx) % 2 == 0 || (nosave && nosave != 4)) {
         return RedisModule_WrongArity(ctx);
     }
+    
     RedisModule_AutoMemory(ctx);
     
     
@@ -121,7 +126,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
     
     RedisSearchCtx sctx = {ctx, &sp};
-  
+    
+    // Load the document score
     double ds = 0;
     if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not parse document score");
@@ -136,19 +142,20 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     Document doc;
     doc.docKey = argv[2];
     doc.score = (float)ds;
-    doc.numFields = (argc-4)/2;
+    doc.numFields = (argc-fieldsIdx)/2;
     doc.fields = calloc(doc.numFields, sizeof(DocumentField));
     
     size_t len;
     int n = 0;
-    for (int i = 4; i < argc; i+=2, n++) {
+    for (int i = fieldsIdx + 1; i < argc - 1; i+=2, n++) {
+        //printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i], NULL), RedisModule_StringPtrLen(argv[i+1], NULL));
         doc.fields[n].name = argv[i];
         doc.fields[n].text = argv[i+1];
     }
     
     LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
     const char *msg = NULL;
-    int rc = AddDocument(&sctx, doc, &msg);
+    int rc = AddDocument(&sctx, doc, &msg, nosave);
     if (rc == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
     } else {
@@ -196,6 +203,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     RedisModule_AutoMemory(ctx);
     
+    int nocontent = RMUtil_ArgExists("nocontent", argv, argc, 3);
+    
     DocTable dt;
     IndexSpec sp;
     sp.numFields = 0;
@@ -237,7 +246,18 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         goto cleanup;
     }
     
+    // NOCONTENT mode - just return the ids
+    if (nocontent) {
+        RedisModule_ReplyWithArray(ctx, r->numIds+1);
+        RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
+        for (int i = 0; i < r->numIds; i++) {
+            RedisModule_ReplyWithString(ctx, r->ids[i]);
+        }
+        
+        goto cleanup;   
+    }
     
+    // With content mode - return and load the documents
     int ndocs;
     Document *docs = Redis_LoadDocuments(&sctx, r->ids, r->numIds, &ndocs);
     // format response
@@ -260,6 +280,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     
     free(docs);
+
 cleanup:    
     
     QueryResult_Free(r);
