@@ -14,7 +14,7 @@ endif
 CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -O3 
 VARINT=varint.o buffer.o
 INDEX=index.o tokenize.o forward_index.o score_index.o
-REDIS=redis_buffer.o mdma.o redis_index.o query.o spec.o
+REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
 UTILOBJS=util/heap.o util/logging.o
 RMUTILOBJS=rmutil/librmutil.a
 TESTS=test.o
@@ -35,25 +35,25 @@ RMUTIL = rmutil
 
 # util: $(UTIL)
 
+all: util rmutil module.so 
+
 $(UTIL):
 	$(MAKE) -C $@
 
 $(RMUTIL):
 	$(MAKE) -C $@
 
-all: util rmutil mdma.so 
-
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-#mdma.xo: ./index.h
-
-mdma.so: $(MODULE)
+module.so: $(MODULE)
 	$(LD) -o $@ $(VARINT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
 
 clean:
-	rm -rf *.xo *.so *.o
+	find . -type f -name '*.o' -delete -print
 
 test: $(VARINT) $(INDEX) $(TESTS) $(UTILOBJS) $(REDIS) $(RMUTILOBJS)
 	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(VARINT) $(TESTS) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBS) -lc -lm 
 	@(sh -c ./testung)
+
+rebuild: clean all
