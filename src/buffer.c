@@ -39,6 +39,9 @@ void membufferRelease(Buffer *b) {
     if (b->type & BUFFER_FREEABLE) {
         free(b->data);
     }
+    if (b->ctx) {
+        free(b->ctx);
+    }
     b->cap = 0;
     b->data = NULL;
     b->pos = NULL;

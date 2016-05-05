@@ -96,7 +96,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     // load the index by name
     if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {        
         RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
-        return REDISMODULE_OK;
+        goto cleanup;
+        
     }
     
     RedisSearchCtx sctx = {ctx, &sp};
@@ -104,11 +105,11 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     double ds = 0;
     if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not parse document score");
-        return REDISMODULE_OK;
+        goto cleanup;
     }
     if (ds > 1 || ds < 0) {
         RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
-        return REDISMODULE_OK;
+        goto cleanup;
     }
        
     
@@ -134,7 +135,9 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
     free(doc.fields);
-    
+
+cleanup:    
+    IndexSpec_Free(&sp);
     return REDISMODULE_OK;
     
 }
@@ -212,12 +215,16 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             RedisModule_ReplyWithString(ctx, doc.fields[f].text);
         }
         
+        Document_Free(doc);
     }
+    
+    
     free(docs);
 cleanup:    
     
     QueryResult_Free(r);
     Query_Free(q);
+    IndexSpec_Free(&sp);
     return REDISMODULE_OK;
 }
 

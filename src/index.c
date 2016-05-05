@@ -234,9 +234,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
     ret->singleWordMode = singleWordMode;
     ret->scoreIndex = sci;
     //LG_DEBUG("Load offsets %d, si: %p\n", singleWordMode, si);
-    if (si != NULL) {
-        ret->skipIdx = si;
-    }
+    ret->skipIdx = si;
     
     return ret;
 } 
@@ -244,6 +242,10 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
 
 void IR_Free(IndexReader *ir) {
     membufferRelease(ir->buf);
+    if (ir->scoreIndex) {
+        ScoreIndex_Free(ir->scoreIndex);
+    }
+    SkipIndex_Free(ir->skipIdx);
     free(ir);
 }
 
@@ -329,17 +331,22 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
 }
 
 
-SkipIndex NewSkipIndex(Buffer *b) {
-    SkipIndex ret;
+SkipIndex *NewSkipIndex(Buffer *b) {
+    SkipIndex *ret = malloc(sizeof(SkipIndex));
     
     u_int32_t len = 0;
     BufferRead(b, &len, sizeof(len));
     
-    ret.entries = (SkipEntry*)b->pos;
-    ret.len = len;
+    ret->entries = (SkipEntry*)b->pos;
+    ret->len = len;
     return ret;
 }
 
+void SkipIndex_Free(SkipIndex *si) {
+    if (si != NULL) {
+        free(si);
+    }
+}
 void IW_WriteSkipIndexEntry(IndexWriter *w) {
     
      SkipEntry se = {w->lastId, BufferOffset(w->bw.buf)};
@@ -722,23 +729,28 @@ Skip to the given docId, or one place after it
      free(it->ctx);
      free(it);
  }
+  
+
+void ReadIterator_Free(IndexIterator *it) {
+    if (it==NULL) return;
+       
+    IR_Free(it->ctx);
+    free(it);
+}
  
  void IntersectIterator_Free(IndexIterator *it) {
      if (it == NULL) return;
      IntersectContext *ui = it->ctx;
      for (int i = 0; i < ui->num; i++) {
-         ui->its[i]->Free(ui->its[i]);
+         if (ui->its[i] != NULL) {
+            ui->its[i]->Free(ui->its[i]);
+         }
      }
+     free(ui->currentHits);
+     free(ui->its);
      free(it->ctx);
      free(it);
  }
-
-void ReadIterator_Free(IndexIterator *it) {
-    if (it==NULL) return;
-    IR_Free(it->ctx);
-    free(it);
-}
- 
  
  
  IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *dt) {
@@ -807,8 +819,9 @@ int II_Next(void *ctx) {
 }
 
 int II_Read(void *ctx, IndexHit *hit) {
-   
     IntersectContext *ic = (IntersectContext*)ctx;
+    
+    if (ic->num == 0) return INDEXREAD_EOF;
     
     int nh = 0;
     int i = 0;

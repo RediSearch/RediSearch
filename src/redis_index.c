@@ -61,7 +61,7 @@ void Redis_CloseWriter(IndexWriter *w) {
   RedisBufferFree(w->bw.buf);
   RedisBufferFree(w->skipIndexWriter.buf);
   RedisBufferFree(w->scoreWriter.bw.buf);
-  
+  free(w);  
 }
 
 SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {

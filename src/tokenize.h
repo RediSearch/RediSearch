@@ -26,6 +26,17 @@ typedef char*(*NormalizeFunc)(char*, size_t*);
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 #define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
 
+static const char *stopwords[] =  {
+            "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by",
+            "for", "if", "in", "into", "it",
+            "no", "not", "of", "on", "or", "such",
+            "that", "their", "then", "there", "these",
+            "they", "this", "to", "was", "will", "with", NULL
+    };
+    
+// TODO: Optimize this with trie or something...    
+int isStopword(const char *w);
+
 typedef struct {
     const char *text;
     char **pos;

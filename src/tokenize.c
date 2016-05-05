@@ -19,6 +19,19 @@ int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFu
     return _tokenize(&tctx);
 }
 
+
+inline int isStopword(const char *w) {
+    int i = 0;
+    while (stopwords[i] != NULL) {
+        if (!strcmp(w, stopwords[i++])) {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+
 // tokenize the text in the context
 int _tokenize(TokenizerCtx *ctx) {
     
@@ -39,6 +52,9 @@ int _tokenize(TokenizerCtx *ctx) {
         if (tok == NULL || tlen == 0) {
             continue;
         }
+        
+        // skip stopwords
+        if (isStopword(tok)) continue;
         
         // create the token struct
         Token t = {

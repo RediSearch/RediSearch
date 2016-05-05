@@ -26,6 +26,7 @@ typedef struct {
     ScoreIndexEntry *entries;
     ScoreIndexHeader header;
     u_short offset;
+    Buffer *buf;
 } ScoreIndex;
 
 typedef struct {

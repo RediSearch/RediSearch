@@ -23,7 +23,8 @@ typedef struct {
 } SkipIndex;
 
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
-SkipIndex NewSkipIndex(Buffer *b);
+SkipIndex *NewSkipIndex(Buffer *b);
+void SkipIndex_Free(SkipIndex *si);
 
 #define MAX_INTERSECT_WORDS 8
 

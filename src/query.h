@@ -28,7 +28,7 @@ typedef struct queryStage {
 
 typedef struct {
     
-    const char *raw;
+    char *raw;
     size_t offset;
     size_t limit;
     

@@ -19,6 +19,15 @@ ForwardIndex *NewForwardIndex(t_docId docId, float docScore) {
 }
 
 void ForwardIndexFree(ForwardIndex *idx) {
+   khiter_t k;
+   for (k = kh_begin(idx->hits); k != kh_end(idx->hits); ++k) {
+      if (kh_exist(idx->hits, k)) {
+         ForwardIndexEntry *ent = kh_value(idx->hits , k);
+         kh_del(32, idx->hits, k);
+         VVW_Free(ent->vw);
+         free(ent);
+      }
+   }
     kh_destroy(32, idx->hits);
     free(idx);
     //TODO: check if we need to free each entry separately

@@ -54,10 +54,13 @@ ScoreIndex *NewScoreIndex(Buffer *b) {
     BufferRead(b, &si->header, sizeof(ScoreIndexHeader));
     si->entries = (ScoreIndexEntry*)b->pos;
     si->offset = 0;
+    si->buf = b;
     return si;
 }
 
 void ScoreIndex_Free(ScoreIndex *si) {
+    
+    membufferRelease(si->buf);
     free(si);
 }
 

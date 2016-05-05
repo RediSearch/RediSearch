@@ -15,6 +15,9 @@ void QueryStage_Free(QueryStage *s) {
     for (int i = 0; i < s->nchildren; i++) {
         QueryStage_Free(s->children[i]);
     }
+    if (s->children) {
+        free(s->children);
+    }
     
     free(s);
 }
@@ -119,11 +122,9 @@ Query *ParseQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset
     return ret;
 }
 
-
-
 void Query_Free(Query *q) {
     QueryStage_Free(q->root);
-    
+    free(q->raw);
     free(q);
 }
 
@@ -142,7 +143,6 @@ This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
   
     int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-   // printf("numvecs: %d md: %d\n", h->numOffsetVecs, md);
     return (h->totalFreq)/pow((double)md, 2); 
     
 }
@@ -210,6 +210,10 @@ QueryResult *Query_Execute( Query *query) {
             
         }
         
+    }
+    
+    if (pooledHit) {
+        free(pooledHit);
     }
     
     it->Free(it);
