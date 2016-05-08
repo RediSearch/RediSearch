@@ -25,7 +25,7 @@ typedef char*(*NormalizeFunc)(char*, size_t*);
 
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 #define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
-
+#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+()|'<>?";
 static const char *stopwords[] =  {
             "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by",
             "for", "if", "in", "into", "it",
@@ -53,5 +53,33 @@ typedef struct {
 int _tokenize(TokenizerCtx *ctx);
 int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFunc f);
 char*DefaultNormalize(char *s, size_t *len);
+
+
+typedef struct {
+    const char *text;
+    size_t len;
+    char *pos;
+    const char *separators;
+    NormalizeFunc normalize;
+    
+} QueryTokenizer;
+
+typedef enum {
+    T_WORD,
+    T_QUOTE,
+    T_AND,
+    T_OR,
+    T_END
+} QueryTokenType;
+
+typedef struct {
+    const char *s;
+    size_t len;
+    QueryTokenType type;
+} QueryToken;
+
+QueryTokenizer NewQueryTokenizer(char *text, size_t len);
+QueryToken QueryTokenizer_Next(QueryTokenizer *t);
+int QueryTokenizer_HasNext(QueryTokenizer *);
 
 #endif

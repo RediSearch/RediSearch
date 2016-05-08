@@ -226,7 +226,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     RedisSearchCtx sctx = {ctx, &sp};
     
-    // open the documents metadata table
+     // open the documents metadata table
     InitDocTable(&sctx, &dt);
     
     size_t len;

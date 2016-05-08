@@ -66,7 +66,7 @@ int testDistance() {
     VVW_Truncate(vw2);
     
     
-    VarintVector *v[2] = {vw->bw.buf, vw2->bw.buf};
+    VarintVector v[2] = {*vw->bw.buf, *vw2->bw.buf};
     int delta = VV_MinDistance(v, 2);
     printf("%d\n", delta);
     
@@ -133,8 +133,8 @@ int testIndexReadWrite() {
   int n = 0;
 
   for (int xx = 0; xx < 1; xx++) {
-    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
-    printf("si: %d\n", si.len);
+    SkipIndex* si = NewSkipIndex(w->skipIndexWriter.buf);
+    printf("si: %d\n", si->len);
     IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, &si, NULL, 1);
     IndexHit h = NewIndexHit();
     
@@ -238,11 +238,11 @@ int testReadIterator() {
 
 int testUnion() {
     IndexWriter *w = createIndex(10, 2);
-    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL, 1);
+    SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), si, NULL, 1);
     IndexWriter *w2 = createIndex(10, 3);
     si = NewSkipIndex(w2->skipIndexWriter.buf);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), &si, NULL, 1);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data , IW_Len(w2), si, NULL, 1);
     printf("Reading!\n");
     IndexIterator *irs[] = {NewIndexIterator(r1), NewIndexIterator(r2)};
     IndexIterator *ui =  NewUnionIterator(irs, 2, NULL);
@@ -271,11 +271,11 @@ int testUnion() {
 int testIntersection() {
     
     IndexWriter *w = createIndex(100000, 4);
-    SkipIndex si = NewSkipIndex(w->skipIndexWriter.buf);
-    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), &si, NULL, 0);
+    SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
+    IndexReader *r1 = NewIndexReader(w->bw.buf->data,  IW_Len(w), si, NULL, 0);
     IndexWriter *w2 = createIndex(100000, 2);
     si = NewSkipIndex(w2->skipIndexWriter.buf);
-    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), &si, NULL, 0);
+    IndexReader *r2 = NewIndexReader(w2->bw.buf->data,  IW_Len(w2), si, NULL, 0);
     
     // IndexWriter *w3 = createIndex(10000, 3);
     // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3), &w3->skipIdx);
@@ -419,6 +419,33 @@ int testIndexSpec() {
     
 }
 
+int testQueryTokenize() {
+    
+    char *text = strdup("hello \"world wat\" wat");
+    QueryTokenizer qt = NewQueryTokenizer(text, strlen(text));
+    
+    char *expected[] = {"hello", NULL, "world", "wat", NULL, "wat"};
+    QueryTokenType etypes[] = {T_WORD, T_QUOTE, T_WORD, T_WORD, T_QUOTE, T_WORD, T_END};
+    int i = 0;
+    while (QueryTokenizer_HasNext(&qt)) {
+        QueryToken t = QueryTokenizer_Next(&qt);
+        printf ("%d Token text: %*s, token type %d\n", i, t.len,t.s, t.type);
+        
+        //ASSERT((t.s == NULL && expected[i] == NULL) ||  (t.s != NULL && expected[i] && !strcmp(t.s, expected[i])))
+        if (t.s != NULL) {
+            ASSERT(expected[i] != NULL)
+            ASSERT( !strncmp(expected[i], t.s, t.len))
+        }
+        ASSERT( t.type == etypes[i] )
+        i++;
+        if (t.type == T_END) {
+            break;
+        }
+    }
+    
+    return 0;
+}
+
 typedef union {
   int i;
   float f;
@@ -434,7 +461,7 @@ int main(int argc, char **argv) {
     // LOGGING_LEVEL = L_DEBUG;
     //     TESTFUNC(testVarint);
     //     TESTFUNC(testDistance);
-    TESTFUNC(testIndexReadWrite);
+    //TESTFUNC(testIndexReadWrite);
     //TESTFUNC(testIntersection);
     //  TESTFUNC(testReadIterator);
     //   TESTFUNC(testUnion);
@@ -443,5 +470,6 @@ int main(int argc, char **argv) {
     //   TESTFUNC(testTokenize);
     //   TESTFUNC(testForwardIndex);
     //   TESTFUNC(testIndexSpec);
+    TESTFUNC(testQueryTokenize);
   return 0;
 }
