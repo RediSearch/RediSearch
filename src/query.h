@@ -17,10 +17,11 @@ typedef enum {
 
 
 typedef struct queryStage {
-    const char *term;
+    char *term;
     QueryOp op;
     
     struct queryStage **children;
+    struct queryStage *parent;
     int nchildren;
 } QueryStage;
 
@@ -29,6 +30,8 @@ typedef struct queryStage {
 typedef struct {
     
     char *raw;
+    size_t len;
+    
     size_t offset;
     size_t limit;
     
@@ -52,6 +55,7 @@ typedef struct {
 } QueryResult;
 
 
+int Query_Tokenize(Query *q);
 IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 void QueryStage_Free(QueryStage *s);
 QueryStage *NewQueryStage(const char *term, QueryOp op);

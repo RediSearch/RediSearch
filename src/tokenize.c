@@ -145,9 +145,10 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
 
     t->pos++;
 word:
+
     return (QueryToken){
-        currentTok,
-        t->pos -1 - currentTok,
+        strndup(currentTok,  t->pos - currentTok),
+        t->pos - currentTok,
         T_WORD,
         
     };

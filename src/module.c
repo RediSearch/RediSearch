@@ -232,6 +232,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
     Query *q = ParseQuery(&sctx, (char *)qs, len, first, limit);
+    Query_Tokenize(q);
+    
     q->docTable = &dt;
         
     // Execute the query 
