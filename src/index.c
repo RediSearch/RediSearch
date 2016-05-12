@@ -95,6 +95,7 @@ int IR_Read(void *ctx, IndexHit *e) {
     if (rc == INDEXREAD_OK) {
         e->totalFreq += tfidf(freq, ir->header.numDocs);
     }
+    e->type = H_RAW;
     
     return rc;
 }
@@ -117,7 +118,7 @@ inline int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
     if (rc == INDEXREAD_OK && e->docId == expectedDocId) {
         e->totalFreq += tfidf(freq, ir->header.numDocs);
     }
-    
+    e->type = H_RAW;
     return rc;
 }
 
@@ -143,6 +144,7 @@ void IndexHit_Init(IndexHit *h) {
      h->numOffsetVecs = 0;
     // h->flags = 0;
      h->totalFreq = 0; 
+     h->type = H_RAW;
      //h->metadata = (DocumentMetadata){0,0};
      h->hasMetadata = 0;
 }
@@ -634,6 +636,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
         }
         
         *hit = ui->currentHits[minIdx];
+        hit->type = H_UNION;
         ui->minDocId = ui->currentHits[minIdx].docId;
         return INDEXREAD_OK;
     
@@ -715,6 +718,7 @@ Skip to the given docId, or one place after it
      
      ui->minDocId = ui->currentHits[minIdx].docId;
      *hit = ui->currentHits[minIdx];
+     hit->type = H_UNION;
      return INDEXREAD_NOTFOUND;
  }
  
@@ -804,6 +808,9 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
          
      }
      if (nfound == ic->num) {
+         
+         
+         
          *hit = ic->currentHits[0];
          return INDEXREAD_OK;
      }
@@ -853,18 +860,21 @@ int II_Read(void *ctx, IndexHit *hit) {
             
             // sum up all hits
             if (hit != NULL) {
+                hit->numOffsetVecs = 0;
                 for (int i = 0; i < nh; i++) {
                     IndexHit *hh = &ic->currentHits[i];
                     hit->docId = hh->docId;
                     hit->flags |= hh->flags;
                     hit->totalFreq += hh->totalFreq;
-                    
+                    hit->type = H_INTERSECTED;
                     int n = 0;
                     // Copy the offset vectors of the hits
                     while(hit->numOffsetVecs < MAX_INTERSECT_WORDS && n < hh->numOffsetVecs) {
                         hit->offsetVecs[hit->numOffsetVecs++] = hh->offsetVecs[n++];
                     }
                 } 
+                
+               
             }
             
             // advance to the next iterator
@@ -876,6 +886,16 @@ int II_Read(void *ctx, IndexHit *hit) {
                 ic->lastDocId = ic->currentHits[0].docId;    
             }
             
+            // In exact mode, make sure the minimal distance is the number of words
+             if (ic->exact) {
+                 int md = VV_MinDistance(hit->offsetVecs, hit->numOffsetVecs);
+                 printf("md %d, num %d\n", md, ic->num);
+                 
+                 if (md > ic->num - 1) {
+                    continue;
+                 }
+                 hit->type = H_EXACT;
+             } 
             
             return INDEXREAD_OK;
         } 

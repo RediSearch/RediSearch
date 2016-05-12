@@ -139,7 +139,7 @@ void __queryStage_Print(QueryStage *qs, int depth) {
       printf("EXACT {\n");
       break;
     case Q_LOAD:
-      printf("LOAD{%s", qs->term);
+      printf("{%s", qs->term);
       break;
     case Q_INTERSECT:
       printf("INTERSECT {\n");
@@ -214,7 +214,11 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
-  int md = VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
+  if (h->type == H_EXACT) {
+    printf("EXACT HIT, not calculating MD\n");
+  }
+  // for exact hits we don't need to calculate minimal offset dist
+  int md = h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
   return (h->totalFreq) / pow((double)md, 2);
 }
 

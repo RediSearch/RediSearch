@@ -28,6 +28,20 @@ void SkipIndex_Free(SkipIndex *si);
 
 #define MAX_INTERSECT_WORDS 8
 
+/** HitType tells us what type of hit we're dealing with */
+typedef enum {
+    // A raw term hit
+    H_RAW,
+    // a hit that is the intersection of two or more hits
+    H_INTERSECTED,
+    
+    // a hit that is the exact intersection of two or more hits
+    H_EXACT,
+    
+    // a hit that is the union of two or more hits
+    H_UNION
+} HitType;
+
 typedef struct {
     t_docId docId;
     double totalFreq;
@@ -36,6 +50,7 @@ typedef struct {
     int numOffsetVecs;
     int hasMetadata;
     DocumentMetadata metadata;
+    HitType type;
 } IndexHit;
 
 
