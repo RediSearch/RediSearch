@@ -206,9 +206,7 @@ int VV_MinDistance(VarintVector *vs, int num) {
     for (i = 0; i < num; i++) {
         BufferSeek(&vs[i], 0);
         iters[i] = VarIntVector_iter(&vs[i]);
-        printf("iters %d: %d/%d\n", i, iters[i].buf->offset, iters[i].buf->cap);
         vals[i] = VV_Next(&iters[i]);
-        printf("vals %d:%d\n", i, vals[i]);
         if (i >= 1) {
             dist += abs(vals[i] - vals[i-1]);
         }
@@ -226,7 +224,6 @@ int VV_MinDistance(VarintVector *vs, int num) {
                minIdx = i;
            }
        }
-       printf("MinIDX: %d -> %d\n", minIdx, minIdx >=0 ? vals[minIdx] : -1);
        // all lists are at their end
        if (minIdx == -1) break;
        

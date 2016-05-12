@@ -21,7 +21,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
-    
+   
     if (expectedDocId != 0 && *docId != expectedDocId) {
         
         BufferSkip(ir->buf, len);
@@ -39,8 +39,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     BufferReadByte(ir->buf, (char*)flags);
     
     size_t offsetsLen = ReadVarint(ir->buf); 
-    //Buffer *b = NewBuffer(ir->br.buf->data, offsetsLen, BUFFER_READ);
-    
+        
     // If needed - read offset vectors
     if (offsets != NULL && !ir->singleWordMode && 
         (expectedDocId == 0 || *docId==expectedDocId)) {
@@ -50,8 +49,8 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
         offsets->pos = offsets->data;
         offsets->ctx = NULL;
         offsets->offset = 0;
-        offsets->type = BUFFER_READ; 
-    }
+        offsets->type = BUFFER_READ;
+    } 
     
     BufferSkip(ir->buf, offsetsLen);
     ir->lastId = *docId;
@@ -195,7 +194,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
             IR_Seek(ir, ent->offset, ent->docId);
         }
         
-        while(IR_ReadDocId(ir, hit, docId) != INDEXREAD_EOF) {
+        while(IR_Read(ir, hit) != INDEXREAD_EOF) {
             // we found the doc we were looking for!
             if (ir->lastId == docId) {
                 return INDEXREAD_OK;
@@ -889,7 +888,6 @@ int II_Read(void *ctx, IndexHit *hit) {
             // In exact mode, make sure the minimal distance is the number of words
              if (ic->exact) {
                  int md = VV_MinDistance(hit->offsetVecs, hit->numOffsetVecs);
-                 printf("md %d, num %d\n", md, ic->num);
                  
                  if (md > ic->num - 1) {
                     continue;

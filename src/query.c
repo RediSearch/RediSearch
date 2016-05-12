@@ -190,7 +190,7 @@ int Query_Tokenize(Query *q) {
     if (current == NULL) break;
   }
 
-  __queryStage_Print(q->root, 0);
+  //__queryStage_Print(q->root, 0);
 
   return q->numTokens;
 }
@@ -214,9 +214,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
-  if (h->type == H_EXACT) {
-    printf("EXACT HIT, not calculating MD\n");
-  }
+  
   // for exact hits we don't need to calculate minimal offset dist
   int md = h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
   return (h->totalFreq) / pow((double)md, 2);
