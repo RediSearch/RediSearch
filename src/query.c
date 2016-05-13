@@ -292,7 +292,7 @@ QueryResult *Query_Execute(Query *query) {
   for (int i = 0; i < n; ++i) {
     IndexHit *h = heap_poll(pq);
     // printf("Popping %d freq %f\n", h->docId, h->totalFreq);
-    res->ids[i] = Redis_GetDocKey(query->ctx, h->docId);
+    res->ids[n - i - 1] = Redis_GetDocKey(query->ctx, h->docId);
     free(h);
   }
 

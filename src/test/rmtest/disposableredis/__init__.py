@@ -62,11 +62,10 @@ class DisposableRedis(object):
                 if self.process.returncode is not None:
                     raise RuntimeError("Process has exited")
                 time.sleep(0.1)
-        print "connected!"
+        
         return self.client()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print ("exit")
         self.process.terminate()
 
     def client(self):

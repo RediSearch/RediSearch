@@ -707,11 +707,11 @@ int II_Read(void *ctx, IndexHit *hit) {
                 // but advancing docId makes sure we'll read the first iterator again in the next round
                 ic->lastDocId++;
             } else {
-                if (ic->currentHits[0].docId != ic->lastDocId) {
+                //if (ic->currentHits[0].docId != ic->lastDocId) {
                     ic->lastDocId = ic->currentHits[0].docId;    
-                } else {
-                    ic->lastDocId++;
-                }
+                //} else {
+                //    ic->lastDocId++;
+                //}
             }
             
             // In exact mode, make sure the minimal distance is the number of words
@@ -723,6 +723,10 @@ int II_Read(void *ctx, IndexHit *hit) {
                  }
                  hit->type = H_EXACT;
              } 
+             
+             if (hit) {
+                printf("INTERSECT @%d\n", hit->docId );
+             }
              
              return INDEXREAD_OK;
         } 

@@ -337,7 +337,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    //LOGGING_INIT(0xFFFFFFFF);
+    LOGGING_INIT(0xFFFFFFFF);
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
