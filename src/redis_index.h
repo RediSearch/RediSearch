@@ -6,10 +6,17 @@
 #include "spec.h"
 #include "search_ctx.h"
 
+/* Open an index writer on a redis DMA string, for a specific term */
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term);
+/* Close the redis index writer */
 void Redis_CloseWriter(IndexWriter *w);
+
+/* Open an inverted index reader on a redis DMA string, for a specific term. 
+If singleWordMode is set to 1, we do not load the skip index, only the score index */
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode);
 void Redis_CloseReader(IndexReader *r);
+
+/* Load the skip index entry of a redis term */
 SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term);
 
 

@@ -219,7 +219,7 @@ void IR_Free(IndexReader *ir) {
 }
 
 
-IndexIterator *NewIndexIterator(IndexReader *ir) {
+IndexIterator *NewReadIterator(IndexReader *ir) {
     IndexIterator *ri = malloc(sizeof(IndexIterator));
     ri->ctx = ir;
     ri->Read = IR_Read;

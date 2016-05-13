@@ -4,6 +4,12 @@
 #include "types.h"
 #include "util/heap.h"
 
+/*
+A score index is used in single word queries. 
+It stores only the first top N entries per word, so when 
+just this word is searched, we simply retrieve the top N entries from the index
+without needing to traverse the entire index. */
+
 #define MAX_SCOREINDEX_SIZE 20
 
 #pragma pack(4)

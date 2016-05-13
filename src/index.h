@@ -44,13 +44,23 @@ typedef struct {
 } IndexHit;
 
 
+/** Reset the state of an existing index hit. This can be used to 
+recycle index hits during reads */
 void IndexHit_Init(IndexHit *h);
+/** Init a new index hit. This is not a heap allocation and doesn't neeed to be freed */
 IndexHit NewIndexHit();
+
+/* Free the internal data of an index hit. Since index hits are usually on the stack,
+this does not actually free the hit itself */
 void IndexHit_Terminate(IndexHit *h);
+
+/** Load document metadata for an index hit, marking it as having metadata.
+Currently has no effect due to performance issues */
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt);
 
 
 #pragma pack(4)
+/** The header of an inverted index record */
 typedef struct  {
     t_offset size;
     t_docId lastId;
@@ -59,25 +69,35 @@ typedef struct  {
 #pragma pack()
 
 
+/* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct {
+    // the underlying data buffer
     Buffer *buf;
+    // the header - we read into it from the buffer
     IndexHeader header;
+    // last docId, used for delta encoding/decoding
     t_docId lastId;
+    // skip index. If not null and is needed, will be used for intersects
     SkipIndex *skipIdx;
     u_int skipIdxPos;
     DocTable *docTable;
+    // in single word mode, we use the score index to get the top docs directly,
+    // and do not load the skip index.
     int singleWordMode;
     ScoreIndex *scoreIndex;
 } IndexReader; 
 
 
-
+/* An IndexWriter writes forward index entries to an index buffer */
 typedef struct {
     BufferWriter bw;
-    
+    // last id for delta encoding
     t_docId lastId;
+    // the number of documents encoded
     u_int32_t ndocs;
+    // writer for the skip index
     BufferWriter skipIndexWriter;
+    // writer for the score index
     ScoreIndexWriter scoreWriter;
 } IndexWriter;
 
@@ -86,47 +106,72 @@ typedef struct {
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
 
-typedef int (*IntersectHandler)(void *ctx, IndexHit*, int);
 
+/* An abstract interface used by readers / intersectors / unioners etc.
+Basically query execution creates a tree of iterators that activate each other recursively */
 typedef struct indexIterator {
     void *ctx;
-
+    // Read the next entry from the iterator, into hit *e.
+    // Returns INDEXREAD_EOF if at the end
     int (*Read)(void *ctx, IndexHit *e);
+    // Skip to a docid, potentially reading the entry into hit, if the docId matches
     int (*SkipTo)(void *ctx, u_int32_t docId, IndexHit *hit);
+    // the last docId read
     t_docId (*LastDocId)(void *ctx);
+    // can we continue iteration?
     int (*HasNext)(void *ctx);
+    // release the iterator's context and free everything needed
     void (*Free)(struct indexIterator *self);
 } IndexIterator;
 
-
+/* Free a union iterator */
 void UnionIterator_Free(IndexIterator *it);
+
+/* Free an intersect iterator */
 void IntersectIterator_Free(IndexIterator *it);
+
+/* Free a read iterator */
 void ReadIterator_Free(IndexIterator *it);
 
 // used only internally for unit testing
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, 
                             int singleWordMode);
                             
+/* Create a new index reader on an inverted index buffer, 
+* optionally with a skip index, docTable and scoreIndex.
+* If singleWordMode is set to 1, we ignore the skip index and use the score index.
+*/                            
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode, 
                               ScoreIndex *sci);
-void IR_Free(IndexReader *ir); 
+/* free an index reader */
+void IR_Free(IndexReader *ir);
+
+/* Read an entry from an inverted index */ 
 int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
                    VarintVector *offsets, t_docId expectedDocdId);
+/* Read an entry from an inverted index into IndexHit */
 int IR_Read(void *ctx, IndexHit *e);
+/* Move to the next entry in an inverted index, without reading the whole entry */
 int IR_Next(void *ctx);
+
+/* Can we read more from an index reader? */
 int IR_HasNext(void *ctx);
+
+/* Skip to a specific docId in a reader,using the skip index, and read the entry there */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
+/* The number of docs in an inverted index entry */
 u_int32_t IR_NumDocs(IndexReader *ir);
+/* LastDocId of an inverted index stateful reader */
 t_docId IR_LastDocId(void* ctx);
-int IR_Intersect(IndexReader *r, IndexReader *other, IntersectHandler h, void *ctx);
-int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx);
+/* Seek the inverted index reader to a specific offset and set the last docId */
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 
 
 //void IW_MakeSkipIndex(IndexWriter *iw, Buffer *b);
 int indexReadHeader(Buffer *b, IndexHeader *h);
 
-IndexIterator *NewIndexIterator(IndexReader *ir);
+/* Create a reader iterator that iterates an inverted index record */
+IndexIterator *NewReadIterator(IndexReader *ir);
 
 size_t IW_Close(IndexWriter *w); 
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);

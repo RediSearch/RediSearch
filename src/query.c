@@ -45,7 +45,7 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage,
     return NULL;
   }
 
-  return NewIndexIterator(ir);
+  return NewReadIterator(ir);
 }
 
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
