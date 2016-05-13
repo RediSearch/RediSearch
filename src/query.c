@@ -190,7 +190,7 @@ int Query_Tokenize(Query *q) {
     if (current == NULL) break;
   }
 
-  //__queryStage_Print(q->root, 0);
+  __queryStage_Print(q->root, 0);
 
   return q->numTokens;
 }

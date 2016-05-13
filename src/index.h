@@ -11,20 +11,8 @@
 #include "util/logging.h"
 #include "doc_table.h"
 #include "score_index.h"
+#include "skip_index.h"
 
-typedef struct {
-    t_docId docId;
-    t_offset offset;
-} SkipEntry;
-
-typedef struct {
-    u_int len;
-    SkipEntry *entries;
-} SkipIndex;
-
-SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
-SkipIndex *NewSkipIndex(Buffer *b);
-void SkipIndex_Free(SkipIndex *si);
 
 #define MAX_INTERSECT_WORDS 8
 
@@ -42,6 +30,8 @@ typedef enum {
     H_UNION
 } HitType;
 
+/* An IndexHit is the data structure used when reading indexes. 
+Each hit representsa single document entry in an inverted index */
 typedef struct {
     t_docId docId;
     double totalFreq;

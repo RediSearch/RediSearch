@@ -5,7 +5,6 @@
 #include <math.h>
 
 
-#define SKIPINDEX_STEP 50
 
 
 inline int IR_HasNext(void *ctx) {
@@ -22,12 +21,12 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
    
-    if (expectedDocId != 0 && *docId != expectedDocId) {
+    // if (expectedDocId != 0 && *docId != expectedDocId) {
         
-        BufferSkip(ir->buf, len);
-        ir->lastId = *docId;
-        return INDEXREAD_OK;
-    }
+    //     BufferSkip(ir->buf, len);
+    //     ir->lastId = *docId;
+    //     return INDEXREAD_OK;
+    // }
     
     
     int quantizedScore = ReadVarint(ir->buf);
@@ -53,6 +52,8 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     } 
     
     BufferSkip(ir->buf, offsetsLen);
+  // printf("IR READ %d, was at %d\n", *docId, ir->lastId);
+
     ir->lastId = *docId;
     return INDEXREAD_OK;
 }
@@ -65,7 +66,6 @@ inline double tfidf(float freq, u_int32_t docFreq) {
 }
 
 int IR_Read(void *ctx, IndexHit *e) {
-    
     
     float freq;
     IndexReader *ir = ctx;
@@ -99,27 +99,6 @@ int IR_Read(void *ctx, IndexHit *e) {
     return rc;
 }
 
-inline int IR_ReadDocId(void *ctx, IndexHit *e, t_docId expectedDocId) {
-    float freq;
-    
-    IndexReader *ir = ctx;
-    VarintVector *offsets = NULL;
-    if (!ir->singleWordMode) {
-        offsets = &e->offsetVecs[0];
-        e->numOffsetVecs = 1; 
-    }
-    
-    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, 
-                            offsets, 
-                            expectedDocId);
-    
-    // add tf-idf score of the entry to the hit
-    if (rc == INDEXREAD_OK && e->docId == expectedDocId) {
-        e->totalFreq += tfidf(freq, ir->header.numDocs);
-    }
-    e->type = H_RAW;
-    return rc;
-}
 
 int IR_Next(void *ctx) {
     
@@ -154,17 +133,6 @@ IndexHit NewIndexHit() {
     return h;
 }
 
-// void IndexHit_AppendOffsetVecs(IndexHit *h, VarintVector **offsetVecs, int numOffsetVecs) {
-//     if (numOffsetVecs == 0) return;
-    
-//     int nv = h->numOffsetVecs + numOffsetVecs;
-//     h->offsetVecs = realloc(h->offsetVecs, nv*sizeof(VarintVector*));
-//     int n = 0;
-//     for (int i = h->numOffsetVecs; i < nv; i++) {
-//         h->offsetVecs[i] = offsetVecs[n++];
-//     }
-//     h->numOffsetVecs = nv;
-// }
 
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
     
@@ -332,22 +300,6 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
 }
 
 
-SkipIndex *NewSkipIndex(Buffer *b) {
-    SkipIndex *ret = malloc(sizeof(SkipIndex));
-    
-    u_int32_t len = 0;
-    BufferRead(b, &len, sizeof(len));
-    
-    ret->entries = (SkipEntry*)b->pos;
-    ret->len = len;
-    return ret;
-}
-
-void SkipIndex_Free(SkipIndex *si) {
-    if (si != NULL) {
-        free(si);
-    }
-}
 void IW_WriteSkipIndexEntry(IndexWriter *w) {
     
      SkipEntry se = {w->lastId, BufferOffset(w->bw.buf)};
@@ -429,145 +381,15 @@ size_t IW_Close(IndexWriter *w) {
     return w->bw.buf->cap;
 }
 
-// void IW_MakeSkipIndex(IndexWriter *iw, Buffer *buf) {
-//     IndexReader *ir = NewIndexReader(iw->bw.buf->data, iw->bw.buf->cap, NULL, NULL);
-    
-//     int nents = ir->header.numDocs/SKIPINDEX_STEP;
-    
-//     BufferWriter bw = NewBufferWriter(buf);
-//     int i = 0, idx = 0;
-//     while (IR_Next(ir) != INDEXREAD_EOF && idx < nents) {
-        
-//        if (++i % SKIPINDEX_STEP == 0) {
-          
-//            SkipEntry se = {ir->lastId, ir->buf->offset};
-//            bw.Write(buf, &se, sizeof(SkipEntry));
-//            //LG_DEBUG("skipindex[%d]: docId %d, offset %d\n", idx, ir->lastId, entries[idx].offset);
-//            idx++;
-//        }
-          
-//     }
-    
-//     bw.Truncate(buf, 0);
-//     bw.Release(buf);
-//     iw->skipIdx.entries = (SkipEntry*)buf->data;
-//     iw->skipIdx.len = idx;
-     
-// }
-
-
 void IW_Free(IndexWriter *w) {
     w->skipIndexWriter.Release(w->skipIndexWriter.buf);
     w->bw.Release(w->bw.buf);
     free(w);
 }
 
-inline int iw_isPos(SkipIndex *idx, u_int i, t_docId docId) {
-    if (idx->entries[i].docId < docId &&
-        (i < idx->len - 1 && idx->entries[i+1].docId >= docId)) {
-            return 1;
-   }
-   return 0;
-}
-
-inline SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
-    
-    if (idx == NULL || idx->len == 0 || docId < idx->entries[0].docId) {
-        return NULL;
-    } 
-    if (docId > idx->entries[idx->len-1].docId) {
-        *offset = idx->len - 1; 
-        return &idx->entries[idx->len-1];
-    }
-    u_int top = idx->len, bottom = *offset;
-    u_int i = bottom;
-    int newi;
-    while (bottom < top) {
-        //LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom, idx->entries[i].docId, i, docId );
-       if (iw_isPos(idx, i, docId)) {
-           //LG_DEBUG("IS POS!\n");
-           *offset = i;
-           return &idx->entries[i];
-       }
-       //LG_DEBUG("NOT POS!\n");
-       
-       if (docId <= idx->entries[i].docId) {
-           top = i ;
-       } else {
-           bottom = i ;
-       }
-       newi = (bottom + top)/2;
-       //LG_DEBUG("top %d, bottom: %d, new i: %d\n", top, bottom, newi);
-       if (newi == i) {
-           break;
-       }
-       i = newi;
-    }
-    // if (i == 0) {
-    //     return &idx->entries[0];
-    // }
-    return NULL;
-}
-
 
 inline t_docId IR_LastDocId(void* ctx) {
     return ((IndexReader *)ctx)->lastId;
-}
-
-int IR_Intersect2(IndexIterator **argv, int argc, IntersectHandler onIntersect, void *ctx) {
-    
-    // nothing to do
-    if (argc <= 0) {
-        return 0;
-    }
-    
-    IndexHit hits[argc];
-    for (int i =0; i < argc; i++) {
-        IndexHit_Init(&hits[i]);
-    }
-    
-    t_docId currentDoc = 0;
-    int count = 0;
-    int nh = 0;
-    do {
-        nh = 0;    
-        
-        for (int i = 0; i < argc; i++) {
-            IndexHit *h = &hits[i];
-            // skip to the next
-            if (h->docId != currentDoc || currentDoc == 0) {
-                if (argv[i]->SkipTo(argv[i]->ctx, currentDoc, h) == INDEXREAD_EOF) {
-                    return count;
-                }
-            }
-            if (h->docId != currentDoc) {
-                currentDoc = h->docId;
-                break;
-            }
-            currentDoc = h->docId;
-            nh++;
-        }
-        
-        if (nh == argc) {
-            onIntersect(ctx, hits, argc);
-            ++count;
-            
-            if (argv[0]->Read(argv[0]->ctx, &hits[0]) == INDEXREAD_EOF) {
-               return count;
-            }
-            currentDoc = hits[0].docId;
-        }
-    }while(1);
-
-    return count;
-    
-}
-
-
-
-
-int cmpHits(const void *h1, const void *h2) {
-    return ((IndexHit*)h1)->docId - ((IndexHit*)h2)->docId; 
 }
 
 
@@ -832,10 +654,12 @@ int II_Read(void *ctx, IndexHit *hit) {
     int nh = 0;
     int i = 0;
     do {
+        LG_DEBUG("II %p last docId %d\n", ic,     ic->lastDocId);
         nh = 0;    
         for (i = 0; i < ic->num; i++) {
             
             IndexHit *h = &ic->currentHits[i];
+            LG_DEBUG("h->docId: %d, ic->lastDocId: %d\n", h->docId, ic->lastDocId);
             // skip to the next
             if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
                 IndexIterator *it = ic->its[i];
@@ -847,8 +671,9 @@ int II_Read(void *ctx, IndexHit *hit) {
                     return INDEXREAD_EOF;
                 }
             }
+            
             if (h->docId != ic->lastDocId) {
-                ic->lastDocId = h->docId;
+                ic->lastDocId = h->docId;   
                 break;
             }
             ic->lastDocId = h->docId;
@@ -879,14 +704,18 @@ int II_Read(void *ctx, IndexHit *hit) {
             // advance to the next iterator
             if (ic->its[0]->Read(ic->its[0]->ctx, &ic->currentHits[0]) == INDEXREAD_EOF) {
                 // if we're at the end we don't want to return EOF right now,
-                // but advancing docI makes sure we'll read the first iterator again in the next round
+                // but advancing docId makes sure we'll read the first iterator again in the next round
                 ic->lastDocId++;
             } else {
-                ic->lastDocId = ic->currentHits[0].docId;    
+                if (ic->currentHits[0].docId != ic->lastDocId) {
+                    ic->lastDocId = ic->currentHits[0].docId;    
+                } else {
+                    ic->lastDocId++;
+                }
             }
             
             // In exact mode, make sure the minimal distance is the number of words
-             if (ic->exact) {
+             if (ic->exact && hit != NULL) {
                  int md = VV_MinDistance(hit->offsetVecs, hit->numOffsetVecs);
                  
                  if (md > ic->num - 1) {
@@ -894,8 +723,8 @@ int II_Read(void *ctx, IndexHit *hit) {
                  }
                  hit->type = H_EXACT;
              } 
-            
-            return INDEXREAD_OK;
+             
+             return INDEXREAD_OK;
         } 
     }while(1);
 
