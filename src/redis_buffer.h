@@ -1,6 +1,8 @@
 #include "redismodule.h"
 #include "buffer.h"
 
+/* A buffer implementation on top of redis DMA strings */
+
 typedef struct {
     RedisModuleCtx *ctx;
     RedisModuleString *keyName;

@@ -132,7 +132,7 @@ int queryTokenFunc(void *ctx, Token t) {
   return 0;
 }
 
-Query *ParseQuery(RedisSearchCtx *ctx, const char *query, size_t len,
+Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len,
                   int offset, int limit) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;

@@ -231,7 +231,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-    Query *q = ParseQuery(&sctx, (char *)qs, len, first, limit);
+    Query *q = NewQuery(&sctx, (char *)qs, len, first, limit);
     Query_Tokenize(q);
     
     q->docTable = &dt;
@@ -337,7 +337,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    LOGGING_INIT(0xFFFFFFFF);
+    //LOGGING_INIT(0xFFFFFFFF);
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;

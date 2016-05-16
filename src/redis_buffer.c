@@ -5,10 +5,11 @@
 #define REDISBUFFER_MAX_REALLOC 1024*1024
 
 size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
+    // if needed - resize the capacity using redis truncate
     if (b->offset + len > b->cap) {
         do {
-            //size_t cap = MIN(b->cap*2, 10000);
-            b->cap = b->cap ? b->cap * 2 : 1;
+            size_t cap = b->cap ? b->cap * 2 : 1;;
+            b->cap = MIN(cap, REDISBUFFER_MAX_REALLOC);
         } while(b->pos + len > b->data + b->cap);
         
         if (redisWriterTruncate(b, b->cap) == 0) {

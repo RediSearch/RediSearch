@@ -61,7 +61,7 @@ int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt);
 
 #pragma pack(4)
 /** The header of an inverted index record */
-typedef struct  {
+typedef struct indexHeader  {
     t_offset size;
     t_docId lastId;
     u_int32_t numDocs;
@@ -70,7 +70,7 @@ typedef struct  {
 
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
-typedef struct {
+typedef struct indexReader {
     // the underlying data buffer
     Buffer *buf;
     // the header - we read into it from the buffer
@@ -89,7 +89,7 @@ typedef struct {
 
 
 /* An IndexWriter writes forward index entries to an index buffer */
-typedef struct {
+typedef struct indexWriter {
     BufferWriter bw;
     // last id for delta encoding
     t_docId lastId;
@@ -173,14 +173,26 @@ int indexReadHeader(Buffer *b, IndexHeader *h);
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
 
-size_t IW_Close(IndexWriter *w); 
+/* Close an indexWriter */
+size_t IW_Close(IndexWriter *w);
+
+/* Write a ForwardIndexEntry into an indexWriter, updating its score and skip indexes if needed */ 
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
+
+/* Get the len of the index writer's buffer */
 size_t IW_Len(IndexWriter *w);
+
+/** Free the index writer and underlying data structures */
 void IW_Free(IndexWriter *w);
+/* Create a new index writer with a memory buffer of a given capacity. 
+NOTE: this is used for testing only */
 IndexWriter *NewIndexWriter(size_t cap);
+
+/* Create a new index writer with the given buffers for the actual index, skip index, and score index */
 IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter, ScoreIndexWriter scoreWriter);
 
 
+/* UnionContext is used during the running of a union iterator */
 typedef struct {
     IndexIterator **its;
     int num;
@@ -190,6 +202,8 @@ typedef struct {
     DocTable *docTable;
 } UnionContext;
 
+/* Create a new UnionIterator over a list of underlying child iterators. 
+It will return each document of the underlying iterators, exactly once */ 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
 
 int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
@@ -198,7 +212,7 @@ int UI_Read(void *ctx, IndexHit *hit);
 int UI_HasNext(void *ctx);
 t_docId UI_LastDocId(void *ctx);
 
-
+/* The context used by the intersection methods during iterating an intersect iterator */
 typedef struct {
     IndexIterator **its;
     int num;
@@ -208,6 +222,8 @@ typedef struct {
     DocTable *docTable;
 } IntersectContext;
 
+/* Create a new intersect iterator over the given list of child iterators. If exact is one
+we will only yield results that are exact matches */
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t);
 int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
 int II_Next(void *ctx);
