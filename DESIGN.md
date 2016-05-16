@@ -17,6 +17,7 @@ value is exposed simply as `char *`, it can be cast to any data structure.
 
 You simply call `RedisModule_StringTruncate` to resize a memory chunk to the size needed, and `RedisModule_StringDMA` 
 to get direct access to the memory in that key. 
+See [https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma](https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma)
 
 We use this API in the module mainly to encode inverted indexes, but for other auxiliary data structures used. 
 
@@ -25,7 +26,7 @@ the redis string it uses as raw memory, when the capacity needs to grow.
  
 ## Inverted index encoding
 
-An inverted index is the data structure at the heart of all search engines. The idea is simple - per each
+An [Inverted Index](https://en.wikipedia.org/wiki/Inverted_index) is the data structure at the heart of all search engines. The idea is simple - per each
 word or search term, we save a list of all the documents it appears in, and other data, such as term frequency,
 the offsets where the term appeared in the document, and more. Offsets are used for "exact match" type searches,
 or for ranking of results.
@@ -59,7 +60,7 @@ So we keep an auxiliary index of the top 20 or so entries for each term, and use
 ## Document and result ranking
 
 Each document entered to the engine using `FT.ADD`, has a user assigned rank, between 0 and 1.0. This is used in
-combination with TF-IDF weighting of each word, to rank the results. 
+combination with [TF-IDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) scoring of each word, to rank the results. 
 
 As an optimization, each inverted index hit is encoded with TF*Document_rank as its score, and only IDF is applied
 during searches. This may change in the future.
