@@ -10,6 +10,7 @@
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
     return ir->header.size > ir->buf->offset;
+
 }
 
 inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
@@ -27,7 +28,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     //     ir->lastId = *docId;
     //     return INDEXREAD_OK;
     // }
-    
     
     int quantizedScore = ReadVarint(ir->buf);
     if (freq != NULL) {
@@ -52,7 +52,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     } 
     
     BufferSkip(ir->buf, offsetsLen);
-  // printf("IR READ %d, was at %d\n", *docId, ir->lastId);
+    //printf("IR %p READ %d, was at %d\n", ir, *docId, ir->lastId);
 
     ir->lastId = *docId;
     return INDEXREAD_OK;
@@ -150,7 +150,7 @@ Skip to the given docId, or one place after it
 @param hit an index hit we put our reads into
 @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
 */
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {  
     IndexReader *ir = ctx;
     
     SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
@@ -648,7 +648,7 @@ int II_Next(void *ctx) {
 
 int II_Read(void *ctx, IndexHit *hit) {
     IntersectContext *ic = (IntersectContext*)ctx;
-    
+    //printf("ic num %d\n", ic->num);
     if (ic->num == 0) return INDEXREAD_EOF;
     
     int nh = 0;
@@ -664,9 +664,9 @@ int II_Read(void *ctx, IndexHit *hit) {
             if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
                 IndexIterator *it = ic->its[i];
                 
-                if (it == NULL || !it->HasNext(it->ctx)) {
-                    return INDEXREAD_EOF;
-                }
+                // if (it == NULL || !it->HasNext(it->ctx)) {
+                //     return INDEXREAD_EOF;
+                // }
                 if (it->SkipTo(it->ctx, ic->lastDocId, h) == INDEXREAD_EOF) {
                     return INDEXREAD_EOF;
                 }
@@ -676,7 +676,6 @@ int II_Read(void *ctx, IndexHit *hit) {
                 ic->lastDocId = h->docId;   
                 break;
             }
-            ic->lastDocId = h->docId;
             ++nh;
         }
         
@@ -707,11 +706,11 @@ int II_Read(void *ctx, IndexHit *hit) {
                 // but advancing docId makes sure we'll read the first iterator again in the next round
                 ic->lastDocId++;
             } else {
-                //if (ic->currentHits[0].docId != ic->lastDocId) {
+                if (ic->currentHits[0].docId != ic->lastDocId) {
                     ic->lastDocId = ic->currentHits[0].docId;    
-                //} else {
-                //    ic->lastDocId++;
-                //}
+                } else {
+                    ic->lastDocId++;
+                }
             }
             
             // In exact mode, make sure the minimal distance is the number of words
@@ -724,9 +723,9 @@ int II_Read(void *ctx, IndexHit *hit) {
                  hit->type = H_EXACT;
              } 
              
-             if (hit) {
-                printf("INTERSECT @%d\n", hit->docId );
-             }
+            
+                LG_DEBUG("INTERSECT @%d\n", hit->docId );
+            
              
              return INDEXREAD_OK;
         } 
@@ -740,9 +739,11 @@ int II_HasNext(void *ctx) {
     for (int i = 0; i < ic->num; i++) {
         IndexIterator *it = ic->its[i];
         if (it == NULL || !it->HasNext(it->ctx)) {
+            //printf("II %p it %d (%p) has no next\n", ic, i, it);
             return 0;
         }
     }
+    //printf ("II %p has next\n", ic);
     return 1;
 }
 
