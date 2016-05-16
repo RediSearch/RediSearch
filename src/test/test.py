@@ -4,11 +4,6 @@ import unittest
 
 class SearchTestCase(ModuleTestCase('../module.so')):
     
-    def _addDoc(r, id, body, title, score=1.0):
-    
-        r.execute_command('ft.add', )
-        
-    
             
     def testAdd(self):
         with self.redis() as r:
@@ -53,7 +48,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(res[2], "doc1") 
             
     def testExact(self):
-        with self.redis(port=9979) as r:
+        with self.redis() as r:
             self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'body', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                  'title', 'hello world',

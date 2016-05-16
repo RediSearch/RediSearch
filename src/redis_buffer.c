@@ -21,7 +21,7 @@ size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
     b->pos += len;
     b->offset += len;
     
-    LG_DEBUG("Written %zd bytes to redis buffer cap %zd\n", len, b->cap);
+    //LG_DEBUG("Written %zd bytes to redis buffer cap %zd\n", len, b->cap);
     return len;
 }
 

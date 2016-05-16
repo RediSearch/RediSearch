@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <math.h>
+#include <sys/param.h>
 
 #include "index.h"
 #include "tokenize.h"
@@ -13,17 +14,21 @@
 
 
 void QueryStage_Free(QueryStage *s) {
+  // recursively free the child stages
   for (int i = 0; i < s->nchildren; i++) {
     QueryStage_Free(s->children[i]);
   }
+  // free the children array
   if (s->children) {
     free(s->children);
   }
+  // the term is strdupped, so needs to be freed
   if (s->term) {
       free(s->term);
   }
   free(s);
 }
+
 
 QueryStage *NewQueryStage(const char *term, QueryOp op) {
   QueryStage *s = malloc(sizeof(QueryStage));
@@ -37,8 +42,7 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
 
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage,
                                    int isSingleWordQuery) {
-  // printf("Query tokens: %d\n, single word? %d\n", q->numTokens,
-  // isSingleWordQuery);
+  
   IndexReader *ir =
       Redis_OpenReader(q->ctx, stage->term, q->docTable, isSingleWordQuery);
   if (ir == NULL) {
@@ -49,9 +53,12 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage,
 }
 
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
+  // an intersect stage with one child is the same as the child, so we just return it
   if (stage->nchildren == 1) {
     return Query_EvalStage(q, stage->children[0]);
   }
+  
+  // recursively eval the children
   IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator *));
   for (int i = 0; i < stage->nchildren; i++) {
     iters[i] = Query_EvalStage(q, stage->children[i]);
@@ -62,8 +69,15 @@ IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
   return ret;
 }
 
+
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage) {
-  IndexIterator *iters[stage->nchildren];
+  // a union stage with one child is the same as the child, so we just return it
+  if (stage->nchildren == 1) {
+    return Query_EvalStage(q, stage->children[0]);
+  }
+  
+  // recursively eval the children
+  IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator *));
   for (int i = 0; i < stage->nchildren; i++) {
     iters[i] = Query_EvalStage(q, stage->children[i]);
   }
@@ -72,7 +86,9 @@ IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage) {
   return ret;
 }
 
+
 IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage) {
+  // an intersect stage with one child is the same as the child, so we just return it
   if (stage->nchildren == 1) {
     return Query_EvalStage(q, stage->children[0]);
   }
@@ -201,15 +217,16 @@ void Query_Free(Query *q) {
   free(q);
 }
 
+/* Compare hits for sorting in the heap during traversal of the top N */
 static int cmpHits(const void *e1, const void *e2, const void *udata) {
   const IndexHit *h1 = e1, *h2 = e2;
 
   if (h1->totalFreq < h2->totalFreq) {
-    return -1;
-  } else if (h1->totalFreq > h2->totalFreq) {
     return 1;
+  } else if (h1->totalFreq > h2->totalFreq) {
+    return -1;
   }
-  return 0;
+  return h1->docId - h2->docId;
 }
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
@@ -227,9 +244,10 @@ QueryResult *Query_Execute(Query *query) {
   res->totalResults = 0;
   res->ids = NULL;
   res->numIds = 0;
-
-  heap_t *pq = malloc(heap_sizeof(query->limit));
-  heap_init(pq, cmpHits, NULL, query->limit);
+  
+  int num = query->offset + query->limit;
+  heap_t *pq = malloc(heap_sizeof(num));
+  heap_init(pq, cmpHits, NULL, num);
 
   //  start lazy evaluation of all query steps
   IndexIterator *it = NULL;
@@ -285,14 +303,20 @@ QueryResult *Query_Execute(Query *query) {
   it->Free(it);
 
   // Reverse the results into the final result
-  size_t n = heap_count(pq);
+  size_t n = MIN(heap_count(pq), query->limit);
   res->numIds = n;
   res->ids = calloc(n, sizeof(RedisModuleString *));
 
   for (int i = 0; i < n; ++i) {
     IndexHit *h = heap_poll(pq);
-    // printf("Popping %d freq %f\n", h->docId, h->totalFreq);
+    LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     res->ids[n - i - 1] = Redis_GetDocKey(query->ctx, h->docId);
+    free(h);
+  }
+  
+  // if we still have something in the heap (meaning offset > 0), we need to poll...
+  while (heap_count(pq) > 0) {
+    IndexHit *h = heap_poll(pq);
     free(h);
   }
 
