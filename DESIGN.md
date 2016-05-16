@@ -19,9 +19,9 @@ You simply call `RedisModule_StringTruncate` to resize a memory chunk to the siz
 to get direct access to the memory in that key. 
 See [https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma](https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma)
 
-We use this API in the module mainly to encode inverted indexes, but for other auxiliary data structures used. 
+We use this API in the module mainly to encode inverted indexes, and for other auxiliary data structures besides that. 
 
-A generic "Buffer" implementation using DMA strings can be found in `redis_buffer.c`. It automatically resizes
+A generic "Buffer" implementation using DMA strings can be found in [redis_buffer.c](src/redis_buffer.c). It automatically resizes
 the redis string it uses as raw memory, when the capacity needs to grow.
  
 ## Inverted index encoding
@@ -35,9 +35,10 @@ When a search is performed, we need to either traverse such an index, or interse
 Classic redis implementations of search engines use sorted sets as inverted indexes. This works, but has great memory
 overhead, and also does not allow for encoding of offsets, as explained above.
 
-RediSearch uses String DMA (see above) to efficiently encode inverted indexes. It combines Delta Encoding and 
-Varint Encoding to encode entries, minimizing space used for indexes, while keeping decompression and traversal
-very fast. 
+RediSearch uses String DMA (see above) to efficiently encode inverted indexes. 
+It combines [Delta Encoding](https://en.wikipedia.org/wiki/Delta_encoding) and 
+[Varint Encoding](https://developers.google.com/protocol-buffers/docs/encoding#varints) to encode entries, 
+minimizing space used for indexes, while keeping decompression and traversal efficient. 
 
 For each "hit" (document/word entry), we encode:
 
@@ -49,7 +50,8 @@ For each "hit" (document/word entry), we encode:
 > Note: document ids as entered by the user are converted to internal incremental document ids, that allow 
 > delta encoding to be efficient, and let the inverted indexes be sorted by document id.
 
-This allows for a single index hit entry to be encoded in as little as 6 bytes.
+This allows for a single index hit entry to be encoded in as little as 6 bytes 
+(Note that this is the best case. depending on the number of occurrences of the word in the document, this can get much higher).
 
 To optimize searches, we keep two additional auxiliary data structures in different DMA string keys:
  
@@ -72,13 +74,21 @@ When searching, we keep a priority queue of the top N results requested, and eve
 
 ## Index Specs and field weights
 
-When creating in "index" using `FT.CREATE`, the user specifies the fields to be indexed, and their respective weights. 
+When creating an "index" using `FT.CREATE`, the user specifies the fields to be indexed, and their respective weights. 
 This can be used to give some document fields, like a title, more weight in ranking results. 
+
+For example: 
+```
+FT.CREATE my_index title 10.0 body 1.0 url 2.0
+```
+
+Will create an index on fields named title, body and url, with scores of 10, 1 and 2 respectively.
+ 
 
 When documents are indexed, the weights are taken from the saved *Index Spec*, that is stored in a special redis key,
 and only fields that are specified in this spec are indexed.
 
-## Document data saving
+## Document data storage
 
 It is not mandatory to save the document data when indexing a document (specifying `NOSAVE` for `FT.ADD` will cause
 the document to be indexed but not saved). 
@@ -90,7 +100,7 @@ and upon search, we simply perform an `HGETALL` query on each retrieved document
 
 ## Query Execution Engine
 
-We use a chained-iterator based approach to query execution. 
+We use a chained-iterator based approach to query execution, similar to [Python generators](https://wiki.python.org/moin/Generators) in concept.
 
 We simply chain iterators that yield index hits. Those can be:
 
@@ -99,7 +109,8 @@ We simply chain iterators that yield index hits. Those can be:
 3. **Exact Intersect Iterators** - same as above, but yielding results only if the intersection is an exact phrase. i.e. `hello NEAR world`
 4. **Union Iterators** - combining two or more iterators, and yielding a union of their hits. i.e. `hello OR world`
 
-These are combined based on the query. For example:
+These are combined based on the query as an execution plan that is evaluated lazily. For example:
+
 ```
 hello ==> read("hello")
 
