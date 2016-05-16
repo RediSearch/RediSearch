@@ -109,8 +109,4 @@ Seach the index with a textual query, returning either documents or just ids.
 ----
    
 # TODO
-* Directly index existing hash objects
-* Support more advanced query syntax
-* Cluster support
-* Advanced tokenization methods
-* Dropping indexes
+See [TODO](TODO)
