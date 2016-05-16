@@ -12,6 +12,10 @@ This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. 
 
+## Internal Design
+
+See [DESIGN.md](DESIGN.md) for technical details about the internal design of the module. 
+
 ## Quick Guide:
 
 1. Creating an index with fields and weights:
@@ -109,4 +113,4 @@ Seach the index with a textual query, returning either documents or just ids.
 ----
    
 # TODO
-See [TODO](TODO)
+See [TODO](TODO.md)

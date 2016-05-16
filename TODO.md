@@ -1,4 +1,5 @@
-Upcoming features:
+## Upcoming features:
+
 * Deletion support
 * Update support
 * Drop index support
@@ -16,5 +17,6 @@ Upcoming features:
 * Doc Snippets retrieval
 * Query Explain
 
-Known bugs:
+## Known bugs:
+
 * intersect doesn't return last result if it's the end of the index
