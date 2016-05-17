@@ -5,9 +5,21 @@
 #include "redismodule.h"
 
 
-typedef struct {
+typedef enum fieldType {
+    F_FULLTEXT,
+    F_NUMERIC,
+    F_GEO
+} FieldType;
+
+/* The fieldSpec represents a single field in the document's field spec. 
+Each field has a unique id that's a power of two, so we can filter fields
+by a bit mask. 
+Each field has a type, allowing us to add non text fields in the future */
+typedef struct fieldSpec {
     const char *name;
+    FieldType type;    
     double weight;
+    int id;
     // TODO: More options here..
 } FieldSpec;
 
