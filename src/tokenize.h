@@ -19,10 +19,9 @@ typedef struct  {
     u_int pos;
     
     // the token's score
-    u_short score;
+    float score;
     
     // Field id - used later for filtering.
-    // NOT IMPLEMENTED YET
     u_char fieldId;
 } Token;
 
@@ -51,8 +50,8 @@ typedef struct {
     const char *text;
     char **pos;
     const char *separators;
-    u_short fieldScore;
-    u_char fieldId;
+    double fieldScore;
+    int fieldId;
     TokenFunc tokenFunc;
     void *tokenFuncCtx;
     NormalizeFunc normalize;
@@ -65,7 +64,7 @@ int _tokenize(TokenizerCtx *ctx);
 
 /** The extenral API. Tokenize text, and create tokens with the given score and fieldId.
 TokenFunc is a callback that will be called for each token found */
-int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFunc f);
+int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents. 
 Does NOT normalize unicode */

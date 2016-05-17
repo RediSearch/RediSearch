@@ -4,8 +4,7 @@
 #include "tokenize.h"
 #include "forward_index.h"
 
-
-int tokenize(const char *text, u_short score, u_char fieldId, void *ctx, TokenFunc f) {
+int tokenize(const char *text, float score, u_char fieldId, void *ctx, TokenFunc f) {
     TokenizerCtx tctx;
     tctx.text = text;
     tctx.pos = (char**)&text;

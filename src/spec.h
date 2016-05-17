@@ -58,4 +58,10 @@ void IndexSpec_Free(IndexSpec *spec);
 int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
 int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp);
 
+/* 
+* Parse the field mask passed to a query, map field names to a bit mask passed down to the
+* execution engine, detailing which fields the query works on. See FT.SEARCH for API details 
+*/
+u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
+
 #endif

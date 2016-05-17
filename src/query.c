@@ -133,11 +133,12 @@ int queryTokenFunc(void *ctx, Token t) {
 }
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len,
-                  int offset, int limit) {
+                  int offset, int limit, u_char fieldMask) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
   ret->limit = limit;
+  ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);
   ret->root = NewQueryStage(NULL, Q_INTERSECT);

@@ -47,6 +47,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     if (k == kh_end(idx->hits)) {  // k will be equal to kh_end if key not present
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
+        h->flags = 0;
         h->term = t.s;
         h->vw = NewVarintVectorWriter(4);
         h->docScore = idx->docScore;
@@ -58,7 +59,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
         h = kh_val(idx->hits, k);
     }
 
-    h->flags |= t.fieldId;
+    h->flags |= (t.fieldId & 0xff);
     h->freq += (float)t.score;
     idx->totalFreq += (float)t.score;
 

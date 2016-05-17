@@ -49,9 +49,18 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     int totalTokens = 0;
     for (int i = 0; i < doc.numFields; i++) {
         //LG_DEBUG("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
+        
         size_t len;
-        const char *c = RedisModule_StringPtrLen(doc.fields[i].text, &len);
-        totalTokens += tokenize(c, 1, 1, idx, forwardIndexTokenFunc);        
+        const char *f = RedisModule_StringPtrLen(doc.fields[i].name, &len);
+        const char *c = RedisModule_StringPtrLen(doc.fields[i].text, NULL);
+        
+        FieldSpec *fs = IndexSpec_GetField(ctx->spec, f, len);
+        if (fs == NULL) {
+            LG_DEBUG("Skipping field %s not in index!", c);
+            continue;
+        }
+        
+        totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc);        
     }
     
     LG_DEBUG("totaltokens :%d\n", totalTokens);
@@ -174,7 +183,7 @@ u_int32_t _getHitScore(void * ctx) {
 }
 
 /* 
-## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] 
+## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS <num> <field> ...]
 Seach the index with a textual query, returning either documents or just ids.
 
 ### Parameters:
@@ -186,7 +195,7 @@ Seach the index with a textual query, returning either documents or just ids.
    - NOCONTENT: If it appears after the query, we only return the document ids and not 
    the content. This is useful if rediseach is only an index on an external document collection
    
-   - LIMIMT fist num: If the parameters appear after the query, we limit the results to 
+   - LIMIT fist num: If the parameters appear after the query, we limit the results to 
    the offset and number of results given. The default is 0 10
 
 ### Returns:
@@ -215,7 +224,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (limit <= 0) {
        return RedisModule_WrongArity(ctx);
     }
-    
+
     // load the index by name
     if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
         REDISMODULE_OK) {
@@ -224,6 +233,19 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
     }
     
+     // if INFIELDS exists, parse the field mask    
+    int inFieldsIdx = RMUtil_ArgExists("INFIELDS", argv, argc, 3);
+    long long numFields = 0;
+    u_char fieldMask = 0xff;
+    if (inFieldsIdx > 0) {
+        RMUtil_ParseArgs(argv, argc, inFieldsIdx+1, "l", &numFields);
+        if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {
+            fieldMask = IndexSpec_ParseFieldMask(&sp, &argv[inFieldsIdx+2], numFields);
+        }
+        LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
+    }
+    
+    
     RedisSearchCtx sctx = {ctx, &sp};
     
      // open the documents metadata table
@@ -231,7 +253,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-    Query *q = NewQuery(&sctx, (char *)qs, len, first, limit);
+    Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask);
     Query_Tokenize(q);
     
     q->docTable = &dt;
@@ -337,7 +359,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    //LOGGING_INIT(0xFFFFFFFF);
+    LOGGING_INIT(0xFFFFFFFF);
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;

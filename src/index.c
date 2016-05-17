@@ -325,7 +325,7 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq,
     // quantize the score to compress it to max 4 bytes
     // freq is between 0 and 1
     int quantizedScore = floorl(freq * (double)FREQ_QUANTIZE_FACTOR);
-    LG_DEBUG("Score %f, quantized score %d\n", freq, quantizedScore);
+    printf("docId %d, flags %x, Score %f, quantized score %d\n", docId, flags, freq, quantizedScore);
     
     size_t offsetsSz = VV_Size(offsets);
     // // calculate the overall len
