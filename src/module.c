@@ -371,6 +371,7 @@ int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
     k[len] = '\0';
     k += pflen;
     
+    
      
     printf("optimizing %s\n", k);
     IndexWriter *w = Redis_OpenWriter(sctx, k);
@@ -380,6 +381,7 @@ int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
         w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);
         Redis_CloseWriter(w);
     }
+    RedisModule_FreeString(ctx, pf);
     
 
     return REDISMODULE_OK;
