@@ -40,15 +40,16 @@ QueryStage *NewQueryStage(const char *term, QueryOp op) {
   return s;
 }
 
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage,
-                                   int isSingleWordQuery) {
+IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
   
-  IndexReader *ir =
-      Redis_OpenReader(q->ctx, stage->term, q->docTable, isSingleWordQuery);
+  // if there's only one word in the query and no special field filtering,
+  // we can just use the optimized score index
+  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
+  IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable, isSingleWord, q->fieldMask);
   if (ir == NULL) {
     return NULL;
   }
-
+  
   return NewReadIterator(ir);
 }
 
@@ -65,7 +66,7 @@ IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
   }
 
   IndexIterator *ret =
-      NewIntersecIterator(iters, stage->nchildren, 0, q->docTable);
+      NewIntersecIterator(iters, stage->nchildren, 0, q->docTable, q->fieldMask);
   return ret;
 }
 
@@ -98,14 +99,14 @@ IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage) {
   }
 
   IndexIterator *ret =
-      NewIntersecIterator(iters, stage->nchildren, 1, q->docTable);
+      NewIntersecIterator(iters, stage->nchildren, 1, q->docTable, q->fieldMask);
   return ret;
 }
 
 IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
   switch (s->op) {
     case Q_LOAD:
-      return query_EvalLoadStage(q, s, q->numTokens == 1);
+      return query_EvalLoadStage(q, s);
     case Q_INTERSECT:
       return query_EvalIntersectStage(q, s);
     case Q_EXACT:
@@ -272,9 +273,12 @@ QueryResult *Query_Execute(Query *query) {
     }
     IndexHit *h = pooledHit;
     IndexHit_Init(h);
-
-    if (it->Read(it->ctx, h) == INDEXREAD_EOF) {
+    int rc = it->Read(it->ctx, h);
+     
+    if (rc == INDEXREAD_EOF) {
       break;
+    } else if (rc == INDEXREAD_NOTFOUND) {
+      continue;
     }
 
     h->totalFreq = processHitScore(h, query->docTable);
@@ -310,7 +314,7 @@ QueryResult *Query_Execute(Query *query) {
 
   for (int i = 0; i < n; ++i) {
     IndexHit *h = heap_poll(pq);
-    LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
+    LG_DEBUG("Popping %d freq %f", h->docId, h->totalFreq);
     res->ids[n - i - 1] = Redis_GetDocKey(query->ctx, h->docId);
     free(h);
   }

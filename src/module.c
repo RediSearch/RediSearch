@@ -245,7 +245,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
     }
     
-    
     RedisSearchCtx sctx = {ctx, &sp};
     
      // open the documents metadata table
@@ -359,7 +358,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    LOGGING_INIT(0xFFFFFFFF);
+    //LOGGING_INIT(0xFFFFFFFF);
+    
     
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;

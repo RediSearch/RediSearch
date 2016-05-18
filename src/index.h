@@ -85,6 +85,8 @@ typedef struct indexReader {
     // and do not load the skip index.
     int singleWordMode;
     ScoreIndex *scoreIndex;
+    
+    u_char fieldMask;
 } IndexReader; 
 
 
@@ -135,14 +137,14 @@ void ReadIterator_Free(IndexIterator *it);
 
 // used only internally for unit testing
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, 
-                            int singleWordMode);
+                            int singleWordMode, u_char fieldMask);
                             
 /* Create a new index reader on an inverted index buffer, 
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score index.
 */                            
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode, 
-                              ScoreIndex *sci);
+                              ScoreIndex *sci, u_char fieldMask);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
@@ -220,11 +222,13 @@ typedef struct {
     t_docId lastDocId;
     IndexHit *currentHits;
     DocTable *docTable;
+    u_char fieldMask;
 } IntersectContext;
 
 /* Create a new intersect iterator over the given list of child iterators. If exact is one
 we will only yield results that are exact matches */
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t);
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t,
+                                   u_char fieldMask);
 int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexHit *hit);

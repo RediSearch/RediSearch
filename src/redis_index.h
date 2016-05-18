@@ -13,7 +13,8 @@ void Redis_CloseWriter(IndexWriter *w);
 
 /* Open an inverted index reader on a redis DMA string, for a specific term. 
 If singleWordMode is set to 1, we do not load the skip index, only the score index */
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode);
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt,
+                               int singleWordMode, u_char fieldMask);
 void Redis_CloseReader(IndexReader *r);
 
 /* Load the skip index entry of a redis term */

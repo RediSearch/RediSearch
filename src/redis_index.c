@@ -89,7 +89,8 @@ ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term) {
 }
 
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, int singleWordMode) {
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt, 
+                              int singleWordMode, u_char fieldMask) {
   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term), BUFFER_READ);
   if (b == NULL) {  // not found
     return NULL;
@@ -102,7 +103,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *d
     si = LoadRedisSkipIndex(ctx, term);
   } 
   
-  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci);
+  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask);
 }
 
 void Redis_CloseReader(IndexReader *r) {

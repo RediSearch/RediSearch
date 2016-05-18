@@ -1,5 +1,6 @@
 #include "spec.h"
 #include "rmutil/strings.h"
+#include "util/logging.h"
 
 #include <math.h>
 
@@ -61,7 +62,7 @@ int IndexSpec_Parse(IndexSpec *spec, const char **argv, int argc) {
         spec->fields[n].type = F_FULLTEXT;
         spec->fields[n].id = id;
         spec->numFields++;
-        printf("loaded field %s id %d\n", argv[i], id);
+        LG_DEBUG("loaded field %s id %d\n", argv[i], id);
         n++;
         
     }
@@ -146,10 +147,8 @@ u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int arg
         
         FieldSpec *fs = IndexSpec_GetField(sp, p, len);
         if (fs != NULL) {
-            printf("Found mask for %s: %d\n", p, fs->id);
+            LG_DEBUG("Found mask for %s: %d\n", p, fs->id);
             ret |= (fs->id & 0xff);
-        } else {
-            printf("no field spec for %s\n", p);
         }
     }
    

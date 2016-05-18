@@ -77,7 +77,7 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 void QueryStage_Free(QueryStage *s);
 QueryStage *NewQueryStage(const char *term, QueryOp op);
 
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage, int isSingleWordQuery);
+IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage);
