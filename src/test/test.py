@@ -62,15 +62,57 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(1, res[0])
             self.assertEqual("doc1", res[1])
             
-            res = r.execute_command('ft.search', 'idx', "hello \"another world\"") 
+            # res = r.execute_command('ft.search', 'idx', "hello \"another world\"") 
+            # self.assertEqual(3, len(res))     
+            # self.assertEqual(1, res[0])
+            # self.assertEqual("doc2", res[1])
+            
+           
+            
+    
+    def testInfields(self):
+        with self.redis() as r:
+            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'body', 1.0))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
+                                 'title', 'hello world',
+                                 'body', 'lorem ipsum'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                 'title', 'hello world lorem ipsum',
+                                 'body', 'hello world'))
+                                 
+            res = r.execute_command('ft.search', 'idx', 'hello world', "infields", 1, "title", "nocontent") 
             self.assertEqual(3, len(res))     
+            self.assertEqual(2, res[0])
+            self.assertEqual("doc2", res[1])
+            self.assertEqual("doc1", res[2])
+            
+            res = r.execute_command('ft.search', 'idx', 'hello world', "infields", 1, "body", "nocontent") 
+            self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
             
-            res = r.execute_command('ft.search', 'idx', 'hello "another world"') 
-            self.assertEqual(3, len(res))     
+            res = r.execute_command('ft.search', 'idx', 'hello', "infields", 1, "body", "nocontent") 
+            self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
+            
+            res = r.execute_command('ft.search', 'idx', '\"hello world\"', "infields", 1, "body", "nocontent") 
+            self.assertEqual(2, len(res))     
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc2", res[1])
+            
+            res = r.execute_command('ft.search', 'idx', '\"lorem ipsum\"', "infields", 1, "body", "nocontent") 
+            self.assertEqual(2, len(res))     
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc1", res[1])
+            
+            res = r.execute_command('ft.search', 'idx', 'lorem ipsum', "infields", 2, "body", "title", "nocontent")
+            self.assertEqual(3, len(res))     
+            self.assertEqual(2, res[0])
+            self.assertEqual("doc2", res[1])
+            self.assertEqual("doc1", res[2])
+            
+            
                  
      
             
