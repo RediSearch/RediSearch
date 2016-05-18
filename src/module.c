@@ -215,9 +215,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int nocontent = RMUtil_ArgExists("nocontent", argv, argc, 3);
     
     DocTable dt;
-    IndexSpec sp;
-    sp.numFields = 0;
-    sp.name = RedisModule_StringPtrLen(argv[1], NULL);
+   
     
     long long first = 0, limit = 10;
     RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &first, &limit);
@@ -225,6 +223,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
        return RedisModule_WrongArity(ctx);
     }
 
+    IndexSpec sp;
+    sp.numFields = 0;
+    sp.name = RedisModule_StringPtrLen(argv[1], NULL);
+    
     // load the index by name
     if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
         REDISMODULE_OK) {
@@ -356,6 +358,50 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
     
 }
+
+int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn) {
+    
+    BufferWriter bw = NewRedisWriter(ctx->redisCtx, kn);
+    
+    bw.Truncate(bw.buf, 0);
+    bw.Release(bw.buf);
+    Redis
+    
+    return REDISMODULE_OK;
+}
+/* FT.OPTIMIZE <index> */
+int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    // at least one field, and number of field/text args must be even
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+    
+    IndexSpec sp;
+    // load the index by name
+    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
+        REDISMODULE_OK) {
+        
+        RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+        return REDISMODULE_OK;
+    }
+    
+    RedisSearchCtx sctx = {ctx, &sp};
+    RedisModuleString *pf = fmtRedisTermKey(&sctx, "");
+    size_t len;
+    const char *prefix = RedisModule_StringPtrLen(pf, &len);
+    
+    //RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    int num = Redis_ScanKeys(ctx, prefix, scanHandler);
+    RedisModule_ReplyWithLongLong(ctx, num);
+    
+    return REDISMODULE_OK;
+    
+    
+    
+    
+    
+    
+}
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
     //LOGGING_INIT(0xFFFFFFFF);
@@ -378,6 +424,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
    
    if (RedisModule_CreateCommand(ctx,"ft.create",
         CreateIndexCommand, "write no-cluster", 1,1,1)
+        == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+        
+   if (RedisModule_CreateCommand(ctx,"ft.optimize",
+        OptimizeIndexCommand, "write no-cluster", 1,1,1)
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
         

@@ -3,7 +3,6 @@
 MVP:
 * Drop index support
 * Optimize buffer sizes (truncate to actual size at end of indexing)
-* Search specific fields
 * Numeric Fields
 * Auto-suggest / speller
 * Index HASH values

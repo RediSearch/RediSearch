@@ -314,3 +314,47 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
   return REDISMODULE_OK;
   
 }
+
+
+int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f) {
+    
+    long long ptr = 0;
+    
+    int num = 0;
+    do {
+      RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "s", RedisModule_CreateStringFromLongLong(ctx, ptr));
+      if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
+        return num;
+      }
+      
+      if (RedisModule_CallReplyLength(r) < 2) {
+        break;
+      }
+      
+      RedisModule_StringToLongLong(RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0)), &ptr);
+      //printf("ptr: %s %lld\n", RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0), NULL), ptr);
+      RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
+      size_t nks = RedisModule_CallReplyLength(keys);
+      
+      for (size_t i = 0; i < nks; i++) {
+          
+          size_t len;
+          char *k = (char *)RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(keys, i), &len);
+          k[len] = 0;
+          char *pos = strstr(k, prefix);
+          if (pos == k) { // key starts with prefix
+            // go handle the key
+             RedisModuleString *kn = RedisModule_CreateString(ctx, k, len);
+             
+             if (f(ctx,kn) != REDISMODULE_OK)  goto end;
+             
+             RedisModule_FreeString(ctx, kn);
+             ++num;
+          }
+        
+      }
+  
+    } while(ptr);
+end:    
+    return num;
+}
