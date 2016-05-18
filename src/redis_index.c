@@ -316,7 +316,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
 }
 
 
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f) {
+int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
     
     long long ptr = 0;
     
@@ -346,7 +346,7 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f) {
             // go handle the key
              RedisModuleString *kn = RedisModule_CreateString(ctx, k, len);
              
-             if (f(ctx,kn) != REDISMODULE_OK)  goto end;
+             if (f(ctx,kn, opaque) != REDISMODULE_OK)  goto end;
              
              RedisModule_FreeString(ctx, kn);
              ++num;

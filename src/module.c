@@ -359,14 +359,29 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
 }
 
-int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn) {
+int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
     
-    BufferWriter bw = NewRedisWriter(ctx->redisCtx, kn);
+    //extract the term from the key
+    RedisSearchCtx *sctx = opaque;
+    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
+    size_t pflen, len;
+    const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
     
-    bw.Truncate(bw.buf, 0);
-    bw.Release(bw.buf);
-    Redis
+    char *k = (char *)RedisModule_StringPtrLen(kn, &len);
+    k[len] = '\0';
+    k += pflen;
     
+     
+    printf("optimizing %s\n", k);
+    IndexWriter *w = Redis_OpenWriter(sctx, k);
+    if (w) {
+        w->bw.Truncate(w->bw.buf, 0);
+        w->skipIndexWriter.Truncate(w->skipIndexWriter.buf, 0);
+        w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);
+        Redis_CloseWriter(w);
+    }
+    
+
     return REDISMODULE_OK;
 }
 /* FT.OPTIMIZE <index> */
@@ -391,7 +406,7 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     const char *prefix = RedisModule_StringPtrLen(pf, &len);
     
     //RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    int num = Redis_ScanKeys(ctx, prefix, scanHandler);
+    int num = Redis_ScanKeys(ctx, prefix, scanHandler, &sctx);
     RedisModule_ReplyWithLongLong(ctx, num);
     
     return REDISMODULE_OK;

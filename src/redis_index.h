@@ -26,8 +26,8 @@ SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term);
 #define SKIPINDEX_KEY_FORMAT "si:%s/%s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%s"
 
-typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName);
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f);
+typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
+int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque);
 
 /**
 * Format redis key for a term.
