@@ -18,6 +18,17 @@ See [DESIGN.md](DESIGN.md) for technical details about the internal design of th
 
 ## Quick Guide:
 
+0. Building and running:
+
+```sh
+git clone https://github.com/RedisLabsModules/RediSearch.git
+cd RediSearch/src
+make all
+
+# Assuming you have redis server build from the unstable branch:
+/path/to/redis-server --loadmodule ./module.so
+```
+
 1. Creating an index with fields and weights:
 ```
 127.0.0.1:6379> FT.CREATE myIdx title 5.0 body 1.0 url 1.0
@@ -118,6 +129,28 @@ Seach the index with a textual query, returning either documents or just ids.
 > document id, and a nested array of field/value, unless NOCONTENT was given
    
 ----
-   
+
+
+## FT.DROP <index>
+Deletes all the keys associated with the index. 
+
+If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+that the index specification is not deleted.
+
+### Returns:
+Simple String reply - OK on success.
+
+---
+
+## FT.OPTIMIZE <index>
+After the index is built (and doesn't need to be updated again withuot a complete rebuild)
+we can optimize memory consumption by trimming all index buffers to their actual size.
+
+  **Warning 1**: This will delete score indexes for small words (n < 5000), so updating the index after
+  optimizing it might lead to screwed up results (TODO: rebuild score indexes if needed).
+  The simple solution to that is to call optimize again after adding documents to the index.
+
+  **Warning 2**: This blocks redis for a long time. Do not run it on production instances
+
 # TODO
 See [TODO](TODO.md)
