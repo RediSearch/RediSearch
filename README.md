@@ -1,21 +1,31 @@
 # RediSearch 
-### Full-Text search over redis by RedisLabs*
+
+### Full-Text search over redis by RedisLabs
 
 # Overview
 
 Redisearch impements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.
 
-Inverted indexes are stored on top of Redis strings using the modules DMA method.
-
+Inverted indexes are stored on top of Redis strings using bin
 This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. 
 
+# Warning: This Code Is NOT Stable Or Ready!
+
+RediSearch is under development and missing a lot of features. 
+
+The API may change, the internal implementation is evolving, 
+and the modules API itself is still unstable. 
+
+Feel free to try it, hack it and contribute to it, but do not use it for actual data.
+
+---
+ 
 ## Internal Design
 
 See [DESIGN.md](DESIGN.md) for technical details about the internal design of the module. 
-
 
 ## Building and running:
 
