@@ -24,7 +24,7 @@ git clone https://github.com/RedisLabsModules/RediSearch.git
 cd RediSearch/src
 make all
 
-# Assuming you have redis server build from the unstable branch:
+# Assuming you have a redis build from the unstable branch:
 /path/to/redis-server --loadmodule ./module.so
 ```
 
