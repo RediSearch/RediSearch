@@ -10,7 +10,10 @@ It stores only the first top N entries per word, so when
 just this word is searched, we simply retrieve the top N entries from the index
 without needing to traverse the entire index. */
 
-#define MAX_SCOREINDEX_SIZE 20
+#define MAX_SCOREINDEX_SIZE 50
+
+// entries with less docs than this will get their socre indexes deleted by optimize
+#define SCOREINDEX_DELETE_THRESHOLD 5000
 
 #pragma pack(4)
 typedef struct {
@@ -39,6 +42,7 @@ typedef struct {
     BufferWriter bw;
     ScoreIndexHeader header;
 } ScoreIndexWriter;
+
 
 ScoreIndex *NewScoreIndex(Buffer *b);
 ScoreIndexEntry *ScoreIndex_Next(ScoreIndex *si);

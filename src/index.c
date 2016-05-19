@@ -4,9 +4,6 @@
 #include <sys/param.h>
 #include <math.h>
 
-
-
-
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
     return ir->header.size > ir->buf->offset;
@@ -70,7 +67,7 @@ int IR_Read(void *ctx, IndexHit *e) {
     float freq;
     IndexReader *ir = ctx;
     
-    if (ir->singleWordMode && ir->scoreIndex) {
+    if (ir->useScoreIndex && ir->scoreIndex) {
         
         ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
         if (ent == NULL) {
@@ -211,6 +208,8 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
     ret->skipIdx = NULL;
     ret->docTable = dt;
     ret->singleWordMode = singleWordMode;
+    // only use score index on single words, no field filter and large entries
+    ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff && ret->header.numDocs > SCOREINDEX_DELETE_THRESHOLD;
     ret->scoreIndex = sci;
     //LG_DEBUG("Load offsets %d, si: %p", singleWordMode, si);
     ret->skipIdx = si;

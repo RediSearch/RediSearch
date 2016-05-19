@@ -31,9 +31,11 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term) 
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
   
   // Open the index writer
-  BufferWriter bw = NewRedisWriter(ctx->redisCtx, fmtRedisTermKey(ctx, term));
-  
+  RedisModuleString *termKey = fmtRedisTermKey(ctx, term);
+  BufferWriter bw = NewRedisWriter(ctx->redisCtx, termKey);
+  //RedisModule_FreeString(ctx->redisCtx, termKey);
   // Open the skip index writer
+  termKey = fmtRedisSkipIndexKey(ctx, term);
   Buffer*sb = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_WRITE);
   BufferWriter skw = {
         sb,
@@ -41,7 +43,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
         redisWriterTruncate,
         RedisBufferFree,
     };
-  
+  //RedisModule_FreeString(ctx->redisCtx, termKey);
   if (sb->cap > sizeof(u_int32_t)) {
     u_int32_t len;
     
@@ -49,9 +51,10 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
     BufferSeek(sb, sizeof(len) + len*sizeof(SkipEntry));
   } 
   
+  termKey = fmtRedisScoreIndexKey(ctx, term);
   // Open the score index writer
   ScoreIndexWriter scw = NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term)));
-  
+  //RedisModule_FreeString(ctx->redisCtx, termKey);
   IndexWriter *w = NewIndexWriterBuf(bw, skw, scw);
   return w;
 }
@@ -322,39 +325,152 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *op
     
     int num = 0;
     do {
-      RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "s", RedisModule_CreateStringFromLongLong(ctx, ptr));
+      RedisModuleString *sptr = RedisModule_CreateStringFromLongLong(ctx, ptr);
+      RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "scccc", sptr, "MATCH", prefix, "COUNT", "100");
+      RedisModule_FreeString(ctx, sptr);
       if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
         return num;
       }
       
-      if (RedisModule_CallReplyLength(r) < 2) {
+      if (RedisModule_CallReplyLength(r) < 1) {
         break;
       }
       
-      RedisModule_StringToLongLong(RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0)), &ptr);
+      sptr = RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0));
+      RedisModule_StringToLongLong(sptr, &ptr);
+      RedisModule_FreeString(ctx, sptr);
       //printf("ptr: %s %lld\n", RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0), NULL), ptr);
-      RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
-      size_t nks = RedisModule_CallReplyLength(keys);
-      
-      for (size_t i = 0; i < nks; i++) {
-          
-          size_t len;
-          char *k = (char *)RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(keys, i), &len);
-          k[len] = 0;
-          char *pos = strstr(k, prefix);
-          if (pos == k) { // key starts with prefix
-            // go handle the key
-             RedisModuleString *kn = RedisModule_CreateString(ctx, k, len);
-             
-             if (f(ctx,kn, opaque) != REDISMODULE_OK)  goto end;
-             
-             RedisModule_FreeString(ctx, kn);
-             ++num;
-          }
+      if (RedisModule_CallReplyLength(r) == 2) {
+        RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
+        size_t nks = RedisModule_CallReplyLength(keys);
         
+        for (size_t i = 0; i < nks; i++) {
+            
+            RedisModuleString *kn = RedisModule_CreateStringFromCallReply(
+                                        RedisModule_CallReplyArrayElement(keys, i)
+                                    );
+            if (f(ctx,kn, opaque) != REDISMODULE_OK)  goto end;
+           
+            //RedisModule_FreeString(ctx, kn);
+            if (++num % 10000 == 0) {
+              LG_DEBUG("Scanned %d keys", num);
+            }
+        }
+        
+        //RedisModule_FreeCallReply(keys);
       }
+      
+      RedisModule_FreeCallReply(r);
   
     } while(ptr);
 end:    
     return num;
+}
+
+
+
+
+int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
+    
+    //extract the term from the key
+    RedisSearchCtx *sctx = opaque;
+    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
+    size_t pflen, len;
+    const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+    
+    char *k = (char *)RedisModule_StringPtrLen(kn, &len);
+    k += pflen;
+    char *term = strndup(k, len - pflen);
+     
+    
+    // Open the index writer for the term
+    IndexWriter *w = Redis_OpenWriter(sctx, term);
+    if (w) {
+        
+        // Truncate the main index buffer to its final size
+         w->bw.Truncate(w->bw.buf, 0);
+        
+        // for small entries, delete the score index
+        if (w->ndocs < SCOREINDEX_DELETE_THRESHOLD) {
+            RedisBufferCtx *bctx = w->scoreWriter.bw.buf->ctx;
+            RedisModule_DeleteKey(bctx->key);
+            RedisModule_CloseKey(bctx->key);
+            bctx->key = NULL;
+        } else {
+            // truncate the score index to its final size
+            w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);    
+        }
+        
+        // truncate the skip index
+         w->skipIndexWriter.Truncate(w->skipIndexWriter.buf, 0);
+        
+        Redis_CloseWriter(w);
+    }
+    
+    RedisModule_FreeString(ctx, pf);
+    free(term);
+
+    return REDISMODULE_OK;
+}
+
+
+int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
+    
+    //extract the term from the key
+    RedisSearchCtx *sctx = opaque;
+    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
+    size_t pflen, len;
+    const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+    
+    char *k = (char *)RedisModule_StringPtrLen(kn, &len);
+    k += pflen;
+    char *term = strndup(k, len - pflen);
+    
+    RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, term);
+    RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, term);
+    
+    RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+     
+    RedisModule_FreeString(ctx, sck);
+    RedisModule_FreeString(ctx, sik);
+    free(term);
+
+    return REDISMODULE_OK;
+}
+
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
+    
+    size_t len;
+    
+    if (deleteDocuments) {
+      RedisModuleCallReply *r = RedisModule_Call(ctx->redisCtx, "HKEYS", "c", REDISINDEX_DOCKEY_MAP);
+      if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
+        return REDISMODULE_ERR;
+      }
+      
+      len = RedisModule_CallReplyLength(r);
+      for (size_t i = 0; i < len; i++) {
+          RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, RedisModule_CreateStringFromCallReply(
+            RedisModule_CallReplyArrayElement(r, i)
+          ), REDISMODULE_WRITE);
+          
+          if (k != NULL) {
+            RedisModule_DeleteKey(k);
+          }
+          RedisModule_CloseKey(k);
+      }
+      
+      RedisModuleString *dmd = RMUtil_CreateFormattedString(ctx->redisCtx, DOCTABLE_KEY_FMT, ctx->spec->name);
+       RedisModule_Call(ctx->redisCtx, "DEL", "cccs", REDISINDEX_DOCKEY_MAP, REDISINDEX_DOCIDS_MAP, 
+                         REDISINDEX_DOCIDCOUNTER, dmd);
+    }
+    
+    RedisModuleString *pf = fmtRedisTermKey(ctx, "*");
+    const char *prefix = RedisModule_StringPtrLen(pf, &len);
+  
+    // Delete the actual index sub keys
+    Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+    return REDISMODULE_OK;
+    
+    
 }

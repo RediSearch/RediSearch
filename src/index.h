@@ -85,7 +85,7 @@ typedef struct indexReader {
     // and do not load the skip index.
     int singleWordMode;
     ScoreIndex *scoreIndex;
-    
+    int useScoreIndex;
     u_char fieldMask;
 } IndexReader; 
 

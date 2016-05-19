@@ -197,6 +197,9 @@ Seach the index with a textual query, returning either documents or just ids.
    
    - LIMIT fist num: If the parameters appear after the query, we limit the results to 
    the offset and number of results given. The default is 0 10
+   
+   - INFIELDS num field1 field2 ...: If set, filter the results to ones appearing only in specific
+   fields of the document, like title or url. num is the number of specified field arguments  
 
 ### Returns:
 
@@ -359,71 +362,74 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
 }
 
-int scanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
-    
-    //extract the term from the key
-    RedisSearchCtx *sctx = opaque;
-    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
-    size_t pflen, len;
-    const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
-    
-    char *k = (char *)RedisModule_StringPtrLen(kn, &len);
-    k[len] = '\0';
-    k += pflen;
-    
-    
-     
-    printf("optimizing %s\n", k);
-    IndexWriter *w = Redis_OpenWriter(sctx, k);
-    if (w) {
-        w->bw.Truncate(w->bw.buf, 0);
-        w->skipIndexWriter.Truncate(w->skipIndexWriter.buf, 0);
-        w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);
-        Redis_CloseWriter(w);
-    }
-    RedisModule_FreeString(ctx, pf);
-    
-
-    return REDISMODULE_OK;
-}
-/* FT.OPTIMIZE <index> */
+/* FT.OPTIMIZE <index>
+*  After the index is built (and doesn't need to be updated again withuot a complete rebuild)
+*  we can optimize memory consumption by trimming all index buffers to their actual size.
+*
+*  Warning 1: This will delete score indexes for small words (n < 5000), so updating the index after
+*  optimizing it might lead to screwed up results (TODO: rebuild score indexes if needed).
+*  The simple solution to that is to call optimize again after adding documents to the index.
+*
+*  Warning 2: This blocks redis for a long time. Do not run it on production instances
+*
+*/
 int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // at least one field, and number of field/text args must be even
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
     }
     
+    RedisModule_AutoMemory(ctx);
+    
     IndexSpec sp;
     // load the index by name
-    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-        REDISMODULE_OK) {
-        
+    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+    }
+    
+    RedisSearchCtx sctx = {ctx, &sp};
+    RedisModuleString *pf = fmtRedisTermKey(&sctx, "*");
+    size_t len;
+    const char *prefix = RedisModule_StringPtrLen(pf, &len);
+    
+    //RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    int num = Redis_ScanKeys(ctx, prefix, Redis_OptimizeScanHandler, &sctx);
+    return RedisModule_ReplyWithLongLong(ctx, num);
+    
+}
+
+
+/*
+* FT.DROP <index>
+* Deletes all the keys associated with the index. 
+* If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+* that the index specification is not deleted.
+*/
+int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    // at least one field, and number of field/text args must be even
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+    
+    RedisModule_AutoMemory(ctx);
+    
+    IndexSpec sp;
+    // load the index by name
+    if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
         return REDISMODULE_OK;
     }
     
     RedisSearchCtx sctx = {ctx, &sp};
-    RedisModuleString *pf = fmtRedisTermKey(&sctx, "");
-    size_t len;
-    const char *prefix = RedisModule_StringPtrLen(pf, &len);
     
-    //RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    int num = Redis_ScanKeys(ctx, prefix, scanHandler, &sctx);
-    RedisModule_ReplyWithLongLong(ctx, num);
-    
-    return REDISMODULE_OK;
-    
-    
-    
-    
-    
+    Redis_DropIndex(&sctx, 1);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
     
 }
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
     //LOGGING_INIT(0xFFFFFFFF);
-    
-    
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
@@ -446,6 +452,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
         
    if (RedisModule_CreateCommand(ctx,"ft.optimize",
         OptimizeIndexCommand, "write no-cluster", 1,1,1)
+        == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+        
+   if (RedisModule_CreateCommand(ctx,"ft.drop",
+        DropIndexCommand, "write no-cluster", 1,1,1)
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
         

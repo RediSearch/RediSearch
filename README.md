@@ -43,6 +43,10 @@ OK
    6) "http://redis.io"
 ```
 
+### Note:
+
+>> Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. 
+
 ---- 
 
 # Command details
@@ -90,7 +94,7 @@ Add a documet to the index.
 
 ----
 
-## FT.SEARCH index query [NOCONTENT] [LIMIT offset num] 
+## FT.SEARCH index query [NOCONTENT] [LIMIT offset num] [INFIELDS <num> <field> ...]
 Seach the index with a textual query, returning either documents or just ids.
 
 ### Parameters:
@@ -102,9 +106,12 @@ Seach the index with a textual query, returning either documents or just ids.
     - NOCONTENT: If it appears after the query, we only return the document ids and not 
     the content. This is useful if rediseach is only an index on an external document collection
 
-    - LIMIMT fist num: If the parameters appear after the query, we limit the results to 
+    - LIMIT fist num: If the parameters appear after the query, we limit the results to 
     the offset and number of results given. The default is 0 10
 
+    - INFIELDS num field1 field2 ...: If set, filter the results to ones appearing only in specific
+    fields of the document, like title or url. num is the number of specified field arguments
+    
 ### Returns:
 
 > An array reply, where the first element is the total number of results, and then pairs of

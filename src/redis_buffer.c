@@ -48,7 +48,11 @@ size_t redisWriterTruncate(Buffer *b, size_t newlen) {
 }
 
 void RedisBufferFree(Buffer *b) {
-    //RedisModule_CloseKey(((RedisBufferCtx*)b->ctx)->key);
+    
+    RedisBufferCtx* bctx = b->ctx;
+    if(bctx->key != NULL) {
+        RedisModule_CloseKey(bctx->key);
+    }
     if (b->ctx != NULL) {
         free(b->ctx);
         b->ctx = NULL;

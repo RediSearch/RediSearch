@@ -1,13 +1,12 @@
 ## Upcoming features:
 
 MVP:
-* Drop index support
-* Optimize buffer sizes (truncate to actual size at end of indexing)
 * Numeric Fields
 * Auto-suggest / speller
 * Index HASH values
 
-* Deletion support
+Post MVP:
+* Document Deletion support
 * Custom user flags filtering
 * Boolean expression parsing
 * Geo Fields
