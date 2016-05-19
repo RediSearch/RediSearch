@@ -7,7 +7,9 @@
 Redisearch impements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.
 
-Inverted indexes are stored on top of Redis strings using bin
+Inverted indexes are stored on top of Redis strings using binary encoding,
+and not mapped to existing data structures (see [DESIGN.md](DESIGN.md)). 
+
 This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. 
