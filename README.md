@@ -16,9 +16,8 @@ traditional redis search approaches.
 
 See [DESIGN.md](DESIGN.md) for technical details about the internal design of the module. 
 
-## Quick Guide:
 
-0. Building and running:
+## Building and running:
 
 ```sh
 git clone https://github.com/RedisLabsModules/RediSearch.git
@@ -28,6 +27,8 @@ make all
 # Assuming you have redis server build from the unstable branch:
 /path/to/redis-server --loadmodule ./module.so
 ```
+
+## Quick Guide:
 
 1. Creating an index with fields and weights:
 ```
