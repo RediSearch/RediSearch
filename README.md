@@ -30,21 +30,21 @@ make all
 
 ## Quick Guide:
 
-1. Creating an index with fields and weights:
+* Creating an index with fields and weights:
 ```
 127.0.0.1:6379> FT.CREATE myIdx title 5.0 body 1.0 url 1.0
 OK 
 ``` 
 
-2. Adding documents to the index:
+* Adding documents to the index:
 ```
-127.0.0.1:6379> FT.ADD doc1 1.0 title "hello world" body "lorem ipsum" url "http://redis.io"
+127.0.0.1:6379> FT.ADD myIdx doc1 1.0 fields title "hello world" body "lorem ipsum" url "http://redis.io"
 OK
 ```
 
-3. Searching the index:
+* Searching the index:
 ```
-127.0.0.1:6379> FT.SEARCH "hello world" LIMIT 0 10
+127.0.0.1:6379> FT.SEARCH myIdx "hello world" LIMIT 0 10
 1) (integer) 1
 2) "doc1"
 3) 1) "title"
@@ -55,9 +55,15 @@ OK
    6) "http://redis.io"
 ```
 
-### Note:
+  > **NOTE**: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. 
 
->> Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. 
+
+* Dropping the index:
+```
+127.0.0.1:6379> FT.DROP myIdx
+OK
+```
+
 
 ---- 
 
