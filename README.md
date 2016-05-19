@@ -142,7 +142,7 @@ Seach the index with a textual query, returning either documents or just ids.
     
 ### Returns:
 
-> An array reply, where the first element is the total number of results, and then pairs of
+> Array reply, where the first element is the total number of results, and then pairs of
 > document id, and a nested array of field/value, unless NOCONTENT was given
    
 ----
@@ -155,7 +155,8 @@ If no other data is on the redis instance, this is equivalent to FLUSHDB, apart 
 that the index specification is not deleted.
 
 ### Returns:
-Simple String reply - OK on success.
+
+> Simple String reply - OK on success.
 
 ---
 
@@ -163,11 +164,13 @@ Simple String reply - OK on success.
 After the index is built (and doesn't need to be updated again withuot a complete rebuild)
 we can optimize memory consumption by trimming all index buffers to their actual size.
 
-  **Warning 1**: This will delete score indexes for small words (n < 5000), so updating the index after
-  optimizing it might lead to screwed up results (TODO: rebuild score indexes if needed).
-  The simple solution to that is to call optimize again after adding documents to the index.
-
+  **Warning 1**: Do not run it if you intend to update your index afterward.
+  
   **Warning 2**: This blocks redis for a long time. Do not run it on production instances
+
+### Returns:
+
+> Integer Reply - the number of index entries optimized.
 
 # TODO
 See [TODO](TODO.md)
