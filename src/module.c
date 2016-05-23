@@ -277,7 +277,19 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
     }
     
+    
     RedisSearchCtx sctx = {ctx, &sp};
+    
+    NumericFilter *nf = NULL;
+    int filterIdx = RMUtil_ArgExists("FILTER", argv,argc, 3);
+    if (filterIdx > 0 && filterIdx + 4 <= argc) {
+        nf = ParseNumericFilter(&sctx, &argv[filterIdx+1], 3);
+        if (nf == NULL) {
+            RedisModule_ReplyWithError(ctx, "Invalid numeric filter");
+            return REDISMODULE_OK;
+        }
+    }
+    
     
      // open the documents metadata table
     InitDocTable(&sctx, &dt);
@@ -287,13 +299,11 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask);
     Query_Tokenize(q);
     
-    q->docTable = &dt;
-        
-    FieldSpec *ssp = IndexSpec_GetField(&sp, "price", strlen("price"));
-    if (ssp) {
-        NumericFilter *nf = NewNumericFilter(&sctx, ssp, 0.0, 50.0, 0, 0);
+    if (nf != NULL) {
         QueryStage_AddChild(q->root, NewNumericStage(nf));
     }
+    q->docTable = &dt;
+
         
         
     // Execute the query 

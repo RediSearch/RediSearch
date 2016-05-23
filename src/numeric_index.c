@@ -147,9 +147,9 @@ IndexIterator *NewNumericFilterIterator(NumericFilter *f) {
 *  Returns a numeric filter on success, NULL if there was a problem with the arguments
 */
 
-NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argv) {
+NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
                                        
-    if (argv != 3) {
+    if (argc != 3) {
         return NULL;
     }
     // make sure we have an index spec for this filter and it's indeed numeric
@@ -172,7 +172,43 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
     if (RMUtil_StringEqualsC(argv[1], "-inf")) {
         nf->minNegInf = 1;
     } else {
-        
+        if (RedisModule_StringToDouble(argv[1], &nf->min) != REDISMODULE_OK) {
+            size_t len = 0;
+            const char *p = RedisModule_StringPtrLen(argv[1], &len);
+            if (*p == '(' && len > 1) {
+                p++;
+                nf->inclusiveMin = 0;
+                RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len-1);
+                if (RedisModule_StringToDouble(s, &nf->min) != REDISMODULE_OK) {
+                    goto error;
+                }
+            }
+        }
     }
+    
+    if (RMUtil_StringEqualsC(argv[2], "+inf")) {
+        nf->maxInf = 1;
+    } else {
+        if (RedisModule_StringToDouble(argv[2], &nf->max) != REDISMODULE_OK) {
+            size_t len = 0;
+            const char *p = RedisModule_StringPtrLen(argv[2], &len);
+            if (*p == '(' && len > 1) {
+                p++;
+                nf->inclusiveMax = 0;
+                RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len-1);
+                if (RedisModule_StringToDouble(s, &nf->max) != REDISMODULE_OK) {
+                    goto error;
+                }
+            }
+        }
+    }
+    
+    return nf;
+    
+    
+error:
+    free(nf->idx);
+    free(nf);
+    return      NULL;
                                        
 }

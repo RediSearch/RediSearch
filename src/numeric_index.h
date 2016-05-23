@@ -39,6 +39,6 @@ NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min, 
 
 IndexIterator *NewNumericFilterIterator(NumericFilter *f);
 
-NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, RedisModuleString **argv, int argv);
+NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 
 #endif
