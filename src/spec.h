@@ -11,6 +11,8 @@ typedef enum fieldType {
     F_GEO
 } FieldType;
 
+#define NUMERIC_STR "NUMERIC"
+
 /* The fieldSpec represents a single field in the document's field spec. 
 Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask. 

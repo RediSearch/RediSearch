@@ -680,8 +680,10 @@ int II_Read(void *ctx, IndexHit *hit) {
                     (rc = ic->its[i]->SkipTo(ic->its[i]->ctx, ic->lastDocId, h)) == INDEXREAD_EOF) {
                     return INDEXREAD_EOF;
                 }
-            }
-            //LG_DEBUG("rc: %d flags %d, fieldmask %d", rc, h->flags, ic->fieldMask);
+            } 
+            
+            //LG_DEBUG("i %d rc: %d flags %d, fieldmask %d hasNext? %d\n", i, rc, h->flags, 
+            //          ic->fieldMask, ic->its[i]->HasNext(ic->its[i]));
             
             if (h->docId > ic->lastDocId) {
                 ic->lastDocId = h->docId;  
@@ -689,6 +691,8 @@ int II_Read(void *ctx, IndexHit *hit) {
             }
             if (rc == INDEXREAD_OK) {
                  ++nh;
+            } else {
+                ic->lastDocId++;
             }
         }
         
@@ -723,7 +727,7 @@ int II_Read(void *ctx, IndexHit *hit) {
                 // but advancing docId makes sure we'll read the first iterator again in the next round
                 ic->lastDocId++;
             } else {
-                if (ic->currentHits[0].docId != ic->lastDocId) {
+                if (ic->currentHits[0].docId > ic->lastDocId) {
                     ic->lastDocId = ic->currentHits[0].docId;    
                 } else {
                     ic->lastDocId++;

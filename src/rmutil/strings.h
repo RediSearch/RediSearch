@@ -12,6 +12,9 @@ RedisModuleString *RMUtil_CreateFormattedString(RedisModuleCtx *ctx, const char 
 /* Return 1 if the two strings are equal. Case *sensitive* */
 int RMUtil_StringEquals(RedisModuleString *s1, RedisModuleString *s2);
 
+/* Return 1 if the string is equal to a C NULL terminated string. Case *sensitive* */
+int RMUtil_StringEqualsC(RedisModuleString *s1, const char *s2);
+
 /* Converts a redis string to lowercase in place without reallocating anything */
 void RMUtil_StringToLower(RedisModuleString *s);
 

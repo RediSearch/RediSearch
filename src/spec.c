@@ -24,7 +24,7 @@ FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
 * Returns REDISMODULE_ERR if there's a parsing error.
 * The command only receives the relvant part of argv.
 * 
-* The format currently is <field> <weight>, <field> <weight> ... 
+* The format currently is <field> <NUMERIC|weight>, <field> <NUMERIC|weight> ... 
 */
 int IndexSpec_ParseRedisArgs(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
@@ -32,7 +32,7 @@ int IndexSpec_ParseRedisArgs(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
         return RedisModule_WrongArity(ctx);
     }
     
-    int num = 1;
+    
     const char *args[argc];
     for (int i = 0; i < argc; i++) {
         args[i] = RedisModule_StringPtrLen(argv[i], NULL);
@@ -53,16 +53,25 @@ int IndexSpec_Parse(IndexSpec *spec, const char **argv, int argc) {
     for (int i = 0; i < argc; i+=2, id *= 2) {
         //size_t sz;
         spec->fields[n].name = argv[i];
-        //spec->fields[n].name[sz] = '\0';
-        double d = strtod(argv[i+1], NULL);
-        if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL) {
-            goto failure;
+        double d = 0;
+        FieldType t = F_FULLTEXT;
+        //printf("%s %s\n", argv[i], argv[i+1])
+        if (!strncasecmp(argv[i+1], NUMERIC_STR, strlen(NUMERIC_STR))) {
+            t = F_NUMERIC;
+        } else {
+            d = strtod(argv[i+1], NULL);
+            if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL) {
+                goto failure;
+            }    
         }
+        
+        //spec->fields[n].name[sz] = '\0';
+        
         spec->fields[n].weight = d;
-        spec->fields[n].type = F_FULLTEXT;
+        spec->fields[n].type = t;
         spec->fields[n].id = id;
         spec->numFields++;
-        LG_DEBUG("loaded field %s id %d\n", argv[i], id);
+        //printf("loaded field %s id %d\n", argv[i], id);
         n++;
         
     }
@@ -86,14 +95,9 @@ void IndexSpec_Free(IndexSpec *spec) {
 /* Saves the spec as a LIST, containing basically the arguments needed to recreate the spec */
 int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
     
-    char buf[strlen(sp->name)+5];
-    sprintf(buf, "idx:%s", sp->name);
-    
-    
-    
     
     RedisModuleKey *k = RedisModule_OpenKey(ctx, 
-                                            RedisModule_CreateString(ctx, buf, strlen(buf)),
+                                            RMUtil_CreateFormattedString(ctx, "idx:%s", sp->name),
                                             REDISMODULE_READ|REDISMODULE_WRITE);
     if (k == NULL) {
         return REDISMODULE_ERR;
@@ -107,8 +111,11 @@ int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
     for (int i = 0; i < sp->numFields; i++) {
         
         RedisModule_ListPush(k, REDISMODULE_LIST_TAIL, RedisModule_CreateString(ctx, sp->fields[i].name, strlen(sp->fields[i].name)));
-        RedisModule_ListPush(k, REDISMODULE_LIST_TAIL, RMUtil_CreateFormattedString(ctx, "%f", sp->fields[i].weight));
-        
+        if (sp->fields[i].type == F_FULLTEXT) {
+            RedisModule_ListPush(k, REDISMODULE_LIST_TAIL, RMUtil_CreateFormattedString(ctx, "%f", sp->fields[i].weight));    
+        } else {
+            RedisModule_ListPush(k, REDISMODULE_LIST_TAIL, RedisModule_CreateString(ctx, NUMERIC_STR, strlen(NUMERIC_STR)));
+        }
     }
     
     return REDISMODULE_OK;
@@ -117,11 +124,12 @@ int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
 /* Load the spec from the saved version, which uses a redis list that basically 
 mimics the CREATE comand that was used to create it */
 int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
-    char buf[strlen(name)+5];
-    sprintf(buf, "idx:%s", name);
+
     sp->name = name;
     
-    RedisModuleCallReply *resp = RedisModule_Call(ctx, "LRANGE", "ccc", buf, "0", "-1");
+    RedisModuleCallReply *resp = RedisModule_Call(ctx, "LRANGE", "scc", 
+                                                  RMUtil_CreateFormattedString(ctx, "idx:%s", sp->name),
+                                                  "0", "-1");
     if (resp == NULL || RedisModule_CallReplyType(resp) != REDISMODULE_REPLY_ARRAY) {
         return REDISMODULE_ERR;
     }
@@ -130,7 +138,6 @@ int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
     RedisModuleString *arr[arrlen];
     
     for (size_t i = 0; i < arrlen; i++) {
-        
         arr[i] = RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(resp, i));
     }
     return IndexSpec_ParseRedisArgs(sp, ctx, arr, arrlen);

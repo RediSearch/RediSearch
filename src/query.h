@@ -7,13 +7,14 @@
 #include "tokenize.h"
 #include "spec.h"
 #include "redis_index.h"
-
+#include "numeric_index.h"
 // QueryOp marks a query stage with its respective "op" in the query processing tree
 typedef enum {
     Q_INTERSECT,
     Q_UNION,
     Q_EXACT,
-    Q_LOAD
+    Q_LOAD,
+    Q_NUMERIC,
 } QueryOp;
 
 
@@ -21,7 +22,8 @@ typedef enum {
 the processing of a query is done by chaining multiple query stages in a tree, 
 and combining their inputs and outputs */
 typedef struct queryStage {
-    char *term;
+    void *value;
+    int valueFreeable;
     QueryOp op;
     
     struct queryStage **children;
@@ -75,12 +77,16 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 
 /* Free the query execution stage and its children recursively */
 void QueryStage_Free(QueryStage *s);
-QueryStage *NewQueryStage(const char *term, QueryOp op);
+QueryStage *NewTokenStage(const char *term);
+QueryStage *NewLogicStage(QueryOp op);
+QueryStage *NewNumericStage(NumericFilter *flt);
+
 
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage);
+IndexIterator *query_EvalNumericStage(Query *q, QueryStage *stage);
 IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 
 

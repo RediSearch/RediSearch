@@ -14,7 +14,7 @@
 #include "spec.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
-
+#include "numeric_index.h"
 
 
 
@@ -60,7 +60,31 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
             continue;
         }
         
-        totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc);        
+        switch (fs->type) {
+            case F_FULLTEXT:
+                totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc);
+                break;
+            case F_NUMERIC: {
+                
+                double score;
+                
+                if (RedisModule_StringToDouble(doc.fields[i].text, &score) == REDISMODULE_ERR) {
+                    *errorString = "Could not parse numeric index value";
+                    goto error;
+                }
+                
+                NumericIndex *ni = NewNumericIndex(ctx, fs);
+                if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
+                    *errorString = "Could not save numeric index value";
+                    goto error;
+                }
+                NumerIndex_Free(ni);
+                break;
+            }
+                    
+        }
+        
+                
     }
     
     LG_DEBUG("totaltokens :%d\n", totalTokens);
@@ -83,10 +107,13 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         
         
     }
+    ForwardIndexFree(idx);
+    return REDISMODULE_OK;
     
+error:
     ForwardIndexFree(idx);
     
-    return 0;
+    return REDISMODULE_ERR;
 }
 
 /*
@@ -261,6 +288,13 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     Query_Tokenize(q);
     
     q->docTable = &dt;
+        
+    FieldSpec *ssp = IndexSpec_GetField(&sp, "price", strlen("price"));
+    if (ssp) {
+        NumericFilter *nf = NewNumericFilter(&sctx, ssp, 0.0, 50.0, 0, 0);
+        QueryStage_AddChild(q->root, NewNumericStage(nf));
+    }
+        
         
     // Execute the query 
     QueryResult *r = Query_Execute(q);

@@ -23,29 +23,43 @@ void QueryStage_Free(QueryStage *s) {
     free(s->children);
   }
   // the term is strdupped, so needs to be freed
-  if (s->term) {
-      free(s->term);
+  if (s->value && s->valueFreeable) {
+      free(s->value);
   }
   free(s);
 }
 
 
-QueryStage *NewQueryStage(const char *term, QueryOp op) {
+QueryStage *__newQueryStage(void *value, QueryOp op, int freeable) {
   QueryStage *s = malloc(sizeof(QueryStage));
   s->children = NULL;
   s->nchildren = 0;
   s->op = op;
-  s->term = (char *)term;
+  s->value = value;
+  s->valueFreeable = freeable;
   s->parent = NULL;
   return s;
 }
+
+QueryStage *NewTokenStage(const char *term) {
+  return __newQueryStage((char*)term, Q_LOAD, 1);
+}
+
+QueryStage *NewLogicStage(QueryOp op) {
+  return __newQueryStage(NULL, op, 0);
+}
+
+QueryStage *NewNumericStage(NumericFilter *flt) {
+  return __newQueryStage(flt, Q_NUMERIC, 0);
+}
+
 
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
   
   // if there's only one word in the query and no special field filtering,
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
-  IndexReader *ir = Redis_OpenReader(q->ctx, stage->term, q->docTable, isSingleWord, q->fieldMask);
+  IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, q->docTable, isSingleWord, q->fieldMask);
   if (ir == NULL) {
     return NULL;
   }
@@ -70,6 +84,12 @@ IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
   return ret;
 }
 
+IndexIterator *query_EvalNumericStage(Query *q, QueryStage *stage) {
+    
+    NumericFilter *nf = stage->value;
+    
+    return NewNumericFilterIterator(nf);
+}
 
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage) {
   // a union stage with one child is the same as the child, so we just return it
@@ -113,6 +133,8 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
       return query_EvalExactIntersectStage(q, s);
     case Q_UNION:
       return query_EvalUnionStage(q, s);
+    case Q_NUMERIC:
+      return query_EvalNumericStage(q, s);
   }
 
   return NULL;
@@ -128,7 +150,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
 int queryTokenFunc(void *ctx, Token t) {
   Query *q = ctx;
   q->numTokens++;
-  QueryStage_AddChild(q->root, NewQueryStage(t.s, Q_LOAD));
+  QueryStage_AddChild(q->root, NewTokenStage(t.s));
 
   return 0;
 }
@@ -142,7 +164,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len,
   ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);
-  ret->root = NewQueryStage(NULL, Q_INTERSECT);
+  ret->root = __newQueryStage(NULL, Q_INTERSECT, 0);
   ret->numTokens = 0;
 
   return ret;
@@ -157,11 +179,16 @@ void __queryStage_Print(QueryStage *qs, int depth) {
       printf("EXACT {\n");
       break;
     case Q_LOAD:
-      printf("{%s", qs->term);
+      printf("{%s", (char*) qs->value);
       break;
     case Q_INTERSECT:
       printf("INTERSECT {\n");
       break;
+  case Q_NUMERIC: {
+        NumericFilter *f = qs->value;
+        printf("NUMERIC {%f < x < %f", f->min, f->max);
+      }
+      break;      
     case Q_UNION:
       printf("UNION {\n");
       break;
@@ -189,17 +216,19 @@ int Query_Tokenize(Query *q) {
     switch (qt.type) {
       case T_WORD:
         q->numTokens++;
-        QueryStage_AddChild(current, NewQueryStage(qt.s, Q_LOAD));
+        QueryStage_AddChild(current, NewTokenStage(qt.s));
         break;
+        
       case T_QUOTE:
         if (current->op != Q_EXACT) {
-          QueryStage *ns = NewQueryStage(qt.s, Q_EXACT);
+          QueryStage *ns = NewLogicStage(Q_EXACT);
           QueryStage_AddChild(current, ns);
           current = ns;
         } else {  // end of quote
           current = current->parent;
         }
         break;
+        
       case T_STOPWORD:
       case T_END:
       default:
@@ -241,6 +270,8 @@ double processHitScore(IndexHit *h, DocTable *dt) {
 }
 
 QueryResult *Query_Execute(Query *query) {
+  
+  __queryStage_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
