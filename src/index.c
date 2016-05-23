@@ -29,7 +29,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     int quantizedScore = ReadVarint(ir->buf);
     if (freq != NULL) {
         *freq = (float)quantizedScore/FREQ_QUANTIZE_FACTOR;
-        LG_DEBUG("READ Quantized score %d, freq %f", quantizedScore, *freq);
+        //LG_DEBUG("READ Quantized score %d, freq %f", quantizedScore, *freq);
     }
     
     BufferReadByte(ir->buf, (char*)flags);
@@ -89,9 +89,9 @@ int IR_Read(void *ctx, IndexHit *e) {
         
     // add tf-idf score of the entry to the hit
     if (rc == INDEXREAD_OK) {
-        LG_DEBUG("docId %d Flags 0x%x, field mask 0x%x, intersection: %x", e->docId, e->flags, ir->fieldMask, e->flags & ir->fieldMask);
+        //LG_DEBUG("docId %d Flags 0x%x, field mask 0x%x, intersection: %x", e->docId, e->flags, ir->fieldMask, e->flags & ir->fieldMask);
         if (!(e->flags & ir->fieldMask)) {
-            LG_DEBUG("Skipping %d", e->docId);
+            //LG_DEBUG("Skipping %d", e->docId);
             return INDEXREAD_NOTFOUND;
         }
 
@@ -99,7 +99,7 @@ int IR_Read(void *ctx, IndexHit *e) {
     }
     e->type = H_RAW;
     
-    LG_DEBUG("Read docId %d, rc %d",e->docId, rc);
+    //LG_DEBUG("Read docId %d, rc %d",e->docId, rc);
     return rc;
 }
 
@@ -114,7 +114,7 @@ int IR_Next(void *ctx) {
 }
 
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
-    LG_DEBUG("Seeking to %d, lastId %d", offset, docId);
+    //LG_DEBUG("Seeking to %d, lastId %d", offset, docId);
     BufferSeek(ir->buf, offset);
     ir->lastId = docId;
 }
@@ -173,7 +173,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
                 return rc;
                 
             } else if (ir->lastId > docId) {
-                LG_DEBUG("Wanted %d got %d, not found!", docId, ir->lastId); 
+                //LG_DEBUG("Wanted %d got %d, not found!", docId, ir->lastId); 
                 // this is not the droid you are looking for 
                 return INDEXREAD_NOTFOUND;
             }
@@ -666,28 +666,25 @@ int II_Read(void *ctx, IndexHit *hit) {
     int nh = 0;
     int i = 0;
     do {
-        LG_DEBUG("II %p last docId %d", ic,     ic->lastDocId);
+        //LG_DEBUG("II %p last docId %d", ic,     ic->lastDocId);
         nh = 0;    
         for (i = 0; i < ic->num; i++) {
             
             IndexHit *h = &ic->currentHits[i];
-            LG_DEBUG("h->docId: %d, ic->lastDocId: %d", h->docId, ic->lastDocId);
+            //LG_DEBUG("h->docId: %d, ic->lastDocId: %d", h->docId, ic->lastDocId);
             // skip to the next
             int rc = INDEXREAD_OK;
             if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
-                IndexIterator *it = ic->its[i];
                 
-                // if (it == NULL || !it->HasNext(it->ctx)) {
-                //     return INDEXREAD_EOF;
-                // }
-                if ((rc = it->SkipTo(it->ctx, ic->lastDocId, h)) == INDEXREAD_EOF) {
+                if (ic->its[i] == NULL || 
+                    (rc = ic->its[i]->SkipTo(ic->its[i]->ctx, ic->lastDocId, h)) == INDEXREAD_EOF) {
                     return INDEXREAD_EOF;
                 }
             }
-            LG_DEBUG("rc: %d flags %d, fieldmask %d", rc, h->flags, ic->fieldMask);
+            //LG_DEBUG("rc: %d flags %d, fieldmask %d", rc, h->flags, ic->fieldMask);
             
             if (h->docId > ic->lastDocId) {
-                ic->lastDocId = h->docId;   
+                ic->lastDocId = h->docId;  
                 break;
             }
             if (rc == INDEXREAD_OK) {
@@ -695,19 +692,21 @@ int II_Read(void *ctx, IndexHit *hit) {
             }
         }
         
-        LG_DEBUG("nh: %d/%d", nh, ic->num);
+        //LG_DEBUG("nh: %d/%d", nh, ic->num);
         if (nh == ic->num) {
             
             // sum up all hits
             if (hit != NULL) {
                 hit->numOffsetVecs = 0;
                 hit->flags = 0xff;
+                hit->type = H_INTERSECTED;
+                hit->docId = ic->currentHits[0].docId;
                 for (int i = 0; i < nh; i++) {
                     IndexHit *hh = &ic->currentHits[i];
-                    hit->docId = hh->docId;
+                    
                     hit->flags &= hh->flags;
                     hit->totalFreq += hh->totalFreq;
-                    hit->type = H_INTERSECTED;
+                    
                     int n = 0;
                     // Copy the offset vectors of the hits
                     while(hit->numOffsetVecs < MAX_INTERSECT_WORDS && n < hh->numOffsetVecs) {
@@ -731,7 +730,7 @@ int II_Read(void *ctx, IndexHit *hit) {
                 }
             }
             
-            LG_DEBUG("Flags %x, field mask %x, intersection: %x", hit->flags, ic->fieldMask, hit->flags & ic->fieldMask);
+            //LG_DEBUG("Flags %x, field mask %x, intersection: %x", hit->flags, ic->fieldMask, hit->flags & ic->fieldMask);
             if ((hit->flags & ic->fieldMask) == 0) {
                 LG_DEBUG("Skipping %d", hit->docId);
                 continue;
@@ -747,7 +746,7 @@ int II_Read(void *ctx, IndexHit *hit) {
                  hit->type = H_EXACT;
              } 
              
-             LG_DEBUG("INTERSECT @%d", hit->docId );
+             //LG_DEBUG("INTERSECT @%d", hit->docId );
              
              return INDEXREAD_OK;
         }

@@ -200,6 +200,7 @@ int Query_Tokenize(Query *q) {
           current = current->parent;
         }
         break;
+      case T_STOPWORD:
       case T_END:
       default:
         break;

@@ -143,15 +143,16 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
     *t->pos = 0;
 
     t->pos++;
-word:
-
-    return (QueryToken){
-        strndup(currentTok,  t->pos - currentTok),
-        t->pos - currentTok,
-        T_WORD,
-        
-    };
-    
+word: {
+    char *w = strndup(currentTok,  t->pos - currentTok);
+    int stopword = isStopword(w);
+        return (QueryToken){
+            w,
+            t->pos - currentTok,
+            stopword ? T_STOPWORD : T_WORD,
+            
+        };
+    }   
 end:
     return (QueryToken) {
         NULL, 0, T_END

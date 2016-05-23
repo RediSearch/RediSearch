@@ -87,7 +87,8 @@ typedef enum {
     T_QUOTE,
     T_AND,
     T_OR,
-    T_END
+    T_END,
+    T_STOPWORD
 } QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
