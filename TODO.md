@@ -1,9 +1,9 @@
 ## Upcoming features:
 
 MVP:
-* Numeric Fields
 * Auto-suggest / speller
 * Index HASH values
+* Canonical Client Library
 
 Post MVP:
 * Document Deletion support

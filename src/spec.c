@@ -87,6 +87,7 @@ failure: //on failure free the spec fields array and return an error
 }
 
 void IndexSpec_Free(IndexSpec *spec) {
+    
     if (spec->fields != NULL) {
         free(spec->fields);
     }

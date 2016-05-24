@@ -285,8 +285,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (filterIdx > 0 && filterIdx + 4 <= argc) {
         nf = ParseNumericFilter(&sctx, &argv[filterIdx+1], 3);
         if (nf == NULL) {
+            
             RedisModule_ReplyWithError(ctx, "Invalid numeric filter");
-            return REDISMODULE_OK;
+            goto end;
+            
         }
     }
     
@@ -310,7 +312,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     QueryResult *r = Query_Execute(q);
     if (r == NULL) {
         RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-        return REDISMODULE_OK;
+        goto end;
     }
     
     if (r->errorString != NULL) {
@@ -354,9 +356,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     free(docs);
 
 cleanup:    
-    
     QueryResult_Free(r);
     Query_Free(q);
+end:    
     IndexSpec_Free(&sp);
     return REDISMODULE_OK;
 }
@@ -398,10 +400,12 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    
     if (IndexSpec_Save(ctx, &sp) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "Could not save index spec");
-        return REDISMODULE_OK;
+    } else {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");    
     }
     
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    IndexSpec_Free(&sp);
+    
     return REDISMODULE_OK;
     
 }

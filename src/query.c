@@ -58,7 +58,9 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
   
   // if there's only one word in the query and no special field filtering,
   // we can just use the optimized score index
-  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
+  
+  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff && q->root->nchildren == 1;
+  
   IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, q->docTable, isSingleWord, q->fieldMask);
   if (ir == NULL) {
     return NULL;
@@ -271,7 +273,7 @@ double processHitScore(IndexHit *h, DocTable *dt) {
 
 QueryResult *Query_Execute(Query *query) {
   
-  __queryStage_Print(query->root, 0);
+  //__queryStage_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

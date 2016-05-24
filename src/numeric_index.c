@@ -6,9 +6,12 @@ fulltext indexes.
 
 int numericFilter_Match(NumericFilter *f, double score) {
     
-    int matchMin = f->inclusiveMin ? score >= f->min : score > f->min;
+    // match min - -inf or x >/>= score 
+    int matchMin = f->minNegInf || (f->inclusiveMin ? score >= f->min : score > f->min);
+    
     if (matchMin) {
-        return f->inclusiveMax ? score <= f->max : score < f->max;
+        // match max - +inf or x </<= score
+        return f->maxInf || (f->inclusiveMax ? score <= f->max : score < f->max);
     }
     
     return 0;
@@ -102,8 +105,9 @@ int NumericFilter_HasNext(void *ctx) {
 }
 // release the iterator's context and free everything needed
 void NumericFilter_Free(struct indexIterator *self) {
-    //self->ctx
-    free(self->ctx);
+    NumericFilter *f = self->ctx;
+    free(f->idx);
+    free(f);
     free(self);
 }
 
@@ -146,7 +150,6 @@ IndexIterator *NewNumericFilterIterator(NumericFilter *f) {
 *  
 *  Returns a numeric filter on success, NULL if there was a problem with the arguments
 */
-
 NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
                                        
     if (argc != 3) {
@@ -168,38 +171,58 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
     nf->inclusiveMin = 1;
     nf->min = 0;
     nf->max = 0;
-    // Parse the min and max
+    nf->minNegInf = 0;
+    nf->maxInf = 0;
+    // Parse the min range
+    
+    // -inf means anything is acceptable as a minimum
     if (RMUtil_StringEqualsC(argv[1], "-inf")) {
         nf->minNegInf = 1;
     } else {
+        // parse the min range value - if it's OK we just set the value
         if (RedisModule_StringToDouble(argv[1], &nf->min) != REDISMODULE_OK) {
             size_t len = 0;
             const char *p = RedisModule_StringPtrLen(argv[1], &len);
+            
+            // if the first character is ( we treat the minimum as exclusive
             if (*p == '(' && len > 1) {
                 p++;
                 nf->inclusiveMin = 0;
+                // we need to create a temporary string to parse it again...
                 RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len-1);
                 if (RedisModule_StringToDouble(s, &nf->min) != REDISMODULE_OK) {
+                    RedisModule_FreeString(ctx->redisCtx, s);
                     goto error;
                 }
-            }
+                // free the string now that it's parsed
+                RedisModule_FreeString(ctx->redisCtx, s);
+                
+            } else goto error; //not a number
         }
     }
     
+    // check if the max range is +inf
     if (RMUtil_StringEqualsC(argv[2], "+inf")) {
         nf->maxInf = 1;
     } else {
+        // parse the max range. OK means we just read it into nf->max
         if (RedisModule_StringToDouble(argv[2], &nf->max) != REDISMODULE_OK) {
+            
+            // check see if the first char is ( and this is an exclusive range
             size_t len = 0;
             const char *p = RedisModule_StringPtrLen(argv[2], &len);
             if (*p == '(' && len > 1) {
                 p++;
                 nf->inclusiveMax = 0;
+                // now parse the number part of the 
                 RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len-1);
                 if (RedisModule_StringToDouble(s, &nf->max) != REDISMODULE_OK) {
+                    RedisModule_FreeString(ctx->redisCtx, s);
                     goto error;
                 }
-            }
+                RedisModule_FreeString(ctx->redisCtx, s);
+                
+            } else goto error; //not a number
         }
     }
     
@@ -209,6 +232,6 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
 error:
     free(nf->idx);
     free(nf);
-    return      NULL;
+    return NULL;
                                        
 }
