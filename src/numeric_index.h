@@ -3,6 +3,7 @@
 #include "types.h"
 #include "spec.h"
 #include "rmutil/strings.h"
+#include "rmutil/vector.h"
 #include "redismodule.h"
 #include "index.h"
 
@@ -19,9 +20,17 @@ typedef struct {
     int maxInf;
     int inclusiveMin;
     int inclusiveMax;
+    
+    
     t_docId lastDocid;
+    Vector *docIds;
+    int docIdsOffset;
+    
+    // tells us which strategy was used - loading the range or filtering one by one
+    int isRangeLoaded;    
 } NumericFilter;
 
+#define NUMERICFILTER_LOAD_THRESHOLD 500
 
 NumericIndex *NewNumericIndex(RedisSearchCtx *ctx, FieldSpec *sp);
 
