@@ -150,7 +150,7 @@ Add a documet to the index.
 
 ----
 
-## FT.SEARCH index query [NOCONTENT] [LIMIT offset num] [INFIELDS <num> <field> ...]
+## FT.SEARCH index query [NOCONTENT] [LIMIT offset num] [INFIELDS num field ...] [FILTER numeric_field min max]
 Seach the index with a textual query, returning either documents or just ids.
 
 ### Parameters:
@@ -168,6 +168,11 @@ Seach the index with a textual query, returning either documents or just ids.
     - INFIELDS num field1 field2 ...: If set, filter the results to ones appearing only in specific
     fields of the document, like title or url. num is the number of specified field arguments
     
+    - FILTER numeric_field min max: If set, and numeric_field is defined as a numeric field in 
+    FT.CREATE, we will limit results to those having numeric values ranging between min and max.
+    min and max follow ZRANGE syntax, and can be -inf, +inf and use `(` for exclusive ranges.
+      
+    
 ### Returns:
 
 > Array reply, where the first element is the total number of results, and then pairs of
@@ -176,7 +181,7 @@ Seach the index with a textual query, returning either documents or just ids.
 ----
 
 
-## FT.DROP <index>
+## FT.DROP index
 Deletes all the keys associated with the index. 
 
 If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
@@ -188,7 +193,7 @@ that the index specification is not deleted.
 
 ---
 
-## FT.OPTIMIZE <index>
+## FT.OPTIMIZE index
 After the index is built (and doesn't need to be updated again withuot a complete rebuild)
 we can optimize memory consumption by trimming all index buffers to their actual size.
 
