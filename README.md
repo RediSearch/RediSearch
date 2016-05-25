@@ -42,7 +42,6 @@ Which basically means you can freely use this for your own projects without "vir
 as long as you're not modifying the module itself.
 
 ```
-
 Warning:
 
 RediSearch is under development and missing a lot of features.
