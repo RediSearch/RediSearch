@@ -14,15 +14,41 @@ This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. 
 
-# Warning: This Code Is NOT Stable Or Ready!
+## Primary Features:
 
-RediSearch is under development and missing a lot of features. 
+* Full-Text indexing of multiple fields in documents.
+* Incremental indexing without performance loss.
+* Document ranking (provided manually by the user at index time).
+* Field weights.
+* Exact Phrase Search of up to 8 words.
+* Limiting searches to specific document fields (up to 8 fields supported)
+* Numeric filters and ranges.
+* Supports any utf-8 encoded text.
+* Retrieve full document content or just ids
 
-The API may change, the internal implementation is evolving, 
-and the modules API itself is still unstable. 
+### Not *yet* supported:
 
-Feel free to try it, hack it and contribute to it, but do not use it for actual data.
+* Geo filters
+* NOT queries (foo -bar)
+* Spelling correction
+* Auto-complete
+* Query expansion and stemming
+* Full boolean query syntax
+* Deletion and Updating (without full index rebuild)
 
+### License: AGPL
+
+Which basically means you can freely use this for your own projects without "virality" to your code,
+as long as you're not modifying the module itself.
+
+--- 
+  > ### Warning
+  > ```
+  > RediSearch is under development and missing a lot of features. 
+  >
+  > The API may change, the internal implementation is evolving, 
+  > and the modules API itself is still unstable.
+  > ``` 
 ---
  
 ## Internal Design
