@@ -41,15 +41,15 @@ traditional redis search approaches.
 Which basically means you can freely use this for your own projects without "virality" to your code,
 as long as you're not modifying the module itself.
 
---- 
-  > ### Warning
-  > ```
-  > RediSearch is under development and missing a lot of features. 
-  >
-  > The API may change, the internal implementation is evolving, 
-  > and the modules API itself is still unstable.
-  > ``` 
----
+```
+
+Warning:
+
+RediSearch is under development and missing a lot of features.
+
+The API may change, the internal implementation is evolving, 
+and the Redis modules API itself is still unstable.
+``` 
  
 ## Internal Design
 
