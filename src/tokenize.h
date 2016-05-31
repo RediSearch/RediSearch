@@ -1,3 +1,4 @@
+
 #ifndef __TOKENIZE_H__
 #define __TOKENIZE_H__
 
@@ -7,7 +8,12 @@
 #include "types.h"
 #include "util/khash.h"
 #include "varint.h"
+#include "stemmer.h"
 
+typedef enum {
+    DT_WORD,
+    DT_STEM,
+} DocTokenType;
 /* Represents a token found in a document */
 typedef struct  {
     // token string
@@ -23,6 +29,8 @@ typedef struct  {
     
     // Field id - used later for filtering.
     u_char fieldId;
+    
+    DocTokenType type;
 } Token;
 
 
@@ -43,6 +51,8 @@ static const char *stopwords[] =  {
             "they", "this", "to", "was", "will", "with", NULL
     };
     
+#define STEM_TOKEN_FACTOR 0.2   
+    
 // TODO: Optimize this with trie or something...    
 int isStopword(const char *w);
 
@@ -55,7 +65,7 @@ typedef struct {
     TokenFunc tokenFunc;
     void *tokenFuncCtx;
     NormalizeFunc normalize;
-    
+    Stemmer *stemmer;
 } TokenizerCtx;
 
 
@@ -63,8 +73,10 @@ typedef struct {
 int _tokenize(TokenizerCtx *ctx);
 
 /** The extenral API. Tokenize text, and create tokens with the given score and fieldId.
-TokenFunc is a callback that will be called for each token found */
-int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f);
+TokenFunc is a callback that will be called for each token found
+if doStem is 1, we will add stemming extraction for the text 
+*/
+int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f, int doStem);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents. 
 Does NOT normalize unicode */

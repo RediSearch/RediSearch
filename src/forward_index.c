@@ -60,7 +60,11 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     }
 
     h->flags |= (t.fieldId & 0xff);
-    h->freq += (float)t.score;
+    float score = (float)t.score;
+    if (t.type == DT_STEM) {
+        score *= STEM_TOKEN_FACTOR;
+    }
+    h->freq += score;
     idx->totalFreq += (float)t.score;
 
     idx->maxFreq = MAX(h->freq, idx->maxFreq);
