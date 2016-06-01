@@ -7,6 +7,9 @@ typedef enum {
     SnowballStemmer
 } StemmerType;
 
+
+#define DEFAULT_LANGUAGE "english"
+
 /* Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs */ 
 typedef struct stemmer {
     void *ctx;
@@ -15,6 +18,8 @@ typedef struct stemmer {
 } Stemmer;
 Stemmer *NewStemmer(StemmerType type, const char *language);
 
+/* check if a language is supported by our stemmers */
+int IsSupportedLanguage(const char *language, size_t len);
 
 /* Snoball Stemmer wrapper implementation */
 const  char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);

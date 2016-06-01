@@ -99,7 +99,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child);
 
 /* Initialize a new query object from user input. This does not parse the query just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask);
+                u_char fieldMask, int verbatim, const char *lang);
 /* Free a query object */ 
 void Query_Free(Query *q);
 /* Tokenize the raw query and build the execution plan */

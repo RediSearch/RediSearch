@@ -76,7 +76,8 @@ int _tokenize(TokenizerCtx *ctx);
 TokenFunc is a callback that will be called for each token found
 if doStem is 1, we will add stemming extraction for the text 
 */
-int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f, int doStem);
+int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f,
+             Stemmer *s);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents. 
 Does NOT normalize unicode */

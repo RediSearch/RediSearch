@@ -5,7 +5,7 @@
 #include "forward_index.h"
 
 int tokenize(const char *text, float score, u_char fieldId, void *ctx,
-             TokenFunc f, int doStem) {
+             TokenFunc f, Stemmer *s) {
   TokenizerCtx tctx;
   tctx.text = text;
   tctx.pos = (char **)&text;
@@ -15,7 +15,7 @@ int tokenize(const char *text, float score, u_char fieldId, void *ctx,
   tctx.tokenFuncCtx = ctx;
   tctx.normalize = DefaultNormalize;
   tctx.fieldId = fieldId;
-  tctx.stemmer = doStem ? NewStemmer(SnowballStemmer, "english") : NULL;
+  tctx.stemmer = s;
 
   return _tokenize(&tctx);
 }

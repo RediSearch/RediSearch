@@ -5,6 +5,7 @@
 #include "index.h"
 #include "spec.h"
 #include "search_ctx.h"
+#include "document.h"
 
 /* Open an index writer on a redis DMA string, for a specific term */
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term);
@@ -73,29 +74,6 @@ void Redis_CloseWriter(IndexWriter *w);
 
 t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey, int *isnew); 
 RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId);
-
-typedef struct {
-    RedisModuleString *name;
-    RedisModuleString *text;
-} DocumentField;
-
-typedef struct {
-    RedisModuleString *docKey;
-    DocumentField *fields;
-    int numFields;
-    float score; 
-} Document;
-
-void Document_Free(Document doc);
-
-/* Load a single document */
-int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
-
-/* Load a bunch of documents from redis */
-Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **key, int numKeys, int *nump);
-
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
-
 
 
 #endif

@@ -30,6 +30,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         return REDISMODULE_ERR;
     }
     
+    doc.docId = docId;
+    
     // first save the document as hash
     if (nosave == 0 && Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
         *errorString = "Could not save document data";
@@ -43,7 +45,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         return REDISMODULE_ERR;
     }
     
-    ForwardIndex *idx = NewForwardIndex(docId,  doc.score);
+    ForwardIndex *idx = NewForwardIndex(doc);
     
     
     int totalTokens = 0;
@@ -62,7 +64,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         
         switch (fs->type) {
             case F_FULLTEXT:
-                totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, 1);
+                totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer);
                 break;
             case F_NUMERIC: {
                 
@@ -137,6 +139,15 @@ Add a documet to the index.
     Passing fields that are not in the index spec will make them be stored as part of the document, 
     or ignored if NOSAVE is set 
     
+    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+   If an unsupported language is sent, the command returns an error. 
+   The supported languages are:
+  
+   > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+   > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+   > "russian", "spanish",   "swedish", "tamil",     "turkish"
+
+    
 Returns OK on success, or an error if something went wrong. 
 */
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -173,13 +184,21 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
         goto cleanup;
     }
-       
+    
+    // Parse the optional LANGUAGE flag
+    const char *lang = NULL;
+    RMUtil_ParseArgsAfter("LANGUAGE", argv, argc, "c", &lang);
+    if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
+        RedisModule_ReplyWithError(ctx, "Unsupported Language");
+        goto cleanup;
+    }       
     
     Document doc;
     doc.docKey = argv[2];
     doc.score = (float)ds;
     doc.numFields = (argc-fieldsIdx)/2;
     doc.fields = calloc(doc.numFields, sizeof(DocumentField));
+    doc.language = lang ? lang : DEFAULT_LANGUAGE;
     
     size_t len;
     int n = 0;
@@ -210,7 +229,8 @@ u_int32_t _getHitScore(void * ctx) {
 }
 
 /* 
-## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS <num> <field> ...]
+## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS num>field ...] [LANGUAGE lang] [VERBATIM]  
+    
 Seach the index with a textual query, returning either documents or just ids.
 
 ### Parameters:
@@ -226,7 +246,16 @@ Seach the index with a textual query, returning either documents or just ids.
    the offset and number of results given. The default is 0 10
    
    - INFIELDS num field1 field2 ...: If set, filter the results to ones appearing only in specific
-   fields of the document, like title or url. num is the number of specified field arguments  
+   fields of the document, like title or url. num is the number of specified field arguments 
+   
+   - VERBATIM: If set, we turn off stemming for the query processing. Faster but will yield less results
+   
+   - LANGUAGE lang: If set, we use a stemmer for the supplied langauge. Defaults to English. 
+   If an unsupported language is sent, the command returns an error. The supported languages are:
+  
+   > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+   > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+   > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
 ### Returns:
 
@@ -239,20 +268,22 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) {
         return RedisModule_WrongArity(ctx);
     }
-    
     RedisModule_AutoMemory(ctx);
     
+    // Detect "NOCONTENT"
     int nocontent = RMUtil_ArgExists("nocontent", argv, argc, 3);
     
     DocTable dt;
    
-    
+    // Parse LIMIT argument
     long long first = 0, limit = 10;
     RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &first, &limit);
     if (limit <= 0) {
        return RedisModule_WrongArity(ctx);
     }
 
+
+    // Parse and load the index
     IndexSpec sp;
     sp.numFields = 0;
     sp.name = RedisModule_StringPtrLen(argv[1], NULL);
@@ -278,8 +309,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     
     
+    // Parse numeric filter. currently only one supported
     RedisSearchCtx sctx = {ctx, &sp};
-    
     NumericFilter *nf = NULL;
     int filterIdx = RMUtil_ArgExists("FILTER", argv,argc, 3);
     if (filterIdx > 0 && filterIdx + 4 <= argc) {
@@ -292,13 +323,21 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         }
     }
     
+    // Parse VERBATIM and LANGUAGE argumens
+    int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
+    const char *lang = NULL;
+    RMUtil_ParseArgsAfter("LANGUAGE", argv, argc, "c", &lang);
+    if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
+        RedisModule_ReplyWithError(ctx, "Unsupported Stemmer Language");
+        goto end;
+    }
     
      // open the documents metadata table
     InitDocTable(&sctx, &dt);
     
     size_t len;
     const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-    Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask);
+    Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang);
     Query_Tokenize(q);
     
     if (nf != NULL) {

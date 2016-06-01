@@ -165,7 +165,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
 
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
-                int limit, u_char fieldMask) {
+                int limit, u_char fieldMask, int verbatim, const char *lang) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -175,7 +175,11 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   ret->raw = strndup(query, len);
   ret->root = __newQueryStage(NULL, Q_INTERSECT, 0);
   ret->numTokens = 0;
-  ret->stemmer = NewStemmer(SnowballStemmer, "english");
+  ret->stemmer = NULL;
+  if (!verbatim) {
+    ret->stemmer = NewStemmer(SnowballStemmer, lang ? lang : DEFAULT_LANGUAGE);  
+  }
+  
   return ret;
 }
 

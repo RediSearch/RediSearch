@@ -4,6 +4,7 @@
 #include "util/khash.h"
 #include "varint.h"
 #include "tokenize.h"
+#include "document.h"
 
 typedef struct {
     const char *term;
@@ -31,6 +32,7 @@ typedef struct {
     float maxFreq;
     float docScore;
     int uniqueTokens;
+    Stemmer *stemmer;
 } ForwardIndex;
 
 
@@ -43,7 +45,7 @@ typedef struct {
 int forwardIndexTokenFunc(void *ctx, Token t);
 
 void ForwardIndexFree(ForwardIndex *idx);
-ForwardIndex *NewForwardIndex(t_docId docId, float docScore);
+ForwardIndex *NewForwardIndex(Document doc);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry*);

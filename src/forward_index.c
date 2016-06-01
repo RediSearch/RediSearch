@@ -5,15 +5,16 @@
 #include "util/logging.h"
 
 
-ForwardIndex *NewForwardIndex(t_docId docId, float docScore) {
+ForwardIndex *NewForwardIndex(Document doc) {
     
     ForwardIndex *idx = malloc(sizeof(ForwardIndex));
     
     idx->hits = kh_init(32);
-    idx->docScore = docScore;
-    idx->docId = docId;
+    idx->docScore = doc.score;
+    idx->docId = doc.docId;
     idx->totalFreq = 0;
     idx->maxFreq = 0;
+    idx->stemmer = NewStemmer(SnowballStemmer, doc.language);
     
     return idx;
 }

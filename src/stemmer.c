@@ -1,7 +1,23 @@
 #include "stemmer.h"
 #include <string.h>
 #include <stdio.h>
+#include <sys/param.h>
 #include "dep/snowball/include/libstemmer.h"
+
+const char *__supportedLanguages[] = {
+    "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+    "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+    "russian", "spanish",   "swedish", "tamil",     "turkish",    NULL};
+
+int IsSupportedLanguage(const char *language, size_t len) {
+  for (int i = 0; __supportedLanguages[i] != NULL; i++) {
+    if (!strncasecmp(language, __supportedLanguages[i],
+                     MAX(len, strlen(__supportedLanguages[i])))) {
+      return 1;
+    }
+  }
+  return 0;
+}
 
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len,
                              size_t *outlen) {
