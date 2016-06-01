@@ -21,7 +21,7 @@ traditional redis search approaches.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
 * Exact Phrase Search of up to 8 words.
-* Stemming based query expansion in [many languages](#stemmer-languages) (using [Snowball](http://snowball.tartarus.org/)).
+* Stemming based query expansion in [many languages](#stemming-support) (using [Snowball](http://snowballstem.org/)).
 * Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
 * Supports any utf-8 encoded text.
@@ -207,9 +207,18 @@ we can optimize memory consumption by trimming all index buffers to their actual
 # TODO
 See [TODO](TODO.md)
 
-# Stemmer Languages
+# Stemming Support
 
-These languages are supported arguments to search and indexing commands:
+RediSearch supports stemming - that is adding the base form of a word to the index. This allows 
+the query for "going" to also return results for "go" and "gone", for example. 
+
+The current stemming support is based on the Snowball stemmer library, which supports most European
+languages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif
+langauge support, please open an issue). 
+
+For further details see the [Snoball Stemmer website](http://snowballstem.org/). 
+
+### The following languages are supported arguments to search and indexing commands:
 
 * arabic
 * danish
