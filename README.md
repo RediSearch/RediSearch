@@ -21,18 +21,18 @@ traditional redis search approaches.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
 * Exact Phrase Search of up to 8 words.
-* Limiting searches to specific document fields (up to 8 fields supported)
+* Stemming based query expansion in [many languages](#Stemmer Languages) (using [Snowball](http://snowball.tartarus.org/)).
+* Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids
 
 ### Not *yet* supported:
 
-* Geo filters
-* NOT queries (foo -bar)
+* Geo filters.
+* NOT queries (foo -bar).
 * Spelling correction
 * Auto-complete
-* Query expansion and stemming
 * Full boolean query syntax
 * Deletion and Updating (without full index rebuild)
 
@@ -206,3 +206,25 @@ we can optimize memory consumption by trimming all index buffers to their actual
 
 # TODO
 See [TODO](TODO.md)
+
+# Stemmer Languages
+
+These languages are supported arguments to search and indexing commands:
+
+* arabic
+* danish
+* dutch
+* english
+* finnish
+* french
+* german
+* hungarian
+* italian
+* norwegian
+* portuguese
+* romanian
+* russian
+* spanish
+* swedish
+* tamil
+* turkish
