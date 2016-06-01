@@ -6,7 +6,8 @@
 
 inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
-    return ir->header.size > ir->buf->offset;
+    //LG_DEBUG("ir %p size %d, offset %d. has next? %d\n", ir, ir->header.size, ir->buf->offset, ir->header.size > ir->buf->offset);
+    return ir->header.size > ir->buf->offset; 
 
 }
 
@@ -433,14 +434,15 @@ int UI_Read(void *ctx, IndexHit *hit) {
     
     UnionContext *ui = ctx;
     // nothing to do
-    if (ui->num <= 0) {
+    if (ui->num == 0) {
         return 0;
     }
     
-    t_docId minDocId = __UINT32_MAX__;
-    int minIdx = 0;
     
+    int minIdx = 0;
     do {
+        // find the minimal iterator 
+        t_docId minDocId = __UINT32_MAX__;
         minIdx = -1;
         for (int i = 0; i < ui->num; i++) {
             IndexIterator *it = ui->its[i];
@@ -466,6 +468,8 @@ int UI_Read(void *ctx, IndexHit *hit) {
             return INDEXREAD_EOF;
         }
         
+        
+        
         *hit = ui->currentHits[minIdx];
         hit->type = H_UNION;
         ui->minDocId = ui->currentHits[minIdx].docId;
@@ -488,16 +492,15 @@ int UI_Read(void *ctx, IndexHit *hit) {
      UnionContext *u = ctx;
      for (int i = 0; i < u->num; i++) {
          IndexIterator *it = u->its[i];
-         if (it == NULL) continue;
          
-         if (it->HasNext(it->ctx)) {
+         if (it && it->HasNext(it->ctx)) {
              return 1;
          }
      }
      return 0;
  }
  
- /**
+/**
 Skip to the given docId, or one place after it
 @param ctx IndexReader context
 @param docId docId to seek to
@@ -511,16 +514,27 @@ Skip to the given docId, or one place after it
      int rc = INDEXREAD_EOF;
      // skip all iterators to docId
      for (int i = 0; i < ui->num; i++) {
-         rc = ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &ui->currentHits[i]);
-         if (rc != INDEXREAD_OK) {
+         // this happens for non existent words
+         if (ui->its[i] == NULL) continue;
+         
+         if ((rc = ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &ui->currentHits[i])) == INDEXREAD_EOF) {
              continue;
-         } else if (rc == INDEXREAD_OK) {
-             // YAY! found!
-             ui->minDocId = docId;
-             *hit = ui->currentHits[i];
+         }
+         
+        // advance the minimal docId for reads 
+        if (ui->minDocId < ui->currentHits[i].docId || rc == INDEXREAD_EOF) {
+            ui->minDocId = ui->currentHits[i].docId;
+        }
+             
+         *hit = ui->currentHits[i];
+         hit->type = H_UNION;
+         // we found a hit - no need to continue
+         if (rc == INDEXREAD_OK) {
+             break;
          }
          n++;
      }
+     //printf("UI %p skip to %d, rc %d, n: %d\n", ui, docId, rc,n);
      if (rc == INDEXREAD_OK) {
          return rc;
      }
@@ -529,39 +543,22 @@ Skip to the given docId, or one place after it
          return INDEXREAD_EOF;
      }
      
-     
-     ui->minDocId = __UINT32_MAX__;
-     int minIdx = -1;
-     // copy the lowest one to *hit
-     for (int i =0; i < ui->num; i++) {
-         if (!ui->its[i]->HasNext(ui->its[i]->ctx)) {
-            continue;
-         }
-            
-         if (ui->currentHits[i].docId < ui->minDocId) {
-             ui->minDocId = ui->currentHits[i].docId; 
-             minIdx = i;
-         }
-     }
-     if (minIdx == -1) {
-         return INDEXREAD_EOF;
-     }
-     
-     ui->minDocId = ui->currentHits[minIdx].docId;
-     *hit = ui->currentHits[minIdx];
-     hit->type = H_UNION;
      return INDEXREAD_NOTFOUND;
  }
  
  void UnionIterator_Free(IndexIterator *it) {
      if (it == NULL) return;
      
-     
      UnionContext *ui = it->ctx;
-     for (int i = 0; i < ui->num; i++) {
-         ui->its[i]->Free(ui->its[i]);
-     }
-     free(it->ctx);
+      for (int i = 0; i < ui->num; i++) {
+          if (ui->its[i]) {
+            ui->its[i]->Free(ui->its[i]);
+          }
+      }
+     
+     free(ui->currentHits);
+     free(ui->its);
+     free(ui);
      free(it);
  }
   
@@ -660,7 +657,7 @@ int II_Next(void *ctx) {
 
 int II_Read(void *ctx, IndexHit *hit) {
     IntersectContext *ic = (IntersectContext*)ctx;
-    //printf("ic num %d", ic->num);
+    
     if (ic->num == 0) return INDEXREAD_EOF;
     
     int nh = 0;
@@ -682,8 +679,8 @@ int II_Read(void *ctx, IndexHit *hit) {
                 }
             } 
             
-            //LG_DEBUG("i %d rc: %d flags %d, fieldmask %d hasNext? %d\n", i, rc, h->flags, 
-            //          ic->fieldMask, ic->its[i]->HasNext(ic->its[i]));
+            // LG_DEBUG("i %d rc: %d flags %d, fieldmask %d hasNext? %d\n", i, rc, h->flags, 
+            //           ic->fieldMask, ic->its[i]->HasNext(ic->its[i]->ctx));
             
             if (h->docId > ic->lastDocId) {
                 ic->lastDocId = h->docId;  

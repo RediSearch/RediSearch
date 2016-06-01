@@ -56,6 +56,8 @@ typedef struct query {
     DocTable *docTable;
     
     RedisSearchCtx *ctx;
+    
+    Stemmer *stemmer;
 } Query;
 
 
@@ -64,8 +66,6 @@ typedef struct queryResult {
     size_t totalResults;
     RedisModuleString **ids;
     size_t numIds;
-    
-    
     int error;
     char *errorString;
 } QueryResult;
@@ -77,7 +77,7 @@ IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 
 /* Free the query execution stage and its children recursively */
 void QueryStage_Free(QueryStage *s);
-QueryStage *NewTokenStage(const char *term);
+QueryStage *NewTokenStage(Query *q, QueryToken *qt);
 QueryStage *NewLogicStage(QueryOp op);
 QueryStage *NewNumericStage(NumericFilter *flt);
 

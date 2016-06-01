@@ -62,7 +62,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         
         switch (fs->type) {
             case F_FULLTEXT:
-                totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc);
+                totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, 1);
                 break;
             case F_NUMERIC: {
                 
@@ -477,7 +477,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     
-    //LOGGING_INIT(0xFFFFFFFF);
+  //  LOGGING_INIT(0xFFFFFFFF);
     if (RedisModule_Init(ctx,"ft",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 

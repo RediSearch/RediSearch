@@ -45,6 +45,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     // Retrieve the value for key "apple"
     khiter_t k = kh_get(32, idx->hits, t.s);  // first have to get ieter
     if (k == kh_end(idx->hits)) {  // k will be equal to kh_end if key not present
+        
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
         h->flags = 0;
@@ -60,7 +61,9 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     }
 
     h->flags |= (t.fieldId & 0xff);
-    float score = (float)t.score;
+     float score = (float)t.score;
+     
+    // stem tokens get lower score
     if (t.type == DT_STEM) {
         score *= STEM_TOKEN_FACTOR;
     }

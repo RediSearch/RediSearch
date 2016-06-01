@@ -66,9 +66,9 @@ int _tokenize(TokenizerCtx *ctx) {
       size_t sl;
       const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
       if (stem && strncmp(stem, tok, tlen)) {
-        printf("Adding stem %s -> %s\n", tok, stem);
         t.s = stem;
-        t.type = DT_STEM, t.len = sl;
+        t.type = DT_STEM;
+        t.len = sl;
         if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
           break;
         }
@@ -141,10 +141,10 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
 
   t->pos++;
 word : {
-  char *w = strndup(currentTok, t->pos - currentTok);
+  char *w = strndup(currentTok, t->pos - currentTok -1);
   int stopword = isStopword(w);
   return (QueryToken){
-      w, t->pos - currentTok, stopword ? T_STOPWORD : T_WORD,
+      w, t->pos - currentTok - 1, stopword ? T_STOPWORD : T_WORD,
 
   };
 }
