@@ -21,7 +21,7 @@ traditional redis search approaches.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
 * Exact Phrase Search of up to 8 words.
-* Stemming based query expansion in [many languages](#Stemmer Languages) (using [Snowball](http://snowball.tartarus.org/)).
+* Stemming based query expansion in [many languages](#stemmer-languages) (using [Snowball](http://snowball.tartarus.org/)).
 * Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
 * Supports any utf-8 encoded text.
