@@ -123,7 +123,7 @@ so keep it short!
 
 ----
 
-## FT.ADD index docId score [NOSAVE] FIELDS <field> <text> ....
+## FT.ADD index docId score [LANGUAGE lang] [NOSAVE] FIELDS <field> <text> ....
 
 Add a documet to the index.
 
@@ -143,13 +143,22 @@ Add a documet to the index.
     
       Each field will be scored based on the index spec given in FT.CREATE. 
       Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set 
+
+    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+      If an unsupported language is sent, the command returns an error. 
+      The supported languages are:
+  
+      > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+      > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+      > "russian", "spanish",   "swedish", "tamil",     "turkish"
+
     
 ### Returns
 > OK on success, or an error if something went wrong.
 
 ----
 
-## FT.SEARCH index query [NOCONTENT] [LIMIT offset num] [INFIELDS num field ...] [FILTER numeric_field min max]
+## FT.SEARCH index query [NOCONTENT] [VERBATIM] [LANGUAGE lang] [LIMIT offset num] [INFIELDS num field ...] [FILTER numeric_field min max]
 Seach the index with a textual query, returning either documents or just ids.
 
 ### Parameters:
@@ -171,6 +180,17 @@ Seach the index with a textual query, returning either documents or just ids.
     FT.CREATE, we will limit results to those having numeric values ranging between min and max.
     min and max follow ZRANGE syntax, and can be -inf, +inf and use `(` for exclusive ranges.
       
+    - VERBATIM if set, we do not try to use stemming for query expansion but search the query terms verbatim.
+    
+    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during search for query expansion. 
+      Defaults to English. If an unsupported language is sent, the command returns an error.
+       
+      The supported languages are:
+  
+      > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+      > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+      > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    
     
 ### Returns:
 
