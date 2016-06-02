@@ -7,11 +7,9 @@ MVP:
 
 Post MVP:
 * Document Deletion support
-* Custom user flags filtering
 * Boolean expression parsing
 * Geo Fields
 * Proper unicode support (currently we assume input is utf-8)
-* Query expansion
 * Fuzzy matching
 * Index json values
 * Doc Snippets retrieval
