@@ -153,7 +153,7 @@ void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */ 
 int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
-                   VarintVector *offsets, t_docId expectedDocdId);
+                   VarintVector *offsets);
 /* Read an entry from an inverted index into IndexHit */
 int IR_Read(void *ctx, IndexHit *e);
 /* Move to the next entry in an inverted index, without reading the whole entry */

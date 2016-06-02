@@ -8,11 +8,10 @@ inline int IR_HasNext(void *ctx) {
     IndexReader *ir = ctx;
     //LG_DEBUG("ir %p size %d, offset %d. has next? %d\n", ir, ir->header.size, ir->buf->offset, ir->header.size > ir->buf->offset);
     return ir->header.size > ir->buf->offset; 
-
 }
 
 inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
-                            VarintVector *offsets, t_docId expectedDocId) {
+                            VarintVector *offsets) {
     if (!IR_HasNext(ir)) {
         return INDEXREAD_EOF;
     }
@@ -20,13 +19,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     *docId = ReadVarint(ir->buf) + ir->lastId;
     int len = ReadVarint(ir->buf);
    
-    // if (expectedDocId != 0 && *docId != expectedDocId) {
-        
-    //     BufferSkip(ir->buf, len);
-    //     ir->lastId = *docId;
-    //     return INDEXREAD_OK;
-    // }
-    
     int quantizedScore = ReadVarint(ir->buf);
     if (freq != NULL) {
         *freq = (float)quantizedScore/FREQ_QUANTIZE_FACTOR;
@@ -38,8 +30,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     size_t offsetsLen = ReadVarint(ir->buf); 
         
     // If needed - read offset vectors
-    if (offsets != NULL && !ir->singleWordMode && 
-        (expectedDocId == 0 || *docId==expectedDocId)) {
+    if (offsets != NULL && !ir->singleWordMode) {
             
         offsets->cap = offsetsLen;
         offsets->data = ir->buf->pos;
@@ -50,11 +41,30 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     } 
     
     BufferSkip(ir->buf, offsetsLen);
-    //printf("IR %p READ %d, was at %d", ir, *docId, ir->lastId);
-
     ir->lastId = *docId;
     return INDEXREAD_OK;
 }
+
+
+
+inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
+  if (!IR_HasNext(ir)) {
+    return INDEXREAD_EOF;
+  }
+
+  *docId = ReadVarint(ir->buf) + ir->lastId;
+  int len = ReadVarint(ir->buf);
+
+  ir->lastId = *docId;
+  if (*docId != expectedDocId) {
+    BufferSkip(ir->buf, len);
+    return INDEXREAD_NOTFOUND;
+  }
+
+  return INDEXREAD_OK;
+}
+
+
 
 inline double tfidf(float freq, u_int32_t docFreq) {
     double idf =logb(1.0F + TOTALDOCS_PLACEHOLDER/(docFreq ? docFreq : (double)1)); //IDF  
@@ -84,8 +94,7 @@ int IR_Read(void *ctx, IndexHit *e) {
         e->numOffsetVecs = 1; 
     }
     
-    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, 
-                            offsets, 0);
+    int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, offsets);
         
     // add tf-idf score of the entry to the hit
     if (rc == INDEXREAD_OK) {
@@ -109,7 +118,7 @@ int IR_Next(void *ctx) {
     static t_docId docId;
     //static float freq;
     static u_char flags;
-    return IR_GenericRead(ctx,&docId, NULL, &flags, NULL, 0);
+    return IR_GenericRead(ctx,&docId, NULL, &flags, NULL);
         
 }
 
@@ -121,13 +130,10 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
 
 
 void IndexHit_Init(IndexHit *h) {
-    memset(h, 0, sizeof(IndexHit));
      h->docId = 0;
      h->numOffsetVecs = 0;
-    // h->flags = 0;
      h->totalFreq = 0; 
      h->type = H_RAW;
-     //h->metadata = (DocumentMetadata){0,0};
      h->hasMetadata = 0;
 }
 
@@ -167,19 +173,25 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
         }
         
         int rc;
-        while(INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
-            // we found the doc we were looking for!
-            if (ir->lastId == docId) {
-                return rc;
-                
-            } else if (ir->lastId > docId) {
-                //LG_DEBUG("Wanted %d got %d, not found!", docId, ir->lastId); 
-                // this is not the droid you are looking for 
-                return INDEXREAD_NOTFOUND;
-            }
+        t_docId lastId = ir->lastId, readId = 0;
+        t_offset offset = ir->buf->offset;
+
+        do {
+        // do a quick-read until we hit or pass the desired document
+        if ((rc = IR_TryRead(ir, &readId, docId)) == INDEXREAD_EOF) {
+            return rc;
         }
-        
+        // rewind 1 document and re-read it...
+        if (rc == INDEXREAD_OK || readId > docId) {
+            IR_Seek(ir, offset, lastId);
+            return IR_Read(ir, hit);
+        }
+        lastId = readId;
+        offset = ir->buf->offset;
+        } while (rc != INDEXREAD_EOF);
     }
+        
+    
     
     return INDEXREAD_EOF;
 }
@@ -448,7 +460,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
 
             if (it == NULL) continue;
             
-            if (it->HasNext(it->ctx)) {
+            //if (it->HasNext(it->ctx)) {
                 // if this hit is behind the min id - read the next entry
                 if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
                     if (it->Read(it->ctx, &ui->currentHits[i]) != INDEXREAD_OK) {
@@ -459,7 +471,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
                     minDocId = ui->currentHits[i].docId;
                     minIdx = i;
                 }
-            }
+            //}
         }
         
         // not found a new minimal docId
@@ -529,14 +541,11 @@ Skip to the given docId, or one place after it
          hit->type = H_UNION;
          // we found a hit - no need to continue
          if (rc == INDEXREAD_OK) {
-             break;
+             return rc;
          }
          n++;
      }
-     //printf("UI %p skip to %d, rc %d, n: %d\n", ui, docId, rc,n);
-     if (rc == INDEXREAD_OK) {
-         return rc;
-     }
+     
      // all iterators are at the end
      if (n == 0) {
          return INDEXREAD_EOF;

@@ -10,20 +10,14 @@ static int msb = (int)(~0ULL << 25);
 
 
 inline int ReadVarint(Buffer *b) {
-    u_char c;
-    if (BufferReadByte(b, (char*)&c) == 0) {
-        return 0;
-    }
+    u_char c = BUFFER_READ_BYTE(b);
+   
 	int val = c & 127;
     
-	while (c & 0x80) {
+	while (c >> 7) {
 		++val;
-        
-		// if (!val || val & msb)
-		// 	return 0; /* overflow */
-		if (BufferReadByte(b, (char*)&c) == 0) { //EOF
-            return 0;
-        }
+        c = BUFFER_READ_BYTE(b);
+		
 		val = (val << 7) | (c & 127);
 	}
     return val;
