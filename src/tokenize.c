@@ -115,6 +115,7 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
   }
   char *end = (char *)t->text + t->len;
   char *currentTok = t->pos;
+  size_t toklen = 0;
   while (t->pos < end) {
     // if this is a separator - either yield the token or move on
     if (strchr(t->separators, *t->pos) || iscntrl(*t->pos)) {
@@ -123,6 +124,7 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
       } else {
         // there is no token, just advance the token start
         currentTok = ++t->pos;
+        toklen = 0;
         continue;
       }
     }
@@ -130,23 +132,25 @@ QueryToken QueryTokenizer_Next(QueryTokenizer *t) {
       if (t->pos > currentTok) {
         goto word;
       }
+      
 
-      t->pos++;
+      ++t->pos;
+      toklen = 0;
       return (QueryToken){NULL, 0, T_QUOTE};
     }
-    t->pos++;
+    ++t->pos;
+    ++toklen;
   }
 
   *t->pos = 0;
-
   t->pos++;
-word : {
-  char *w = strndup(currentTok, t->pos - currentTok -1);
+word: {
+  char *w = strndup(currentTok, toklen);
   int stopword = isStopword(w);
   return (QueryToken){
-      w, t->pos - currentTok - 1, stopword ? T_STOPWORD : T_WORD,
-
+      w, toklen, stopword ? T_STOPWORD : T_WORD,
   };
+  
 }
 end:
   return (QueryToken){NULL, 0, T_END};

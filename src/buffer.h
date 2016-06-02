@@ -24,18 +24,11 @@ size_t BufferRead(Buffer *b, void *data, size_t len) ;
 size_t BufferSkip(Buffer *b, int bytes);
 size_t BufferSeek(Buffer *b, size_t offset);
 
-inline size_t BufferLen(Buffer *ctx) {
-    return ctx->offset;
-}
+size_t BufferLen(Buffer *ctx);
 
-inline size_t BufferOffset(Buffer *ctx) {
-    return ctx->offset;
-}
+size_t BufferOffset(Buffer *ctx);
 
-
-inline int BufferAtEnd(Buffer *ctx) {
-    return ctx->offset >= ctx->cap;
-}
+int BufferAtEnd(Buffer *ctx);
 
 typedef struct {
     Buffer *buf;    

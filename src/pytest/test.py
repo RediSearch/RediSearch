@@ -49,6 +49,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             
     def testExact(self):
         with self.redis() as r:
+            r.flushdb()
             self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'body', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                  'title', 'hello world',
@@ -57,12 +58,12 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                  'title', 'hello another world',
                                  'body', 'lorem ist ipsum lorem lorem'))
                                  
-            res = r.execute_command('ft.search', 'idx', '"hello world"') 
+            res = r.execute_command('ft.search', 'idx', '"hello world"', 'verbatim')
             self.assertEqual(3, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc1", res[1])
             
-            # res = r.execute_command('ft.search', 'idx', "hello \"another world\"") 
+            # res = r.execute_command('ft.search', 'idx', "hello \"another world\"", 'verbatim') 
             # self.assertEqual(3, len(res))     
             # self.assertEqual(1, res[0])
             # self.assertEqual("doc2", res[1])
@@ -80,28 +81,29 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                  'title', 'hello world lorem ipsum',
                                  'body', 'hello world'))
                                  
-            res = r.execute_command('ft.search', 'idx', 'hello world', "infields", 1, "title", "nocontent") 
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'verbatim', "infields", 1, "title", "nocontent") 
             self.assertEqual(3, len(res))     
             self.assertEqual(2, res[0])
             self.assertEqual("doc2", res[1])
             self.assertEqual("doc1", res[2])
             
-            res = r.execute_command('ft.search', 'idx', 'hello world', "infields", 1, "body", "nocontent") 
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'verbatim', "infields", 1, "body", "nocontent") 
             self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
             
-            res = r.execute_command('ft.search', 'idx', 'hello', "infields", 1, "body", "nocontent") 
+            res = r.execute_command('ft.search', 'idx', 'hello', 'verbatim', "infields", 1, "body", "nocontent") 
             self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
             
-            res = r.execute_command('ft.search', 'idx', '\"hello world\"', "infields", 1, "body", "nocontent") 
+            res = r.execute_command('ft.search', 'idx',  '\"hello world\"', 'verbatim', "infields", 1, "body", "nocontent")
+            print res 
             self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
             
-            res = r.execute_command('ft.search', 'idx', '\"lorem ipsum\"', "infields", 1, "body", "nocontent") 
+            res = r.execute_command('ft.search', 'idx', '\"lorem ipsum\"', 'verbatim', "infields", 1, "body", "nocontent") 
             self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc1", res[1])
@@ -113,7 +115,56 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual("doc1", res[2])
             
             
-                 
+    def testStemming(self):
+        with self.redis() as r:
+            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
+                                 'title', 'hello kitty'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                 'title', 'hellos kitties'))
+                                                
+            res = r.execute_command('ft.search', 'idx', 'hellos kitties', "nocontent")
+            self.assertEqual(3, len(res))     
+            self.assertEqual(2, res[0])      
+            
+            res = r.execute_command('ft.search', 'idx', '"hellos kitties"', "nocontent")
+            self.assertEqual(3, len(res))     
+            self.assertEqual(2, res[0])
+            
+                                                 
+            res = r.execute_command('ft.search', 'idx', 'hellos kitties', "nocontent", "verbatim")
+            self.assertEqual(2, len(res))     
+            self.assertEqual(1, res[0])    
+            
+            
+    def testNumericRange(self):
+        
+        with self.redis() as r:
+        
+            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'score', 'numeric'))
+            for i in xrange(100):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
+                                    'title', 'hello kitty', 'score', i))
+            
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
+                                    "filter", "score", 0, 100 )
+            
+            self.assertEqual(11, len(res))     
+            self.assertEqual(100, res[0])
+            
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
+                                    "filter", "score", 0, 50 )
+            self.assertEqual(51, res[0])                      
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
+                                    "filter", "score", "(0", "(50" )
+            self.assertEqual(49, res[0])
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
+                                    "filter", "score", "-inf", "+inf" )
+            self.assertEqual(100, res[0])
+                                                
+                                                                                   
+                                    
+            
      
             
             

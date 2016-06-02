@@ -152,3 +152,16 @@ Buffer *NewMemoryBuffer(size_t cap, int bufferType) {
     char *data = malloc(cap);
     return NewBuffer(data, cap, bufferType | BUFFER_FREEABLE);
 }
+
+inline size_t BufferLen(Buffer *ctx) {
+    return ctx->offset;
+}
+
+inline size_t BufferOffset(Buffer *ctx) {
+    return ctx->offset;
+}
+
+
+inline int BufferAtEnd(Buffer *ctx) {
+    return ctx->offset >= ctx->cap;
+}

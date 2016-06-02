@@ -11,7 +11,9 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -O3 
+CFLAGS= -fPIC -lc -lm -std=gnu99 -I./ 
+RELEASEFLAGS=-O3
+DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
@@ -38,7 +40,7 @@ RMUTIL = rmutil
 
 # util: $(UTIL)
 
-all: util rmutil snowball module.so 
+all: release
 
 $(UTIL):
 	$(MAKE) -C $@
@@ -53,6 +55,14 @@ snowball:
 
 module.so: $(MODULE)
 	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
+
+
+release: CFLAGS += $(RELEASEFLAGS)
+release: util rmutil snowball | module.so
+
+debug: CFLAGS += $(DEBUGFLAGS)
+debug: util rmutil snowball | module.so
+	
 
 clean:
 	find . -type f -name '*.o' -delete -print

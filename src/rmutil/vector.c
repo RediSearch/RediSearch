@@ -12,6 +12,10 @@ int __vector_PushPtr(Vector *v, void *elem) {
     return v->top;
 }
 
+inline int Vector_Size(Vector *v) { return v->top; }
+
+/* return the actual capacity */
+inline int Vector_Cap(Vector *v) { return v->cap; }
 
 int Vector_Get(Vector *v, int pos, void *ptr) {
     // return 0 if pos is out of bounds

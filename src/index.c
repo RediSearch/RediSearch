@@ -56,7 +56,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     return INDEXREAD_OK;
 }
 
-#define TOTALDOCS_PLACEHOLDER (double)10000000
 inline double tfidf(float freq, u_int32_t docFreq) {
     double idf =logb(1.0F + TOTALDOCS_PLACEHOLDER/(docFreq ? docFreq : (double)1)); //IDF  
     //LG_DEBUG("FREQ: %f  IDF: %.04f, TFIDF: %f",freq, idf, freq*idf);

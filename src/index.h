@@ -109,6 +109,9 @@ typedef struct indexWriter {
 #define INDEXREAD_NOTFOUND 2
 
 
+#define TOTALDOCS_PLACEHOLDER (double)10000000
+double tfidf(float freq, u_int32_t docFreq);
+
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other recursively */
 typedef struct indexIterator {

@@ -24,6 +24,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
    for (k = kh_begin(idx->hits); k != kh_end(idx->hits); ++k) {
       if (kh_exist(idx->hits, k)) {
          ForwardIndexEntry *ent = kh_value(idx->hits , k);
+         free((void *)ent->term);
          kh_del(32, idx->hits, k);
          VVW_Free(ent->vw);
          free(ent);
@@ -42,23 +43,26 @@ void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 int forwardIndexTokenFunc(void *ctx, Token t) {
     ForwardIndex *idx = ctx;
     
+    // we need to ndup the string because it's not null terminated
+    char *s = strndup(t.s, t.len);
+    
     ForwardIndexEntry *h = NULL;
-    // Retrieve the value for key "apple"
-    khiter_t k = kh_get(32, idx->hits, t.s);  // first have to get ieter
+    khiter_t k = kh_get(32, idx->hits, s);  // first have to get ieter
     if (k == kh_end(idx->hits)) {  // k will be equal to kh_end if key not present
         
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
         h->flags = 0;
-        h->term = t.s;
+        h->term = s;
         h->vw = NewVarintVectorWriter(4);
         h->docScore = idx->docScore;
 
         int ret;
-        k = kh_put(32, idx->hits, t.s, &ret);
+        k = kh_put(32, idx->hits, s, &ret);
         kh_value(idx->hits, k) = h;
     } else {
         h = kh_val(idx->hits, k);
+        free(s);
     }
 
     h->flags |= (t.fieldId & 0xff);
@@ -73,6 +77,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
 
     idx->maxFreq = MAX(h->freq, idx->maxFreq);
     VVW_Write(h->vw, t.pos);
+    
     LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos,t.s, h->freq, idx->totalFreq);
     return 0;
     
@@ -89,17 +94,17 @@ ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
 
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
      
-   if (iter->k == kh_end(iter->idx->hits)) {
-       return NULL;
+   // advance the iterator while it's empty
+   while (iter->k != kh_end(iter->idx->hits) && !kh_exist(iter->idx->hits, iter->k)) {
+       ++iter->k;
    }
-   if (kh_exist(iter->idx->hits, iter->k)) {
-         ForwardIndexEntry *entry = kh_value(iter->idx->hits, iter->k);
-         iter->k++;
-         return entry;
-      
-   } else {
-       iter->k++;
-       return ForwardIndexIterator_Next(iter);
+   
+   // if we haven't reached the end, return the current iterator's entry 
+   if (iter->k != kh_end(iter->idx->hits)) {
+       ForwardIndexEntry *entry = kh_value(iter->idx->hits, iter->k);
+       ++iter->k;
+       return entry;
    }
+   
    return NULL;
 }

@@ -36,6 +36,7 @@ Otherwise we return the skipEntry that comes before the document, so we can
 skip to it and scan one at a time from it 
 */
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
+int si_isPos(SkipIndex *idx, u_int i, t_docId docId);
 
 /* Create a skip index from a buffer */
 SkipIndex *NewSkipIndex(Buffer *b);
