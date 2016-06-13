@@ -13,7 +13,7 @@ It includes fast differential coding.
 
 It assumes a recent Intel processor (e.g., haswell or better) .
 
-The code should build using most C compilers. The provided makefile
+The code should build using most standard-compliant C99 compilers. The provided makefile
 expects a Linux-like system.
 
 
