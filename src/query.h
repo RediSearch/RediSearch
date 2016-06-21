@@ -17,21 +17,18 @@ typedef enum {
     Q_NUMERIC,
 } QueryOp;
 
-
 /* A query stage represents a single iterative execution stage of a query.
-the processing of a query is done by chaining multiple query stages in a tree, 
+the processing of a query is done by chaining multiple query stages in a tree,
 and combining their inputs and outputs */
 typedef struct queryStage {
     void *value;
     int valueFreeable;
     QueryOp op;
-    
+
     struct queryStage **children;
     struct queryStage *parent;
     int nchildren;
 } QueryStage;
-
-
 
 /* A Query represents the parse tree and execution plan for a single search query */
 typedef struct query {
@@ -41,25 +38,24 @@ typedef struct query {
     size_t len;
     // the token count
     int numTokens;
-    
+
     // paging offset
     size_t offset;
     // paging limit
     size_t limit;
-        
+
     // field Id bitmask
     u_char fieldMask;
-    
-    // the query execution stage at the root of the query    
+
+    // the query execution stage at the root of the query
     QueryStage *root;
     // Document metatdata table, to be used during execution
     DocTable *docTable;
-    
+
     RedisSearchCtx *ctx;
-    
+
     Stemmer *stemmer;
 } Query;
-
 
 /* QueryResult represents the final processed result of a query execution */
 typedef struct queryResult {
@@ -69,7 +65,6 @@ typedef struct queryResult {
     int error;
     char *errorString;
 } QueryResult;
-
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy this doesn't
 actually do anything besides prepare the execution chaing */
@@ -81,7 +76,6 @@ QueryStage *NewTokenStage(Query *q, QueryToken *qt);
 QueryStage *NewLogicStage(QueryOp op);
 QueryStage *NewNumericStage(NumericFilter *flt);
 
-
 IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage);
@@ -89,24 +83,21 @@ IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage);
 IndexIterator *query_EvalNumericStage(Query *q, QueryStage *stage);
 IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
 
-
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1
 
-
 void QueryStage_AddChild(QueryStage *parent, QueryStage *child);
-    
 
 /* Initialize a new query object from user input. This does not parse the query just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang);
-/* Free a query object */ 
+/* Free a query object */
 void Query_Free(Query *q);
 /* Tokenize the raw query and build the execution plan */
 int Query_Tokenize(Query *q);
 
 /* Lazily execute the parsed query and all its stages, and return a final result object */
-QueryResult *Query_Execute(Query *query); 
+QueryResult *Query_Execute(Query *query);
 
 void QueryResult_Free(QueryResult *q);
 

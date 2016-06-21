@@ -13,7 +13,7 @@ typedef struct {
     RedisModuleString *docKey;
     DocumentField *fields;
     int numFields;
-    float score; 
+    float score;
     const char *language;
     t_docId docId;
 } Document;
@@ -27,7 +27,5 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Do
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **key, int numKeys, int *nump);
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
-
-
 
 #endif

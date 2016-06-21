@@ -12,21 +12,17 @@ typedef struct {
     float freq;
     float docScore;
     u_char flags;
-    VarintVectorWriter *vw; 
+    VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
-
-
-
-
-KHASH_MAP_INIT_STR(32, ForwardIndexEntry*)
+KHASH_MAP_INIT_STR(32, ForwardIndexEntry *)
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct {
-    khash_t(32) *hits;
-    
+    khash_t(32) * hits;
+
     t_docId docId;
     float totalFreq;
     float maxFreq;
@@ -35,12 +31,10 @@ typedef struct {
     Stemmer *stemmer;
 } ForwardIndex;
 
-
 typedef struct {
     ForwardIndex *idx;
     khiter_t k;
 } ForwardIndexIterator;
-
 
 int forwardIndexTokenFunc(void *ctx, Token t);
 
@@ -48,7 +42,6 @@ void ForwardIndexFree(ForwardIndex *idx);
 ForwardIndex *NewForwardIndex(Document doc);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
-void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry*);
-
+void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 
 #endif

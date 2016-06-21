@@ -5,15 +5,15 @@
 #include "util/heap.h"
 
 /*
-A score index is used in single word queries. 
-It stores only the first top N entries per word, so when 
+A score index is used in single word queries.
+It stores only the first top N entries per word, so when
 just this word is searched, we simply retrieve the top N entries from the index
 without needing to traverse the entire index. */
 
 #define MAX_SCOREINDEX_SIZE 50
 
 // entries with less docs than this will get their socre indexes deleted by optimize
-#define SCOREINDEX_DELETE_THRESHOLD 5000
+#define SCOREINDEX_DELETE_THRESHOLD 5000s
 
 #pragma pack(4)
 typedef struct {
@@ -23,13 +23,13 @@ typedef struct {
 } ScoreIndexEntry;
 #pragma pack()
 
-static int ScoreEntry_cmp(const void *e1,  const void *e2, const void *udata);
+static int ScoreEntry_cmp(const void *e1, const void *e2, const void *udata);
 
- typedef struct {
+typedef struct {
     u_short numEntries;
     u_short lowestIndex;
     float lowestScore;
- } ScoreIndexHeader;
+} ScoreIndexHeader;
 
 typedef struct {
     ScoreIndexEntry *entries;
@@ -43,12 +43,11 @@ typedef struct {
     ScoreIndexHeader header;
 } ScoreIndexWriter;
 
-
 ScoreIndex *NewScoreIndex(Buffer *b);
 ScoreIndexEntry *ScoreIndex_Next(ScoreIndex *si);
 void ScoreIndex_Free(ScoreIndex *si);
 ScoreIndexWriter NewScoreIndexWriter(BufferWriter bw);
-static inline int ScoreEntry_cmp(const void *e1,  const void *e2, const void *udata); 
-int ScoreIndexWriter_AddEntry(ScoreIndexWriter *w, float score, t_offset offset, t_docId docId) ;
+static inline int ScoreEntry_cmp(const void *e1, const void *e2, const void *udata);
+int ScoreIndexWriter_AddEntry(ScoreIndexWriter *w, float score, t_offset offset, t_docId docId);
 
 #endif

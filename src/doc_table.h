@@ -12,18 +12,15 @@ typedef struct {
 } DocumentMetadata;
 #pragma pack()
 
-
 typedef struct {
     RedisModuleCtx *ctx;
-    RedisModuleKey *key;    
+    RedisModuleKey *key;
 } DocTable;
-
 
 #define DOCTABLE_KEY_FMT "__dmd:%s__"
 #define DOCTABLE_DOCID_KEY_FMT "d:%d"
-int InitDocTable(RedisSearchCtx *ctx, DocTable *t); 
+int InitDocTable(RedisSearchCtx *ctx, DocTable *t);
 int DocTable_GetMetadata(DocTable *t, t_docId docId, DocumentMetadata *md);
 int DocTable_PutDocument(DocTable *t, t_docId docId, double score, u_short flags);
 
- 
 #endif

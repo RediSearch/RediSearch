@@ -13,7 +13,6 @@
 #include "score_index.h"
 #include "skip_index.h"
 
-
 #define MAX_INTERSECT_WORDS 8
 
 /** HitType tells us what type of hit we're dealing with */
@@ -22,15 +21,15 @@ typedef enum {
     H_RAW,
     // a hit that is the intersection of two or more hits
     H_INTERSECTED,
-    
+
     // a hit that is the exact intersection of two or more hits
     H_EXACT,
-    
+
     // a hit that is the union of two or more hits
     H_UNION
 } HitType;
 
-/* An IndexHit is the data structure used when reading indexes. 
+/* An IndexHit is the data structure used when reading indexes.
 Each hit representsa single document entry in an inverted index */
 typedef struct {
     t_docId docId;
@@ -43,8 +42,7 @@ typedef struct {
     HitType type;
 } IndexHit;
 
-
-/** Reset the state of an existing index hit. This can be used to 
+/** Reset the state of an existing index hit. This can be used to
 recycle index hits during reads */
 void IndexHit_Init(IndexHit *h);
 /** Init a new index hit. This is not a heap allocation and doesn't neeed to be freed */
@@ -58,16 +56,14 @@ void IndexHit_Terminate(IndexHit *h);
 Currently has no effect due to performance issues */
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt);
 
-
 #pragma pack(4)
 /** The header of an inverted index record */
-typedef struct indexHeader  {
+typedef struct indexHeader {
     t_offset size;
     t_docId lastId;
     u_int32_t numDocs;
 } IndexHeader;
 #pragma pack()
-
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReader {
@@ -87,8 +83,7 @@ typedef struct indexReader {
     ScoreIndex *scoreIndex;
     int useScoreIndex;
     u_char fieldMask;
-} IndexReader; 
-
+} IndexReader;
 
 /* An IndexWriter writes forward index entries to an index buffer */
 typedef struct indexWriter {
@@ -103,11 +98,9 @@ typedef struct indexWriter {
     ScoreIndexWriter scoreWriter;
 } IndexWriter;
 
-
 #define INDEXREAD_EOF 0
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
-
 
 #define TOTALDOCS_PLACEHOLDER (double)10000000
 double tfidf(float freq, u_int32_t docFreq);
@@ -139,23 +132,24 @@ void IntersectIterator_Free(IndexIterator *it);
 void ReadIterator_Free(IndexIterator *it);
 
 // used only internally for unit testing
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable, 
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable,
                             int singleWordMode, u_char fieldMask);
-                            
-/* Create a new index reader on an inverted index buffer, 
+
+/* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score index.
-*/                            
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode, 
-                              ScoreIndex *sci, u_char fieldMask);
+*/
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode,
+                               ScoreIndex *sci, u_char fieldMask);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
-/* Read an entry from an inverted index */ 
-int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags, 
+/* Read an entry from an inverted index */
+int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags,
                    VarintVector *offsets);
 /* Read an entry from an inverted index into IndexHit */
 int IR_Read(void *ctx, IndexHit *e);
+
 /* Move to the next entry in an inverted index, without reading the whole entry */
 int IR_Next(void *ctx);
 
@@ -164,15 +158,17 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry there */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
+
 /* The number of docs in an inverted index entry */
 u_int32_t IR_NumDocs(IndexReader *ir);
+
 /* LastDocId of an inverted index stateful reader */
-t_docId IR_LastDocId(void* ctx);
+t_docId IR_LastDocId(void *ctx);
+
 /* Seek the inverted index reader to a specific offset and set the last docId */
 void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 
-
-//void IW_MakeSkipIndex(IndexWriter *iw, Buffer *b);
+// void IW_MakeSkipIndex(IndexWriter *iw, Buffer *b);
 int indexReadHeader(Buffer *b, IndexHeader *h);
 
 /* Create a reader iterator that iterates an inverted index record */
@@ -181,7 +177,7 @@ IndexIterator *NewReadIterator(IndexReader *ir);
 /* Close an indexWriter */
 size_t IW_Close(IndexWriter *w);
 
-/* Write a ForwardIndexEntry into an indexWriter, updating its score and skip indexes if needed */ 
+/* Write a ForwardIndexEntry into an indexWriter, updating its score and skip indexes if needed */
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 
 /* Get the len of the index writer's buffer */
@@ -189,13 +185,14 @@ size_t IW_Len(IndexWriter *w);
 
 /** Free the index writer and underlying data structures */
 void IW_Free(IndexWriter *w);
-/* Create a new index writer with a memory buffer of a given capacity. 
+/* Create a new index writer with a memory buffer of a given capacity.
 NOTE: this is used for testing only */
 IndexWriter *NewIndexWriter(size_t cap);
 
-/* Create a new index writer with the given buffers for the actual index, skip index, and score index */
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter, ScoreIndexWriter scoreWriter);
-
+/* Create a new index writer with the given buffers for the actual index, skip index, and score
+ * index */
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter,
+                               ScoreIndexWriter scoreWriter);
 
 /* UnionContext is used during the running of a union iterator */
 typedef struct {
@@ -207,11 +204,11 @@ typedef struct {
     DocTable *docTable;
 } UnionContext;
 
-/* Create a new UnionIterator over a list of underlying child iterators. 
-It will return each document of the underlying iterators, exactly once */ 
+/* Create a new UnionIterator over a list of underlying child iterators.
+It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
 
-int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
+int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 int UI_Next(void *ctx);
 int UI_Read(void *ctx, IndexHit *hit);
 int UI_HasNext(void *ctx);
@@ -232,12 +229,10 @@ typedef struct {
 we will only yield results that are exact matches */
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t,
                                    u_char fieldMask);
-int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit); 
+int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexHit *hit);
 int II_HasNext(void *ctx);
 t_docId II_LastDocId(void *ctx);
-
-
 
 #endif

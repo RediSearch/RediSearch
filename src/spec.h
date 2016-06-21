@@ -4,22 +4,17 @@
 #include <string.h>
 #include "redismodule.h"
 
-
-typedef enum fieldType {
-    F_FULLTEXT,
-    F_NUMERIC,
-    F_GEO
-} FieldType;
+typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 
-/* The fieldSpec represents a single field in the document's field spec. 
+/* The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
-by a bit mask. 
+by a bit mask.
 Each field has a type, allowing us to add non text fields in the future */
 typedef struct fieldSpec {
     const char *name;
-    FieldType type;    
+    FieldType type;
     double weight;
     int id;
     // TODO: More options here..
@@ -28,9 +23,8 @@ typedef struct fieldSpec {
 typedef struct {
     FieldSpec *fields;
     int numFields;
-    const char *name;    
+    const char *name;
 } IndexSpec;
-
 
 /*
 * Get a field spec by field name. Case insensitive!
@@ -38,14 +32,15 @@ typedef struct {
 */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
-/* 
+/*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
 * The command only receives the relvant part of argv.
-* 
-* The format currently is <field> <weight>, <field> <weight> ... 
+*
+* The format currently is <field> <weight>, <field> <weight> ...
 */
-int IndexSpec_ParseRedisArgs(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int IndexSpec_ParseRedisArgs(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString **argv,
+                             int argc);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 int IndexSpec_Parse(IndexSpec *s, const char **argv, int argc);
@@ -56,13 +51,12 @@ int IndexSpec_Parse(IndexSpec *s, const char **argv, int argc);
 */
 void IndexSpec_Free(IndexSpec *spec);
 
-
 int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name);
 int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp);
 
-/* 
+/*
 * Parse the field mask passed to a query, map field names to a bit mask passed down to the
-* execution engine, detailing which fields the query works on. See FT.SEARCH for API details 
+* execution engine, detailing which fields the query works on. See FT.SEARCH for API details
 */
 u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 

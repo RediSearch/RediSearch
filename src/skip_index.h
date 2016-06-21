@@ -3,11 +3,9 @@
 #include "buffer.h"
 #include "types.h"
 
-
 // The size of a step in a skip index.
 // 50 seems to be a good balance based on benchmarks
 #define SKIPINDEX_STEP 50
-
 
 // SkipEntry represents a single entry in a skip index
 typedef struct {
@@ -27,13 +25,12 @@ typedef struct {
     SkipEntry *entries;
 } SkipIndex;
 
-
 /*
 Find the closest skip entry for a given docId in a skip index.
 If the an entry is not found we return null.
 
 Otherwise we return the skipEntry that comes before the document, so we can
-skip to it and scan one at a time from it 
+skip to it and scan one at a time from it
 */
 SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset);
 int si_isPos(SkipIndex *idx, u_int i, t_docId docId);

@@ -20,14 +20,13 @@ typedef struct {
     int maxInf;
     int inclusiveMin;
     int inclusiveMax;
-    
-    
+
     t_docId lastDocid;
     Vector *docIds;
     int docIdsOffset;
-    
+
     // tells us which strategy was used - loading the range or filtering one by one
-    int isRangeLoaded;    
+    int isRangeLoaded;
 } NumericFilter;
 
 #define NUMERICFILTER_LOAD_THRESHOLD 500
@@ -43,8 +42,8 @@ int NumericFilter_Read(void *ctx, IndexHit *e);
 int NumericFilter_HasNext(void *ctx);
 t_docId NumericFilter_LastDocId(void *ctx);
 
-
-NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min, double max, int inclusiveMin, int inclusiveMax);
+NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min, double max,
+                                int inclusiveMin, int inclusiveMax);
 
 IndexIterator *NewNumericFilterIterator(NumericFilter *f);
 

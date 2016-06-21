@@ -10,5 +10,4 @@ typedef struct {
     IndexSpec *spec;
 } RedisSearchCtx;
 
-
 #endif
