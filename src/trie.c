@@ -1,5 +1,5 @@
 #include "trie.h"
-
+#include "sparse_vector.h"
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
     return sizeof(nodeHeader) + numChildren * sizeof(TrieNode *) + slen + 1;
 }
@@ -171,9 +171,9 @@ int __ti_step(TrieIterator *it) {
     if (current->state == ITERSTATE_SELF) {
         if (current->stringOffset < current->n->node.len) {
             char b = current->n->node.str[current->stringOffset];
-            printf("filtering %c in self mode\n", b);
+            //printf("filtering %c in self mode\n", b);
             if (it->filter) {
-                void *newctx = it->filter(b, current->filterCtx);
+                void *newctx = it->filter(b, it->ctx, current->filterCtx);
                 // the first step is the parent's filter context so no need to free it.
                 // otherwise we must free it
                 if (newctx && current->stringOffset > 0 && current->filterCtx) {
@@ -205,10 +205,11 @@ next:
     return __ti_step(it);
 }
 
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *initialContext) {
+TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx) {
     TrieIterator *it = calloc(1, sizeof(TrieIterator));
     it->filter = f;
-    __ti_Push(it, n, initialContext);
+    it->ctx = ctx;
+    __ti_Push(it, n, stackCtx);
 
     return it;
 }
@@ -219,7 +220,7 @@ void TrieIterator_Free(TrieIterator *it) { free(it); }
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
     while (__ti_step(it)) {
         stackNode *sn = __ti_current(it);
-        printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
+        //printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
         if (sn->stringOffset == sn->n->node.len && sn->n->node.score) {
             *ptr = it->buf;
             *len = it->bufOffset;
@@ -231,39 +232,3 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
     return 0;
 }
 
-void *stepfilter(char b, void *ctx) {
-    printf("filter? %c\n", b);
-    return malloc(1);
-}
-
-int main(int argc, char **argv) {
-    printf("%d\n", sizeof(nodeHeader));
-    // char *str;
-    //     t_len len;
-    //     t_len numChildren;
-    //     struct t_node *children;
-    //     void *value;
-    TrieNode *root = __newTrieNode("root", 0, 4, 0, 1);
-
-    root = Trie_Add(root, "hello", 5, 1);
-    root = Trie_Add(root, "help", 4, 2);
-
-    root = Trie_Add(root, "helter skelter", 14, 3);
-    printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
-    root = Trie_Add(root, "heltar skelter", 14, 4);
-    root = Trie_Add(root, "helter shelter", 14, 5);
-    root = Trie_Add(root, "helter skelter", 14, 6);
-
-    printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
-
-    TrieIterator *it = Trie_Iterate(root, stepfilter, NULL);
-    char *s;
-    t_len len;
-    float score;
-
-    while (TrieIterator_Next(it, &s, &len, &score)) {
-        printf("Found %.*s -> %f\n", len, s, score);
-    }
-
-    // Trie_Free(root);
-}

@@ -45,7 +45,7 @@ typedef struct {
 // A callback for an automaton that receives the current state, evaluates the next byte,
 // and returns the next state of the automaton. If we should not continue down,
 // return NULL
-typedef void *(*StepFilter)(char b, void *ctx);
+typedef void *(*StepFilter)(char b, void *ctx, void *stackCtx);
 
 #define ITERSTATE_SELF 0
 #define ITERSTATE_CHILDREN 1
@@ -57,13 +57,15 @@ typedef struct {
     stackNode stack[MAX_STRING_LEN];
     t_len stackOffset;
     StepFilter filter;
+    void *ctx;
 } TrieIterator;
+
 void __ti_Push(TrieIterator *it, TrieNode *node, void *filterCtx);
 #define __ti_current(it) &it->stack[it->stackOffset - 1]
 
 TrieNode *__ti_Pop(TrieIterator *it);
 int __ti_step(TrieIterator *it);
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *initialContext); 
+TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx); 
 void TrieIterator_Free(TrieIterator *it);
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score);
 
