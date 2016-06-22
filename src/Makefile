@@ -11,9 +11,9 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS= -fPIC -lc -lm -std=gnu99 -I./ 
+CFLAGS= -fPIC -lc -lm -std=gnu99 -I./
 RELEASEFLAGS=-O3 -g
-DEBUGFLAGS=-O0 -g 
+DEBUGFLAGS=-O0 -g
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
@@ -33,7 +33,7 @@ UTIL = util
 RMUTIL = rmutil
 
 
-.PHONY: rmutil $(RMUTIL) 
+.PHONY: rmutil $(RMUTIL)
 
 .PHONY: util $(UTIL)
 
@@ -54,7 +54,7 @@ snowball:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic -lprofiler
+	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
 
 
 release: CFLAGS += $(RELEASEFLAGS)
@@ -62,13 +62,13 @@ release: util rmutil snowball | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
 debug: util rmutil snowball | module.so
-	
+
 
 clean:
 	find . -type f -name '*.o' -delete -print
 
 test: $(VARINT) $(INDEX) $(TESTS) $(TEXT) $(UTILOBJS) $(REDIS) $(RMUTILOBJS)
-	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(TEXT) $(VARINT) $(TESTS) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBS) -lc -lm 
+	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(TEXT) $(VARINT) $(TESTS) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBS) -lc -lm
 	@(sh -c ./testung)
 
 rebuild: clean all

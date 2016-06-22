@@ -22,4 +22,4 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 void __sbstemmer_Free(Stemmer *s);
 Stemmer *__newSnowballStemmer(const char *language);
 
-#endifs
+#endif
