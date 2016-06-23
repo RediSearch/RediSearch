@@ -13,7 +13,6 @@ typedef u_int8_t t_len;
 typedef struct {
     t_len len;
     t_len numChildren;
-
     float score;
     char str[];
 } nodeHeader;

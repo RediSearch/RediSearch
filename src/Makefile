@@ -18,7 +18,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS = -I$(RM_INCLUDE_DIR) -Wall -g -fPIC -lc -lm -Og -std=gnu99  
+CFLAGS = -I$(RM_INCLUDE_DIR) -Wall -g -lc -lm -O3 -g -std=gnu99  
 CC=gcc
 OBJS=sparse_vector.o trie.o levenshtein.o
 

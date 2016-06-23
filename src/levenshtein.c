@@ -27,34 +27,32 @@ sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
 sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char c) {
     sparseVector *newVec = newSparseVectorCap(state->len);
 
-    if (state->len > 0 && state->entries[0].idx == 0 && state->entries[0].val < a->max) {
-        sparseVector_append(&newVec, 0, state->entries[0].val + 1);
+    sparseVectorEntry e = state->entries[0];
+    if (state->len > 0 && e.idx == 0 && e.val < a->max) {
+        sparseVector_append(&newVec, 0, e.val + 1);
     }
 
     for (int j = 0; j < state->len; j++) {
-        sparseVectorEntry entry = state->entries[j];
+        sparseVectorEntry *entry = &state->entries[j];
 
-        if (entry.idx == a->len) {
+        if (entry->idx == a->len) {
             break;
         }
 
-        int cost = 0;
-        if (a->string[entry.idx] != c) {
-            cost = 1;
-        }
-
-        int val = state->entries[j].val + cost;
-
-        if (newVec->len != 0 && newVec->entries[newVec->len - 1].idx == entry.idx) {
+        register int val = state->entries[j].val;
+        if (a->string[entry->idx] != c) 
+            ++val;
+            
+        if (newVec->len && newVec->entries[newVec->len - 1].idx == entry->idx) {
             val = MIN(val, newVec->entries[newVec->len - 1].val + 1);
         }
 
-        if (state->len > j + 1 && state->entries[j + 1].idx == entry.idx + 1) {
+        if (state->len > j + 1 && state->entries[j + 1].idx == entry->idx + 1) {
             val = MIN(val, state->entries[j + 1].val + 1);
         }
 
         if (val <= a->max) {
-            sparseVector_append(&newVec, entry.idx + 1, val);
+            sparseVector_append(&newVec, entry->idx + 1, val);
         }
     }
     return newVec;
@@ -63,7 +61,7 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char
 // IsMatch returns true if the current state vector represents a string that is
 // within the max
 // edit distance from the initial automaton string
-int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
+inline int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
     return v->len != 0 && v->entries[v->len - 1].idx == a->len;
 }
 
@@ -71,4 +69,4 @@ int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
 // with more steps will
 // yield a match. Once CanMatch is false there is no point in continuing
 // iteration
-int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v) { return v->len > 0; }
+inline int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v) { return v->len > 0; }

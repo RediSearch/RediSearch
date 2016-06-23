@@ -1,5 +1,6 @@
 #include "trie.h"
 #include "sparse_vector.h"
+#include "levenshtein.h"
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
     return sizeof(nodeHeader) + numChildren * sizeof(TrieNode *) + slen + 1;
 }
@@ -151,8 +152,8 @@ TrieNode *__ti_Pop(TrieIterator *it) {
     if (it->stackOffset == 0) return NULL;
     
     stackNode *n = __ti_current(it);
-    if (n->filterCtx) {
-        free(n->filterCtx);
+    if (n->filterCtx && n->n->node.len > 0) {
+        sparseVector_free(n->filterCtx);
     }
 
     --it->stackOffset;
@@ -162,7 +163,7 @@ TrieNode *__ti_Pop(TrieIterator *it) {
 
 
 
-int __ti_step(TrieIterator *it) {
+inline int __ti_step(TrieIterator *it) {
     if (it->stackOffset == 0) {
         return 0;
     }
@@ -176,8 +177,8 @@ int __ti_step(TrieIterator *it) {
                 void *newctx = it->filter(b, it->ctx, current->filterCtx);
                 // the first step is the parent's filter context so no need to free it.
                 // otherwise we must free it
-                if (newctx && current->stringOffset > 0 && current->filterCtx) {
-                    free(current->filterCtx);
+                if (newctx && current->stringOffset > 0 && current->n->node.len > 0 && current->filterCtx) {
+                    sparseVector_free(current->filterCtx);
                 }
                 current->filterCtx = newctx;
 
@@ -202,7 +203,7 @@ int __ti_step(TrieIterator *it) {
     }
 
 next:
-    return __ti_step(it);
+    return 2;
 }
 
 TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx) {
@@ -218,8 +219,17 @@ void TrieIterator_Free(TrieIterator *it) { free(it); }
 
 
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
-    while (__ti_step(it)) {
+    int rc;
+    while ((rc = __ti_step(it)) != 0) {
+        if (rc == 2) continue;
+
         stackNode *sn = __ti_current(it);
+
+        //SparseAutomaton *a = it->ctx;
+        //sparseVector *v = sn->filterCtx;
+
+        
+        
         //printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
         if (sn->stringOffset == sn->n->node.len && sn->n->node.score) {
             *ptr = it->buf;
