@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "sparse_vector.h"
+#include "rmutil/vector.h"
 
 // SparseAutomaton is a naive Go implementation of a levenshtein automaton using
 // sparse vectors, as described
@@ -13,6 +14,17 @@ typedef struct {
     size_t len;
     int max;
 } SparseAutomaton;
+
+typedef struct dfaNode {
+    int distance;
+    sparseVector *v;
+    struct dfaNode *edges[255];
+    struct dfaNode *fallback;
+} dfaNode;
+
+dfaNode *__newDfaNode(int distance, sparseVector *state);
+
+void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 SparseAutomaton NewSparseAutomaton(const char *s, size_t len, int maxEdits);
 

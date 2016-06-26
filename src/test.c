@@ -10,20 +10,25 @@
 
 void *stepFilter(char b, void *ctx, void *stackCtx) {
     SparseAutomaton *a = ctx;
-    sparseVector *v = stackCtx;
-
-    // if (!SparseAutomaton_CanMatch(a,v)) {
-    
-    //     return NULL;
-    // }
-   sparseVector *nv =  SparseAutomaton_Step(a, v, b);
-
-    // we should continue
-    if (SparseAutomaton_CanMatch(a, nv)) {
-        return nv;
+    dfaNode *dn = stackCtx;
+    unsigned char c = b;
+    if (SparseAutomaton_IsMatch(a, dn->v)) {
+        // printf("Match!");
+        return NULL;
     }
-    sparseVector_free(nv);
-    return NULL;
+    return dn->edges[c];
+    // // if (!SparseAutomaton_CanMatch(a,v)) {
+
+    // //     return NULL;
+    // // }
+    // sparseVector *nv = SparseAutomaton_Step(a, v, b);
+
+    // // we should continue
+    // if (SparseAutomaton_CanMatch(a, nv)) {
+    //     return nv;
+    // }
+    // sparseVector_free(nv);
+    // return NULL;
 }
 
 int testTrie() {
@@ -77,9 +82,8 @@ int testWithData() {
 
         *sep = 0;
         double score = atof(sep + 1);
-
-        //if (i % 10 == 0)
-            root = Trie_Add(root, line, strlen(line), (float)score);
+        // if (i % 10 == 0)
+        root = Trie_Add(root, line, strlen(line), (float)score);
 
         i++;
 
@@ -92,37 +96,39 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"ubuntu", NULL};
+    char *terms[] = {"united states", NULL};
     struct timespec start_time, end_time;
-    for (int j = 0; j < 1000; j++) {
-        for (i = 0; terms[i] != NULL; i++) {
-            
-            // float score = Trie_Find(root, terms[i], strlen(terms[i]));
+    // for (int j = 0; j < 1000; j++) {
+    for (i = 0; terms[i] != NULL; i++) {
+        // float score = Trie_Find(root, terms[i], strlen(terms[i]));
+        Vector *cache = NewVector(dfaNode *, 8);
+        SparseAutomaton a =
+            NewSparseAutomaton(terms[i], strlen(terms[i]), 2);  // strlen(terms[i]) <= 4 ? 1 : 2);
+        sparseVector *v = SparseAutomaton_Start(&a);
+        dfaNode *dr = __newDfaNode(0, v);
+        dfa_build(dr, &a, cache);
 
-            SparseAutomaton a = NewSparseAutomaton(terms[i], strlen(terms[i]), 2);//strlen(terms[i]) <= 4 ? 1 : 2);
-            sparseVector *v = SparseAutomaton_Start(&a);
-
-            TrieIterator *it = Trie_Iterate(root, stepFilter, &a, v);
-            clock_gettime(CLOCK_REALTIME, &start_time);
-            char *s;
-            t_len len;
-            float score;
-            int matches = 0; 
-            while (TrieIterator_Next(it, &s, &len, &score)) {
-                //printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
-                matches++;
-            }
-
-            clock_gettime(CLOCK_REALTIME, &end_time);
-            long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-
-            printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
-
-            //printf("find: %s => %f, nanotime: %ld, \n", terms[i], score, diffInNanos);
+        TrieIterator *it = Trie_Iterate(root, stepFilter, &a, dr);
+        clock_gettime(CLOCK_REALTIME, &start_time);
+        char *s;
+        t_len len;
+        float score;
+        int matches = 0;
+        while (TrieIterator_Next(it, &s, &len, &score)) {
+            // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
+            matches++;
         }
-    }
 
-    //sleep(15);
+        clock_gettime(CLOCK_REALTIME, &end_time);
+        long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+
+        printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
+
+        // printf("find: %s => %f, nanotime: %ld, \n", terms[i], score, diffInNanos);
+    }
+    // }
+
+    // sleep(15);
 
     return 0;
 }

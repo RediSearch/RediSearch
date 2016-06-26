@@ -25,7 +25,7 @@ OBJS=sparse_vector.o trie.o levenshtein.o
 #all: module.so 
 
 build_test: $(OBJS) test.o
-	$(CC) -o ./test $(OBJS) test.o -lc
+	$(CC) -o ./test $(OBJS) ./rmutil/vector.o test.o -lc
 
 clean:
 	rm -rf *.xo *.so *.o

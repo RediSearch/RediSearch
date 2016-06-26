@@ -14,8 +14,6 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
     return n;
 }
 
-
-
 TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float score) {
     n->node.numChildren++;
     n = realloc((void *)n, __trieNode_Sizeof(n->node.numChildren, n->node.len));
@@ -123,7 +121,6 @@ float Trie_Find(TrieNode *n, char *str, t_len len) {
     return 0;
 }
 
-
 void Trie_Free(TrieNode *n) {
     for (t_len i = 0; i < n->node.numChildren; i++) {
         TrieNode *child = __trieNode_children(n)[i];
@@ -131,8 +128,6 @@ void Trie_Free(TrieNode *n) {
     }
     free(n);
 }
-
-
 
 /* Push a new trie node on the iterator's stack */
 void __ti_Push(TrieIterator *it, TrieNode *node, void *filterCtx) {
@@ -146,22 +141,18 @@ void __ti_Push(TrieIterator *it, TrieNode *node, void *filterCtx) {
     }
 }
 
-
-
 TrieNode *__ti_Pop(TrieIterator *it) {
     if (it->stackOffset == 0) return NULL;
-    
+
     stackNode *n = __ti_current(it);
-    if (n->filterCtx && n->n->node.len > 0) {
-        sparseVector_free(n->filterCtx);
-    }
+    // if (n->filterCtx && n->n->node.len > 0) {
+    //     ..sparseVector_free(n->filterCtx);
+    // }
 
     --it->stackOffset;
     it->bufOffset -= it->stack[it->stackOffset].stringOffset;
     return it->stack[it->stackOffset].n;
 }
-
-
 
 inline int __ti_step(TrieIterator *it) {
     if (it->stackOffset == 0) {
@@ -172,14 +163,15 @@ inline int __ti_step(TrieIterator *it) {
     if (current->state == ITERSTATE_SELF) {
         if (current->stringOffset < current->n->node.len) {
             char b = current->n->node.str[current->stringOffset];
-            //printf("filtering %c in self mode\n", b);
+            // printf("filtering %c in self mode\n", b);
             if (it->filter) {
                 void *newctx = it->filter(b, it->ctx, current->filterCtx);
                 // the first step is the parent's filter context so no need to free it.
                 // otherwise we must free it
-                if (newctx && current->stringOffset > 0 && current->n->node.len > 0 && current->filterCtx) {
-                    sparseVector_free(current->filterCtx);
-                }
+                // if (newctx && current->stringOffset > 0 && current->n->node.len > 0 &&
+                //     current->filterCtx) {
+                //     sparseVector_free(current->filterCtx);
+                // }
                 current->filterCtx = newctx;
 
                 if (newctx == NULL) {
@@ -217,7 +209,6 @@ TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx)
 
 void TrieIterator_Free(TrieIterator *it) { free(it); }
 
-
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
     int rc;
     while ((rc = __ti_step(it)) != 0) {
@@ -225,13 +216,13 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
 
         stackNode *sn = __ti_current(it);
 
-        //SparseAutomaton *a = it->ctx;
-        //sparseVector *v = sn->filterCtx;
+        SparseAutomaton *a = it->ctx;
+        dfaNode *dn = sn->filterCtx;
+        // sparseVector *v = sn->filterCtx;
 
-        
-        
-        //printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
-        if (sn->stringOffset == sn->n->node.len && sn->n->node.score) {
+        // printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
+        if (sn->stringOffset == sn->n->node.len && sn->n->node.score &&
+            SparseAutomaton_IsMatch(a, dn->v)) {
             *ptr = it->buf;
             *len = it->bufOffset;
             *score = sn->n->node.score;
@@ -241,4 +232,3 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
 
     return 0;
 }
-
