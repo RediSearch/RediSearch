@@ -33,21 +33,24 @@ float Trie_Find(TrieNode *n, char *str, t_len len);
 void Trie_Free(TrieNode *n);
 
 typedef struct {
+    int state;
     TrieNode *n;
     t_len stringOffset;
     t_len childOffset;
-    int state;
-    // context for an iterator filter function
-    void *filterCtx;
+
 } stackNode;
 
+typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
+
+#define FILTER_STACK_POP 0
 // A callback for an automaton that receives the current state, evaluates the next byte,
 // and returns the next state of the automaton. If we should not continue down,
 // return NULL
-typedef void *(*StepFilter)(char b, void *ctx, void *stackCtx);
+typedef FilterCode (*StepFilter)(unsigned char b, void *ctx, int *match);
 
 #define ITERSTATE_SELF 0
 #define ITERSTATE_CHILDREN 1
+#define ITERSTATE_MATCH 2
 
 typedef struct {
     char buf[MAX_STRING_LEN];
@@ -59,14 +62,13 @@ typedef struct {
     void *ctx;
 } TrieIterator;
 
-void __ti_Push(TrieIterator *it, TrieNode *node, void *filterCtx);
+void __ti_Push(TrieIterator *it, TrieNode *node);
 #define __ti_current(it) &it->stack[it->stackOffset - 1]
 
-TrieNode *__ti_Pop(TrieIterator *it);
+void __ti_Pop(TrieIterator *it);
 int __ti_step(TrieIterator *it);
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx); 
+TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx);
 void TrieIterator_Free(TrieIterator *it);
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score);
-
 
 #endif

@@ -8,28 +8,31 @@
 #include <sys/param.h>
 #include <time.h>
 
-void *stepFilter(char b, void *ctx, void *stackCtx) {
-    SparseAutomaton *a = ctx;
-    dfaNode *dn = stackCtx;
-    unsigned char c = b;
-    if (SparseAutomaton_IsMatch(a, dn->v)) {
-        // printf("Match!");
-        return NULL;
-    }
-    return dn->edges[c];
-    // // if (!SparseAutomaton_CanMatch(a,v)) {
+int count = 0;
 
-    // //     return NULL;
-    // // }
-    // sparseVector *nv = SparseAutomaton_Step(a, v, b);
+FilterCode stepFilter(unsigned char b, void *ctx, int *matched) { return F_CONTINUE; }
+// void *stepFilter(char b, void *ctx, void *stackCtx) {
+//     SparseAutomaton *a = ctx;
+//     dfaNode *dn = stackCtx;
+//     unsigned char c = b;
+//     if (dn->distance == -1) {
+//         count++;
+//         return NULL;
+//     }
+//     return dn->edges[c] ? dn->edges[c] : dn->fallback;
+//     // // if (!SparseAutomaton_CanMatch(a,v)) {
 
-    // // we should continue
-    // if (SparseAutomaton_CanMatch(a, nv)) {
-    //     return nv;
-    // }
-    // sparseVector_free(nv);
-    // return NULL;
-}
+//     // //     return NULL;
+//     // // }
+//     // sparseVector *nv = SparseAutomaton_Step(a, v, b);
+
+//     // // we should continue
+//     // if (SparseAutomaton_CanMatch(a, nv)) {
+//     //     return nv;
+//     // }
+//     // sparseVector_free(nv);
+//     // return NULL;
+// }
 
 int testTrie() {
     printf("%ld\n", sizeof(sparseVector));
@@ -53,8 +56,7 @@ int testTrie() {
 
     const char *term = "helo";
     SparseAutomaton a = NewSparseAutomaton(term, strlen(term), 2);
-    sparseVector *v = SparseAutomaton_Start(&a);
-    TrieIterator *it = Trie_Iterate(root, stepFilter, &a, v);
+    TrieIterator *it = Trie_Iterate(root, stepFilter, &a);
     char *s;
     t_len len;
     float score;
@@ -81,7 +83,12 @@ int testWithData() {
         if (!sep) continue;
 
         *sep = 0;
-        double score = atof(sep + 1);
+        double score = atof(sep + 1) + 1;
+        sep--;
+        while (*sep == ' ') {
+            *sep-- = 0;
+        }
+
         // if (i % 10 == 0)
         root = Trie_Add(root, line, strlen(line), (float)score);
 
@@ -96,39 +103,52 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"united states", NULL};
+    char *terms[] = {"hello",        NULL, "hello world",      "israel", "united states of america",
+                     "barack obama", "uk", "computer science", NULL};
     struct timespec start_time, end_time;
-    // for (int j = 0; j < 1000; j++) {
-    for (i = 0; terms[i] != NULL; i++) {
-        // float score = Trie_Find(root, terms[i], strlen(terms[i]));
-        Vector *cache = NewVector(dfaNode *, 8);
-        SparseAutomaton a =
-            NewSparseAutomaton(terms[i], strlen(terms[i]), 2);  // strlen(terms[i]) <= 4 ? 1 : 2);
-        sparseVector *v = SparseAutomaton_Start(&a);
-        dfaNode *dr = __newDfaNode(0, v);
-        dfa_build(dr, &a, cache);
+    clock_gettime(CLOCK_REALTIME, &start_time);
+    unsigned long long totalns = 0;
+    int N = 20;
+    for (int j = 0; j < N; j++) {
+        for (i = 0; terms[i] != NULL; i++) {
+            count = 0;
+            // float score = Trie_Find(root, terms[i], strlen(terms[i]));
+            FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 2);
 
-        TrieIterator *it = Trie_Iterate(root, stepFilter, &a, dr);
-        clock_gettime(CLOCK_REALTIME, &start_time);
-        char *s;
-        t_len len;
-        float score;
-        int matches = 0;
-        while (TrieIterator_Next(it, &s, &len, &score)) {
-            // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
-            matches++;
+            // printf("building dfa took %ldns\n", end_time.tv_nsec - start_time.tv_nsec);
+            TrieIterator *it = Trie_Iterate(root, FilterFunc, &fc);
+            char *s;
+            t_len len;
+            float score;
+            int matches = 0;
+            clock_gettime(CLOCK_REALTIME, &start_time);
+
+            while (TrieIterator_Next(it, &s, &len, &score)) {
+                // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
+                matches++;
+            }
+
+            FilterCtx_Free(&fc);
+            TrieIterator_Free(it);
+            //..
+
+            clock_gettime(CLOCK_REALTIME, &end_time);
+
+            long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+            totalns += diffInNanos / 1000;
+
+            // printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
+
+            // printf("find: %s => %f, nanotime: %ld, \n", terms[i], score, diffInNanos);
         }
-
-        clock_gettime(CLOCK_REALTIME, &end_time);
-        long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-
-        printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
-
-        // printf("find: %s => %f, nanotime: %ld, \n", terms[i], score, diffInNanos);
     }
-    // }
+
+    printf("avg %zd", (totalns / N) * 1000);
+    // clock_gettime(CLOCK_REALTIME, &end_time);
+    // printf("took %zd seconds", end_time.tv_sec - start_time.tv_sec);
 
     // sleep(15);
+    // Trie_Free(root);
 
     return 0;
 }

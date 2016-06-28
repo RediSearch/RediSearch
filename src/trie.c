@@ -1,6 +1,6 @@
 #include "trie.h"
 #include "sparse_vector.h"
-#include "levenshtein.h"
+
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
     return sizeof(nodeHeader) + numChildren * sizeof(TrieNode *) + slen + 1;
 }
@@ -126,32 +126,31 @@ void Trie_Free(TrieNode *n) {
         TrieNode *child = __trieNode_children(n)[i];
         Trie_Free(child);
     }
-    free(n);
+
+    free(n->data);
 }
 
 /* Push a new trie node on the iterator's stack */
-void __ti_Push(TrieIterator *it, TrieNode *node, void *filterCtx) {
+inline void __ti_Push(TrieIterator *it, TrieNode *node) {
     if (it->stackOffset < MAX_STRING_LEN - 1) {
-        it->stack[it->stackOffset].childOffset = 0;
-        it->stack[it->stackOffset].stringOffset = 0;
-        it->stack[it->stackOffset].n = node;
-        it->stack[it->stackOffset].state = ITERSTATE_SELF;
-        it->stack[it->stackOffset].filterCtx = filterCtx;
-        it->stackOffset++;
+        stackNode *sn = &it->stack[it->stackOffset++];
+        sn->childOffset = 0;
+        sn->stringOffset = 0;
+
+        sn->n = node;
+        sn->state = ITERSTATE_SELF;
     }
 }
 
-TrieNode *__ti_Pop(TrieIterator *it) {
-    if (it->stackOffset == 0) return NULL;
-
-    stackNode *n = __ti_current(it);
-    // if (n->filterCtx && n->n->node.len > 0) {
-    //     ..sparseVector_free(n->filterCtx);
-    // }
-
-    --it->stackOffset;
-    it->bufOffset -= it->stack[it->stackOffset].stringOffset;
-    return it->stack[it->stackOffset].n;
+inline void __ti_Pop(TrieIterator *it) {
+    if (it->stackOffset) {
+        stackNode *current = __ti_current(it);
+        for (int i = 0; i < current->stringOffset; i++) {
+            it->filter(FILTER_STACK_POP, it->ctx, NULL);
+        }
+        it->bufOffset -= current->stringOffset;
+        --it->stackOffset;
+    }
 }
 
 inline int __ti_step(TrieIterator *it) {
@@ -160,49 +159,60 @@ inline int __ti_step(TrieIterator *it) {
     }
 
     stackNode *current = __ti_current(it);
-    if (current->state == ITERSTATE_SELF) {
-        if (current->stringOffset < current->n->node.len) {
-            char b = current->n->node.str[current->stringOffset];
-            // printf("filtering %c in self mode\n", b);
-            if (it->filter) {
-                void *newctx = it->filter(b, it->ctx, current->filterCtx);
-                // the first step is the parent's filter context so no need to free it.
-                // otherwise we must free it
-                // if (newctx && current->stringOffset > 0 && current->n->node.len > 0 &&
-                //     current->filterCtx) {
-                //     sparseVector_free(current->filterCtx);
-                // }
-                current->filterCtx = newctx;
+    int matched = 0;
 
-                if (newctx == NULL) {
-                    __ti_Pop(it);
-                    goto next;
+    // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child offset %d/%d\n",
+    //        it->bufOffset, it->buf, current, current->n->node.len, current->n->node.str,
+    //        current->n->node.score, current->state, current->stringOffset, current->n->node.len,
+    //        current->childOffset, current->n->node.numChildren);
+    switch (current->state) {
+        case ITERSTATE_MATCH:
+            __ti_Pop(it);
+            //__ti_Pop(it);
+            goto next;
+
+        case ITERSTATE_SELF:
+            if (current->stringOffset < current->n->node.len) {
+                unsigned char b = current->n->node.str[current->stringOffset];
+                if (it->filter) {
+                    FilterCode rc = it->filter(b, it->ctx, &matched);
+
+                    if (rc == F_STOP) {
+                        if (matched) {
+                            current->state = ITERSTATE_MATCH;
+                            return 3;
+                        }
+                        __ti_Pop(it);
+                        goto next;
+                    }
                 }
-            }
-            it->buf[it->bufOffset++] = b;
-            current->stringOffset++;
-            return 1;
-        } else {
-            // switch to "children mode"
-            current->state = ITERSTATE_CHILDREN;
-        }
-    }
 
-    if (current->childOffset < current->n->node.numChildren) {
-        __ti_Push(it, __trieNode_children(current->n)[current->childOffset++], current->filterCtx);
-    } else {
-        __ti_Pop(it);
+                it->buf[it->bufOffset++] = b;
+                current->stringOffset++;
+                return matched ? 3 : 1;
+            } else {
+                // switch to "children mode"
+                current->state = ITERSTATE_CHILDREN;
+            }
+
+        case ITERSTATE_CHILDREN:
+        default:
+            if (current->childOffset < current->n->node.numChildren) {
+                __ti_Push(it, __trieNode_children(current->n)[current->childOffset++]);
+            } else {
+                __ti_Pop(it);
+            }
     }
 
 next:
     return 2;
 }
 
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx, void *stackCtx) {
+TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx) {
     TrieIterator *it = calloc(1, sizeof(TrieIterator));
     it->filter = f;
     it->ctx = ctx;
-    __ti_Push(it, n, stackCtx);
+    __ti_Push(it, n);
 
     return it;
 }
@@ -214,19 +224,16 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
     while ((rc = __ti_step(it)) != 0) {
         if (rc == 2) continue;
 
-        stackNode *sn = __ti_current(it);
+        if (rc == 3) {
+            stackNode *sn = __ti_current(it);
 
-        SparseAutomaton *a = it->ctx;
-        dfaNode *dn = sn->filterCtx;
-        // sparseVector *v = sn->filterCtx;
-
-        // printf("step: %c buffOffset %d\n", sn->n->node.str[sn->stringOffset - 1], it->bufOffset);
-        if (sn->stringOffset == sn->n->node.len && sn->n->node.score &&
-            SparseAutomaton_IsMatch(a, dn->v)) {
-            *ptr = it->buf;
-            *len = it->bufOffset;
-            *score = sn->n->node.score;
-            return 1;
+            if (sn->n->node.score && sn->n->node.len == sn->stringOffset) {
+                *ptr = it->buf;
+                *len = it->bufOffset;
+                *score = sn->n->node.score;
+                // printf("%p %.*s (%d) %f\n", sn, *len, *ptr, *len, sn->n->node.score);
+                return 1;
+            }
         }
     }
 

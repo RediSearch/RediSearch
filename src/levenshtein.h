@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "sparse_vector.h"
 #include "rmutil/vector.h"
+#include "trie.h"
 
 // SparseAutomaton is a naive Go implementation of a levenshtein automaton using
 // sparse vectors, as described
@@ -35,5 +36,14 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char
 int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
 
 int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
+
+typedef struct {
+    dfaNode *rootNode;
+    Vector *stack;
+} FilterCtx;
+
+FilterCtx NewFilterCtx(char *str, size_t len, int maxDist);
+FilterCode FilterFunc(unsigned char b, void *ctx, int *matched);
+void FilterCtx_Free(FilterCtx *fc);
 
 #endif

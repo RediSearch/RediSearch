@@ -60,7 +60,7 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char
 // within the max
 // edit distance from the initial automaton string
 inline int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
-    return v->len != 0 && v->entries[v->len - 1].idx == a->len;
+    return v->len && v->entries[v->len - 1].idx == a->len;
 }
 
 // CanMatch returns true if there is a possibility that feeding the automaton
@@ -72,9 +72,24 @@ inline int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v) { retur
 dfaNode *__newDfaNode(int distance, sparseVector *state) {
     dfaNode *ret = calloc(1, sizeof(dfaNode));
     ret->fallback = NULL;
-    ret->distance = 0;
+    ret->distance = distance;
     ret->v = state;
+    memset(ret->edges, 0, 255 * sizeof(dfaNode *));
     return ret;
+}
+
+void __dfaNode_free(dfaNode *d) {
+    if (d->fallback) {
+        __dfaNode_free(d->fallback);
+        d->fallback = NULL;
+    }
+    for (int i = 0; i < 255; i++) {
+        if (d->edges[i]) {
+            __dfaNode_free(d->edges[i]);
+            d->edges[i] = NULL;
+        }
+    }
+    sparseVector_free(d->v);
 }
 
 inline int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
@@ -105,43 +120,36 @@ dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
 
 void __dfn_putCache(Vector *cache, dfaNode *dfn) { Vector_Push(cache, dfn); }
 
-static cunt = 0;
-
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
-    printf("cunt: %d\n", ++cunt);
+    // printf("building dfa node dist %d\n", parent->distance);
     if (SparseAutomaton_IsMatch(a, parent->v)) {
-        printf("MATCH!\n");
         parent->distance = -1;
-        return;
     }
     for (int i = 0; i < parent->v->len; i++) {
         if (parent->v->entries[i].idx < a->len) {
             int c = a->string[parent->v->entries[i].idx];
+            // printf("%c ---> ", c);
+            if (parent->edges[c] == NULL) {
+                sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
+                if (nv->len > 0) {
+                    dfaNode *dfn = __dfn_getCache(cache, nv);
+                    if (dfn == NULL) {
+                        int dist = nv->entries[nv->len - 1].val;
 
-            // if (parent->edges[c] == NULL) {
-            sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
-            for (int j = 0; j < nv->len; j++) {
-                printf("%d: %d,%d (%c)\n", j, nv->entries[j].idx, nv->entries[j].val,
-                       a->string[nv->entries[j].idx]);
-            }
-            if (nv->len > 0) {
-                dfaNode *dfn = __dfn_getCache(cache, nv);
-                if (dfn == NULL) {
-                    int dist = nv->entries[nv->len - 1].val;
-
-                    parent->edges[c] = __newDfaNode(dist, nv);
-                    printf("edge %s, %c - dist %d\n", a->string, c, dist);
-                    __dfn_putCache(cache, parent->edges[c]);
-                    dfa_build(parent->edges[c], a, cache);
-                } else {
-                    parent->edges[c] = dfn;
+                        parent->edges[c] = __newDfaNode(dist, nv);
+                        // printf("edge %s, %c - dist %d\n", a->string, c, dist);
+                        __dfn_putCache(cache, parent->edges[c]);
+                        dfa_build(parent->edges[c], a, cache);
+                    } else {
+                        parent->edges[c] = dfn;
+                    }
                 }
-            } else {
-                printf("no more match\n");
             }
         }
     }
-    sparseVector *nv = SparseAutomaton_Step(a, parent->v, '*');
+
+    // if (parent->distance < a->max) {
+    sparseVector *nv = SparseAutomaton_Step(a, parent->v, 1);
 
     if (nv->len > 0) {
         dfaNode *dfn = __dfn_getCache(cache, nv);
@@ -149,11 +157,59 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
             parent->fallback = dfn;
         } else {
             int dist = nv->entries[nv->len - 1].val;
-            printf("DEFAULT EDGE! edge %s - dist %d\n", a->string, dist);
+            // printf("DEFAULT EDGE! edge %s - dist %d\n", a->string, dist);
             parent->fallback = __newDfaNode(dist, nv);
             __dfn_putCache(cache, parent->fallback);
             dfa_build(parent->fallback, a, cache);
         }
-    } else
-        printf("default edge out of range\n");
+    }
+    //}
+}
+
+FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
+    Vector *cache = NewVector(dfaNode *, 8);
+
+    SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
+
+    sparseVector *v = SparseAutomaton_Start(&a);
+    dfaNode *dr = __newDfaNode(0, v);
+    dfa_build(dr, &a, cache);
+    Vector_Free(cache);
+
+    FilterCtx ret;
+    ret.rootNode = dr;
+    ret.stack = NewVector(dfaNode *, 8);
+    Vector_Push(ret.stack, dr);
+
+    return ret;
+}
+
+void FilterCtx_Free(FilterCtx *fc) {
+    //    __dfaNode_free(fc->rootNode);
+    Vector_Free(fc->stack);
+}
+
+FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
+    FilterCtx *fc = ctx;
+
+    if (b == FILTER_STACK_POP) {
+        // printf("POP! %d\n", Vector_Size(fc->stack));
+        Vector_Pop(fc->stack, NULL);
+        return F_STOP;
+    }
+
+    dfaNode *dn;
+
+    Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
+
+    *matched = dn->distance == -1;
+
+    dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
+    // we can continue - push the state on the stack
+    if (next) {
+        Vector_Push(fc->stack, next);
+        return F_CONTINUE;
+    }
+
+    return F_STOP;
 }
