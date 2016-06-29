@@ -64,8 +64,8 @@ int testTrie() {
     while (TrieIterator_Next(it, &s, &len, &score)) {
         printf("Found %.*s -> %f\n", len, s, score);
     }
-
-    // Trie_Free(root);
+    TrieIterator_Free(it);
+    Trie_Free(root);
     return 0;
 }
 
@@ -89,17 +89,18 @@ int testWithData() {
             *sep-- = 0;
         }
 
-        // if (i % 10 == 0)
-        root = Trie_Add(root, line, strlen(line), (float)score);
+        if (i % 10 == 0) root = Trie_Add(root, line, strlen(line), (float)score);
 
         i++;
 
-        // if (i > 500000) {
-        //     break;
-        // }
+        if (i > 50000) {
+            break;
+        }
 
         // printf("%s => %d\n", line, score);
     }
+
+    if (line) free(line);
 
     printf("loaded %d entries\n", i);
 
@@ -148,9 +149,12 @@ int testWithData() {
     // printf("took %zd seconds", end_time.tv_sec - start_time.tv_sec);
 
     // sleep(15);
-    // Trie_Free(root);
+    Trie_Free(root);
 
     return 0;
 }
 
-int main(int argc, char **argv) { testWithData(); }
+int main(int argc, char **argv) {
+    testWithData();
+    // testTrie();
+}

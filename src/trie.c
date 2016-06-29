@@ -6,7 +6,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
 }
 
 TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score) {
-    TrieNode *n = malloc(__trieNode_Sizeof(numChildren, len - offset));
+    TrieNode *n = calloc(1, __trieNode_Sizeof(numChildren, len - offset));
     n->node.len = len - offset;
     n->node.numChildren = numChildren;
     n->node.score = score;
@@ -70,6 +70,7 @@ TrieNode *Trie_Add(TrieNode *n, char *str, t_len len, float score) {
     t_len i = 0;
     for (; i < n->node.numChildren; i++) {
         TrieNode *child = __trieNode_children(n)[i];
+
         if (str[offset] == child->node.str[0]) {
             __trieNode_children(n)[i] = Trie_Add(child, str + offset, len - offset, score);
             return n;
@@ -127,7 +128,7 @@ void Trie_Free(TrieNode *n) {
         Trie_Free(child);
     }
 
-    free(n->data);
+    free(n);
 }
 
 /* Push a new trie node on the iterator's stack */
@@ -231,7 +232,7 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
                 *ptr = it->buf;
                 *len = it->bufOffset;
                 *score = sn->n->node.score;
-                // printf("%p %.*s (%d) %f\n", sn, *len, *ptr, *len, sn->n->node.score);
+                printf("%p %.*s (%d) %f\n", sn, *len, *ptr, *len, sn->n->node.score);
                 return 1;
             }
         }

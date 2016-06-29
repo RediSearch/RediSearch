@@ -38,7 +38,7 @@ int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
 int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
 typedef struct {
-    dfaNode *rootNode;
+    Vector *cache;
     Vector *stack;
 } FilterCtx;
 

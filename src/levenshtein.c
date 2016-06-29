@@ -74,22 +74,14 @@ dfaNode *__newDfaNode(int distance, sparseVector *state) {
     ret->fallback = NULL;
     ret->distance = distance;
     ret->v = state;
-    memset(ret->edges, 0, 255 * sizeof(dfaNode *));
+    // memset(ret->edges, 0, 255 * sizeof(dfaNode *));
     return ret;
 }
 
 void __dfaNode_free(dfaNode *d) {
-    if (d->fallback) {
-        __dfaNode_free(d->fallback);
-        d->fallback = NULL;
-    }
-    for (int i = 0; i < 255; i++) {
-        if (d->edges[i]) {
-            __dfaNode_free(d->edges[i]);
-            d->edges[i] = NULL;
-        }
-    }
     sparseVector_free(d->v);
+
+    free(d);
 }
 
 inline int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
@@ -140,10 +132,12 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
                         // printf("edge %s, %c - dist %d\n", a->string, c, dist);
                         __dfn_putCache(cache, parent->edges[c]);
                         dfa_build(parent->edges[c], a, cache);
+                        continue;
                     } else {
                         parent->edges[c] = dfn;
                     }
                 }
+                sparseVector_free(nv);
             }
         }
     }
@@ -161,8 +155,11 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
             parent->fallback = __newDfaNode(dist, nv);
             __dfn_putCache(cache, parent->fallback);
             dfa_build(parent->fallback, a, cache);
+            return;
         }
     }
+    sparseVector_free(nv);
+
     //}
 }
 
@@ -173,11 +170,11 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
 
     sparseVector *v = SparseAutomaton_Start(&a);
     dfaNode *dr = __newDfaNode(0, v);
+    __dfn_putCache(cache, dr);
     dfa_build(dr, &a, cache);
-    Vector_Free(cache);
 
     FilterCtx ret;
-    ret.rootNode = dr;
+    ret.cache = cache;
     ret.stack = NewVector(dfaNode *, 8);
     Vector_Push(ret.stack, dr);
 
@@ -185,7 +182,14 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
 }
 
 void FilterCtx_Free(FilterCtx *fc) {
-    //    __dfaNode_free(fc->rootNode);
+    for (int i = 0; i < Vector_Size(fc->cache); i++) {
+        dfaNode *n = NULL;
+        Vector_Get(fc->cache, i, &n);
+
+        if (n) __dfaNode_free(n);
+    }
+
+    Vector_Free(fc->cache);
     Vector_Free(fc->stack);
 }
 
