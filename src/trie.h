@@ -15,16 +15,12 @@ typedef struct {
     t_len numChildren;
     float score;
     char str[];
-} nodeHeader;
-
-typedef union {
-    nodeHeader node;
-    void *data;
 } TrieNode;
+
 #pragma pack()
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score);
-#define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(nodeHeader) + n->node.len + 1))
+#define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(TrieNode) + n->len + 1))
 TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float score);
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
@@ -66,6 +62,12 @@ void __ti_Push(TrieIterator *it, TrieNode *node);
 #define __ti_current(it) &it->stack[it->stackOffset - 1]
 
 void __ti_Pop(TrieIterator *it);
+
+#define __STEP_STOP 0
+#define __STEP_CONT 1
+#define __STEP_NEXT 2
+#define __STEP_MATCH 3
+
 int __ti_step(TrieIterator *it);
 TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx);
 void TrieIterator_Free(TrieIterator *it);

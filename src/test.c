@@ -89,27 +89,22 @@ int testWithData() {
             *sep-- = 0;
         }
 
-        if (i % 10 == 0) root = Trie_Add(root, line, strlen(line), (float)score);
+        // if (i % 10 == 0)
+        root = Trie_Add(root, line, strlen(line), (float)score);
 
         i++;
-
-        if (i > 50000) {
-            break;
-        }
-
-        // printf("%s => %d\n", line, score);
     }
 
     if (line) free(line);
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"hello",        NULL, "hello world",      "israel", "united states of america",
-                     "barack obama", "uk", "computer science", NULL};
+    char *terms[] = {"hello",        "hello world", "israel",           "united states of america",
+                     "barack obama", "uk",          "computer science", NULL};
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     unsigned long long totalns = 0;
-    int N = 20;
+    int N = 2;
     for (int j = 0; j < N; j++) {
         for (i = 0; terms[i] != NULL; i++) {
             count = 0;
@@ -138,7 +133,7 @@ int testWithData() {
             long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
             totalns += diffInNanos / 1000;
 
-            // printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
+            printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
 
             // printf("find: %s => %f, nanotime: %ld, \n", terms[i], score, diffInNanos);
         }
