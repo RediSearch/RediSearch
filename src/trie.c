@@ -162,7 +162,9 @@ inline void __ti_Push(TrieIterator *it, TrieNode *node) {
 inline void __ti_Pop(TrieIterator *it) {
     if (it->stackOffset) {
         stackNode *current = __ti_current(it);
-        it->popCallback(it->ctx, current->stringOffset);
+        if (it->popCallback) {
+            it->popCallback(it->ctx, current->stringOffset);
+        }
 
         it->bufOffset -= current->stringOffset;
         --it->stackOffset;
@@ -195,13 +197,11 @@ inline int __ti_step(TrieIterator *it) {
                 if (it->filter) {
                     // run the next character in the filter
                     FilterCode rc = it->filter(b, it->ctx, &matched);
-
-                    // printf("evaluating %.*s (%d/%d) + '%c' (%d). rc %d, matched? %d. current
-                    // %f\n",
+                    // printf("evaluating %.*s (%d/%d) + '%c' (%d). rc %d, matched? %d. current %f\n
+                    // ",
                     //        it->bufOffset, it->buf, current->stringOffset, current->n->len, b, b,
                     //        rc,
                     //        matched, current->n->score);
-
                     // if we should stop...
                     if (rc == F_STOP) {
                         // match stop - change the state to MATCH and return

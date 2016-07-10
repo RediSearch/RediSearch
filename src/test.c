@@ -100,14 +100,21 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"barack obama",
+    char *terms[] = {"united states of america",
+                     "uk",
+                     "barack obama",
 
-                     "hello",        "hello world",      "israel", "united states of america",
-                     "barack obama", "computer science", NULL};
+                     "hello",
+                     "hello world",
+                     "israel",
+                     "united states of america",
+                     "barack obama",
+                     "computer science",
+                     NULL};
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     unsigned long long totalns = 0;
-    int N = 10;
+    int N = 20;
     for (int j = 0; j < N; j++) {
         for (i = 0; terms[i] != NULL; i++) {
             count = 0;
@@ -126,6 +133,8 @@ int testWithData() {
             t_len len;
             float score;
             int matches = 0;
+            int dist = 0;
+
             clock_gettime(CLOCK_REALTIME, &start_time);
 
             while (TrieIterator_Next(it, &s, &len, &score)) {
@@ -139,7 +148,7 @@ int testWithData() {
             //..
 
             diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-            totalns += diffInNanos / 1000;
+            totalns += diffInNanos / 10000;
 
             printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
 
@@ -147,7 +156,7 @@ int testWithData() {
         }
     }
 
-    printf("avg %lld", (totalns / N) * 1000);
+    printf("avg %lld", (totalns / N / 10) * 10000);
     // clock_gettime(CLOCK_REALTIME, &end_time);
     // printf("took %zd seconds", end_time.tv_sec - start_time.tv_sec);
 

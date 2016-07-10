@@ -26,9 +26,11 @@ sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
 sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char c) {
     sparseVector *newVec = newSparseVectorCap(state->len);
 
-    sparseVectorEntry e = state->entries[0];
-    if (state->len > 0 && e.idx == 0 && e.val < a->max) {
-        sparseVector_append(&newVec, 0, e.val + 1);
+    if (state->len) {
+        sparseVectorEntry e = state->entries[0];
+        if (e.idx == 0 && e.val < a->max) {
+            sparseVector_append(&newVec, 0, e.val + 1);
+        }
     }
 
     for (int j = 0; j < state->len; j++) {
@@ -39,13 +41,14 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char
         }
 
         register int val = state->entries[j].val;
+        // increase the cost by 1
         if (a->string[entry->idx] != c) ++val;
 
         if (newVec->len && newVec->entries[newVec->len - 1].idx == entry->idx) {
             val = MIN(val, newVec->entries[newVec->len - 1].val + 1);
         }
 
-        if (state->len > j + 1 && state->entries[j + 1].idx == entry->idx + 1) {
+        if (j + 1 < state->len && state->entries[j + 1].idx == entry->idx + 1) {
             val = MIN(val, state->entries[j + 1].val + 1);
         }
 
@@ -200,13 +203,15 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
 
     Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
 
-    // printf("offset %d, len %d dist %d\n", Vector_Size(fc->stack), fc->a.len, dn->distance);
-    *matched =
-        dn->distance == -1 || Vector_Size(fc->stack) + (fc->a.max - dn->distance) >= fc->a.len;
+    *matched = dn->distance == -1;
 
     dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
+
     // we can continue - push the state on the stack
     if (next) {
+        if (next->distance == -1) {
+            *matched = 1;
+        }
         Vector_Push(fc->stack, next);
         return F_CONTINUE;
     }

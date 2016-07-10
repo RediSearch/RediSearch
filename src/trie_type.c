@@ -45,7 +45,7 @@ void TrieTypeRdbSave(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveUnsigned(rdb, tree->size);
 
     if (tree->root) {
-        TrieIterator *it = Trie_Iterate(tree->root, NULL, NULL);
+        TrieIterator *it = Trie_Iterate(tree->root, NULL, NULL, NULL);
         char *str;
         t_len len;
         float score;
@@ -63,7 +63,7 @@ void TrieTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value)
     Trie *tree = (Trie *)value;
 
     if (tree->root) {
-        TrieIterator *it = Trie_Iterate(tree->root, NULL, NULL);
+        TrieIterator *it = Trie_Iterate(tree->root, NULL, NULL, NULL);
         char *str;
         t_len len;
         float score;
