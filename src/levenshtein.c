@@ -176,6 +176,7 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
     FilterCtx ret;
     ret.cache = cache;
     ret.stack = NewVector(dfaNode *, 8);
+    ret.a = a;
     Vector_Push(ret.stack, dr);
 
     return ret;
@@ -195,18 +196,13 @@ void FilterCtx_Free(FilterCtx *fc) {
 
 FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
     FilterCtx *fc = ctx;
-
-    if (b == FILTER_STACK_POP) {
-        // printf("POP! %d\n", Vector_Size(fc->stack));
-        Vector_Pop(fc->stack, NULL);
-        return F_STOP;
-    }
-
     dfaNode *dn;
 
     Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
 
-    *matched = dn->distance == -1;
+    // printf("offset %d, len %d dist %d\n", Vector_Size(fc->stack), fc->a.len, dn->distance);
+    *matched =
+        dn->distance == -1 || Vector_Size(fc->stack) + (fc->a.max - dn->distance) >= fc->a.len;
 
     dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
     // we can continue - push the state on the stack
@@ -216,4 +212,10 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
     }
 
     return F_STOP;
+}
+
+void StackPop(void *ctx, int numLevels) {
+    FilterCtx *fc = ctx;
+
+    for (int i = 0; i < numLevels; i++) Vector_Pop(fc->stack, NULL);
 }

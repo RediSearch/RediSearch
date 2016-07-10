@@ -40,10 +40,12 @@ int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 typedef struct {
     Vector *cache;
     Vector *stack;
+    SparseAutomaton a;
 } FilterCtx;
 
 FilterCtx NewFilterCtx(char *str, size_t len, int maxDist);
 FilterCode FilterFunc(unsigned char b, void *ctx, int *matched);
+void StackPop(void *ctx, int numLevels);
 void FilterCtx_Free(FilterCtx *fc);
 
 #endif

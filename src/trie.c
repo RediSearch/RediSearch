@@ -41,7 +41,8 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     return n;
 }
 
-TrieNode *Trie_Add(TrieNode *n, char *str, t_len len, float score) {
+int Trie_Add(TrieNode **np, char *str, t_len len, float score) {
+    TrieNode *n = *np;
     int offset = 0, localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
         if (str[offset] != n->str[localOffset]) {
@@ -54,15 +55,17 @@ TrieNode *Trie_Add(TrieNode *n, char *str, t_len len, float score) {
         // 1. a child representing the new string from the diverted offset onwards
         // 2. a child representing the old node's suffix from the diverted offset
         // and the old children
-        n = __trie_SplitNode(n, localOffset);
-        n = __trie_AddChild(n, str, offset, len, score);
-        return n;
+        *np = __trie_SplitNode(*np, localOffset);
+        *np = __trie_AddChild(*np, str, offset, len, score);
+
+        return 1;
     }
 
     // we're inserting in an existing node - just replace the value
     if (offset == len) {
         n->score = score;
-        return n;
+        *np = n;
+        return 0;
     }
 
     // proceed to the next child or add a new child for the current character
@@ -71,13 +74,15 @@ TrieNode *Trie_Add(TrieNode *n, char *str, t_len len, float score) {
         TrieNode *child = __trieNode_children(n)[i];
 
         if (str[offset] == child->str[0]) {
-            __trieNode_children(n)[i] = Trie_Add(child, str + offset, len - offset, score);
-            return n;
+            int rc = Trie_Add(&child, str + offset, len - offset, score);
+            __trieNode_children(n)[i] = child;
+            return rc;
         }
     }
 
     n = __trie_AddChild(n, str, offset, len, score);
-    return n;
+    *np = n;
+    return 1;
 }
 
 float Trie_Find(TrieNode *n, char *str, t_len len) {
@@ -130,6 +135,18 @@ void Trie_Free(TrieNode *n) {
     free(n);
 }
 
+// internal definition of trie iterator
+struct TrieIterator {
+    char buf[MAX_STRING_LEN];
+    t_len bufOffset;
+
+    stackNode stack[MAX_STRING_LEN];
+    t_len stackOffset;
+    StepFilter filter;
+    StackPopCallback popCallback;
+    void *ctx;
+};
+
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node) {
     if (it->stackOffset < MAX_STRING_LEN - 1) {
@@ -145,9 +162,8 @@ inline void __ti_Push(TrieIterator *it, TrieNode *node) {
 inline void __ti_Pop(TrieIterator *it) {
     if (it->stackOffset) {
         stackNode *current = __ti_current(it);
-        for (int i = 0; i < current->stringOffset; i++) {
-            it->filter(FILTER_STACK_POP, it->ctx, NULL);
-        }
+        it->popCallback(it->ctx, current->stringOffset);
+
         it->bufOffset -= current->stringOffset;
         --it->stackOffset;
     }
@@ -173,20 +189,33 @@ inline int __ti_step(TrieIterator *it) {
 
         case ITERSTATE_SELF:
             if (current->stringOffset < current->n->len) {
+                // get the current character to feed the filter
                 unsigned char b = current->n->str[current->stringOffset];
+
                 if (it->filter) {
+                    // run the next character in the filter
                     FilterCode rc = it->filter(b, it->ctx, &matched);
 
+                    // printf("evaluating %.*s (%d/%d) + '%c' (%d). rc %d, matched? %d. current
+                    // %f\n",
+                    //        it->bufOffset, it->buf, current->stringOffset, current->n->len, b, b,
+                    //        rc,
+                    //        matched, current->n->score);
+
+                    // if we should stop...
                     if (rc == F_STOP) {
+                        // match stop - change the state to MATCH and return
                         if (matched) {
                             current->state = ITERSTATE_MATCH;
-                            return 3;
+                            return __STEP_MATCH;
                         }
+                        // normal stop - just pop and continue
                         __ti_Pop(it);
                         goto next;
                     }
                 }
 
+                // advance the buffer offset and character offset
                 it->buf[it->bufOffset++] = b;
                 current->stringOffset++;
                 return matched ? __STEP_MATCH : __STEP_CONT;
@@ -197,20 +226,23 @@ inline int __ti_step(TrieIterator *it) {
 
         case ITERSTATE_CHILDREN:
         default:
+            // push the next child
             if (current->childOffset < current->n->numChildren) {
                 __ti_Push(it, __trieNode_children(current->n)[current->childOffset++]);
             } else {
+                // at the end of the node - pop and go up
                 __ti_Pop(it);
             }
     }
 
 next:
-    return __STEP_NEXT;
+    return __STEP_CONT;
 }
 
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, void *ctx) {
+TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
     TrieIterator *it = calloc(1, sizeof(TrieIterator));
     it->filter = f;
+    it->popCallback = pf;
     it->ctx = ctx;
     __ti_Push(it, n);
 
@@ -222,8 +254,6 @@ void TrieIterator_Free(TrieIterator *it) { free(it); }
 int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
     int rc;
     while ((rc = __ti_step(it)) != __STEP_STOP) {
-        if (rc == __STEP_NEXT) continue;
-
         if (rc == __STEP_MATCH) {
             stackNode *sn = __ti_current(it);
 

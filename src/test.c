@@ -41,22 +41,22 @@ int testTrie() {
     //     t_len numChildren;
     //     struct t_node *children;
     //     void *value;
-    TrieNode *root = __newTrieNode("root", 0, 4, 0, 1);
+    TrieNode *root = __newTrieNode("", 0, 0, 0, 1);
 
-    root = Trie_Add(root, "hello", 5, 1);
-    root = Trie_Add(root, "help", 4, 2);
+    Trie_Add(&root, "hello", 5, 1);
+    Trie_Add(&root, "help", 4, 2);
 
-    root = Trie_Add(root, "helter skelter", 14, 3);
+    Trie_Add(&root, "helter skelter", 14, 3);
     printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
-    root = Trie_Add(root, "heltar skelter", 14, 4);
-    root = Trie_Add(root, "helter shelter", 14, 5);
-    root = Trie_Add(root, "helter skelter", 14, 6);
+    Trie_Add(&root, "heltar skelter", 14, 4);
+    Trie_Add(&root, "helter shelter", 14, 5);
+    Trie_Add(&root, "helter skelter", 14, 6);
 
     printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
 
     const char *term = "helo";
     SparseAutomaton a = NewSparseAutomaton(term, strlen(term), 2);
-    TrieIterator *it = Trie_Iterate(root, stepFilter, &a);
+    TrieIterator *it = Trie_Iterate(root, stepFilter, NULL, &a);
     char *s;
     t_len len;
     float score;
@@ -74,9 +74,10 @@ int testWithData() {
     assert(fp != NULL);
 
     char *line = NULL;
+
     size_t len = 0;
     ssize_t read;
-    TrieNode *root = __newTrieNode("root", 0, 4, 0, 1);
+    TrieNode *root = __newTrieNode("root", 0, 4, 0, 0);
     int i = 0;
     while ((read = getline(&line, &len, fp)) != -1) {
         char *sep = strchr(line, ',');
@@ -90,7 +91,7 @@ int testWithData() {
         }
 
         // if (i % 10 == 0)
-        root = Trie_Add(root, line, strlen(line), (float)score);
+        Trie_Add(&root, line, strlen(line), (float)score);
 
         i++;
     }
@@ -99,20 +100,28 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"hello",        "hello world", "israel",           "united states of america",
-                     "barack obama", "uk",          "computer science", NULL};
+    char *terms[] = {"barack obama",
+
+                     "hello",        "hello world",      "israel", "united states of america",
+                     "barack obama", "computer science", NULL};
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     unsigned long long totalns = 0;
-    int N = 2;
+    int N = 10;
     for (int j = 0; j < N; j++) {
         for (i = 0; terms[i] != NULL; i++) {
             count = 0;
             // float score = Trie_Find(root, terms[i], strlen(terms[i]));
+            clock_gettime(CLOCK_REALTIME, &start_time);
             FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 2);
+            clock_gettime(CLOCK_REALTIME, &end_time);
+            long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+            totalns += diffInNanos / 1000;
+
+            // printf("building automaton took %ldns\n", diffInNanos);
 
             // printf("building dfa took %ldns\n", end_time.tv_nsec - start_time.tv_nsec);
-            TrieIterator *it = Trie_Iterate(root, FilterFunc, &fc);
+            TrieIterator *it = Trie_Iterate(root, FilterFunc, StackPop, &fc);
             char *s;
             t_len len;
             float score;
@@ -123,14 +132,13 @@ int testWithData() {
                 // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
                 matches++;
             }
+            clock_gettime(CLOCK_REALTIME, &end_time);
 
             FilterCtx_Free(&fc);
             TrieIterator_Free(it);
             //..
 
-            clock_gettime(CLOCK_REALTIME, &end_time);
-
-            long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+            diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
             totalns += diffInNanos / 1000;
 
             printf("%d matches for %s. Time elapsed: %ldnano\n", matches, terms[i], diffInNanos);
@@ -139,7 +147,7 @@ int testWithData() {
         }
     }
 
-    printf("avg %zd", (totalns / N) * 1000);
+    printf("avg %lld", (totalns / N) * 1000);
     // clock_gettime(CLOCK_REALTIME, &end_time);
     // printf("took %zd seconds", end_time.tv_sec - start_time.tv_sec);
 
@@ -151,5 +159,5 @@ int testWithData() {
 
 int main(int argc, char **argv) {
     testWithData();
-    // testTrie();
+    //    testTrie();
 }
