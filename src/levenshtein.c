@@ -166,7 +166,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     //}
 }
 
-FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
+FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode) {
     Vector *cache = NewVector(dfaNode *, 8);
 
     SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
@@ -180,6 +180,7 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist) {
     ret.cache = cache;
     ret.stack = NewVector(dfaNode *, 8);
     ret.a = a;
+    ret.prefixMode = prefixMode;
     Vector_Push(ret.stack, dr);
 
     return ret;
@@ -203,7 +204,21 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
 
     Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
 
+    // a null node means we're in prefix mode, and we're done matching our prefix
+    if (dn == NULL) {
+        *matched = 1;
+        Vector_Push(fc->stack, NULL);
+        return F_CONTINUE;
+    }
+
     *matched = dn->distance == -1;
+
+    // in prefix mode, after the match we just push NULLs,
+    // so we become a pass-through filter
+    if (*matched && fc->prefixMode) {
+        Vector_Push(fc->stack, NULL);
+        return F_CONTINUE;
+    }
 
     dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
 
@@ -211,6 +226,7 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
     if (next) {
         if (next->distance == -1) {
             *matched = 1;
+            next = NULL;
         }
         Vector_Push(fc->stack, next);
         return F_CONTINUE;

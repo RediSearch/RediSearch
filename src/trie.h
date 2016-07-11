@@ -48,9 +48,13 @@ TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float
 * a single child holding The old score of n, and its score */
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
+typedef enum {
+    ADD_REPLACE,
+    ADD_INCR,
+} TrieAddOp;
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0 if we just replaced
  * the score. We pass a pointer to the node because it may actually change when splitting */
-int Trie_Add(TrieNode **n, char *str, t_len len, float score);
+int Trie_Add(TrieNode **n, char *str, t_len len, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns 0 if the entry was
 * not found.
@@ -110,6 +114,8 @@ int __ti_step(TrieIterator *it);
  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL filter means just
  * continue iterating the entire trie. ctx is the filter's context */
 TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
+
+TrieIterator *Trie_PrefixSearch(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
 
 /* Free a trie iterator */
 void TrieIterator_Free(TrieIterator *it);

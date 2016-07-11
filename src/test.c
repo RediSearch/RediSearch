@@ -43,17 +43,18 @@ int testTrie() {
     //     void *value;
     TrieNode *root = __newTrieNode("", 0, 0, 0, 1);
 
-    Trie_Add(&root, "hello", 5, 1);
-    Trie_Add(&root, "help", 4, 2);
+    Trie_Add(&root, "hello", 5, 1, ADD_REPLACE);
+    Trie_Add(&root, "help", 4, 2, ADD_REPLACE);
 
-    Trie_Add(&root, "helter skelter", 14, 3);
+    Trie_Add(&root, "helter skelter", 14, 3, ADD_REPLACE);
     printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
-    Trie_Add(&root, "heltar skelter", 14, 4);
-    Trie_Add(&root, "helter shelter", 14, 5);
-    Trie_Add(&root, "helter skelter", 14, 6);
+    Trie_Add(&root, "heltar skelter", 14, 4, ADD_REPLACE);
+    Trie_Add(&root, "helter shelter", 14, 5, ADD_REPLACE);
+    Trie_Add(&root, "helter skelter", 14, 6, ADD_REPLACE);
 
     printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
-
+    Trie_Add(&root, "helter skelter", 14, 6, ADD_INCR);
+    printf("find: %f\n", Trie_Find(root, "helter skelter", 14));
     const char *term = "helo";
     SparseAutomaton a = NewSparseAutomaton(term, strlen(term), 2);
     TrieIterator *it = Trie_Iterate(root, stepFilter, NULL, &a);
@@ -91,7 +92,7 @@ int testWithData() {
         }
 
         // if (i % 10 == 0)
-        Trie_Add(&root, line, strlen(line), (float)score);
+        Trie_Add(&root, line, strlen(line), (float)score, ADD_REPLACE);
 
         i++;
     }
@@ -100,7 +101,8 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"united states of america",
+    char *terms[] = {"a",
+                     NULL,
                      "uk",
                      "barack obama",
 
@@ -118,9 +120,10 @@ int testWithData() {
     for (int j = 0; j < N; j++) {
         for (i = 0; terms[i] != NULL; i++) {
             count = 0;
+
             // float score = Trie_Find(root, terms[i], strlen(terms[i]));
             clock_gettime(CLOCK_REALTIME, &start_time);
-            FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 2);
+            FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 0, 1);
             clock_gettime(CLOCK_REALTIME, &end_time);
             long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
             totalns += diffInNanos / 1000;
@@ -167,6 +170,6 @@ int testWithData() {
 }
 
 int main(int argc, char **argv) {
-    testWithData();
-    //    testTrie();
+    //    testWithData();
+    testTrie();
 }

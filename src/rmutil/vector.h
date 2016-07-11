@@ -47,11 +47,11 @@ int Vector_Pop(Vector *v, void *ptr);
 * Put an element at pos.
 * Note: If pos is outside the vector capacity, we resize it accordingly
 */
-#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, &(typeof(elem)){elem})
+#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL)
 
 /* Push an element at the end of v, resizing it if needed. This macro wraps
  * __vector_PushPtr */
-#define Vector_Push(v, elem) __vector_PushPtr(v, &(typeof(elem)){elem})
+#define Vector_Push(v, elem) __vector_PushPtr(v, elem ? &(typeof(elem)){elem} : NULL)
 
 int __vector_PushPtr(Vector *v, void *elem);
 

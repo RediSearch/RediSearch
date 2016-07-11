@@ -41,9 +41,10 @@ typedef struct {
     Vector *cache;
     Vector *stack;
     SparseAutomaton a;
+    int prefixMode;
 } FilterCtx;
 
-FilterCtx NewFilterCtx(char *str, size_t len, int maxDist);
+FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode);
 FilterCode FilterFunc(unsigned char b, void *ctx, int *matched);
 void StackPop(void *ctx, int numLevels);
 void FilterCtx_Free(FilterCtx *fc);

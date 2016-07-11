@@ -1,13 +1,12 @@
 #include "vector.h"
 #include <stdio.h>
 
-int __vector_PushPtr(Vector *v, void *elem) {
-    if (v->top == v->cap - 1) {
+inline int __vector_PushPtr(Vector *v, void *elem) {
+    if (v->top == v->cap) {
         Vector_Resize(v, v->cap ? v->cap * 2 : 1);
     }
 
-    __vector_PutPtr(v, v->top, elem);
-    v->top++;
+    __vector_PutPtr(v, v->top++, elem);
     return v->top;
 }
 
@@ -33,13 +32,17 @@ inline int Vector_Pop(Vector *v, void *ptr) {
     return 0;
 }
 
-int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
+inline int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
     // resize if pos is out of bounds
     if (pos >= v->cap) {
         Vector_Resize(v, pos + 1);
     }
 
-    memcpy(v->data + pos * v->elemSize, elem, v->elemSize);
+    if (elem) {
+        memcpy(v->data + pos * v->elemSize, elem, v->elemSize);
+    } else {
+        memset(v->data + pos * v->elemSize, 0, v->elemSize);
+    }
     // move the end offset to pos if we grew
     if (pos > v->top) {
         v->top = pos;

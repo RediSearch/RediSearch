@@ -41,7 +41,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     return n;
 }
 
-int Trie_Add(TrieNode **np, char *str, t_len len, float score) {
+int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
     TrieNode *n = *np;
     int offset = 0, localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
@@ -55,6 +55,7 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score) {
         // 1. a child representing the new string from the diverted offset onwards
         // 2. a child representing the old node's suffix from the diverted offset
         // and the old children
+
         *np = __trie_SplitNode(*np, localOffset);
         *np = __trie_AddChild(*np, str, offset, len, score);
 
@@ -63,7 +64,17 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score) {
 
     // we're inserting in an existing node - just replace the value
     if (offset == len) {
-        n->score = score;
+        switch (op) {
+            // in increment mode, just add the score to the node's score
+            case ADD_INCR:
+                n->score += score;
+                break;
+
+            // by default we just replace the score
+            case ADD_REPLACE:
+            default:
+                n->score = score;
+        }
         *np = n;
         return 0;
     }
@@ -74,7 +85,7 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score) {
         TrieNode *child = __trieNode_children(n)[i];
 
         if (str[offset] == child->str[0]) {
-            int rc = Trie_Add(&child, str + offset, len - offset, score);
+            int rc = Trie_Add(&child, str + offset, len - offset, score, op);
             __trieNode_children(n)[i] = child;
             return rc;
         }
