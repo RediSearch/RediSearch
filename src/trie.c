@@ -42,28 +42,41 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
 }
 
 int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
+    if (score == 0 || len == 0) {
+        return 0;
+    }
+
     TrieNode *n = *np;
-    int offset = 0, localOffset = 0;
-    for (; offset < len && localOffset < n->len; offset++, localOffset++) {
-        if (str[offset] != n->str[localOffset]) {
+
+    int offset = 0;
+    for (; offset < len && offset < n->len; offset++) {
+        if (str[offset] != n->str[offset]) {
             break;
         }
     }
     // we broke off before the end of the string
-    if (localOffset < n->len) {
+    if (offset < n->len) {
         // split the node and create 2 child nodes:
         // 1. a child representing the new string from the diverted offset onwards
         // 2. a child representing the old node's suffix from the diverted offset
         // and the old children
+        n = __trie_SplitNode(*np, offset);
 
-        *np = __trie_SplitNode(*np, localOffset);
-        *np = __trie_AddChild(*np, str, offset, len, score);
-
+        // the new string matches the split node exactly!
+        // we simply turn the split node, which is now non terminal, into a terminal node
+        if (offset == len) {
+            n->score = score;
+        } else {
+            // we add a child
+            n = __trie_AddChild(n, str, offset, len, score);
+        }
+        *np = n;
         return 1;
     }
 
     // we're inserting in an existing node - just replace the value
     if (offset == len) {
+        int term = __trieNode_isTerminal(n);
         switch (op) {
             // in increment mode, just add the score to the node's score
             case ADD_INCR:
@@ -76,7 +89,7 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
                 n->score = score;
         }
         *np = n;
-        return 0;
+        return term ? 0 : 1;
     }
 
     // proceed to the next child or add a new child for the current character
@@ -91,8 +104,8 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
         }
     }
 
-    n = __trie_AddChild(n, str, offset, len, score);
-    *np = n;
+    *np = __trie_AddChild(n, str, offset, len, score);
+
     return 1;
 }
 
@@ -208,11 +221,7 @@ inline int __ti_step(TrieIterator *it) {
                 if (it->filter) {
                     // run the next character in the filter
                     FilterCode rc = it->filter(b, it->ctx, &matched);
-                    // printf("evaluating %.*s (%d/%d) + '%c' (%d). rc %d, matched? %d. current %f\n
-                    // ",
-                    //        it->bufOffset, it->buf, current->stringOffset, current->n->len, b, b,
-                    //        rc,
-                    //        matched, current->n->score);
+
                     // if we should stop...
                     if (rc == F_STOP) {
                         // match stop - change the state to MATCH and return
@@ -229,6 +238,15 @@ inline int __ti_step(TrieIterator *it) {
                 // advance the buffer offset and character offset
                 it->buf[it->bufOffset++] = b;
                 current->stringOffset++;
+
+                // if we don't have a filter, a "match" is when we reach the end of the node
+                if (!it->filter) {
+                    if (current->stringOffset == current->n->len &&
+                        __trieNode_isTerminal(current->n)) {
+                        matched = 1;
+                    }
+                }
+
                 return matched ? __STEP_MATCH : __STEP_CONT;
             } else {
                 // switch to "children mode"
@@ -268,11 +286,10 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
         if (rc == __STEP_MATCH) {
             stackNode *sn = __ti_current(it);
 
-            if (sn->n->score && sn->n->len == sn->stringOffset) {
+            if (__trieNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset) {
                 *ptr = it->buf;
                 *len = it->bufOffset;
                 *score = sn->n->score;
-                // printf("%p %.*s (%d) %f\n", sn, *len, *ptr, *len, sn->n->score);
                 return 1;
             }
         }

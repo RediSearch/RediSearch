@@ -226,7 +226,8 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
     if (next) {
         if (next->distance == -1) {
             *matched = 1;
-            next = NULL;
+
+            if (fc->prefixMode) next = NULL;
         }
         Vector_Push(fc->stack, next);
         return F_CONTINUE;

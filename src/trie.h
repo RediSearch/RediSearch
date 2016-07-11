@@ -20,6 +20,7 @@ typedef struct {
     t_len len;
     // the number of child nodes
     t_len numChildren;
+
     // the node's score. Non termn
     float score;
     // the string of the current node
@@ -39,6 +40,8 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
 /* Get a pointer to the children array of a node. This is not an actual member of the node for
  * memory saving reasons */
 #define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(TrieNode) + n->len + 1))
+
+#define __trieNode_isTerminal(n) (n->score != 0)
 
 /* Add a child node to the parent node n, with a string str starting at offset up until len, and a
 given score */

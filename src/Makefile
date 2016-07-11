@@ -4,7 +4,7 @@ ifndef RM_INCLUDE_DIR
 endif
 
 ifndef RMUTIL_LIBDIR
-	RMUTIL_LIBDIR=../rmutil
+	RMUTIL_LIBDIR=./rmutil
 endif
 
 # find the OS
@@ -20,7 +20,7 @@ else
 endif
 CFLAGS = -I$(RM_INCLUDE_DIR) -Wall -g -lc -lm -O3 -g -std=gnu99 -fPIC  
 CC=gcc
-LDFLAGS=-lc -lm -Bsymbolic
+LDFLAGS=-lc -lm -Bsymbolic -L$(RMUTIL_LIBDIR) -lrmutil
 
 
 OBJS=sparse_vector.o trie.o levenshtein.o
@@ -40,4 +40,4 @@ SRCDIR := $(shell pwd)
 MODULE=$(patsubst %, $(SRCDIR)/%, $(OBJS) trie_type.o ./rmutil/vector.o)
 
 module.so: $(MODULE)
-	 $(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) $(LDFLAGS)
+	 $(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) $(LDFLAGS) 
