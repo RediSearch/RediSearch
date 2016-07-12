@@ -18,6 +18,8 @@ typedef struct {
 
 typedef struct dfaNode {
     int distance;
+
+    int match;
     sparseVector *v;
     struct dfaNode *edges[255];
     struct dfaNode *fallback;
@@ -40,12 +42,13 @@ int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 typedef struct {
     Vector *cache;
     Vector *stack;
+    Vector *distStack;
     SparseAutomaton a;
     int prefixMode;
 } FilterCtx;
 
 FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode);
-FilterCode FilterFunc(unsigned char b, void *ctx, int *matched);
+FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx);
 void StackPop(void *ctx, int numLevels);
 void FilterCtx_Free(FilterCtx *fc);
 

@@ -195,7 +195,7 @@ inline void __ti_Pop(TrieIterator *it) {
     }
 }
 
-inline int __ti_step(TrieIterator *it) {
+inline int __ti_step(TrieIterator *it, void *matchCtx) {
     if (it->stackOffset == 0) {
         return __STEP_STOP;
     }
@@ -220,7 +220,7 @@ inline int __ti_step(TrieIterator *it) {
 
                 if (it->filter) {
                     // run the next character in the filter
-                    FilterCode rc = it->filter(b, it->ctx, &matched);
+                    FilterCode rc = it->filter(b, it->ctx, &matched, matchCtx);
 
                     // if we should stop...
                     if (rc == F_STOP) {
@@ -280,9 +280,9 @@ TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void 
 
 void TrieIterator_Free(TrieIterator *it) { free(it); }
 
-int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score) {
+int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score, void *matchCtx) {
     int rc;
-    while ((rc = __ti_step(it)) != __STEP_STOP) {
+    while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {
         if (rc == __STEP_MATCH) {
             stackNode *sn = __ti_current(it);
 

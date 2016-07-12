@@ -81,7 +81,7 @@ typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
 // A callback for an automaton that receives the current state, evaluates the next byte,
 // and returns the next state of the automaton. If we should not continue down,
 // return F_STOP
-typedef FilterCode (*StepFilter)(unsigned char b, void *ctx, int *match);
+typedef FilterCode (*StepFilter)(unsigned char b, void *ctx, int *match, void *matchCtx);
 
 typedef void (*StackPopCallback)(void *ctx, int num);
 
@@ -111,20 +111,18 @@ void __ti_Pop(TrieIterator *it);
 #define __STEP_MATCH 3
 
 /* Single step iteration, feeding the given filter/automaton with the next character */
-int __ti_step(TrieIterator *it);
+int __ti_step(TrieIterator *it, void *matchCtx);
 
 /* Iterate the tree with a step filter, which tells the iterator whether to continue down the trie
  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL filter means just
  * continue iterating the entire trie. ctx is the filter's context */
 TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
 
-TrieIterator *Trie_PrefixSearch(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
-
 /* Free a trie iterator */
 void TrieIterator_Free(TrieIterator *it);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue, or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score);
+int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score, void *matchCtx);
 
 #endif

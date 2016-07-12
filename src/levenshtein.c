@@ -117,22 +117,21 @@ void __dfn_putCache(Vector *cache, dfaNode *dfn) { Vector_Push(cache, dfn); }
 
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     // printf("building dfa node dist %d\n", parent->distance);
-    if (SparseAutomaton_IsMatch(a, parent->v)) {
-        parent->distance = -1;
-    }
+    parent->match = SparseAutomaton_IsMatch(a, parent->v);
+
     for (int i = 0; i < parent->v->len; i++) {
         if (parent->v->entries[i].idx < a->len) {
             int c = a->string[parent->v->entries[i].idx];
             // printf("%c ---> ", c);
             if (parent->edges[c] == NULL) {
                 sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
+
                 if (nv->len > 0) {
                     dfaNode *dfn = __dfn_getCache(cache, nv);
                     if (dfn == NULL) {
                         int dist = nv->entries[nv->len - 1].val;
 
                         parent->edges[c] = __newDfaNode(dist, nv);
-                        // printf("edge %s, %c - dist %d\n", a->string, c, dist);
                         __dfn_putCache(cache, parent->edges[c]);
                         dfa_build(parent->edges[c], a, cache);
                         continue;
@@ -179,57 +178,73 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode) {
     FilterCtx ret;
     ret.cache = cache;
     ret.stack = NewVector(dfaNode *, 8);
+    ret.distStack = NewVector(int, 8);
     ret.a = a;
     ret.prefixMode = prefixMode;
     Vector_Push(ret.stack, dr);
+    Vector_Push(ret.distStack, maxDist + 1);
 
     return ret;
 }
 
 void FilterCtx_Free(FilterCtx *fc) {
     for (int i = 0; i < Vector_Size(fc->cache); i++) {
-        dfaNode *n = NULL;
-        Vector_Get(fc->cache, i, &n);
+        dfaNode *dn;
+        Vector_Get(fc->cache, i, &dn);
 
-        if (n) __dfaNode_free(n);
+        if (dn) __dfaNode_free(dn);
     }
 
     Vector_Free(fc->cache);
     Vector_Free(fc->stack);
+    Vector_Free(fc->distStack);
 }
 
-FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
+FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx) {
     FilterCtx *fc = ctx;
     dfaNode *dn;
+    int minDist;
 
     Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
+    Vector_Get(fc->distStack, Vector_Size(fc->distStack) - 1, &minDist);
 
     // a null node means we're in prefix mode, and we're done matching our prefix
     if (dn == NULL) {
         *matched = 1;
         Vector_Push(fc->stack, NULL);
+        Vector_Push(fc->distStack, minDist);
         return F_CONTINUE;
     }
 
-    *matched = dn->distance == -1;
+    *matched = dn->match;
 
-    // in prefix mode, after the match we just push NULLs,
-    // so we become a pass-through filter
-    if (*matched && fc->prefixMode) {
-        Vector_Push(fc->stack, NULL);
-        return F_CONTINUE;
+    if (*matched) {
+        // printf("MATCH %c, dist %d\n", b, dn->distance);
+        int *pdist = matchCtx;
+        if (pdist) {
+            *pdist = MIN(dn->distance, minDist);
+        }
     }
 
     dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
 
     // we can continue - push the state on the stack
     if (next) {
-        if (next->distance == -1) {
+        if (next->match) {
+            // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
             *matched = 1;
-
-            if (fc->prefixMode) next = NULL;
+            int *pdist = matchCtx;
+            if (pdist) {
+                *pdist = MIN(next->distance, minDist);
+            }
+            //    if (fc->prefixMode) next = NULL;
         }
         Vector_Push(fc->stack, next);
+        Vector_Push(fc->distStack, MIN(next->distance, minDist));
+        return F_CONTINUE;
+    } else if (fc->prefixMode && *matched) {
+        Vector_Push(fc->stack, NULL);
+        Vector_Push(fc->distStack, minDist);
         return F_CONTINUE;
     }
 
@@ -239,5 +254,8 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched) {
 void StackPop(void *ctx, int numLevels) {
     FilterCtx *fc = ctx;
 
-    for (int i = 0; i < numLevels; i++) Vector_Pop(fc->stack, NULL);
+    for (int i = 0; i < numLevels; i++) {
+        Vector_Pop(fc->stack, NULL);
+        Vector_Pop(fc->distStack, NULL);
+    }
 }

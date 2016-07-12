@@ -1,4 +1,6 @@
 #include <sys/param.h>
+#include <math.h>
+#include <time.h>
 #include "redismodule.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
@@ -51,6 +53,8 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
     return 0;
 }
 
+#define SCORE_TRIM_FACTOR 10.0
+
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode) {
     heap_t *pq = malloc(heap_sizeof(num));
     heap_init(pq, cmpEntries, NULL, num);
@@ -63,15 +67,24 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     float score;
 
     TrieEntry *pooledEntry = NULL;
-    while (TrieIterator_Next(it, &str, &slen, &score)) {
-        printf("%.*s\n", slen, str);
+    int dist = maxDist + 1;
+    while (TrieIterator_Next(it, &str, &slen, &score, &dist)) {
         if (pooledEntry == NULL) {
             pooledEntry = malloc(sizeof(TrieEntry));
         }
         TrieEntry *ent = pooledEntry;
         ent->len = slen;
-        ent->score = score;
 
+        // factor the distance into the score
+        ent->score = score * exp((double)-(2 * dist));
+
+        // in prefix mode we also factor in the total length of the suffix
+        if (prefixMode) {
+            ent->score /= sqrt(1 + fabs(slen - len));
+        }
+
+        // printf("%.*s - dist %d, totaldist: %f, score %f, refactored score %f\n", slen, str, dist,
+        //        fabs(slen - len), score, ent->score);
         if (heap_count(pq) < heap_size(pq)) {
             ent->str = strndup(str, slen);
             heap_offerx(pq, ent);
@@ -88,16 +101,30 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
                 pooledEntry = ent;
             }
         }
+        // dist = maxDist + 3;
     }
 
     size_t n = MIN(heap_count(pq), num);
+
     printf("Got %zd results\n", n);
     Vector *ret = NewVector(TrieEntry *, n);
 
     for (int i = 0; i < n; ++i) {
         TrieEntry *h = heap_poll(pq);
-        printf("Putting %s at %d\n", h->str, n - i - 1);
         Vector_Put(ret, n - i - 1, h);
+    }
+
+    float maxScore = 0;
+    for (int i = 0; i < n; ++i) {
+        TrieEntry *h;
+        Vector_Get(ret, i, &h);
+        printf("%f / %f\n", h->score, maxScore);
+        if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
+            printf("BREAKING!\n");
+            ret->top = i;
+            break;
+        }
+        maxScore = MAX(maxScore, h->score);
     }
 
     TrieIterator_Free(it);
@@ -133,7 +160,7 @@ void TrieTypeRdbSave(RedisModuleIO *rdb, void *value) {
         t_len len;
         float score;
 
-        while (TrieIterator_Next(it, &str, &len, &score)) {
+        while (TrieIterator_Next(it, &str, &len, &score, NULL)) {
             RedisModule_SaveStringBuffer(rdb, str, len);
             RedisModule_SaveDouble(rdb, (double)score);
             count++;
@@ -153,7 +180,7 @@ void TrieTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value)
         t_len len;
         float score;
 
-        while (TrieIterator_Next(it, &str, &len, &score)) {
+        while (TrieIterator_Next(it, &str, &len, &score, NULL)) {
             RedisModule_EmitAOF(aof, "TRIE.ADD", "sbd", key, str, len, (double)score);
         }
 
@@ -255,8 +282,13 @@ int TrieMatchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     printf("prefix? %d\n", prefixMode);
 
     size_t num = 10;
+    struct timespec start_time, end_time;
+    clock_gettime(CLOCK_REALTIME, &start_time);
 
     Vector *res = Trie_Search(tree, s, len, num, maxDist, prefixMode != 0);
+    clock_gettime(CLOCK_REALTIME, &end_time);
+    long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+    printf("Search took %dns\n", diffInNanos);
 
     RedisModule_ReplyWithArray(ctx, Vector_Size(res) * 2);
 
