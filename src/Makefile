@@ -37,7 +37,7 @@ test: build_test
 	@(sh -c ./test)
 
 SRCDIR := $(shell pwd)
-MODULE=$(patsubst %, $(SRCDIR)/%, $(OBJS) trie_type.o ./rmutil/vector.o)
+MODULE=$(patsubst %, $(SRCDIR)/%, $(OBJS) trie_type.o ./rmutil/vector.o  heap.o)
 
 module.so: $(MODULE)
 	 $(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) $(LDFLAGS) 

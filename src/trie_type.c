@@ -1,8 +1,10 @@
+#include <sys/param.h>
 #include "redismodule.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "trie.h"
 #include "levenshtein.h"
+#include "heap.h"
 
 static RedisModuleType *TrieType;
 
@@ -27,13 +29,89 @@ void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int inc
     t->size += Trie_Add(&t->root, s, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
 }
 
+typedef struct {
+    char *str;
+    size_t len;
+    float score;
+} TrieEntry;
+
+void TrieEntry_Free(TrieEntry *e) {
+    free(e->str);
+    free(e);
+}
+
+static int cmpEntries(const void *p1, const void *p2, const void *udata) {
+    const TrieEntry *e1 = p1, *e2 = p2;
+
+    if (e1->score < e2->score) {
+        return 1;
+    } else if (e1->score > e2->score) {
+        return -1;
+    }
+    return 0;
+}
+
+Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode) {
+    heap_t *pq = malloc(heap_sizeof(num));
+    heap_init(pq, cmpEntries, NULL, num);
+
+    FilterCtx fc = NewFilterCtx(s, len, maxDist, prefixMode);
+
+    TrieIterator *it = Trie_Iterate(tree->root, FilterFunc, StackPop, &fc);
+    char *str;
+    t_len slen;
+    float score;
+
+    TrieEntry *pooledEntry = NULL;
+    while (TrieIterator_Next(it, &str, &slen, &score)) {
+        printf("%.*s\n", slen, str);
+        if (pooledEntry == NULL) {
+            pooledEntry = malloc(sizeof(TrieEntry));
+        }
+        TrieEntry *ent = pooledEntry;
+        ent->len = slen;
+        ent->score = score;
+
+        if (heap_count(pq) < heap_size(pq)) {
+            ent->str = strndup(str, slen);
+            heap_offerx(pq, ent);
+            pooledEntry = NULL;
+        } else {
+            TrieEntry *qe = heap_peek(pq);
+            if (qe->score < ent->score) {
+                pooledEntry = heap_poll(pq);
+                free(pooledEntry->str);
+                ent->str = strndup(str, slen);
+                heap_offerx(pq, ent);
+
+            } else {
+                pooledEntry = ent;
+            }
+        }
+    }
+
+    size_t n = MIN(heap_count(pq), num);
+    printf("Got %zd results\n", n);
+    Vector *ret = NewVector(TrieEntry *, n);
+
+    for (int i = 0; i < n; ++i) {
+        TrieEntry *h = heap_poll(pq);
+        printf("Putting %s at %d\n", h->str, n - i - 1);
+        Vector_Put(ret, n - i - 1, h);
+    }
+
+    TrieIterator_Free(it);
+    FilterCtx_Free(&fc);
+    heap_free(pq);
+
+    return ret;
+}
+
 void *TrieTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     if (encver != 0) {
-        printf("Can't load data with version %d\n", encver);
         return NULL;
     }
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
-    printf("About to load %d elements\n", elements);
     Trie *tree = NewTrie();
 
     while (elements--) {
@@ -48,7 +126,6 @@ void *TrieTypeRdbLoad(RedisModuleIO *rdb, int encver) {
 void TrieTypeRdbSave(RedisModuleIO *rdb, void *value) {
     Trie *tree = (Trie *)value;
     RedisModule_SaveUnsigned(rdb, tree->size);
-    printf("About to save %d elements\n", tree->size);
     int count = 0;
     if (tree->root) {
         TrieIterator *it = Trie_Iterate(tree->root, NULL, NULL, NULL);
@@ -177,26 +254,22 @@ int TrieMatchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int prefixMode = RMUtil_ArgExists("PREFIX", argv, argc, 3);
     printf("prefix? %d\n", prefixMode);
 
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    size_t num = 10;
 
-    FilterCtx fc = NewFilterCtx(s, len, maxDist, prefixMode != 0);
+    Vector *res = Trie_Search(tree, s, len, num, maxDist, prefixMode != 0);
 
-    TrieIterator *it = Trie_Iterate(tree->root, FilterFunc, StackPop, &fc);
-    char *str;
-    t_len slen;
-    float score;
-    int matches = 0;
+    RedisModule_ReplyWithArray(ctx, Vector_Size(res) * 2);
 
-    while (TrieIterator_Next(it, &str, &slen, &score)) {
-        RedisModule_ReplyWithStringBuffer(ctx, str, (size_t)slen);
-        RedisModule_ReplyWithDouble(ctx, (double)score);
-        // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
-        matches++;
+    for (int i = 0; i < Vector_Size(res); i++) {
+        TrieEntry *e;
+        Vector_Get(res, i, &e);
+
+        RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+        RedisModule_ReplyWithDouble(ctx, e->score);
+
+        TrieEntry_Free(e);
     }
-    FilterCtx_Free(&fc);
-    TrieIterator_Free(it);
-
-    RedisModule_ReplySetArrayLength(ctx, matches * 2);
+    Vector_Free(res);
 
     return REDISMODULE_OK;
 }
@@ -226,7 +299,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     if (RedisModule_CreateCommand(ctx, "trie.match", TrieMatchCommand, "readonly", 1, 1, 1) ==
         REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    // if (RedisModule_CreateCommand(ctx, "trie.prefixmatch", TrieMatchPrefix, "readonly", 1, 1, 1)
+    // if (RedisModule_CreateCommand(ctx, "trie.prefixmatch", TrieMatchPrefix, "readonly", 1, 1,
+    // 1)
     // ==
     //     REDISMODULE_ERR)
     //     return REDISMODULE_ERR;

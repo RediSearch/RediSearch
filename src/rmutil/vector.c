@@ -44,8 +44,8 @@ inline int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
         memset(v->data + pos * v->elemSize, 0, v->elemSize);
     }
     // move the end offset to pos if we grew
-    if (pos > v->top) {
-        v->top = pos;
+    if (pos >= v->top) {
+        v->top = pos + 1;
     }
     return 1;
 }
