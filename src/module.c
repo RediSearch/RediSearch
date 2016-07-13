@@ -15,6 +15,7 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "numeric_index.h"
+#include "trie/trie_type.h"
 
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
     int isnew;
@@ -488,10 +489,124 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/* FT.SUGGADD key string score [INCR] */
+int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
+
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    RedisModuleString *val = argv[2];
+    double score;
+    if ((RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK)) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid score");
+    }
+
+    int incr = RMUtil_ArgExists("INCR", argv, argc, 4);
+
+    /* Create an empty value object if the key is currently empty. */
+    Trie *tree;
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+        tree = NewTrie();
+        RedisModule_ModuleTypeSetValue(key, TrieType, tree);
+    } else {
+        tree = RedisModule_ModuleTypeGetValue(key);
+    }
+
+    /* Insert the new element. */
+    Trie_Insert(tree, val, score, incr);
+
+    RedisModule_ReplyWithLongLong(ctx, tree->size);
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
+/*
+* FT.SUGLEN key
+* Get the size of an autoc-complete suggestion dictionary
+*/
+int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    Trie *tree = RedisModule_ModuleTypeGetValue(key);
+    return RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
+}
+
+/*
+* FT.SUGGET key prefix [FUZZY] [MAX num]
+*
+* Get completion suggestions for a prefix
+*/
+int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+
+    if (argc < 3 || argc > 6) return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    // make sure the key is a trie
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    Trie *tree = RedisModule_ModuleTypeGetValue(key);
+    if (tree == NULL) {
+        return RedisModule_ReplyWithNull(ctx);
+    }
+
+    // get the string to search for
+    size_t len;
+    char *s = (char *)RedisModule_StringPtrLen(argv[2], &len);
+
+    // get optional FUZZY argument
+    long maxDist = 0;
+    if (RMUtil_ArgExists("FUZZY", argv, argc, 3)) {
+        maxDist = 1;
+    }
+    // RedisModuleString **argv, int argc,const char *fmt
+    long num = 5;
+    RMUtil_ParseArgsAfter("MAX", argv, argc, "l", &num);
+    if (num <= 0 || num > 10) {
+        num = 5;
+    }
+
+    Vector *res = Trie_Search(tree, s, len, num, maxDist, 1);
+
+    RedisModule_ReplyWithArray(ctx, Vector_Size(res) * 2);
+
+    for (int i = 0; i < Vector_Size(res); i++) {
+        TrieSearchResult *e;
+        Vector_Get(res, i, &e);
+
+        RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+        RedisModule_ReplyWithDouble(ctx, e->score);
+
+        TrieSearchResult_Free(e);
+    }
+    Vector_Free(res);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     //  LOGGING_INIT(0xFFFFFFFF);
     if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    // register trie type
+    if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom no-cluster", 1,
                                   1, 1) == REDISMODULE_ERR)
@@ -511,6 +626,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
 
     if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write no-cluster", 1, 1, 1) ==
         REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "ft.sugadd", SuggestAddCommand, "write no-cluster", 1, 1,
+                                  1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "ft.suglen", SuggestLenCommand, "readonly no-cluster", 1, 1,
+                                  1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "ft.sugget", SuggestGetCommand, "readonly no-cluster", 1, 1,
+                                  1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     //  if (RedisModule_CreateCommand(ctx,"hgetset",

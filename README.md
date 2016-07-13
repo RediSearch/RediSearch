@@ -69,13 +69,14 @@ make all
 
 * Creating an index with fields and weights:
 ```
-127.0.0.1:6379> FT.CREATE myIdx title 5.0 body 1.0 url 1.0
+127.0.0.1:6379> FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0
 OK 
+
 ``` 
 
 * Adding documents to the index:
 ```
-127.0.0.1:6379> FT.ADD myIdx doc1 1.0 fields title "hello world" body "lorem ipsum" url "http://redis.io"
+127.0.0.1:6379> FT.ADD myIdx doc1 1.0 fields title "hello world" body "lorem ipsum" url "http://redis.io" 
 OK
 ```
 
@@ -100,6 +101,19 @@ OK
 127.0.0.1:6379> FT.DROP myIdx
 OK
 ```
+
+* Adding and getting Auto-complete suggestions:
+```
+127.0.0.1:6379> FT.SUGADD autocomplete "hello world" 100
+OK
+
+127.0.0.1:6379> FT.SUGGET autocomplete "he"
+1) "hello world"
+
+```
+FT.SUGADD key term score [INCR]
+FT.SUGGET key prefix [FUZZY] [MAX num]
+FT.SUGDEL key term
 
 
 ---- 

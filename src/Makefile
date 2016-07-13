@@ -20,10 +20,11 @@ TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
 UTILOBJS=util/heap.o util/logging.o
 RMUTILOBJS=rmutil/librmutil.a
+LIBTRIE=trie/libtrie.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS))
+MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE))
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -56,7 +57,7 @@ snowball:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic -lprofiler
+	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic -lprofiler
 
 
 release: CFLAGS += $(RELEASEFLAGS)

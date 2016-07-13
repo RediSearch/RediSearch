@@ -5,7 +5,7 @@
 #include "trie.h"
 #include "levenshtein.h"
 
-static RedisModuleType *TrieType = NULL;
+extern RedisModuleType *TrieType;
 
 typedef struct {
     TrieNode *root;
@@ -23,7 +23,7 @@ typedef struct {
 Trie *NewTrie();
 void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr);
 void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr);
-void TrieResult_Free(TrieSearchResult *e);
+void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode);
 
 /* Commands related to the redis TrieType registration */
