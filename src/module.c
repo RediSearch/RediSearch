@@ -631,14 +631,13 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     Vector *res = Trie_Search(tree, s, len, num, maxDist, 1);
 
-    RedisModule_ReplyWithArray(ctx, Vector_Size(res) * 2);
+    RedisModule_ReplyWithArray(ctx, Vector_Size(res));
 
     for (int i = 0; i < Vector_Size(res); i++) {
         TrieSearchResult *e;
         Vector_Get(res, i, &e);
 
         RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
-        RedisModule_ReplyWithDouble(ctx, e->score);
 
         TrieSearchResult_Free(e);
     }

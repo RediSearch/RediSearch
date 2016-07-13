@@ -164,7 +164,36 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                                 
                                                                                    
                                     
+    def testSuggestions(self):
+        
+        with self.redis() as r:
+        
+            self.assertEqual(1, r.execute_command('ft.SUGADD', 'ac', 'hello world', 1))
+            self.assertEqual(1, r.execute_command('ft.SUGADD', 'ac', 'hello world', 1, 'INCR'))
+
+            res = r.execute_command("FT.SUGGET", "ac", "hello")
+            self.assertEqual(1, len(res))
+            self.assertEqual("hello world", res[0])
+
+            terms = ["hello werld", "hallo world", "yellow world", "wazzup", "herp", "derp"]
+            sz = 2
+            for term in terms:
+                self.assertEqual(sz, r.execute_command('ft.SUGADD', 'ac', term, sz-1))
+                sz+=1      
             
+            
+            self.assertEqual(7, r.execute_command('ft.SUGLEN', 'ac'))
+
+            # search not fuzzy
+            self.assertEqual(["hello world", "hello werld"], r.execute_command("ft.SUGGET", "ac", "hello"))
+            
+            # search fuzzy - shuold yield more results
+            self.assertEqual(['hello world', 'hello werld', 'yellow world', 'hallo world'], 
+                             r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY"))
+
+            # search fuzzy with limit of 1 
+            self.assertEqual(['hello world'], 
+                             r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1"))
      
             
             
