@@ -34,6 +34,7 @@ traditional redis search approaches.
 * NOT queries (foo -bar).
 * Spelling correction
 * Full boolean query syntax
+* Aggregations
 * Deletion and Updating (without full index rebuild)
 
 ### License: AGPL
