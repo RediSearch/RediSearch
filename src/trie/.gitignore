@@ -1,0 +1,11 @@
+*.o
+*.so
+*.a
+*.pyc
+.vscode
+testung
+*.db
+**/callgrind.*
+**/*.out
+**/*.rdb
+
