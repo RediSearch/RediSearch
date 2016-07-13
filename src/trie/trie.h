@@ -57,15 +57,15 @@ typedef enum {
 } TrieAddOp;
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0 if we just replaced
  * the score. We pass a pointer to the node because it may actually change when splitting */
-int Trie_Add(TrieNode **n, char *str, t_len len, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, char *str, t_len len, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns 0 if the entry was
 * not found.
 * Note that you cannot put entries with zero score */
-float Trie_Find(TrieNode *n, char *str, t_len len);
+float TrieNode_Find(TrieNode *n, char *str, t_len len);
 
 /* Free the trie's root and all its children recursively */
-void Trie_Free(TrieNode *n);
+void TrieNode_Free(TrieNode *n);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {
@@ -116,7 +116,7 @@ int __ti_step(TrieIterator *it, void *matchCtx);
 /* Iterate the tree with a step filter, which tells the iterator whether to continue down the trie
  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL filter means just
  * continue iterating the entire trie. ctx is the filter's context */
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
+TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
 
 /* Free a trie iterator */
 void TrieIterator_Free(TrieIterator *it);

@@ -165,7 +165,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     //}
 }
 
-FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode) {
+DFAFilter NewDFAFilter(char *str, size_t len, int maxDist, int prefixMode) {
     Vector *cache = NewVector(dfaNode *, 8);
 
     SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
@@ -175,7 +175,7 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode) {
     __dfn_putCache(cache, dr);
     dfa_build(dr, &a, cache);
 
-    FilterCtx ret;
+    DFAFilter ret;
     ret.cache = cache;
     ret.stack = NewVector(dfaNode *, 8);
     ret.distStack = NewVector(int, 8);
@@ -187,7 +187,7 @@ FilterCtx NewFilterCtx(char *str, size_t len, int maxDist, int prefixMode) {
     return ret;
 }
 
-void FilterCtx_Free(FilterCtx *fc) {
+void DFAFilter_Free(DFAFilter *fc) {
     for (int i = 0; i < Vector_Size(fc->cache); i++) {
         dfaNode *dn;
         Vector_Get(fc->cache, i, &dn);
@@ -201,7 +201,7 @@ void FilterCtx_Free(FilterCtx *fc) {
 }
 
 FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx) {
-    FilterCtx *fc = ctx;
+    DFAFilter *fc = ctx;
     dfaNode *dn;
     int minDist;
 
@@ -252,7 +252,7 @@ FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 }
 
 void StackPop(void *ctx, int numLevels) {
-    FilterCtx *fc = ctx;
+    DFAFilter *fc = ctx;
 
     for (int i = 0; i < numLevels; i++) {
         Vector_Pop(fc->stack, NULL);

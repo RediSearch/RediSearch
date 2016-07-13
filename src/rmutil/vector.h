@@ -10,10 +10,10 @@
 * Works like C++ std::vector with an underlying resizable buffer
 */
 typedef struct {
-  char *data;
-  int elemSize;
-  int cap;
-  int top;
+    char *data;
+    size_t elemSize;
+    size_t cap;
+    size_t top;
 
 } Vector;
 
@@ -22,7 +22,7 @@ typedef struct {
 Vector *__newVectorSize(size_t elemSize, size_t cap);
 
 // Put a pointer in the vector. To be used internall by the library
-int __vector_PutPtr(Vector *v, int pos, void *elem);
+int __vector_PutPtr(Vector *v, size_t pos, void *elem);
 
 /*
 * Create a new vector for a given type and a given capacity.
@@ -35,7 +35,10 @@ int __vector_PutPtr(Vector *v, int pos, void *elem);
 * the vector capacity, we return 0
 * otherwise 1
 */
-int Vector_Get(Vector *v, int pos, void *ptr);
+int Vector_Get(Vector *v, size_t pos, void *ptr);
+
+/* Get the element at the end of the vector, decreasing the size by one */
+int Vector_Pop(Vector *v, void *ptr);
 
 //#define Vector_Getx(v, pos, ptr) pos < v->cap ? 1 : 0; *ptr =
 //*(typeof(ptr))(v->data + v->elemSize*pos)
@@ -44,28 +47,27 @@ int Vector_Get(Vector *v, int pos, void *ptr);
 * Put an element at pos.
 * Note: If pos is outside the vector capacity, we resize it accordingly
 */
-#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, &(typeof(elem)){elem})
+#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL)
 
 /* Push an element at the end of v, resizing it if needed. This macro wraps
  * __vector_PushPtr */
-#define Vector_Push(v, elem) __vector_PushPtr(v, &(typeof(elem)){elem})
+#define Vector_Push(v, elem) __vector_PushPtr(v, elem ? &(typeof(elem)){elem} : NULL)
 
 int __vector_PushPtr(Vector *v, void *elem);
 
 /* resize capacity of v */
-int Vector_Resize(Vector *v, int newcap);
+int Vector_Resize(Vector *v, size_t newcap);
 
 /* return the used size of the vector, regardless of capacity */
-int Vector_Size(Vector *v);
+inline int Vector_Size(Vector *v) { return v->top; }
 
 /* return the actual capacity */
-int Vector_Cap(Vector *v);
-
+inline int Vector_Cap(Vector *v) { return v->cap; }
 
 /* free the vector and the underlying data. Does not release its elements if
  * they are pointers*/
 void Vector_Free(Vector *v);
 
-int __vecotr_PutPtr(Vector *v, int pos, void *elem);
+int __vecotr_PutPtr(Vector *v, size_t pos, void *elem);
 
 #endif

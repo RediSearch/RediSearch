@@ -41,7 +41,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     return n;
 }
 
-int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
+int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
     if (score == 0 || len == 0) {
         return 0;
     }
@@ -98,7 +98,7 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
         TrieNode *child = __trieNode_children(n)[i];
 
         if (str[offset] == child->str[0]) {
-            int rc = Trie_Add(&child, str + offset, len - offset, score, op);
+            int rc = TrieNode_Add(&child, str + offset, len - offset, score, op);
             __trieNode_children(n)[i] = child;
             return rc;
         }
@@ -109,7 +109,7 @@ int Trie_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
     return 1;
 }
 
-float Trie_Find(TrieNode *n, char *str, t_len len) {
+float TrieNode_Find(TrieNode *n, char *str, t_len len) {
     t_len offset = 0;
     while (n && offset < len) {
         // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
@@ -150,10 +150,10 @@ float Trie_Find(TrieNode *n, char *str, t_len len) {
     return 0;
 }
 
-void Trie_Free(TrieNode *n) {
+void TrieNode_Free(TrieNode *n) {
     for (t_len i = 0; i < n->numChildren; i++) {
         TrieNode *child = __trieNode_children(n)[i];
-        Trie_Free(child);
+        TrieNode_Free(child);
     }
 
     free(n);
@@ -268,7 +268,7 @@ next:
     return __STEP_CONT;
 }
 
-TrieIterator *Trie_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
+TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
     TrieIterator *it = calloc(1, sizeof(TrieIterator));
     it->filter = f;
     it->popCallback = pf;

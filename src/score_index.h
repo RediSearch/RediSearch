@@ -13,7 +13,7 @@ without needing to traverse the entire index. */
 #define MAX_SCOREINDEX_SIZE 50
 
 // entries with less docs than this will get their socre indexes deleted by optimize
-#define SCOREINDEX_DELETE_THRESHOLD 5000s
+#define SCOREINDEX_DELETE_THRESHOLD 5000
 
 #pragma pack(4)
 typedef struct {

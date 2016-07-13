@@ -29,14 +29,12 @@ CC=gcc
 .SUFFIXES: .c .so .xo .o
 
 UTIL = util
-
 RMUTIL = rmutil
-
+TRIE = trie
 
 .PHONY: rmutil $(RMUTIL) 
-
 .PHONY: util $(UTIL)
-
+.PHONY: trie $(TRIE)
 
 # util: $(UTIL)
 
@@ -48,8 +46,12 @@ $(UTIL):
 $(RMUTIL):
 	$(MAKE) -C $@
 
+$(TRIE):
+	$(MAKE) -C $@
+
 snowball:
 	$(MAKE) -C dep/snowball libstemmer.o
+
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
@@ -58,10 +60,10 @@ module.so: $(MODULE)
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball | module.so
+release: util rmutil snowball trie | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball | module.so
+debug: util rmutil snowball trie | module.so
 	
 
 clean:

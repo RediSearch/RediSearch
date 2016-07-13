@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include "sparse_vector.h"
-#include "rmutil/vector.h"
+#include "../rmutil/vector.h"
 #include "trie.h"
 
 /*
@@ -62,6 +62,8 @@ typedef struct {
     Vector *distStack;
     // whether the filter works in prefix mode or not
     int prefixMode;
+
+    SparseAutomaton a;
 } DFAFilter;
 
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
