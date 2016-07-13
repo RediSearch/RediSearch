@@ -10,7 +10,9 @@
 
 int count = 0;
 
-FilterCode stepFilter(unsigned char b, void *ctx, int *matched) { return F_CONTINUE; }
+FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) {
+    return F_CONTINUE;
+}
 // void *stepFilter(char b, void *ctx, void *stackCtx) {
 //     SparseAutomaton *a = ctx;
 //     dfaNode *dn = stackCtx;
@@ -62,7 +64,7 @@ int testTrie() {
     t_len len;
     float score;
 
-    while (TrieIterator_Next(it, &s, &len, &score)) {
+    while (TrieIterator_Next(it, &s, &len, &score, NULL)) {
         printf("Found %.*s -> %f\n", len, s, score);
     }
     TrieIterator_Free(it);
@@ -101,10 +103,8 @@ int testWithData() {
 
     printf("loaded %d entries\n", i);
 
-    char *terms[] = {"a",
+    char *terms[] = {"barack obama",
                      NULL,
-                     "uk",
-                     "barack obama",
 
                      "hello",
                      "hello world",
@@ -123,7 +123,7 @@ int testWithData() {
 
             // float score = Trie_Find(root, terms[i], strlen(terms[i]));
             clock_gettime(CLOCK_REALTIME, &start_time);
-            FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 0, 1);
+            FilterCtx fc = NewFilterCtx(terms[i], strlen(terms[i]), 1, 0);
             clock_gettime(CLOCK_REALTIME, &end_time);
             long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
             totalns += diffInNanos / 1000;
@@ -140,8 +140,8 @@ int testWithData() {
 
             clock_gettime(CLOCK_REALTIME, &start_time);
 
-            while (TrieIterator_Next(it, &s, &len, &score)) {
-                // printf("Found %s -> %.*s -> %f\n", terms[i], len, s, score);
+            while (TrieIterator_Next(it, &s, &len, &score, &dist)) {
+                // printf("Found %s -> %.*s -> %f, dist %d\n", terms[i], len, s, score, dist);
                 matches++;
             }
             clock_gettime(CLOCK_REALTIME, &end_time);
@@ -170,6 +170,6 @@ int testWithData() {
 }
 
 int main(int argc, char **argv) {
-    //    testWithData();
+    testWithData();
     testTrie();
 }
