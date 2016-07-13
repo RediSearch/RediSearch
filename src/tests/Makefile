@@ -5,10 +5,11 @@ TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 #REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
 #UTILOBJS=util/heap.o util/logging.o
 RMUTILOBJS=rmutil/librmutil.a
+LIBTRIE=trie/libtrie.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-DEPS=$(patsubst %, $(SRCDIR)/../%, $(TEXT) $(RMUTILOBJS))
+DEPS=$(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(RMUTILOBJS) )
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -16,9 +17,16 @@ CC=gcc
 
 stemmer: test_stemmer.o
 	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm 
-	
-test: stemmer
 	@(sh -c ./test_stemmer)
+
+trie: test_trie.o
+	$(CC) $(CFLAGS)  -o test_trie test_trie.o $ $(DEPS) -lc -lm 
+	@(sh -c ./test_trie)
+
+test: stemmer trie
+	
+	
+
 all: test
 
 #rebuild: clean all
