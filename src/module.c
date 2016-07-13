@@ -489,7 +489,28 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-/* FT.SUGGADD key string score [INCR] */
+/*
+## FT.SUGGADD key string score [INCR]
+
+Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
+index definitions, and leaves creating and updating suggestino dictionaries to the user.
+
+### Parameters:
+
+   - key: the suggestion dictionary key.
+
+   - string: the suggestion string we index
+
+   - score: a floating point number of the suggestion string's weight
+
+   -INCR: if set, we increment the existing entry of the suggestion by the given score, instead of
+    replacing the score. This is useful for updating the dictionary based on user queries in real
+    time
+
+### Returns:
+
+Integer reply: the current size of the suggestion dictionary.
+*/
 int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
 
@@ -527,8 +548,17 @@ int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-* FT.SUGLEN key
-* Get the size of an autoc-complete suggestion dictionary
+## FT.SUGLEN key
+
+Get the size of an autoc-complete suggestion dictionary
+
+### Parameters:
+
+   - key: the suggestion dictionary key.
+
+### Returns:
+
+Integer reply: the current size of the suggestion dictionary.
 */
 int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
@@ -545,9 +575,26 @@ int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-* FT.SUGGET key prefix [FUZZY] [MAX num]
-*
-* Get completion suggestions for a prefix
+## FT.SUGGET key prefix [FUZZY] [MAX num]
+
+Get completion suggestions for a prefix
+
+### Parameters:
+
+   - key: the suggestion dictionary key
+
+   - prefix: the prefix to complete on
+
+   - FUZZY: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from
+    the prefix sent
+
+   - MAX num: If set, we limit the results to a maximum of `num`. The default is 5, and the number
+    cannot be greater than 10.
+
+### Returns:
+
+Array reply: a list of the top suggestions matching the prefix
+
 */
 int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */

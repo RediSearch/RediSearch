@@ -20,6 +20,7 @@ traditional redis search approaches.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
+* Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search of up to 8 words.
 * Stemming based query expansion in [many languages](#stemming-support) (using [Snowball](http://snowballstem.org/)).
 * Limiting searches to specific document fields (up to 8 fields supported).
@@ -32,7 +33,6 @@ traditional redis search approaches.
 * Geo filters.
 * NOT queries (foo -bar).
 * Spelling correction
-* Auto-complete
 * Full boolean query syntax
 * Deletion and Updating (without full index rebuild)
 
@@ -111,9 +111,6 @@ OK
 1) "hello world"
 
 ```
-FT.SUGADD key term score [INCR]
-FT.SUGGET key prefix [FUZZY] [MAX num]
-FT.SUGDEL key term
 
 
 ---- 
@@ -238,7 +235,69 @@ we can optimize memory consumption by trimming all index buffers to their actual
 
 > Integer Reply - the number of index entries optimized.
 
+---
+
+## FT.SUGGADD key string score [INCR]
+
+Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
+index definitions, and leaves creating and updating suggestino dictionaries to the user.
+
+### Parameters:
+
+   - **key**: the suggestion dictionary key.
+
+   - **string**: the suggestion string we index
+
+   - **score**: a floating point number of the suggestion string's weight
+
+   - **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of
+    replacing the score. This is useful for updating the dictionary based on user queries in real
+    time
+
+### Returns:
+
+> Integer reply: the current size of the suggestion dictionary.
+
+---
+
+## FT.SUGLEN key
+
+Get the size of an autoc-complete suggestion dictionary
+
+### Parameters:
+
+   - **key**: the suggestion dictionary key.
+
+### Returns:
+
+> Integer reply: the current size of the suggestion dictionary.
+
+---
+
+## FT.SUGGET key prefix [FUZZY] [MAX num]
+
+Get completion suggestions for a prefix
+
+### Parameters:
+
+   - **key**: the suggestion dictionary key.
+
+   - **prefix**: the prefix to complete on
+
+   - **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from
+    the prefix sent
+
+   - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number
+   cannot be greater than 10).
+
+### Returns:
+
+> Array reply: a list of the top suggestions matching the prefix
+
+
+
 # TODO
+
 See [TODO](TODO.md)
 
 # Stemming Support
