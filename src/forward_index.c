@@ -40,26 +40,34 @@ void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 int forwardIndexTokenFunc(void *ctx, Token t) {
     ForwardIndex *idx = ctx;
 
+    static char buf[1024];
+    char *p = buf;
+    char *s = (char *)t.s;
+    for (size_t i = 0; i < t.len && i < 1024; ++i) {
+        *p++ = *s++;
+    }
+    *p = 0;
+    // snprintf(buf, 1024, "%.*s", (int)t.len, t.s);
+
     // we need to ndup the string because it's not null terminated
-    char *s = strndup(t.s, t.len);
 
     ForwardIndexEntry *h = NULL;
-    khiter_t k = kh_get(32, idx->hits, s);  // first have to get ieter
-    if (k == kh_end(idx->hits)) {           // k will be equal to kh_end if key not present
+    khiter_t k = kh_get(32, idx->hits, buf);  // first have to get ieter
+    if (k == kh_end(idx->hits)) {             // k will be equal to kh_end if key not present
 
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
         h->flags = 0;
-        h->term = s;
+        h->term = strndup(t.s, t.len);
+        ;
         h->vw = NewVarintVectorWriter(4);
         h->docScore = idx->docScore;
 
         int ret;
-        k = kh_put(32, idx->hits, s, &ret);
+        k = kh_put(32, idx->hits, h->term, &ret);
         kh_value(idx->hits, k) = h;
     } else {
         h = kh_val(idx->hits, k);
-        free(s);
     }
 
     h->flags |= (t.fieldId & 0xff);
@@ -75,7 +83,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     idx->maxFreq = MAX(h->freq, idx->maxFreq);
     VVW_Write(h->vw, t.pos);
 
-    LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
+    // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
     return 0;
 }
 
