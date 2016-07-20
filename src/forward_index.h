@@ -8,6 +8,7 @@
 
 typedef struct {
     const char *term;
+    size_t len;
     t_docId docId;
     float freq;
     float docScore;

@@ -9,33 +9,35 @@
 * Format redis key for a term.
 * TODO: Add index name to it
 */
-RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term) {
-    return RMUtil_CreateFormattedString(ctx->redisCtx, TERM_KEY_FORMAT, ctx->spec->name, term);
+RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+    return RMUtil_CreateFormattedString(ctx->redisCtx, TERM_KEY_FORMAT, ctx->spec->name, len, term);
 }
 
-RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term) {
-    return RMUtil_CreateFormattedString(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, term);
+RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+    return RMUtil_CreateFormattedString(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, len,
+                                        term);
 }
 
-RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term) {
-    return RMUtil_CreateFormattedString(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name,
+RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+    return RMUtil_CreateFormattedString(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, len,
                                         term);
 }
 /**
 * Open a redis index writer on a redis key
 */
-IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
+IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len) {
     // Open the index writer
-    RedisModuleString *termKey = fmtRedisTermKey(ctx, term);
+    RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
     BufferWriter bw = NewRedisWriter(ctx->redisCtx, termKey);
-    // RedisModule_FreeString(ctx->redisCtx, termKey);
+    RedisModule_FreeString(ctx->redisCtx, termKey);
     // Open the skip index writer
-    termKey = fmtRedisSkipIndexKey(ctx, term);
-    Buffer *sb = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_WRITE);
+    termKey = fmtRedisSkipIndexKey(ctx, term, len);
+    Buffer *sb = NewRedisBuffer(ctx->redisCtx, termKey, BUFFER_WRITE);
     BufferWriter skw = {
         sb, redisWriterWrite, redisWriterTruncate, RedisBufferFree,
     };
-    // RedisModule_FreeString(ctx->redisCtx, termKey);
+    RedisModule_FreeString(ctx->redisCtx, termKey);
+
     if (sb->cap > sizeof(u_int32_t)) {
         u_int32_t len;
 
@@ -43,11 +45,12 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term) {
         BufferSeek(sb, sizeof(len) + len * sizeof(SkipEntry));
     }
 
-    termKey = fmtRedisScoreIndexKey(ctx, term);
+    termKey = fmtRedisScoreIndexKey(ctx, term, len);
+
     // Open the score index writer
     ScoreIndexWriter scw =
-        NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term)));
-    // RedisModule_FreeString(ctx->redisCtx, termKey);
+        NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len)));
+    RedisModule_FreeString(ctx->redisCtx, termKey);
     IndexWriter *w = NewIndexWriterBuf(bw, skw, scw);
     return w;
 }
@@ -60,8 +63,8 @@ void Redis_CloseWriter(IndexWriter *w) {
     free(w);
 }
 
-SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
-    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term), BUFFER_READ);
+SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
+    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisSkipIndexKey(ctx, term, len), BUFFER_READ);
     if (b && b->cap > sizeof(SkipEntry)) {
         SkipIndex *si = malloc(sizeof(SkipIndex));
         BufferRead(b, &si->len, sizeof(si->len));
@@ -74,26 +77,26 @@ SkipIndex *LoadRedisSkipIndex(RedisSearchCtx *ctx, const char *term) {
     return NULL;
 }
 
-ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term) {
-    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term), BUFFER_READ);
+ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
+    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len), BUFFER_READ);
     if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {
         return NULL;
     }
     return NewScoreIndex(b);
 }
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, DocTable *dt,
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len, DocTable *dt,
                               int singleWordMode, u_char fieldMask) {
-    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term), BUFFER_READ);
+    Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisTermKey(ctx, term, len), BUFFER_READ);
     if (b == NULL) {  // not found
         return NULL;
     }
     SkipIndex *si = NULL;
     ScoreIndex *sci = NULL;
     if (singleWordMode) {
-        sci = LoadRedisScoreIndex(ctx, term);
+        sci = LoadRedisScoreIndex(ctx, term, len);
     } else {
-        si = LoadRedisSkipIndex(ctx, term);
+        si = LoadRedisSkipIndex(ctx, term, len);
     }
 
     return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask);
@@ -340,16 +343,15 @@ end:
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
     // extract the term from the key
     RedisSearchCtx *sctx = opaque;
-    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
+    RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
     size_t pflen, len;
     const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
 
     char *k = (char *)RedisModule_StringPtrLen(kn, &len);
     k += pflen;
-    char *term = strndup(k, len - pflen);
 
     // Open the index writer for the term
-    IndexWriter *w = Redis_OpenWriter(sctx, term);
+    IndexWriter *w = Redis_OpenWriter(sctx, k, len - pflen);
     if (w) {
         // Truncate the main index buffer to its final size
         w->bw.Truncate(w->bw.buf, 0);
@@ -372,7 +374,6 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
     }
 
     RedisModule_FreeString(ctx, pf);
-    free(term);
 
     return REDISMODULE_OK;
 }
@@ -380,22 +381,22 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
     // extract the term from the key
     RedisSearchCtx *sctx = opaque;
-    RedisModuleString *pf = fmtRedisTermKey(sctx, "");
+    RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
     size_t pflen, len;
     const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
 
     char *k = (char *)RedisModule_StringPtrLen(kn, &len);
     k += pflen;
-    char *term = strndup(k, len - pflen);
+    // char *term = strndup(k, len - pflen);
 
-    RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, term);
-    RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, term);
+    RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
+    RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
     RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
 
     RedisModule_FreeString(ctx, sck);
     RedisModule_FreeString(ctx, sik);
-    free(term);
+    // free(term);
 
     return REDISMODULE_OK;
 }
@@ -429,7 +430,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
                          REDISINDEX_DOCIDCOUNTER, dmd);
     }
 
-    RedisModuleString *pf = fmtRedisTermKey(ctx, "*");
+    RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
     const char *prefix = RedisModule_StringPtrLen(pf, &len);
 
     // Delete the actual index sub keys

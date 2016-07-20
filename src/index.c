@@ -346,7 +346,7 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
 
 /* Write a forward-index entry to an index writer */
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
-    VVW_Truncate(ent->vw);
+    // VVW_Truncate(ent->vw);
     VarintVector *offsets = ent->vw->bw.buf;
 
     IW_GenericWrite(w, ent->docId, ent->freq * ent->docScore, ent->flags, offsets);

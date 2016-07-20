@@ -87,12 +87,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         ForwardIndexIterator it = ForwardIndex_Iterate(idx);
 
         ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-
         while (entry != NULL) {
-            LG_DEBUG("entry: %s freq %f\n", entry->term, entry->freq);
+            //    // LG_DEBUG("entry: %s freq %f\n", entry->term, entry->freq);
             ForwardIndex_NormalizeFreq(idx, entry);
-            IndexWriter *w = Redis_OpenWriter(ctx, entry->term);
-
+            IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
             IW_WriteEntry(w, entry);
 
             Redis_CloseWriter(w);
@@ -312,10 +310,14 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // Parse VERBATIM and LANGUAGE argumens
     int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
     const char *lang = NULL;
-    RMUtil_ParseArgsAfter("LANGUAGE", argv, argc, "c", &lang);
-    if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
-        RedisModule_ReplyWithError(ctx, "Unsupported Stemmer Language");
-        goto end;
+
+    // make sure we search for "language" only after the query
+    if (argc > 3) {
+        RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &lang);
+        if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
+            RedisModule_ReplyWithError(ctx, "Unsupported Stemmer Language");
+            goto end;
+        }
     }
 
     // open the documents metadata table
@@ -431,7 +433,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 *  After the index is built (and doesn't need to be updated again withuot a complete rebuild)
 *  we can optimize memory consumption by trimming all index buffers to their actual size.
 *
-*  Warning 1: This will delete score indexes for small words (n < 5000), so updating the index after
+*  Warning 1: This will delete score indexes for small words (n < 5000), so updating the index
+* after
 *  optimizing it might lead to screwed up results (TODO: rebuild score indexes if needed).
 *  The simple solution to that is to call optimize again after adding documents to the index.
 *
@@ -453,7 +456,7 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
 
     RedisSearchCtx sctx = {ctx, &sp};
-    RedisModuleString *pf = fmtRedisTermKey(&sctx, "*");
+    RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
     size_t len;
     const char *prefix = RedisModule_StringPtrLen(pf, &len);
 
@@ -503,8 +506,10 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
    - score: a floating point number of the suggestion string's weight
 
-   -INCR: if set, we increment the existing entry of the suggestion by the given score, instead of
-    replacing the score. This is useful for updating the dictionary based on user queries in real
+   -INCR: if set, we increment the existing entry of the suggestion by the given score, instead
+of
+    replacing the score. This is useful for updating the dictionary based on user queries in
+real
     time
 
 ### Returns:
@@ -585,10 +590,12 @@ Get completion suggestions for a prefix
 
    - prefix: the prefix to complete on
 
-   - FUZZY: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from
+   - FUZZY: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1
+from
     the prefix sent
 
-   - MAX num: If set, we limit the results to a maximum of `num`. The default is 5, and the number
+   - MAX num: If set, we limit the results to a maximum of `num`. The default is 5, and the
+number
     cannot be greater than 10.
 
 ### Returns:
@@ -647,7 +654,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
-    //  LOGGING_INIT(0xFFFFFFFF);
+    // LOGGING_INIT(0xFFFFFFFF);
     if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

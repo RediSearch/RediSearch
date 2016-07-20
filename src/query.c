@@ -70,8 +70,8 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
 
     int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff && q->root->nchildren == 1;
 
-    IndexReader *ir =
-        Redis_OpenReader(q->ctx, stage->value, q->docTable, isSingleWord, q->fieldMask);
+    IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, strlen(stage->value), q->docTable,
+                                       isSingleWord, q->fieldMask);
     if (ir == NULL) {
         return NULL;
     }

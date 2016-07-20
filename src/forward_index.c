@@ -22,7 +22,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
     for (k = kh_begin(idx->hits); k != kh_end(idx->hits); ++k) {
         if (kh_exist(idx->hits, k)) {
             ForwardIndexEntry *ent = kh_value(idx->hits, k);
-            free((void *)ent->term);
+            // free((void *)ent->term);
             kh_del(32, idx->hits, k);
             VVW_Free(ent->vw);
             free(ent);
@@ -41,12 +41,16 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     ForwardIndex *idx = ctx;
 
     static char buf[1024];
-    char *p = buf;
-    char *s = (char *)t.s;
+    // char *p = buf;
+    // char *s = (char *)t.s;
+    // strncpy(buf, t.s, MIN(1024, t.len));
+    // memccpy(buf, t.s, t.len);
     for (size_t i = 0; i < t.len && i < 1024; ++i) {
-        *p++ = *s++;
+        buf[i] = t.s[i];
     }
-    *p = 0;
+    buf[t.len] = 0;
+
+    // char *buf = strndup(t.s, t.len);  //
     // snprintf(buf, 1024, "%.*s", (int)t.len, t.s);
 
     // we need to ndup the string because it's not null terminated
@@ -58,16 +62,18 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
         h->flags = 0;
-        h->term = strndup(t.s, t.len);
-        ;
+        h->term = t.s;
+        h->len = t.len;
+
         h->vw = NewVarintVectorWriter(4);
         h->docScore = idx->docScore;
 
         int ret;
-        k = kh_put(32, idx->hits, h->term, &ret);
+        k = kh_put(32, idx->hits, buf, &ret);
         kh_value(idx->hits, k) = h;
     } else {
         h = kh_val(idx->hits, k);
+        // free(buf);
     }
 
     h->flags |= (t.fieldId & 0xff);
