@@ -38,7 +38,8 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
     return 0;
 }
 
-Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode) {
+Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
+                    int trim) {
     heap_t *pq = malloc(heap_sizeof(num));
     heap_init(pq, cmpEntries, NULL, num);
 
@@ -66,9 +67,6 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
             ent->score /= sqrt(1 + fabs(slen - len));
         }
 
-        // printf("%.*s - dist %d, totaldist: %f, score %f, refactored score %f\n", slen, str,
-        // dist,
-        //        fabs(slen - len), score, ent->score);
         if (heap_count(pq) < heap_size(pq)) {
             ent->str = strndup(str, slen);
             heap_offerx(pq, ent);
@@ -102,10 +100,12 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         TrieSearchResult *h;
         Vector_Get(ret, i, &h);
 
-        if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
-            // TODO: Fix trimming the vector
-            ret->top = i;
-            break;
+        if (trim) {
+            if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
+                // TODO: Fix trimming the vector
+                ret->top = i;
+                break;
+            }
         }
         maxScore = MAX(maxScore, h->score);
     }

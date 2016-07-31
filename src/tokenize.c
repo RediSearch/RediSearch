@@ -61,18 +61,18 @@ int _tokenize(TokenizerCtx *ctx) {
         }
 
         // if we support stemming - try to stem the word
-        // if (ctx->stemmer) {
-        //     size_t sl;
-        //     const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
-        //     if (stem && strncmp(stem, tok, tlen)) {
-        //         t.s = stem;
-        //         t.type = DT_STEM;
-        //         t.len = sl;
-        //         if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
-        //             break;
-        //         }
-        //     }
-        // }
+        if (ctx->stemmer) {
+            size_t sl;
+            const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
+            if (stem && strncmp(stem, tok, tlen)) {
+                t.s = stem;
+                t.type = DT_STEM;
+                t.len = sl;
+                if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
+                    break;
+                }
+            }
+        }
     }
 
     return pos;

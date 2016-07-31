@@ -16,7 +16,7 @@ typedef struct {
     VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
-KHASH_MAP_INIT_STR(32, ForwardIndexEntry *)
+KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF

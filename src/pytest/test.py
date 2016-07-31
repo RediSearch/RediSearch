@@ -121,18 +121,13 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                  'title', 'hello kitty'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                 'title', 'hellos kitties'))
+                                 'title', 'hello kitties'))
                                                 
-            res = r.execute_command('ft.search', 'idx', 'hellos kitties', "nocontent")
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent")
             self.assertEqual(3, len(res))     
             self.assertEqual(2, res[0])      
             
-            res = r.execute_command('ft.search', 'idx', '"hellos kitties"', "nocontent")
-            self.assertEqual(3, len(res))     
-            self.assertEqual(2, res[0])
-            
-                                                 
-            res = r.execute_command('ft.search', 'idx', 'hellos kitties', "nocontent", "verbatim")
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", "verbatim")
             self.assertEqual(2, len(res))     
             self.assertEqual(1, res[0])    
             
@@ -195,7 +190,11 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(['hello world'], 
                              r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1"))
      
-            
+            # scores should return on WITHSCORES
+            rc = r.execute_command("ft.SUGGET", "ac", "hello", "WITHSCORES")
+            self.assertEqual(4, len(rc))
+            self.assertTrue(float(rc[1]) > 0)
+            self.assertTrue(float(rc[3]) > 0)
             
 if __name__ == '__main__':
 

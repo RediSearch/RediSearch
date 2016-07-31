@@ -3,6 +3,7 @@
 #include "forward_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
+#include "util/fnv.h"
 
 ForwardIndex *NewForwardIndex(Document doc) {
     ForwardIndex *idx = malloc(sizeof(ForwardIndex));
@@ -23,6 +24,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
         if (kh_exist(idx->hits, k)) {
             ForwardIndexEntry *ent = kh_value(idx->hits, k);
             // free((void *)ent->term);
+
             kh_del(32, idx->hits, k);
             VVW_Free(ent->vw);
             free(ent);
@@ -40,24 +42,12 @@ void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 int forwardIndexTokenFunc(void *ctx, Token t) {
     ForwardIndex *idx = ctx;
 
-    static char buf[1024];
-    // char *p = buf;
-    // char *s = (char *)t.s;
-    // strncpy(buf, t.s, MIN(1024, t.len));
-    // memccpy(buf, t.s, t.len);
-    for (size_t i = 0; i < t.len && i < 1024; ++i) {
-        buf[i] = t.s[i];
-    }
-    buf[t.len] = 0;
-
-    // char *buf = strndup(t.s, t.len);  //
-    // snprintf(buf, 1024, "%.*s", (int)t.len, t.s);
-
-    // we need to ndup the string because it's not null terminated
+    // we hash the string ourselves because khash suckz azz
+    u_int32_t hval = fnv_32a_buf((void *)t.s, t.len, 0);
 
     ForwardIndexEntry *h = NULL;
-    khiter_t k = kh_get(32, idx->hits, buf);  // first have to get ieter
-    if (k == kh_end(idx->hits)) {             // k will be equal to kh_end if key not present
+    khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
+    if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
 
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
@@ -69,11 +59,10 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
         h->docScore = idx->docScore;
 
         int ret;
-        k = kh_put(32, idx->hits, buf, &ret);
+        k = kh_put(32, idx->hits, hval, &ret);
         kh_value(idx->hits, k) = h;
     } else {
         h = kh_val(idx->hits, k);
-        // free(buf);
     }
 
     h->flags |= (t.fieldId & 0xff);

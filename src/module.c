@@ -46,7 +46,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     int totalTokens = 0;
     for (int i = 0; i < doc.numFields; i++) {
-        // LG_DEBUG("Tokenizing %s: %s\n", doc.fields[i].name, doc.fields[i].text );
+        // printf("Tokenizing %s: %s\n", RedisModule_StringPtrLen(doc.fields[i].name, NULL),
+        //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
 
         size_t len;
         const char *f = RedisModule_StringPtrLen(doc.fields[i].name, &len);
@@ -82,13 +83,13 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         }
     }
 
-    LG_DEBUG("totaltokens :%d\n", totalTokens);
+    // printf("totaltokens :%d\n", totalTokens);
     if (totalTokens > 0) {
         ForwardIndexIterator it = ForwardIndex_Iterate(idx);
 
         ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
         while (entry != NULL) {
-            //    // LG_DEBUG("entry: %s freq %f\n", entry->term, entry->freq);
+            //   printf("entry: %.*s freq %f\n", entry->len, entry->term, entry->freq);
             ForwardIndex_NormalizeFreq(idx, entry);
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
             IW_WriteEntry(w, entry);
@@ -580,7 +581,7 @@ int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-## FT.SUGGET key prefix [FUZZY] [MAX num]
+## FT.SUGGET key prefix [FUZZY] [MAX num] [WITHSCORES] [TRIM]
 
 Get completion suggestions for a prefix
 
@@ -591,12 +592,14 @@ Get completion suggestions for a prefix
    - prefix: the prefix to complete on
 
    - FUZZY: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1
-from
-    the prefix sent
+    from the prefix sent
 
-   - MAX num: If set, we limit the results to a maximum of `num`. The default is 5, and the
-number
+   - MAX num: If set, we limit the results to a maximum of `num`. The default is 5, and the number
     cannot be greater than 10.
+
+   - WITHSCORES: If set, we also return each entry's score
+
+   - TRIM: If set, we remove very unlikely results
 
 ### Returns:
 
@@ -635,16 +638,25 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (num <= 0 || num > 10) {
         num = 5;
     }
+    // detect WITHSCORES
+    int withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
 
-    Vector *res = Trie_Search(tree, s, len, num, maxDist, 1);
+    // detect TRIM
+    int trim = RMUtil_ArgExists("TRIM", argv, argc, 3);
 
-    RedisModule_ReplyWithArray(ctx, Vector_Size(res));
+    Vector *res = Trie_Search(tree, s, len, num, maxDist, 1, trim);
+
+    // if we also need to return scores, we need double the records
+    RedisModule_ReplyWithArray(ctx, Vector_Size(res) * (withScores ? 2 : 1));
 
     for (int i = 0; i < Vector_Size(res); i++) {
         TrieSearchResult *e;
         Vector_Get(res, i, &e);
 
         RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+        if (withScores) {
+            RedisModule_ReplyWithDouble(ctx, e->score);
+        }
 
         TrieSearchResult_Free(e);
     }
