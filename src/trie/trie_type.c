@@ -173,7 +173,7 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
         float score;
 
         while (TrieIterator_Next(it, &str, &len, &score, NULL)) {
-            RedisModule_EmitAOF(aof, "TRIE.ADD", "sbd", key, str, len, (double)score);
+            RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, str, len, (double)score);
         }
 
         TrieIterator_Free(it);

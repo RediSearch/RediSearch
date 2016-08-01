@@ -609,7 +609,7 @@ Array reply: a list of the top suggestions matching the prefix
 int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-    if (argc < 3 || argc > 6) return RedisModule_WrongArity(ctx);
+    if (argc < 3 || argc > 8) return RedisModule_WrongArity(ctx);
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
     // make sure the key is a trie
@@ -693,16 +693,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
         REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "ft.sugadd", SuggestAddCommand, "write no-cluster", 1, 1,
+    if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand, "write no-cluster", 1, 1,
                                   1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "ft.suglen", SuggestLenCommand, "readonly no-cluster", 1, 1,
+    if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand, "readonly no-cluster", 1, 1,
                                   1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "ft.sugget", SuggestGetCommand, "readonly no-cluster", 1, 1,
-                                  1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand, "readonly no-cluster", 1,
+                                  1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     //  if (RedisModule_CreateCommand(ctx,"hgetset",
