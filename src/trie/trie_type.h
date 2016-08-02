@@ -30,7 +30,7 @@ void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr);
 void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr);
 void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim);
+                    int trim, int optimize);
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);

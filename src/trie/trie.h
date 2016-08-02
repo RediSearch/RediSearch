@@ -29,6 +29,7 @@ typedef struct {
     // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 
+void TrieNode_Print(TrieNode *n, int idx, int depth);
 #pragma pack()
 
 /* The byte size of a node, based on its internal string length and number of children */
@@ -74,7 +75,7 @@ typedef struct {
     TrieNode *n;
     t_len stringOffset;
     t_len childOffset;
-
+    int isSkipped;
 } stackNode;
 
 typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
@@ -107,7 +108,7 @@ typedef struct TrieIterator {
 } TrieIterator;
 
 /* push a new trie iterator stack node  */
-void __ti_Push(TrieIterator *it, TrieNode *node);
+void __ti_Push(TrieIterator *it, TrieNode *node, int skipped);
 
 /* the current top of the iterator stack */
 #define __ti_current(it) &it->stack[it->stackOffset - 1]

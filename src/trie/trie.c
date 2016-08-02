@@ -20,7 +20,6 @@ TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float
     n->numChildren++;
     n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
     TrieNode *child = __newTrieNode(str, offset, len, 0, score);
-    n->maxChildScore = MAX(n->maxChildScore, score);
     __trieNode_children(n)[n->numChildren - 1] = child;
 
     return n;
@@ -29,6 +28,7 @@ TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     // Copy the current node's data and children to a new child node
     TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->numChildren, n->score);
+    newChild->maxChildScore = n->maxChildScore;
     TrieNode **children = __trieNode_children(n);
     TrieNode **newChildren = __trieNode_children(newChild);
     memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
@@ -37,12 +37,22 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     n->numChildren = 1;
     n->len = offset;
     n->score = 0;
+    n->maxChildScore = MAX(n->maxChildScore, newChild->score);
     n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
     __trieNode_children(n)[0] = newChild;
 
     return n;
 }
 
+void TrieNode_Print(TrieNode *n, int idx, int depth) {
+    for (int i = 0; i < depth; i++) {
+        printf("  ");
+    }
+    printf("%d) Score %f, max ChildScore %f\n", idx, n->score, n->maxChildScore);
+    for (int i = 0; i < n->numChildren; i++) {
+        TrieNode_Print(__trieNode_children(n)[i], i, depth + 1);
+    }
+}
 int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
     if (score == 0 || len == 0) {
         return 0;
@@ -62,7 +72,7 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
         // 1. a child representing the new string from the diverted offset onwards
         // 2. a child representing the old node's suffix from the diverted offset
         // and the old children
-        n = __trie_SplitNode(*np, offset);
+        n = __trie_SplitNode(n, offset);
 
         // the new string matches the split node exactly!
         // we simply turn the split node, which is now non terminal, into a terminal node
@@ -71,10 +81,13 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
         } else {
             // we add a child
             n = __trie_AddChild(n, str, offset, len, score);
+            n->maxChildScore = MAX(n->maxChildScore, score);
         }
         *np = n;
         return 1;
     }
+
+    n->maxChildScore = MAX(n->maxChildScore, score);
 
     // we're inserting in an existing node - just replace the value
     if (offset == len) {
@@ -95,20 +108,18 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
     }
 
     // proceed to the next child or add a new child for the current character
-    t_len i = 0;
-    for (; i < n->numChildren; i++) {
+
+    for (t_len i = 0; i < n->numChildren; i++) {
         TrieNode *child = __trieNode_children(n)[i];
 
         if (str[offset] == child->str[0]) {
             int rc = TrieNode_Add(&child, str + offset, len - offset, score, op);
             __trieNode_children(n)[i] = child;
-            n->maxChildScore = MAX(n->maxChildScore, score);
             return rc;
         }
     }
 
     *np = __trie_AddChild(n, str, offset, len, score);
-    (*np)->maxChildScore = MAX((*np)->maxChildScore, score);
     return 1;
 }
 
@@ -165,12 +176,12 @@ void TrieNode_Free(TrieNode *n) {
 // internal definition of trie iterator
 
 /* Push a new trie node on the iterator's stack */
-inline void __ti_Push(TrieIterator *it, TrieNode *node) {
+inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
     if (it->stackOffset < MAX_STRING_LEN - 1) {
         stackNode *sn = &it->stack[it->stackOffset++];
         sn->childOffset = 0;
         sn->stringOffset = 0;
-
+        sn->isSkipped = skipped;
         sn->n = node;
         sn->state = ITERSTATE_SELF;
     }
@@ -195,7 +206,6 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
     stackNode *current = __ti_current(it);
     int matched = 0;
-
     // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child offset %d/%d\n",
     //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
     //        current->n->score, current->state, current->stringOffset, current->n->len,
@@ -203,10 +213,10 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
     switch (current->state) {
         case ITERSTATE_MATCH:
             __ti_Pop(it);
-            //__ti_Pop(it);
             goto next;
 
         case ITERSTATE_SELF:
+
             if (current->stringOffset < current->n->len) {
                 // get the current character to feed the filter
                 unsigned char b = current->n->str[current->stringOffset];
@@ -250,29 +260,14 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
         default:
             // push the next child
             if (current->childOffset < current->n->numChildren) {
-                int found = 0;
-                while (current->childOffset < current->n->numChildren) {
-                    TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
-                    if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
-                        __ti_Push(it, ch);
-                        it->nodesConsumed++;
-                        found = 1;
-                        break;
-                    } else {
-                        it->nodesSkipped++;
-                    }
+                TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
+                if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
+                    __ti_Push(it, ch, 0);
+                    it->nodesConsumed++;
+                } else {
+                    //__ti_Push(it, ch, 1);
+                    it->nodesSkipped++;
                 }
-
-                if (!found) {
-                    __ti_Pop(it);
-                }
-
-                // if ()
-                //     printf("node %.*s max child score: %f, child score: %f (%f)\n",
-                //     current->n->len,
-                //            current->n->str, current->n->maxChildScore, ch->score,
-                //            ch->maxChildScore);
-                // __ti_Push(it, ch);
             } else {
                 // at the end of the node - pop and go up
                 __ti_Pop(it);
@@ -289,7 +284,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
     it->popCallback = pf;
     it->minScore = 0;
     it->ctx = ctx;
-    __ti_Push(it, n);
+    __ti_Push(it, n, 0);
 
     return it;
 }

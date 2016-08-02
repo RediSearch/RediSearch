@@ -39,7 +39,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 }
 
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim) {
+                    int trim, int optimize) {
     heap_t *pq = malloc(heap_sizeof(num));
     heap_init(pq, cmpEntries, NULL, num);
 
@@ -60,28 +60,35 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         ent->len = slen;
 
         // factor the distance into the score
-        ent->score = score * exp((double)-(2 * dist));
+        ent->score = score;  // * exp((double)-(2 * dist));
         ent->rawScore = score;
         // in prefix mode we also factor in the total length of the suffix
-        if (prefixMode) {
-            ent->score /= sqrt(1 + fabs(slen - len));
-        }
+        // if (prefixMode) {
+        //     ent->score /= sqrt(1 + fabs(slen - len));
+        // }
 
         if (heap_count(pq) < heap_size(pq)) {
             ent->str = strndup(str, slen);
             heap_offerx(pq, ent);
             pooledEntry = NULL;
-            TrieSearchResult *qe = heap_peek(pq);
-            it->minScore = qe->score;
+            if (heap_count(pq) == heap_size(pq)) {
+                TrieSearchResult *qe = heap_peek(pq);
+                it->minScore = qe->score;
+            }
         } else {
             TrieSearchResult *qe = heap_peek(pq);
-            if (qe->score < ent->score) {
+            if (ent->score >= qe->score) {
                 pooledEntry = heap_poll(pq);
                 free(pooledEntry->str);
                 ent->str = strndup(str, slen);
                 heap_offerx(pq, ent);
-                qe = heap_peek(pq);
-                it->minScore = qe->score;
+                // if (optimize) {
+                TrieSearchResult *qe = heap_peek(pq);
+                if (qe->score > it->minScore) {
+                    // printf("replacing minScore %f => %f\n", it->minScore, qe->score);
+                    it->minScore = qe->score;
+                }
+                //}
             } else {
                 pooledEntry = ent;
             }
@@ -90,7 +97,9 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         // dist = maxDist + 3;
     }
 
-    //    printf("Nodes consumed: %d/%d\n", it->nodesConsumed, it->nodesSkipped);
+    // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
+    //        it->nodesConsumed + it->nodesSkipped,
+    //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed + it->nodesSkipped));
 
     // put the results from the heap on a vector to return
     size_t n = MIN(heap_count(pq), num);
@@ -101,19 +110,21 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     }
 
     // trim the results to remove irrelevant results
-    float maxScore = 0;
-    for (int i = 0; i < n; ++i) {
-        TrieSearchResult *h;
-        Vector_Get(ret, i, &h);
+    if (trim) {
+        float maxScore = 0;
+        for (int i = 0; i < n; ++i) {
+            TrieSearchResult *h;
+            Vector_Get(ret, i, &h);
 
-        if (trim) {
-            if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
-                // TODO: Fix trimming the vector
-                ret->top = i;
-                break;
+            if (trim) {
+                if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
+                    // TODO: Fix trimming the vector
+                    ret->top = i;
+                    break;
+                }
             }
+            maxScore = MAX(maxScore, h->score);
         }
-        maxScore = MAX(maxScore, h->score);
     }
 
     TrieIterator_Free(it);
@@ -145,6 +156,7 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
         double score = RedisModule_LoadDouble(rdb);
         Trie_InsertStringBuffer(tree, str, len, score, 0);
     }
+    // TrieNode_Print(tree->root, 0, 0);
     return tree;
 }
 
@@ -166,7 +178,6 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
 
         TrieIterator_Free(it);
     }
-    printf("saved %d elemens\n", count);
 }
 
 void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {

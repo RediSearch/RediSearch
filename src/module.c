@@ -644,7 +644,9 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // detect TRIM
     int trim = RMUtil_ArgExists("TRIM", argv, argc, 3);
 
-    Vector *res = Trie_Search(tree, s, len, num, maxDist, 1, trim);
+    int optimize = RMUtil_ArgExists("OPTIMIZE", argv, argc, 3);
+
+    Vector *res = Trie_Search(tree, s, len, 20, maxDist, 1, trim, optimize);
 
     // if we also need to return scores, we need double the records
     RedisModule_ReplyWithArray(ctx, Vector_Size(res) * (withScores ? 2 : 1));
