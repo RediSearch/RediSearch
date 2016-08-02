@@ -1,3 +1,4 @@
+#include <sys/param.h>
 #include "trie.h"
 #include "sparse_vector.h"
 
@@ -10,6 +11,7 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
     n->len = len - offset;
     n->numChildren = numChildren;
     n->score = score;
+    n->maxChildScore = 0;
     strncpy(n->str, str + offset, len - offset);
     return n;
 }
@@ -18,7 +20,7 @@ TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float
     n->numChildren++;
     n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
     TrieNode *child = __newTrieNode(str, offset, len, 0, score);
-
+    n->maxChildScore = MAX(n->maxChildScore, score);
     __trieNode_children(n)[n->numChildren - 1] = child;
 
     return n;
@@ -100,12 +102,13 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
         if (str[offset] == child->str[0]) {
             int rc = TrieNode_Add(&child, str + offset, len - offset, score, op);
             __trieNode_children(n)[i] = child;
+            n->maxChildScore = MAX(n->maxChildScore, score);
             return rc;
         }
     }
 
     *np = __trie_AddChild(n, str, offset, len, score);
-
+    (*np)->maxChildScore = MAX((*np)->maxChildScore, score);
     return 1;
 }
 
@@ -160,16 +163,6 @@ void TrieNode_Free(TrieNode *n) {
 }
 
 // internal definition of trie iterator
-struct TrieIterator {
-    char buf[MAX_STRING_LEN];
-    t_len bufOffset;
-
-    stackNode stack[MAX_STRING_LEN];
-    t_len stackOffset;
-    StepFilter filter;
-    StackPopCallback popCallback;
-    void *ctx;
-};
 
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node) {
@@ -257,7 +250,29 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
         default:
             // push the next child
             if (current->childOffset < current->n->numChildren) {
-                __ti_Push(it, __trieNode_children(current->n)[current->childOffset++]);
+                int found = 0;
+                while (current->childOffset < current->n->numChildren) {
+                    TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
+                    if (ch->maxChildScore >= it->minScore) {
+                        __ti_Push(it, ch);
+                        it->nodesConsumed++;
+                        found = 1;
+                        break;
+                    } else {
+                        it->nodesSkipped++;
+                    }
+                }
+
+                if (!found) {
+                    __ti_Pop(it);
+                }
+
+                // if ()
+                //     printf("node %.*s max child score: %f, child score: %f (%f)\n",
+                //     current->n->len,
+                //            current->n->str, current->n->maxChildScore, ch->score,
+                //            ch->maxChildScore);
+                // __ti_Push(it, ch);
             } else {
                 // at the end of the node - pop and go up
                 __ti_Pop(it);
@@ -272,6 +287,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
     TrieIterator *it = calloc(1, sizeof(TrieIterator));
     it->filter = f;
     it->popCallback = pf;
+    it->minScore = 0;
     it->ctx = ctx;
     __ti_Push(it, n);
 

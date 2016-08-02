@@ -21,6 +21,7 @@ typedef struct {
     // the number of child nodes
     t_len numChildren;
 
+    float maxChildScore;
     // the node's score. Non termn
     float score;
     // the string of the current node
@@ -90,7 +91,20 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 #define ITERSTATE_MATCH 2
 
 /* Opaque trie iterator type */
-typedef struct TrieIterator TrieIterator;
+// typedef struct TrieIterator TrieIterator;
+typedef struct TrieIterator {
+    char buf[MAX_STRING_LEN];
+    t_len bufOffset;
+
+    stackNode stack[MAX_STRING_LEN];
+    t_len stackOffset;
+    StepFilter filter;
+    float minScore;
+    int nodesConsumed;
+    int nodesSkipped;
+    StackPopCallback popCallback;
+    void *ctx;
+} TrieIterator;
 
 /* push a new trie iterator stack node  */
 void __ti_Push(TrieIterator *it, TrieNode *node);
