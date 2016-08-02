@@ -253,7 +253,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
                 int found = 0;
                 while (current->childOffset < current->n->numChildren) {
                     TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
-                    if (ch->maxChildScore >= it->minScore) {
+                    if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
                         __ti_Push(it, ch);
                         it->nodesConsumed++;
                         found = 1;
