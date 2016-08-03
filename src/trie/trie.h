@@ -8,7 +8,7 @@
 typedef u_int8_t t_len;
 #define MAX_STRING_LEN 255
 
-#pragma pack(1)
+//#pragma pack(1)
 
 /* TrieNode represents a single node in a trie. The actual size of it is bigger, as the children are
  * allocated after str[].
@@ -33,7 +33,7 @@ typedef struct {
 } TrieNode;
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
-#pragma pack()
+//#pragma pack()
 
 /* The byte size of a node, based on its internal string length and number of children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);

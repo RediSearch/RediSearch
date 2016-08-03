@@ -22,7 +22,7 @@ TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float
     n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
     TrieNode *child = __newTrieNode(str, offset, len, 0, score);
     __trieNode_children(n)[n->numChildren - 1] = child;
-
+    n->sorted = 0;
     return n;
 }
 
@@ -38,6 +38,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     n->numChildren = 1;
     n->len = offset;
     n->score = 0;
+    n->sorted = 0;
     n->maxChildScore = MAX(n->maxChildScore, newChild->score);
     n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
     __trieNode_children(n)[0] = newChild;
@@ -174,21 +175,25 @@ void TrieNode_Free(TrieNode *n) {
     free(n);
 }
 
-int __trieNode_Cmp(const void *p1, const void *p2) {
-    TrieNode *n1 = (TrieNode *)p1, *n2 = (TrieNode *)p2;
+static int __trieNode_Cmp(const void *p1, const void *p2) {
+    TrieNode *n1 = *(TrieNode **)p1;
+    TrieNode *n2 = *(TrieNode **)p2;
 
-    if (n1->score > n2->score) {
+    if (n1->maxChildScore < n2->maxChildScore) {
         return 1;
-    } else if (n1->score < n2->score) {
+    } else if (n1->maxChildScore > n2->maxChildScore) {
         return -1;
     }
     return 0;
 }
 
 void __trieNode_sortChildren(TrieNode *n) {
+    if (n->numChildren <= 1) return;
+
     TrieNode **children = __trieNode_children(n);
 
     qsort(children, n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
+
     n->sorted = 1;
 }
 
@@ -223,9 +228,6 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
     stackNode *current = __ti_current(it);
 
-    if (!current->n->sorted) {
-        __trieNode_sortChildren(current->n);
-    }
     int matched = 0;
     // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child offset %d/%d\n",
     //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
@@ -279,6 +281,9 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
         case ITERSTATE_CHILDREN:
         default:
+            if (!current->n->sorted) {
+                __trieNode_sortChildren(current->n);
+            }
             // push the next child
             if (current->childOffset < current->n->numChildren) {
                 TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
