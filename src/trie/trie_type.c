@@ -99,9 +99,9 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         // dist = maxDist + 3;
     }
 
-    printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
-           it->nodesConsumed + it->nodesSkipped,
-           100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed + it->nodesSkipped));
+    // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
+    //        it->nodesConsumed + it->nodesSkipped,
+    //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed + it->nodesSkipped));
 
     // put the results from the heap on a vector to return
     size_t n = MIN(heap_count(pq), num);

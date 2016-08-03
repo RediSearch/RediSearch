@@ -57,7 +57,7 @@ snowball:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic -lprofiler
+	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
 
 
 release: CFLAGS += $(RELEASEFLAGS)
