@@ -24,6 +24,9 @@ typedef struct {
     float maxChildScore;
     // the node's score. Non termn
     float score;
+
+    char sorted;
+
     // the string of the current node
     char str[];
     // ... now come the children, to be accessed with __trieNode_children

@@ -11,6 +11,7 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
     n->len = len - offset;
     n->numChildren = numChildren;
     n->score = score;
+    n->sorted = 0;
     n->maxChildScore = 0;
     strncpy(n->str, str + offset, len - offset);
     return n;
@@ -173,7 +174,23 @@ void TrieNode_Free(TrieNode *n) {
     free(n);
 }
 
-// internal definition of trie iterator
+int __trieNode_Cmp(const void *p1, const void *p2) {
+    TrieNode *n1 = (TrieNode *)p1, *n2 = (TrieNode *)p2;
+
+    if (n1->score > n2->score) {
+        return 1;
+    } else if (n1->score < n2->score) {
+        return -1;
+    }
+    return 0;
+}
+
+void __trieNode_sortChildren(TrieNode *n) {
+    TrieNode **children = __trieNode_children(n);
+
+    qsort(children, n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
+    n->sorted = 1;
+}
 
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
@@ -205,6 +222,10 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
     }
 
     stackNode *current = __ti_current(it);
+
+    if (!current->n->sorted) {
+        __trieNode_sortChildren(current->n);
+    }
     int matched = 0;
     // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child offset %d/%d\n",
     //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
