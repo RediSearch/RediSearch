@@ -59,13 +59,15 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         TrieSearchResult *ent = pooledEntry;
         ent->len = slen;
 
-        // factor the distance into the score
-        ent->score = score;  // * exp((double)-(2 * dist));
-        ent->rawScore = score;
+        ent->score = score;
+        if (maxDist > 0) {
+            // factor the distance into the score
+            ent->score *= exp((double)-(2 * dist));
+        }
         // in prefix mode we also factor in the total length of the suffix
-        // if (prefixMode) {
-        //     ent->score /= sqrt(1 + fabs(slen - len));
-        // }
+        if (prefixMode) {
+            ent->score /= sqrt(1 + fabs(slen - len));
+        }
 
         if (heap_count(pq) < heap_size(pq)) {
             ent->str = strndup(str, slen);
@@ -97,9 +99,9 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         // dist = maxDist + 3;
     }
 
-    // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
-    //        it->nodesConsumed + it->nodesSkipped,
-    //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed + it->nodesSkipped));
+    printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
+           it->nodesConsumed + it->nodesSkipped,
+           100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed + it->nodesSkipped));
 
     // put the results from the heap on a vector to return
     size_t n = MIN(heap_count(pq), num);

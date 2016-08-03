@@ -16,7 +16,6 @@ typedef struct {
     char *str;
     size_t len;
     float score;
-    float rawScore;
 } TrieSearchResult;
 
 #define SCORE_TRIM_FACTOR 10.0
