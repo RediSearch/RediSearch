@@ -73,24 +73,20 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
             ent->str = strndup(str, slen);
             heap_offerx(pq, ent);
             pooledEntry = NULL;
-            if (heap_count(pq) == heap_size(pq)) {
-                TrieSearchResult *qe = heap_peek(pq);
-                it->minScore = qe->score;
-            }
+
         } else {
-            TrieSearchResult *qe = heap_peek(pq);
-            if (ent->score >= qe->score) {
+            if (ent->score >= it->minScore) {
                 pooledEntry = heap_poll(pq);
                 free(pooledEntry->str);
                 ent->str = strndup(str, slen);
                 heap_offerx(pq, ent);
-                // if (optimize) {
+
+                // get the new minimal score
                 TrieSearchResult *qe = heap_peek(pq);
                 if (qe->score > it->minScore) {
-                    // printf("replacing minScore %f => %f\n", it->minScore, qe->score);
                     it->minScore = qe->score;
                 }
-                //}
+
             } else {
                 pooledEntry = ent;
             }
