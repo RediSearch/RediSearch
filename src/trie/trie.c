@@ -6,12 +6,13 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
     return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + slen + 1;
 }
 
-TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score) {
+TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score,
+                        int terminal) {
     TrieNode *n = calloc(1, __trieNode_Sizeof(numChildren, len - offset));
     n->len = len - offset;
     n->numChildren = numChildren;
     n->score = score;
-    n->sorted = 0;
+    n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
     n->maxChildScore = 0;
     strncpy(n->str, str + offset, len - offset);
     return n;
@@ -20,16 +21,20 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
 TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float score) {
     n->numChildren++;
     n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
-    TrieNode *child = __newTrieNode(str, offset, len, 0, score);
+    // a newly added child must be a terminal node
+    TrieNode *child = __newTrieNode(str, offset, len, 0, score, 1);
     __trieNode_children(n)[n->numChildren - 1] = child;
-    n->sorted = 0;
+    n->flags &= ~TRIENODE_SORTED;  // the node is now not sorted
+
     return n;
 }
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     // Copy the current node's data and children to a new child node
-    TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->numChildren, n->score);
+    TrieNode *newChild =
+        __newTrieNode(n->str, offset, n->len, n->numChildren, n->score, __trieNode_isTerminal(n));
     newChild->maxChildScore = n->maxChildScore;
+    newChild->flags = n->flags;
     TrieNode **children = __trieNode_children(n);
     TrieNode **newChildren = __trieNode_children(newChild);
     memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
@@ -38,7 +43,9 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     n->numChildren = 1;
     n->len = offset;
     n->score = 0;
-    n->sorted = 0;
+    // the parent node is now non terminal and non sorted
+    n->flags &= ~(TRIENODE_SORTED | TRIENODE_TERMINAL);
+
     n->maxChildScore = MAX(n->maxChildScore, newChild->score);
     n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
     __trieNode_children(n)[0] = newChild;
@@ -55,6 +62,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
         TrieNode_Print(__trieNode_children(n)[i], i, depth + 1);
     }
 }
+
 int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op) {
     if (score == 0 || len == 0) {
         return 0;
@@ -80,6 +88,7 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
         // we simply turn the split node, which is now non terminal, into a terminal node
         if (offset == len) {
             n->score = score;
+            n->flags |= TRIENODE_TERMINAL;
         } else {
             // we add a child
             n = __trie_AddChild(n, str, offset, len, score);
@@ -105,6 +114,8 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
             default:
                 n->score = score;
         }
+        // set the node as terminal
+        n->flags |= TRIENODE_TERMINAL;
         *np = n;
         return term ? 0 : 1;
     }
@@ -175,6 +186,7 @@ void TrieNode_Free(TrieNode *n) {
     free(n);
 }
 
+// comparator for node sorting by child max score
 static int __trieNode_Cmp(const void *p1, const void *p2) {
     TrieNode *n1 = *(TrieNode **)p1;
     TrieNode *n2 = *(TrieNode **)p2;
@@ -187,14 +199,12 @@ static int __trieNode_Cmp(const void *p1, const void *p2) {
     return 0;
 }
 
+/* Sort the children of a node by their maxChildScore */
 void __trieNode_sortChildren(TrieNode *n) {
-    if (n->numChildren <= 1) return;
-
-    TrieNode **children = __trieNode_children(n);
-
-    qsort(children, n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
-
-    n->sorted = 1;
+    if (n->numChildren > 1) {
+        qsort(__trieNode_children(n), n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
+    }
+    n->flags |= TRIENODE_SORTED;
 }
 
 /* Push a new trie node on the iterator's stack */
@@ -281,7 +291,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
         case ITERSTATE_CHILDREN:
         default:
-            if (!current->n->sorted) {
+            if (!(current->n->flags & TRIENODE_SORTED)) {
                 __trieNode_sortChildren(current->n);
             }
             // push the next child

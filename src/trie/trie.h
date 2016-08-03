@@ -8,8 +8,10 @@
 typedef u_int8_t t_len;
 #define MAX_STRING_LEN 255
 
-//#pragma pack(1)
+#pragma pack(1)
 
+#define TRIENODE_SORTED 0x1
+#define TRIENODE_TERMINAL 0x2
 /* TrieNode represents a single node in a trie. The actual size of it is bigger, as the children are
  * allocated after str[].
  * Non terminal nodes always have a score of 0, meaning you can't insert nodes with score 0 to the
@@ -21,11 +23,13 @@ typedef struct {
     // the number of child nodes
     t_len numChildren;
 
-    float maxChildScore;
     // the node's score. Non termn
     float score;
 
-    char sorted;
+    // the maximal score of any descendant of this node, used to optimize traversal
+    float maxChildScore;
+
+    unsigned char flags;
 
     // the string of the current node
     char str[];
@@ -33,20 +37,21 @@ typedef struct {
 } TrieNode;
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
-//#pragma pack()
+#pragma pack()
 
 /* The byte size of a node, based on its internal string length and number of children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 /* Create a new trie node. str is a string to be copied into the node, starting from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score);
+TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score,
+                        int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member of the node for
  * memory saving reasons */
 #define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(TrieNode) + n->len + 1))
 
-#define __trieNode_isTerminal(n) (n->score != 0)
+#define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
 /* Add a child node to the parent node n, with a string str starting at offset up until len, and a
 given score */
