@@ -8,7 +8,7 @@
 
 Trie *NewTrie() {
     Trie *tree = RedisModule_Alloc(sizeof(Trie));
-    tree->root = __newTrieNode("", 0, 0, 0, 0);
+    tree->root = __newTrieNode("", 0, 0, 0, 0, 0);
     tree->size = 0;
     return tree;
 }

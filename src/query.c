@@ -273,7 +273,7 @@ This is done only for the root iterator */
 double processHitScore(IndexHit *h, DocTable *dt) {
     // for exact hits we don't need to calculate minimal offset dist
     int md = h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-    return (h->totalFreq) / pow((double)md, 2);
+    return (h->totalFreq) / pow((double)(md ? md : 1), 2);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -303,6 +303,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     IndexHit *pooledHit = NULL;
+    double minScore = 0;
     // iterate the root iterator and push everything to the PQ
     while (1) {
         // TODO - Use static allocation
@@ -321,20 +322,26 @@ QueryResult *Query_Execute(Query *query) {
 
         h->totalFreq = processHitScore(h, query->docTable);
 
+        // TODO: Fix calculation, this is WRONG!
         ++res->totalResults;
 
         if (heap_count(pq) < heap_size(pq)) {
             heap_offerx(pq, h);
             pooledHit = NULL;
+            if (heap_count(pq) == heap_size(pq)) {
+                IndexHit *minh = heap_peek(pq);
+                minScore = minh->totalFreq;
+            }
         } else {
-            IndexHit *qh = heap_peek(pq);
-            if (qh->totalFreq < h->totalFreq) {
+            if (h->totalFreq >= minScore) {
                 pooledHit = heap_poll(pq);
                 heap_offerx(pq, h);
-                // IndexHit_Terminate(pooledHit);
+
+                // get the new min score
+                IndexHit *minh = heap_peek(pq);
+                minScore = minh->totalFreq;
             } else {
                 pooledHit = h;
-                // IndexHit_Terminate(pooledHit);
             }
         }
     }

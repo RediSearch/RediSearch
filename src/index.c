@@ -22,7 +22,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
 
     int quantizedScore = ReadVarint(ir->buf);
     if (freq != NULL) {
-        *freq = (float)quantizedScore / FREQ_QUANTIZE_FACTOR;
+        *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
         // LG_DEBUG("READ Quantized score %d, freq %f", quantizedScore, *freq);
     }
 
@@ -54,8 +54,9 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
     int len = ReadVarint(ir->buf);
 
     ir->lastId = *docId;
+    BufferSkip(ir->buf, len);
+
     if (*docId != expectedDocId) {
-        BufferSkip(ir->buf, len);
         return INDEXREAD_NOTFOUND;
     }
 
@@ -98,7 +99,7 @@ int IR_Read(void *ctx, IndexHit *e) {
             return INDEXREAD_NOTFOUND;
         }
 
-        e->totalFreq += tfidf(freq, ir->header.numDocs);
+        e->totalFreq = tfidf(freq, ir->header.numDocs);
     }
     e->type = H_RAW;
 
