@@ -310,7 +310,7 @@ The current stemming support is based on the Snowball stemmer library, which sup
 languages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif
 langauge support, please open an issue). 
 
-For further details see the [Snoball Stemmer website](http://snowballstem.org/). 
+For further details see the [Snowball Stemmer website](http://snowballstem.org/).
 
 ### The following languages are supported arguments to search and indexing commands:
 
