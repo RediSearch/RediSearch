@@ -89,7 +89,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
         ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
         while (entry != NULL) {
-            //   printf("entry: %.*s freq %f\n", entry->len, entry->term, entry->freq);
+            LG_DEBUG("doc %d entry: %.*s freq %f\n", idx->docId, (int)entry->len, entry->term,
+                     entry->freq);
             ForwardIndex_NormalizeFreq(idx, entry);
             IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
             IW_WriteEntry(w, entry);

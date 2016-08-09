@@ -30,6 +30,8 @@ typedef struct {
     // Field id - used later for filtering.
     u_char fieldId;
 
+    int stringFreeable;
+
     DocTokenType type;
 } Token;
 

@@ -53,7 +53,7 @@ int _tokenize(TokenizerCtx *ctx) {
         if (isStopword(tok)) continue;
 
         // create the token struct
-        Token t = {tok, tlen, ++pos, ctx->fieldScore, ctx->fieldId, DT_WORD};
+        Token t = {tok, tlen, ++pos, ctx->fieldScore, ctx->fieldId, DT_WORD, 0};
 
         // let it be handled - and break on non zero response
         if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
@@ -65,9 +65,10 @@ int _tokenize(TokenizerCtx *ctx) {
             size_t sl;
             const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
             if (stem && strncmp(stem, tok, tlen)) {
-                t.s = stem;
+                t.s = strndup(stem, sl);
                 t.type = DT_STEM;
                 t.len = sl;
+                t.stringFreeable = 1;
                 if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
                     break;
                 }

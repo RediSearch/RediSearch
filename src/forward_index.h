@@ -14,6 +14,7 @@ typedef struct {
     float docScore;
     u_char flags;
     VarintVectorWriter *vw;
+    int stringFreeable;
 } ForwardIndexEntry;
 
 KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)

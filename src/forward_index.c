@@ -27,6 +27,10 @@ void ForwardIndexFree(ForwardIndex *idx) {
 
             kh_del(32, idx->hits, k);
             VVW_Free(ent->vw);
+
+            if (ent->stringFreeable) {
+                free((char *)ent->term);
+            }
             free(ent);
         }
     }
@@ -44,16 +48,17 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
 
     // we hash the string ourselves because khash suckz azz
     u_int32_t hval = fnv_32a_buf((void *)t.s, t.len, 0);
-
+    // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
     ForwardIndexEntry *h = NULL;
     khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
     if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
-
+        /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
         h = calloc(1, sizeof(ForwardIndexEntry));
         h->docId = idx->docId;
         h->flags = 0;
         h->term = t.s;
         h->len = t.len;
+        h->stringFreeable = t.stringFreeable;
 
         h->vw = NewVarintVectorWriter(4);
         h->docScore = idx->docScore;
@@ -97,7 +102,7 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
     }
 
     // if we haven't reached the end, return the current iterator's entry
-    if (iter->k != kh_end(iter->idx->hits)) {
+    if (iter->k != kh_end(iter->idx->hits) && kh_exist(iter->idx->hits, iter->k)) {
         ForwardIndexEntry *entry = kh_value(iter->idx->hits, iter->k);
         ++iter->k;
         return entry;
