@@ -74,6 +74,11 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
             heap_offerx(pq, ent);
             pooledEntry = NULL;
 
+            if (heap_count(pq) == heap_size(pq)) {
+                TrieSearchResult *qe = heap_peek(pq);
+                it->minScore = qe->score;
+            }
+
         } else {
             if (ent->score >= it->minScore) {
                 pooledEntry = heap_poll(pq);

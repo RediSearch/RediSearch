@@ -82,10 +82,10 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(1, res[0])
             self.assertEqual("doc1", res[1])
             
-            # res = r.execute_command('ft.search', 'idx', "hello \"another world\"", 'verbatim') 
-            # self.assertEqual(3, len(res))     
-            # self.assertEqual(1, res[0])
-            # self.assertEqual("doc2", res[1])
+            res = r.execute_command('ft.search', 'idx', "hello \"another world\"", 'verbatim') 
+            self.assertEqual(3, len(res))     
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc2", res[1])
             
            
             
