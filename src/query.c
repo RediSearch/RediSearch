@@ -360,8 +360,9 @@ QueryResult *Query_Execute(Query *query) {
     for (int i = 0; i < n; ++i) {
         IndexHit *h = heap_poll(pq);
         // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-        res->results[n - i - 1].id = Redis_GetDocKey(query->ctx, h->docId);
-        res->results[n - i - 1].score = h->totalFreq;
+        res->results[n - i - 1] =
+            (ResultEntry){Redis_GetDocKey(query->ctx, h->docId), h->totalFreq};
+
         free(h);
     }
 

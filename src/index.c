@@ -103,7 +103,7 @@ int IR_Read(void *ctx, IndexHit *e) {
     }
     e->type = H_RAW;
 
-    // LG_DEBUG("Read docId %d, rc %d",e->docId, rc);
+    // LG_DEBUG("Read docId %d, rc %d", e->docId, rc);
     return rc;
 }
 
@@ -620,7 +620,7 @@ int II_Read(void *ctx, IndexHit *hit) {
             }
 
             // LG_DEBUG("i %d rc: %d flags %d, fieldmask %d hasNext? %d\n", i, rc, h->flags,
-            //           ic->fieldMask, ic->its[i]->HasNext(ic->its[i]->ctx));
+            //          ic->fieldMask, ic->its[i]->HasNext(ic->its[i]->ctx));
 
             if (h->docId > ic->lastDocId) {
                 ic->lastDocId = h->docId;
@@ -638,13 +638,13 @@ int II_Read(void *ctx, IndexHit *hit) {
             // sum up all hits
             if (hit != NULL) {
                 hit->numOffsetVecs = 0;
-                hit->flags = 0xff;
+                hit->flags = 0;
                 hit->type = H_INTERSECTED;
                 hit->docId = ic->currentHits[0].docId;
                 for (int i = 0; i < nh; i++) {
                     IndexHit *hh = &ic->currentHits[i];
 
-                    hit->flags &= hh->flags;
+                    hit->flags |= hh->flags;
                     hit->totalFreq += hh->totalFreq;
 
                     int n = 0;
@@ -670,7 +670,7 @@ int II_Read(void *ctx, IndexHit *hit) {
             }
 
             // LG_DEBUG("Flags %x, field mask %x, intersection: %x", hit->flags, ic->fieldMask,
-            // hit->flags & ic->fieldMask);
+            //          hit->flags & ic->fieldMask);
             if ((hit->flags & ic->fieldMask) == 0) {
                 // LG_DEBUG("Skipping %d", hit->docId);
                 continue;
@@ -686,7 +686,7 @@ int II_Read(void *ctx, IndexHit *hit) {
                 hit->type = H_EXACT;
             }
 
-            // LG_DEBUG("INTERSECT @%d", hit->docId );
+            // LG_DEBUG("INTERSECT @%d", hit->docId);
 
             return INDEXREAD_OK;
         }
@@ -701,11 +701,11 @@ int II_HasNext(void *ctx) {
     for (int i = 0; i < ic->num; i++) {
         IndexIterator *it = ic->its[i];
         if (it == NULL || !it->HasNext(it->ctx)) {
-            // printf("II %p it %d (%p) has no next", ic, i, it);
+            // LG_DEBUG("II %p it %d (%p) has no next", ic, i, it);
             return 0;
         }
     }
-    // printf ("II %p has next", ic);
+    // LG_DEBUG("II %p has next", ic);
     return 1;
 }
 
