@@ -46,6 +46,25 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(res[0], 2L)
             self.assertEqual(res[1], "doc2")
             self.assertEqual(res[2], "doc1") 
+
+            # Test searching WITHSCORES
+            res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES')
+            self.assertEqual(len(res), 7)
+            self.assertEqual(res[0], 2L)
+            self.assertEqual(res[1], "doc2")
+            self.assertTrue(float(res[2]) > 0)
+            self.assertEqual(res[4], "doc1")
+            self.assertTrue(float(res[5]) > 0)
+
+            # Test searching WITHSCORES NOCONTENT
+            res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
+            self.assertEqual(len(res), 5)
+            self.assertEqual(res[0], 2L)
+            self.assertEqual(res[1], "doc2")
+            self.assertTrue(float(res[2]) > 0)
+            self.assertEqual(res[3], "doc1")
+            self.assertTrue(float(res[4]) > 0)
+            
             
     def testExact(self):
         with self.redis() as r:
@@ -77,6 +96,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                  'title', 'hello world',
                                  'body', 'lorem ipsum'))
+
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                  'title', 'hello world lorem ipsum',
                                  'body', 'hello world'))
@@ -182,6 +202,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             # search not fuzzy
             self.assertEqual(["hello world", "hello werld"], r.execute_command("ft.SUGGET", "ac", "hello"))
             
+            #print  r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1", "WITHSCORES")
             # search fuzzy - shuold yield more results
             self.assertEqual(['hello world', 'hello werld', 'yellow world', 'hallo world'], 
                              r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY"))
