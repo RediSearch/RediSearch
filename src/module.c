@@ -241,7 +241,10 @@ Seach the index with a textual query, returning either documents or just ids.
    fields of the document, like title or url. num is the number of specified field arguments
 
    - VERBATIM: If set, we turn off stemming for the query processing. Faster but will yield less
-results
+    results
+
+   - WITHSCORES: If set, we also return the relative internal score of each document. this can be
+   used to merge results from multiple instances
 
    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge. Defaults to English.
    If an unsupported language is sent, the command returns an error. The supported languages are:
@@ -309,8 +312,12 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         }
     }
 
+    // parse WISTHSCORES
+    int withscores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
+
     // Parse VERBATIM and LANGUAGE argumens
     int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
+
     const char *lang = NULL;
 
     // make sure we search for "language" only after the query
@@ -342,44 +349,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         goto end;
     }
 
-    if (r->errorString != NULL) {
-        RedisModule_ReplyWithError(ctx, r->errorString);
-        goto cleanup;
-    }
+    QueryResult_Serialize(r, &sctx, nocontent, withscores);
 
-    // NOCONTENT mode - just return the ids
-    if (nocontent) {
-        RedisModule_ReplyWithArray(ctx, r->numIds + 1);
-        RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
-        for (int i = 0; i < r->numIds; i++) {
-            RedisModule_ReplyWithString(ctx, r->ids[i]);
-        }
-
-        goto cleanup;
-    }
-
-    // With content mode - return and load the documents
-    int ndocs;
-    Document *docs = Redis_LoadDocuments(&sctx, r->ids, r->numIds, &ndocs);
-    // format response
-    RedisModule_ReplyWithArray(ctx, 2 * ndocs + 1);
-    RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
-
-    for (int i = 0; i < ndocs; i++) {
-        Document doc = docs[i];
-        RedisModule_ReplyWithString(ctx, doc.docKey);
-        RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
-        for (int f = 0; f < doc.numFields; f++) {
-            RedisModule_ReplyWithString(ctx, doc.fields[f].name);
-            RedisModule_ReplyWithString(ctx, doc.fields[f].text);
-        }
-
-        Document_Free(doc);
-    }
-
-    free(docs);
-
-cleanup:
     QueryResult_Free(r);
     Query_Free(q);
 end:

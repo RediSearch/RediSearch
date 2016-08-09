@@ -287,8 +287,8 @@ int indexReadHeader(Buffer *b, IndexHeader *h) {
     if (b->cap > sizeof(IndexHeader)) {
         BufferSeek(b, 0);
         BufferRead(b, h, sizeof(IndexHeader));
-        LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd", h->size, h->lastId,
-                 b->offset);
+        // LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd", h->size, h->lastId,
+        //          b->offset);
         // BufferSeek(b, pos);
         return 1;
     }
@@ -317,8 +317,8 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
     // quantize the score to compress it to max 4 bytes
     // freq is between 0 and 1
     int quantizedScore = floorl(freq * (double)FREQ_QUANTIZE_FACTOR);
-    LG_DEBUG("docId %d, flags %x, Score %f, quantized score %d", docId, flags, freq,
-             quantizedScore);
+    // LG_DEBUG("docId %d, flags %x, Score %f, quantized score %d", docId, flags, freq,
+    //          quantizedScore);
 
     size_t offsetsSz = VV_Size(offsets);
     // // calculate the overall len
@@ -672,7 +672,7 @@ int II_Read(void *ctx, IndexHit *hit) {
             // LG_DEBUG("Flags %x, field mask %x, intersection: %x", hit->flags, ic->fieldMask,
             // hit->flags & ic->fieldMask);
             if ((hit->flags & ic->fieldMask) == 0) {
-                LG_DEBUG("Skipping %d", hit->docId);
+                // LG_DEBUG("Skipping %d", hit->docId);
                 continue;
             }
 

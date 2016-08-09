@@ -57,14 +57,22 @@ typedef struct query {
     Stemmer *stemmer;
 } Query;
 
+typedef struct {
+    RedisModuleString *id;
+    double score;
+} ResultEntry;
+
 /* QueryResult represents the final processed result of a query execution */
 typedef struct queryResult {
     size_t totalResults;
-    RedisModuleString **ids;
-    size_t numIds;
+    size_t numResults;
+    ResultEntry *results;
     int error;
     char *errorString;
 } QueryResult;
+
+/* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores);
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy this doesn't
 actually do anything besides prepare the execution chaing */

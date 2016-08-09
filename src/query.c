@@ -282,8 +282,8 @@ QueryResult *Query_Execute(Query *query) {
     res->error = 0;
     res->errorString = NULL;
     res->totalResults = 0;
-    res->ids = NULL;
-    res->numIds = 0;
+    res->results = NULL;
+    res->numResults = 0;
 
     int num = query->offset + query->limit;
     heap_t *pq = malloc(heap_sizeof(num));
@@ -354,13 +354,14 @@ QueryResult *Query_Execute(Query *query) {
 
     // Reverse the results into the final result
     size_t n = MIN(heap_count(pq), query->limit);
-    res->numIds = n;
-    res->ids = calloc(n, sizeof(RedisModuleString *));
+    res->numResults = n;
+    res->results = calloc(n, sizeof(ResultEntry));
 
     for (int i = 0; i < n; ++i) {
         IndexHit *h = heap_poll(pq);
-        LG_DEBUG("Popping %d freq %f", h->docId, h->totalFreq);
-        res->ids[n - i - 1] = Redis_GetDocKey(query->ctx, h->docId);
+        // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
+        res->results[n - i - 1].id = Redis_GetDocKey(query->ctx, h->docId);
+        res->results[n - i - 1].score = h->totalFreq;
         free(h);
     }
 
@@ -376,6 +377,78 @@ QueryResult *Query_Execute(Query *query) {
 }
 
 void QueryResult_Free(QueryResult *q) {
-    free(q->ids);
+    free(q->results);
     free(q);
+}
+
+int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int withscores) {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+    RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
+    size_t arrlen = 1;
+
+    for (int i = 0; i < r->numResults; i++) {
+        ++arrlen;
+        RedisModule_ReplyWithString(ctx, r->results[i].id);
+        if (withscores) {
+            ++arrlen;
+            RedisModule_ReplyWithDouble(ctx, r->results[i].score);
+        }
+    }
+    RedisModule_ReplySetArrayLength(ctx, arrlen);
+
+    return REDISMODULE_OK;
+}
+
+int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int withscores) {
+    // With content mode - return and load the documents
+    RedisModuleCtx *ctx = sctx->redisCtx;
+    int ndocs;
+    RedisModuleString *ids[r->numResults];
+    for (int i = 0; i < r->numResults; i++) {
+        ids[i] = r->results[i].id;
+    }
+
+    Document *docs = Redis_LoadDocuments(sctx, ids, r->numResults, &ndocs);
+    // format response
+    RedisModule_ReplyWithArray(ctx, (withscores ? 3 : 2) * ndocs + 1);
+
+    RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
+
+    for (int i = 0; i < ndocs; i++) {
+        Document doc = docs[i];
+        // send the id
+        RedisModule_ReplyWithString(ctx, doc.docKey);
+        // if needed - send the score as well
+        if (withscores) {
+            RedisModule_ReplyWithDouble(ctx, r->results[i].score);
+        }
+
+        // serialize the fields
+        RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
+        for (int f = 0; f < doc.numFields; f++) {
+            RedisModule_ReplyWithString(ctx, doc.fields[f].name);
+            RedisModule_ReplyWithString(ctx, doc.fields[f].text);
+        }
+
+        Document_Free(doc);
+    }
+
+    free(docs);
+    return REDISMODULE_OK;
+}
+
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, int withscores) {
+    RedisModuleCtx *ctx = sctx->redisCtx;
+
+    if (r->errorString != NULL) {
+        return RedisModule_ReplyWithError(ctx, r->errorString);
+    }
+
+    // NOCONTENT mode - just return the ids
+    if (nocontent) {
+        return __queryResult_serializeNoContent(r, ctx, withscores);
+    }
+
+    return __queryResult_serializeFullResults(r, sctx, withscores);
 }

@@ -15,7 +15,6 @@ inline int ReadVarint(Buffer *b) {
     while (c >> 7) {
         ++val;
         c = BUFFER_READ_BYTE(b);
-
         val = (val << 7) | (c & 127);
     }
     return val;
@@ -41,24 +40,11 @@ size_t varintSize(int value) {
     return outputSize;
 }
 
-// int encodeVarint(int value, unsigned char *buf)
-// {
-// 	unsigned char varint[16];
-// 	unsigned pos = sizeof(varint) - 1;
-// 	varint[pos] = value & 127;
-// 	while (value >>= 7)
-// 		varint[--pos] = 128 | (--value & 127);
-// 	if (buf)
-// 		memcpy(buf, varint + pos, sizeof(varint) - pos);
-// 	return sizeof(varint) - pos;
-// }
-
 VarintVectorIterator VarIntVector_iter(VarintVector *v) {
     VarintVectorIterator ret;
     ret.buf = v;
     ret.index = 0;
     ret.lastValue = 0;
-
     return ret;
 }
 
