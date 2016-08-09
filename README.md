@@ -191,7 +191,11 @@ Seach the index with a textual query, returning either documents or just ids.
     - FILTER numeric_field min max: If set, and numeric_field is defined as a numeric field in 
     FT.CREATE, we will limit results to those having numeric values ranging between min and max.
     min and max follow ZRANGE syntax, and can be -inf, +inf and use `(` for exclusive ranges.
-      
+
+   
+    - WITHSCORES: If set, we also return the relative internal score of each document. this can be
+    used to merge results from multiple instances
+   
     - VERBATIM if set, we do not try to use stemming for query expansion but search the query terms verbatim.
     
     - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during search for query expansion. 
@@ -290,6 +294,10 @@ Get completion suggestions for a prefix
 
    - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number
    cannot be greater than 10).
+
+   - **WITHSCORES**: If set, we also return the score of each suggestion. this can be
+   used to merge results from multiple instances
+
 
 ### Returns:
 
