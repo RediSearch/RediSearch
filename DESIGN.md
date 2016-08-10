@@ -130,3 +130,28 @@ hello world ==> intersect( read("hello"), read("world") )
 All these iterators are lazy evaluated, entry by entry, with constant memory overhead. 
 
 The "root" iterator is read by the query execution engine, and filtered for the top N results in it.
+
+## Numeric Filters
+
+We support defining a field in the index schema as "NUMERIC", meaning you will be able to limit search results only to ones where the given value falls within a specific range. Filtering is done by adding `FILTER` predicates (more than one is supported) to your query. e.g.: 
+
+```
+FT.SEARCH products "hd tv" FILTER price 100 (300
+``` 
+
+The filter syntax follows the ZRANGEBYSCORE semantics of redis, meaning `-inf` and `+inf` are supported, and prepending `(` to a number means an exclusive range. 
+
+The current implementation is very naive - it stores the numeric values of the field as a redis Sorted Set of `docId ==> value`, and simply checks each result for the value at query time. While the complexity of this check is O(1), it is a relatively slow operation (on the order of magnitude 100 nanoseconds per call), and filtering results in a significant performance overhead. 
+
+This works well when the range is big, but when the range is small it is wasteful. As a future optimization, we might select different methods for different cases, or use a more efficient lookup than a sorted set for this. 
+
+## Auto-Complete and Fuzzy Suggestions
+
+Another important feature for RediSearch is its auto-complete or suggest commands. It allows you to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix.  For example, if we put the term “lcd tv” into a dictionary, sending the prefix “lc” will return it as a result. The dictionary is modelled as a compressed trie (prefix tree) with weights, that is traversed to find the top suffixes of a prefix.
+
+RediSearch also allows for Fuzzy Suggestions, meaning you can get suggestions to user prefixes even if the user has a typo in the prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein Distance of a term or prefix. Then suggested are weighted based on both their original score and distance from the prefix typed by the user. Currently we support (for performance reasons) only suggestions where the prefix is up to 1 Levenshtein Distance away from the typed prefix.
+
+However, since searching for fuzzy prefixes, especially very short ones, will traverse an enormous amount of suggestions (in fact, fuzzy suggestions for any single letter will traverse the entire dictionary!), it is recommended to use this feature carefully, and only when considering the performance penalty it incurs. Since redis is single threaded, blocking it for any amount of time means no other queries can be processed at that time. 
+
+Note: currently, fuzzy searching will work correctly with the latin alphabet only. However the general approach of autocomplete suggestions works on any utf-8 encoded text. This is because the Automaton and trie work at a byte level and not rune level.
+
