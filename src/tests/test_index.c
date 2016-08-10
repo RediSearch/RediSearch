@@ -61,7 +61,8 @@ int testDistance() {
 }
 
 int testIndexReadWrite() {
-  IndexWriter *w = NewIndexWriter(10000);
+
+  IndexWriter *w = NewIndexWriter(1);
 
   for (int i = 0; i < 100; i++) {
     // if (i % 10000 == 1) {
@@ -71,7 +72,7 @@ int testIndexReadWrite() {
 
     ForwardIndexEntry h;
     h.docId = i;
-    h.flags = 0;
+    h.flags = 0xff;
     h.freq = (1 + i % 100) / (float)101;
     h.docScore = (1 + (i + 2) % 30) / (float)31;
 
@@ -135,14 +136,21 @@ int testIndexReadWrite() {
     // printf("Time elapsed: %ldnano\n", diffInNanos);
     // //IR_Free(ir);
     // }
+    IR_Free(ir);
+    w->bw.buf->type &= ~BUFFER_FREEABLE;
   }
-  IW_Free(w);
+
+  // IW_Free(w);
+  // // overriding the regular IW_Free because we already deleted the buffer
+  w->skipIndexWriter.Release(w->skipIndexWriter.buf);
+  free(w->bw.buf);
+  free(w);
 
   return 0;
 }
 
 IndexWriter *createIndex(int size, int idStep) {
-  IndexWriter *w = NewIndexWriter(100);
+  IndexWriter *w = NewIndexWriter(1);
 
   t_docId id = idStep;
   for (int i = 0; i < size; i++) {
@@ -152,8 +160,12 @@ IndexWriter *createIndex(int size, int idStep) {
     // }
     ForwardIndexEntry h;
     h.docId = id;
-    h.flags = 0;
+    h.flags = 0xff;
     h.freq = i % 10;
+    h.docScore = 1;
+    h.stringFreeable = 0;
+    h.term = "hello";
+    h.len = 5;
 
     h.vw = NewVarintVectorWriter(8);
     for (int n = idStep; n < idStep + i % 4; n++) {
@@ -165,16 +177,16 @@ IndexWriter *createIndex(int size, int idStep) {
     id += idStep;
   }
 
-  printf("BEFORE: iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap,
-         IW_Len(w), w->ndocs);
+  // printf("BEFORE: iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap,
+  //        IW_Len(w), w->ndocs);
 
   w->bw.Truncate(w->bw.buf, 0);
 
   //  IW_MakeSkipIndex(w, NewMemoryBuffer(100, BUFFER_WRITE));
   IW_Close(w);
 
-  printf("AFTER iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap,
-         IW_Len(w), w->ndocs);
+  // printf("AFTER iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap,
+  //        IW_Len(w), w->ndocs);
   return w;
 }
 
@@ -191,7 +203,7 @@ int printIntersect(void *ctx, IndexHit *hits, int argc) {
 int testReadIterator() {
   IndexWriter *w = createIndex(10, 1);
 
-  IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0);
+  IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0xff);
   IndexHit h = NewIndexHit();
 
   IndexIterator *it = NewReadIterator(r1);
@@ -200,22 +212,35 @@ int testReadIterator() {
     if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
       return -1;
     }
+
     printf("Iter got %d\n", h.docId);
     ASSERT(h.docId == i++);
   }
-  return i == 11 ? 0 : -1;
+  ASSERT(i == 11);
+
+  it->Free(it);
+
+  // overriding the regular IW_Free because we already deleted the buffer
+  w->skipIndexWriter.Release(w->skipIndexWriter.buf);
+  w->scoreWriter.bw.Release(w->scoreWriter.bw.buf);
+  free(w);
+  return 0;
 }
 
 int testUnion() {
   IndexWriter *w = createIndex(10, 2);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0);
+  IndexReader *r1 =
+      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0xff);
   IndexWriter *w2 = createIndex(10, 3);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
   IndexReader *r2 =
-      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0);
+      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0xff);
   printf("Reading!\n");
-  IndexIterator *irs[] = {NewReadIterator(r1), NewReadIterator(r2)};
+  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r1);
+  irs[1] = NewReadIterator(r2);
+
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL);
   IndexHit h = NewIndexHit();
   int expected[] = {2,  3,  4,  6,  8,  9,  10, 12, 14,
@@ -225,38 +250,27 @@ int testUnion() {
     ASSERT(h.docId == expected[i++]);
     // printf("%d, ", h.docId);
   }
-  // IndexWriter *w3 = createIndex(30, 5);
-  // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3),
-  // &w3->skipIdx);
+  IW_Free(w);
+  IW_Free(w2);
 
-  // IndexIterator *irs2[] = {ui, NewIndexIterator(r3)};
-  // // while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-  // //     printf("Read %d\n", h.docId);
-  // // }
-  //  IterationContext ctx = {0,0};
-  // int count = IR_Intersect2(irs2, 2, printIntersect, &ctx);
-  // printf("%d\n", count);
   ui->Free(ui);
+
   return 0;
 }
 
 int testIntersection() {
   IndexWriter *w = createIndex(100000, 4);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0);
+  IndexReader *r1 =
+      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0xff);
   IndexWriter *w2 = createIndex(100000, 2);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
   IndexReader *r2 =
-      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0);
+      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0xff);
 
-  // IndexWriter *w3 = createIndex(10000, 3);
-  // IndexReader *r3 = NewIndexReader(w3->bw.buf->data,  IW_Len(w3),
-  // &w3->skipIdx);
-
-  IterationContext ctx = {0, 0};
-
-  IndexIterator *irs[] = {NewReadIterator(r1),
-                          NewReadIterator(r2)}; //,NewIndexTerator(r2)};
+  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r1);
+  irs[1] = NewReadIterator(r2);
 
   printf("Intersecting...\n");
 
@@ -266,7 +280,9 @@ int testIntersection() {
   clock_gettime(CLOCK_REALTIME, &start_time);
   IndexHit h = NewIndexHit();
 
+  float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
+    topFreq = topFreq > h.totalFreq ? topFreq : h.totalFreq;
     // printf("%d\n", h.docId);
     ++count;
   }
@@ -276,8 +292,15 @@ int testIntersection() {
   long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
   printf("%d intersections in %ldns\n", count, diffInNanos);
-  printf("top freq: %d\n", ctx.maxFreq);
+  printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
+  ASSERT(topFreq == 2850000.5);
+
+  IW_Free(w);
+  IW_Free(w2);
+
+  ii->Free(ii);
+
   return 0;
 }
 
@@ -286,10 +309,11 @@ int testMemBuffer() {
 
   BufferWriter w = NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE));
   ASSERTM(w.buf->cap == 2, "Wrong capacity");
+  ASSERT(w.buf->type & BUFFER_FREEABLE);
+  ASSERT(w.buf->type & BUFFER_WRITE);
   ASSERT(w.buf->data != NULL);
   ASSERT(BufferLen(w.buf) == 0);
   ASSERT(w.buf->data == w.buf->pos);
-  return 0;
 
   const char *x = "helo";
   size_t l = w.Write(w.buf, (void *)x, strlen(x) + 1);
@@ -324,6 +348,7 @@ int testMemBuffer() {
   ASSERT(n == 1337);
 
   w.Release(w.buf);
+  free(b);
   // TEST_END();
   return 0;
 }
@@ -385,7 +410,7 @@ int testIndexSpec() {
   assert(f->weight == 0.1);
 
   ASSERT(IndexSpec_GetField(&s, "foo", 3) == NULL)
-
+  IndexSpec_Free(&s);
   return 0;
 }
 
@@ -399,7 +424,7 @@ int testQueryTokenize() {
   int i = 0;
   while (QueryTokenizer_HasNext(&qt)) {
     QueryToken t = QueryTokenizer_Next(&qt);
-    printf("%d Token text: %*s, token type %d\n", i, t.len, t.s, t.type);
+    printf("%d Token text: %.*s, token type %d\n", i, (int)t.len, t.s, t.type);
 
     // ASSERT((t.s == NULL && expected[i] == NULL) ||  (t.s != NULL &&
     // expected[i] &&
@@ -410,11 +435,13 @@ int testQueryTokenize() {
     }
     ASSERT(t.type == etypes[i])
     i++;
+    free((char *)t.s);
+
     if (t.type == T_END) {
       break;
     }
   }
-
+  free(text);
   return 0;
 }
 
@@ -424,24 +451,21 @@ typedef union {
 } u;
 
 int main(int argc, char **argv) {
-  //   u u1;
-  //  u1.f = 3.0;
-  //  /* now u1.i refers to the int version of the float */
-  //  printf("%d",u1.i);
 
-  LOGGING_INIT(L_INFO);
-  // LOGGING_LEVEL = L_DEBUG;
-  //     TESTFUNC(testVarint);
-  //     TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
-  // TESTFUNC(testIntersection);
-  //  TESTFUNC(testReadIterator);
-  //   TESTFUNC(testUnion);
+  // LOGGING_INIT(L_INFO);
 
-  //   TESTFUNC(testMemBuffer);
-  //   TESTFUNC(testTokenize);
-  //   TESTFUNC(testForwardIndex);
-  //   TESTFUNC(testIndexSpec);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
+
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
+
+  TESTFUNC(testUnion);
+
+  TESTFUNC(testMemBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
   TESTFUNC(testQueryTokenize);
   return 0;
 }
