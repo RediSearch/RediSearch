@@ -36,6 +36,7 @@ TRIE = trie
 .PHONY: rmutil $(RMUTIL) 
 .PHONY: util $(UTIL)
 .PHONY: trie $(TRIE)
+.PHONY: tests  
 
 # util: $(UTIL)
 
@@ -49,6 +50,12 @@ $(RMUTIL):
 
 $(TRIE):
 	$(MAKE) -C $@
+
+tests:
+	# low level redis-independant tests
+	$(MAKE) -C $@ build test
+	# high level python integration tests
+	$(MAKE) -C pytest test
 
 snowball:
 	$(MAKE) -C dep/snowball libstemmer.o
@@ -70,8 +77,6 @@ debug: util rmutil snowball trie | module.so
 clean:
 	find . -type f -name '*.o' -delete -print
 
-test: $(VARINT) $(INDEX) $(TESTS) $(TEXT) $(UTILOBJS) $(REDIS) $(RMUTILOBJS)
-	$(CC) $(CFLAGS)  -o testung  $(INDEX) $(TEXT) $(VARINT) $(TESTS) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBS) -lc -lm 
-	@(sh -c ./testung)
+test: tests
 
 rebuild: clean all
