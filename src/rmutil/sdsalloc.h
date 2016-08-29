@@ -36,7 +36,11 @@
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */
 
+#if defined(__MACH__)
+#include <stdlib.h>
+#else
 #include <malloc.h>
+#endif
 //#include "zmalloc.h"
 #define s_malloc malloc
 #define s_realloc realloc
