@@ -86,8 +86,36 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(3, len(res))     
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
+
+    def testAddHash(self):
             
-           
+           with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'body', 1.0, 'price', 'numeric'))
+
+            self.assertTrue(r.hmset('doc1', {"title" :"hello world", "body" :"lorem ipsum", "price": 2}))
+            self.assertTrue(r.hmset('doc2', {"title" :"hello werld", "body" :"lorem ipsum", "price": 5}))
+
+            self.assertOk(r.execute_command('ft.addhash', 'idx', 'doc1', 1.0))
+            self.assertOk(r.execute_command('ft.addhash', 'idx', 'doc2', 1.0))
+
+            res = r.execute_command('ft.search', 'idx', "hello", "nocontent") 
+            self.assertEqual(3, len(res))     
+            self.assertEqual(2, res[0])
+            self.assertEqual("doc1", res[1])
+            self.assertEqual("doc2", res[2])
+
+            
+            res = r.execute_command('ft.search', 'idx', "hello", "filter", "price", "0", "3") 
+            self.assertEqual(3, len(res))     
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc1", res[1])
+            self.assertListEqual(['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
+            
+            res = r.execute_command('ft.search', 'idx', "hello werld", "filter", "nocontent") 
+            self.assertEqual(2, len(res))     
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc2", res[1])
             
     
     def testInfields(self):

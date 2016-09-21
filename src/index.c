@@ -289,7 +289,6 @@ IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter,
 
 int indexReadHeader(Buffer *b, IndexHeader *h) {
   if (b->cap > sizeof(IndexHeader)) {
-    printf("Reading index header!\n");
     BufferSeek(b, 0);
     return BufferRead(b, h, sizeof(IndexHeader));
     // LG_DEBUG("read buffer header. size %d, lastId %d at pos %zd", h->size,

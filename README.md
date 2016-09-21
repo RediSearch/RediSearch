@@ -170,6 +170,34 @@ Add a documet to the index.
 
 ----
 
+## FT.ADDHASH index docId score [LANGUAGE lang]
+
+Add a documet to the index from an existing HASH key in Redis.
+
+### Parameters:
+
+    - index: The Fulltext index name. The index must be first created with FT.CREATE
+
+    - docId: The document's id. This has to be an existing HASH key in redis that will hold the fields 
+      the index needs.
+
+    - score: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
+      If you don't have a score just set it to 1
+
+    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+      If an unsupported language is sent, the command returns an error. 
+      The supported languages are:
+  
+      > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+      > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+      > "russian", "spanish",   "swedish", "tamil",     "turkish"
+
+    
+### Returns
+> OK on success, or an error if something went wrong.
+
+----
+
 ## FT.SEARCH index query [NOCONTENT] [VERBATIM] [LANGUAGE lang] [LIMIT offset num] [INFIELDS num field ...] [FILTER numeric_field min max]
 Seach the index with a textual query, returning either documents or just ids.
 

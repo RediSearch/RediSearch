@@ -267,6 +267,10 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key,
   }
 
   size_t len = RedisModule_CallReplyLength(rep);
+  // Zero means the document does not exist in redis
+  if (len == 0) {
+    return REDISMODULE_ERR;
+  }
   doc->fields = calloc(len / 2, sizeof(DocumentField));
   doc->numFields = len / 2;
   int n = 0;
@@ -311,6 +315,7 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys,
 }
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
+
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE);
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&

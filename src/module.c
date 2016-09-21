@@ -115,7 +115,8 @@ error:
 }
 
 /*
-## FT.ADD <index> <docId> <score> [NOSAVE] FIELDS <field> <text> ....]
+## FT.ADD <index> <docId> <score> [NOSAVE] [LANGUAGE <lang>] FIELDS <field>
+<text> ....]
 Add a documet to the index.
 
 ## Parameters:
@@ -235,8 +236,102 @@ u_int32_t _getHitScore(void *ctx) {
   return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
 }
 
+/* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>]
+*  Index a document that's already saved in redis as a HASH object, unrelated to
+* the module.
+*  This will not modify the document, just add it to the index if it is not
+* already there.
+
+## Parameters:
+
+      - index: The Fulltext index name. The index must be first created with
+        FT.CREATE
+
+      - docId: The document's id, that must be a HASH key already in redis.
+
+      - score: The document's rank based on the user's ranking. This must be
+        between 0.0 and 1.0.
+        If you don't have a score just set it to 1
+
+      - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
+      indexing. Defaults to
+      English.
+        If an unsupported language is sent, the command returns an error.
+        The supported languages are:
+
+        > "arabic",  "danish",    "dutch",   "english",   "finnish", "french",
+        > "german",  "hungarian", "italian", "norwegian", "portuguese",
+"romanian",
+        > "russian", "spanish",   "swedish", "tamil",     "turkish"
+
+
+  Returns OK on success, or an error if something went wrong.
+*/
+int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  if (argc < 4 || argc > 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+
+  IndexSpec sp;
+  // load the index by name
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
+      REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+    goto cleanup;
+  }
+
+  RedisSearchCtx sctx = {ctx, &sp};
+
+  // Load the document score
+  double ds = 0;
+  if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(ctx, "Could not parse document score");
+    goto cleanup;
+  }
+  if (ds > 1 || ds < 0) {
+    RedisModule_ReplyWithError(
+        ctx, "Document scores must be normalized between 0.0 ... 1.0");
+    goto cleanup;
+  }
+
+  // Parse the optional LANGUAGE flag
+  const char *lang = NULL;
+  RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 4, "c", &lang);
+  if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
+    RedisModule_ReplyWithError(ctx, "Unsupported Language");
+    goto cleanup;
+  }
+
+  Document doc;
+  if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  }
+  doc.docKey = argv[2];
+  doc.score = ds;
+  doc.language = lang ? lang : DEFAULT_LANGUAGE;
+
+  LG_DEBUG("Adding doc %s with %d fields\n",
+           RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
+  const char *msg = NULL;
+  int rc = AddDocument(&sctx, doc, &msg, 1);
+  if (rc == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  free(doc.fields);
+
+cleanup:
+  IndexSpec_Free(&sp);
+  return REDISMODULE_OK;
+}
+
 /*
-## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS num>field
+## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS
+num>field
 ...] [LANGUAGE lang]
 [VERBATIM]
 
@@ -246,7 +341,8 @@ Seach the index with a textual query, returning either documents or just ids.
    - index: The Fulltext index name. The index must be first created with
 FT.CREATE
 
-   - query: the text query to search. If it's more than a single word, put it in
+   - query: the text query to search. If it's more than a single word, put it
+in
 quotes.
    Basic syntax like quotes for exact matching is supported.
 
@@ -264,7 +360,8 @@ appearing only in specific
    fields of the document, like title or url. num is the number of specified
 field arguments
 
-   - VERBATIM: If set, we turn off stemming for the query processing. Faster but
+   - VERBATIM: If set, we turn off stemming for the query processing. Faster
+but
 will yield less
     results
 
@@ -272,7 +369,8 @@ will yield less
 document. this can be
    used to merge results from multiple instances
 
-   - LANGUAGE lang: If set, we use a stemmer for the supplied langauge. Defaults
+   - LANGUAGE lang: If set, we use a stemmer for the supplied langauge.
+Defaults
 to English.
    If an unsupported language is sent, the command returns an error. The
 supported languages are:
@@ -283,7 +381,8 @@ supported languages are:
 
 ### Returns:
 
-    An array reply, where the first element is the total number of results, and
+    An array reply, where the first element is the total number of results,
+and
 then pairs of
     document id, and a nested array of field/value, unless NOCONTENT was given
 */
@@ -393,7 +492,8 @@ end:
 /*
 ## FT.CREATE <index> <field> <weight>, ...
 
-Creates an index with the given spec. The index name will be used in all the key
+Creates an index with the given spec. The index name will be used in all the
+key
 names
 so keep it short!
 
@@ -402,7 +502,8 @@ so keep it short!
     - index: the index name to create. If it exists the old spec will be
 overwritten
 
-    - field / weight pairs: pairs of field name and relative weight in scoring.
+    - field / weight pairs: pairs of field name and relative weight in
+scoring.
     The weight is a double, but does not need to be normalized.
 
 ### Returns:
@@ -449,7 +550,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 * after
 *  optimizing it might lead to screwed up results (TODO: rebuild score indexes
 * if needed).
-*  The simple solution to that is to call optimize again after adding documents
+*  The simple solution to that is to call optimize again after adding
+* documents
 * to the index.
 *
 *  Warning 2: This blocks redis for a long time. Do not run it on production
@@ -528,7 +630,8 @@ the user.
 
    - score: a floating point number of the suggestion string's weight
 
-   -INCR: if set, we increment the existing entry of the suggestion by the given
+   -INCR: if set, we increment the existing entry of the suggestion by the
+given
 score, instead
 of
     replacing the score. This is useful for updating the dictionary based on
@@ -623,7 +726,8 @@ Get completion suggestions for a prefix
 levenshtein distance of 1
     from the prefix sent
 
-   - MAX num: If set, we limit the results to a maximum of `num`. The default is
+   - MAX num: If set, we limit the results to a maximum of `num`. The default
+is
 5, and the number
     cannot be greater than 10.
 
@@ -709,6 +813,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand,
+                                "write deny-oom no-cluster", 1, 1,
+                                1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand,
                                 "write deny-oom no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
