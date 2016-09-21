@@ -27,6 +27,7 @@ traditional redis search approaches.
 * Numeric filters and ranges.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids
+* Automatically index existing HASH keys as documents.
 
 ### Not *yet* supported:
 
