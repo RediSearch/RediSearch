@@ -43,14 +43,9 @@ traditional redis search approaches.
 Which basically means you can freely use this for your own projects without "virality" to your code,
 as long as you're not modifying the module itself.
 
-```
-Warning:
+### Note About Stability
 
-RediSearch is under development and missing a lot of features.
-
-The API may change, the internal implementation is evolving, 
-and the Redis modules API itself is still unstable.
-``` 
+RediSearch is still under development and can be considered Alpha. While we've tested it extensively with big data-sets and very high workloads, and it is very stable - the API itself may change. You are welcome to use it, but keep in mind future versions might change things.
  
 ## Internal Design
 
