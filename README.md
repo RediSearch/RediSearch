@@ -327,6 +327,19 @@ Get completion suggestions for a prefix
 
 > Array reply: a list of the top suggestions matching the prefix
 
+## FT.SUGDEL key str
+
+Delete a string from a suggestion index. 
+
+### Parameters:
+
+   - **key**: the suggestion dictionary key.
+
+   - **str**: the string to delete
+
+### Returns:
+
+> Integer reply: 1 if the string was found and deleted, 0 otherwise.
 
 
 # TODO

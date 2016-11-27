@@ -711,6 +711,44 @@ int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 }
 
+
+/*
+## FT.SUGDEL key str
+
+Delete a string from a suggestion index. 
+
+### Parameters:
+
+   - key: the suggestion dictionary key.
+
+   - str: the string to delete
+
+### Returns:
+
+Integer reply: 1 if the string was found and deleted, 0 otherwise.
+*/
+int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+
+  if (argc != 3)
+    return RedisModule_WrongArity(ctx);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+  int type = RedisModule_KeyType(key);
+  if (type != REDISMODULE_KEYTYPE_EMPTY &&
+      RedisModule_ModuleTypeGetType(key) != TrieType) {
+    return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+  }
+
+  Trie *tree = RedisModule_ModuleTypeGetValue(key);
+  if (!tree) {
+    RedisModule_ReplyWithLongLong(ctx, 0);
+  }
+  size_t len;
+  const char *str = RedisModule_StringPtrLen(argv[2], &len);
+  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char*)str, len));
+
+}
+
 /*
 ## FT.SUGGET key prefix [FUZZY] [MAX num] [WITHSCORES] [TRIM]
 
@@ -843,6 +881,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
                                 "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand,
+                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
   if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand,
                                 "readonly no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
@@ -853,9 +895,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  //  if (RedisModule_CreateCommand(ctx,"hgetset",
-  //         HGetSetCommand) == REDISMODULE_ERR)
-  //         return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
 }

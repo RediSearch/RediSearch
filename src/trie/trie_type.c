@@ -25,6 +25,13 @@ void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score,
                           incr ? ADD_INCR : ADD_REPLACE);
 }
 
+int Trie_Delete(Trie *t, char *s, size_t len) {
+  int rc = TrieNode_Delete(t->root, s, len);
+  t->size -= rc;
+  return rc;
+}
+
+
 void TrieSearchResult_Free(TrieSearchResult *e) {
   free(e->str);
   free(e);

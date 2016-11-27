@@ -44,7 +44,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
     n->len = offset;
     n->score = 0;
     // the parent node is now non terminal and non sorted
-    n->flags &= ~(TRIENODE_SORTED | TRIENODE_TERMINAL);
+    n->flags &= ~(TRIENODE_SORTED | TRIENODE_TERMINAL | TRIENODE_DELETED);
 
     n->maxChildScore = MAX(n->maxChildScore, newChild->score);
     n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
@@ -103,6 +103,7 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
     // we're inserting in an existing node - just replace the value
     if (offset == len) {
         int term = __trieNode_isTerminal(n);
+        int deleted = __trieNode_isDeleted(n);
         switch (op) {
             // in increment mode, just add the score to the node's score
             case ADD_INCR:
@@ -116,12 +117,13 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score, TrieAddOp op)
         }
         // set the node as terminal
         n->flags |= TRIENODE_TERMINAL;
+        // if it was deleted, make sure it's not now
+        n->flags  &= ~TRIENODE_DELETED;
         *np = n;
-        return term ? 0 : 1;
+        return (term && !deleted) ? 0 : 1;
     }
 
     // proceed to the next child or add a new child for the current character
-
     for (t_len i = 0; i < n->numChildren; i++) {
         TrieNode *child = __trieNode_children(n)[i];
 
@@ -150,7 +152,8 @@ float TrieNode_Find(TrieNode *n, char *str, t_len len) {
 
         if (offset == len) {
             // we're at the end of both strings!
-            if (localOffset == n->len) return n->score;
+            if (localOffset == n->len) 
+                return __trieNode_isDeleted(n) ? 0 : n->score;
 
         } else if (localOffset == n->len) {
             // we've reached the end of the node's string but not the search string
@@ -176,6 +179,58 @@ float TrieNode_Find(TrieNode *n, char *str, t_len len) {
 
     return 0;
 }
+
+int TrieNode_Delete(TrieNode *n, char *str, t_len len) {
+    t_len offset = 0;
+    while (n && offset < len) {
+        // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
+        // len);
+        t_len localOffset = 0;
+        for (; offset < len && localOffset < n->len; offset++, localOffset++) {
+            if (str[offset] != n->str[localOffset]) {
+                break;
+            }
+        }
+
+        if (offset == len) {
+            // we're at the end of both strings!
+            // this means we've found what we're looking for
+            if (localOffset == n->len) {
+                if (!(n->flags & TRIENODE_DELETED)) {
+                    n->flags |= TRIENODE_DELETED;
+                    n->flags &= ~TRIENODE_TERMINAL;
+
+                    n->score = 0;
+                    return 1;
+                } 
+                return 0;
+            }
+
+        } else if (localOffset == n->len) {
+            // we've reached the end of the node's string but not the search string
+            // let's find a child to continue to
+            t_len i = 0;
+            TrieNode *nextChild = NULL;
+            for (; i < n->numChildren; i++) {
+                TrieNode *child = __trieNode_children(n)[i];
+
+                if (str[offset] == child->str[0]) {
+                    nextChild = child;
+                    break;
+                }
+            }
+
+            // we couldn't find a matching child
+            n = nextChild;
+
+        } else {
+            return 0;
+        }
+    }
+
+    return 0;
+}
+
 
 void TrieNode_Free(TrieNode *n) {
     for (t_len i = 0; i < n->numChildren; i++) {
@@ -278,7 +333,8 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
                 // if we don't have a filter, a "match" is when we reach the end of the node
                 if (!it->filter) {
                     if (current->stringOffset == current->n->len &&
-                        __trieNode_isTerminal(current->n)) {
+                        __trieNode_isTerminal(current->n) &&
+                        !__trieNode_isDeleted(current->n)) {
                         matched = 1;
                     }
                 }
@@ -333,7 +389,7 @@ int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score, vo
         if (rc == __STEP_MATCH) {
             stackNode *sn = __ti_current(it);
 
-            if (__trieNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset) {
+            if (__trieNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset && !__trieNode_isDeleted(sn->n)) {
                 *ptr = it->buf;
                 *len = it->bufOffset;
                 *score = sn->n->score;

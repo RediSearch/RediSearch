@@ -12,6 +12,8 @@ typedef u_int8_t t_len;
 
 #define TRIENODE_SORTED 0x1
 #define TRIENODE_TERMINAL 0x2
+#define TRIENODE_DELETED 0x4
+
 /* TrieNode represents a single node in a trie. The actual size of it is bigger, as the children are
  * allocated after str[].
  * Non terminal nodes always have a score of 0, meaning you can't insert nodes with score 0 to the
@@ -53,6 +55,8 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
+#define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
+
 /* Add a child node to the parent node n, with a string str starting at offset up until len, and a
 given score */
 TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float score);
@@ -73,6 +77,11 @@ int TrieNode_Add(TrieNode **n, char *str, t_len len, float score, TrieAddOp op);
 * not found.
 * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, char *str, t_len len);
+
+/* Mark a node as deleted. For simplicity for now we don't actually delete anything, 
+* but the node will not be persisted to disk, thus deleted after reload. 
+* Returns 1 if the node was indeed deleted, 0 otherwise */
+int TrieNode_Delete(TrieNode *n, char *str, t_len len);
 
 /* Free the trie's root and all its children recursively */
 void TrieNode_Free(TrieNode *n);

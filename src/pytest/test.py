@@ -245,6 +245,15 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertTrue(float(rc[1]) > 0)
             self.assertTrue(float(rc[3]) > 0)
             
+            rc = r.execute_command("ft.SUGDEL", "ac", "hello world")
+            self.assertEqual(1L, rc)
+            rc = r.execute_command("ft.SUGDEL", "ac", "world")
+            self.assertEqual(0L, rc)
+
+            rc = r.execute_command("ft.SUGGET", "ac", "hello")
+            self.assertEqual(['hello werld'], rc)
+
+
 if __name__ == '__main__':
 
     unittest.main()
