@@ -76,7 +76,7 @@ int testTrie() {
   rc = TrieNode_Delete(root,  "helter skelter", 14);
   ASSERT(rc == 0);
   sc = TrieNode_Find(root, "helter skelter", 14);
-  printf("%f\n", sc);
+  
   ASSERT(sc == 0);
 
   TrieNode_Free(root);
