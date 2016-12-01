@@ -84,6 +84,22 @@ int testTrie() {
   return 0;
 }
 
+int testUnicode() {
+
+  char *str = "\xc4\x8caji\xc4\x87";
+
+  TrieNode *root = __newTrieNode("", 0, 0, 0, 1, 0);
+  ASSERT(root != NULL)
+
+  int rc = __trie_add(root, str, 1, ADD_REPLACE);
+  ASSERT_EQUAL_INT(1, rc);
+  rc = __trie_add(root, str, 1, ADD_REPLACE);
+  ASSERT_EQUAL_INT(0, rc);
+  float sc = TrieNode_Find(root, str, strlen(str));
+  ASSERT(sc == 1);
+  return 0;
+}
+
 int testDFAFilter() {
   FILE *fp = fopen("./titles.csv", "r");
   assert(fp != NULL);
@@ -185,5 +201,6 @@ int testDFAFilter() {
 
 int main(int argc, char **argv) {
   //TESTFUNC(testDFAFilter);
-  TESTFUNC(testTrie);
+  //TESTFUNC(testTrie);
+  TESTFUNC(testUnicode);
 }

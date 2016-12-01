@@ -6,6 +6,7 @@
 #include "../util/heap.h"
 #include "trie_type.h"
 
+
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
   tree->root = __newTrieNode("", 0, 0, 0, 0, 0);
@@ -53,7 +54,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter(s, len, maxDist, prefixMode);
+  DFAFilter fc = NewDFAFilter((unsigned char *)s, len, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
   char *str;

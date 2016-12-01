@@ -15,7 +15,7 @@
 * This DFA is used while traversing a Trie to decide where to stop.
 */
 typedef struct {
-    const char *string;
+    const unsigned char *string;
     size_t len;
     int max;
 } SparseAutomaton;
@@ -38,13 +38,13 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
  * distance of maxEdits */
-SparseAutomaton NewSparseAutomaton(const char *s, size_t len, int maxEdits);
+SparseAutomaton NewSparseAutomaton(const unsigned char *s, size_t len, int maxEdits);
 
 /* Create the initial state vector of the root automaton node */
 sparseVector *SparseAutomaton_Start(SparseAutomaton *a);
 
 /* Step from a given state of the automaton to the next step given a specific character */
-sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char c);
+sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, unsigned char c);
 
 /* Is the current state of the automaton a match for the query? */
 int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
@@ -69,7 +69,7 @@ typedef struct {
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
  * distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
  * onwards to all suffixes. */
-DFAFilter NewDFAFilter(char *str, size_t len, int maxDist, int prefixMode);
+DFAFilter NewDFAFilter(unsigned char *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator */
 FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx);

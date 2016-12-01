@@ -6,7 +6,7 @@
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check
-SparseAutomaton NewSparseAutomaton(const char *s, size_t len, int maxEdits) {
+SparseAutomaton NewSparseAutomaton(const unsigned char *s, size_t len, int maxEdits) {
     return (SparseAutomaton){s, len, maxEdits};
 }
 
@@ -23,7 +23,7 @@ sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
 
 // Step returns the next state of the automaton given a previous state and a
 // character to check
-sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, char c) {
+sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, unsigned char c) {
     sparseVector *newVec = newSparseVectorCap(state->len);
 
     if (state->len) {
@@ -87,7 +87,7 @@ void __dfaNode_free(dfaNode *d) {
     free(d);
 }
 
-inline int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
+int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
     if (sv1->len != sv2->len) return 0;
 
     for (int i = 0; i < sv1->len; i++) {
@@ -113,10 +113,10 @@ dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
     return NULL;
 }
 
+
 void __dfn_putCache(Vector *cache, dfaNode *dfn) { Vector_Push(cache, dfn); }
 
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
-    // printf("building dfa node dist %d\n", parent->distance);
     parent->match = SparseAutomaton_IsMatch(a, parent->v);
 
     for (int i = 0; i < parent->v->len; i++) {
@@ -165,7 +165,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     //}
 }
 
-DFAFilter NewDFAFilter(char *str, size_t len, int maxDist, int prefixMode) {
+DFAFilter NewDFAFilter(unsigned  char *str, size_t len, int maxDist, int prefixMode) {
     Vector *cache = NewVector(dfaNode *, 8);
 
     SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);

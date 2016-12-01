@@ -219,7 +219,7 @@ void __trieNode_sortChildren(TrieNode *n);
 *   2. If a child has a single child - merge them
 *   3. recalculate the max child score
 */
-inline void __trieNode_optimizeChildren(TrieNode *n) {
+void __trieNode_optimizeChildren(TrieNode *n) {
 
   int i = 0;
   TrieNode **nodes = __trieNode_children(n);
