@@ -8,17 +8,18 @@
 #include "trie_type.h"
 #include "../dep/libnu/libnu.h"
 
-rune *__strToRunes(char *str, size_t len) {
+rune *__strToRunes(char *str, size_t len,  size_t *utflen) {
 
 
-    uint32_t *decoded = malloc(sizeof(*decoded) * len);
+	  *utflen = nu_strlen(str, nu_utf8_read);
+    uint32_t *decoded = malloc(sizeof(*decoded) * utfLen + 1);
 
 	  nu_readstr(str, decoded, nu_utf8_read);
 
-    rune *ret = calloc(len, sizeof(rune));
-    for (int i = 0; i < len; i++) {
-      ret[i] = (rune)decoded[i] & 0xFFFF;
-      //printf("ret[%d]: %x\n", i, ret[i]);
+    rune *ret = calloc(*utflen, sizeof(rune));
+    for (int i = 0; i < *utflen; i++) {
+      ret[i] = (rune)decoded[i] & 0x0000FFFF;
+      printf("ret[%d]: %x\n", i, ret[i]);
     }
     return ret;
 }
@@ -31,6 +32,7 @@ char *__runesToStr(rune *in, size_t len) {
   }
 
   char *ret = calloc(1, len*2 + 1);
+  
 	
   
 	nu_writestr(unicode, ret, nu_utf8_write);
@@ -85,10 +87,10 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter((unsigned char *)s, len, maxDist, prefixMode);
+  DFAFilter fc = NewDFAFilter(__strToRunes(s,len), len, maxDist, prefixMode);
 
-  //TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
-  TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
+  //TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;

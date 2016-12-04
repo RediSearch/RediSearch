@@ -6,7 +6,7 @@
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check
-SparseAutomaton NewSparseAutomaton(const unsigned char *s, size_t len, int maxEdits) {
+SparseAutomaton NewSparseAutomaton(const rune *s, size_t len, int maxEdits) {
     return (SparseAutomaton){s, len, maxEdits};
 }
 
@@ -23,7 +23,7 @@ sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
 
 // Step returns the next state of the automaton given a previous state and a
 // character to check
-sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, unsigned char c) {
+sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune c) {
     sparseVector *newVec = newSparseVectorCap(state->len);
 
     if (state->len) {
@@ -77,7 +77,7 @@ dfaNode *__newDfaNode(int distance, sparseVector *state) {
     ret->fallback = NULL;
     ret->distance = distance;
     ret->v = state;
-    // memset(ret->edges, 0, 255 * sizeof(dfaNode *));
+    memset(ret->edges, 0, 0xffff * sizeof(dfaNode *));
     return ret;
 }
 
@@ -121,7 +121,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
 
     for (int i = 0; i < parent->v->len; i++) {
         if (parent->v->entries[i].idx < a->len) {
-            int c = a->string[parent->v->entries[i].idx];
+            rune c = a->string[parent->v->entries[i].idx];
             // printf("%c ---> ", c);
             if (parent->edges[c] == NULL) {
                 sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
@@ -165,7 +165,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     //}
 }
 
-DFAFilter NewDFAFilter(unsigned  char *str, size_t len, int maxDist, int prefixMode) {
+DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
     Vector *cache = NewVector(dfaNode *, 8);
 
     SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
@@ -200,7 +200,7 @@ void DFAFilter_Free(DFAFilter *fc) {
     Vector_Free(fc->distStack);
 }
 
-FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx) {
+FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
     DFAFilter *fc = ctx;
     dfaNode *dn;
     int minDist;
