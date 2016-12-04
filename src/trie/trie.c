@@ -6,7 +6,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + slen + 1;
 }
 
-TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren,
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren,
                         float score, int terminal) {
   TrieNode *n = calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
@@ -14,11 +14,12 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren,
   n->score = score;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   n->maxChildScore = 0;
-  strncpy(n->str, str + offset, len - offset);
+  memcpy(n->str, str+offset, sizeof(rune)*(len-offset));
+  
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len,
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len,
                           float score) {
   n->numChildren++;
   n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
@@ -64,9 +65,9 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n) {
   TrieNode *ch = *__trieNode_children(n);
   
   // Copy the current node's data and children to a new child node
-  char nstr[n->len + ch->len + 1];
-  strncpy(nstr, n->str, n->len);
-  strncpy(nstr + n->len, ch->str, ch->len);
+  rune nstr[n->len + ch->len + 1];
+  memcpy(nstr, n->str, sizeof(rune)*n->len);
+  memcpy(&nstr[n->len], ch->str,  sizeof(rune)*ch->len);
   TrieNode *merged = __newTrieNode(nstr, 0, n->len + ch->len, ch->numChildren,
                                    ch->score, __trieNode_isTerminal(ch));
 
@@ -93,7 +94,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   }
 }
 
-int TrieNode_Add(TrieNode **np, char *str, t_len len, float score,
+int TrieNode_Add(TrieNode **np, rune *str, t_len len, float score,
                  TrieAddOp op) {
   if (score == 0 || len == 0) {
     return 0;
@@ -155,7 +156,7 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score,
     return (term && !deleted) ? 0 : 1;
   }
 
-  // proceed to the next child or add a new child for the current character
+  // proceed to the next child or add a new child for the current rune
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = __trieNode_children(n)[i];
 
@@ -170,7 +171,7 @@ int TrieNode_Add(TrieNode **np, char *str, t_len len, float score,
   return 1;
 }
 
-float TrieNode_Find(TrieNode *n, char *str, t_len len) {
+float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
   while (n && offset < len) {
     // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
@@ -257,7 +258,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
 }
 
-int TrieNode_Delete(TrieNode *n, char *str, t_len len) {
+int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
   static TrieNode *stack[MAX_STRING_LEN];
   int stackPos = 0;
@@ -392,8 +393,8 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
   case ITERSTATE_SELF:
 
     if (current->stringOffset < current->n->len) {
-      // get the current character to feed the filter
-      unsigned char b = current->n->str[current->stringOffset];
+      // get the current rune to feed the filter
+      rune b = current->n->str[current->stringOffset];
 
       if (it->filter) {
         // run the next character in the filter
@@ -471,7 +472,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf,
 
 void TrieIterator_Free(TrieIterator *it) { free(it); }
 
-int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score,
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score,
                       void *matchCtx) {
   int rc;
   while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {

@@ -2,6 +2,7 @@
 #define __TRIE_TYPE_H__
 
 #include "../redismodule.h"
+
 #include "trie.h"
 #include "levenshtein.h"
 

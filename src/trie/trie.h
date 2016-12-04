@@ -6,6 +6,9 @@
 #include <stdio.h>
 
 typedef u_int8_t t_len;
+
+typedef u_int16_t rune;
+
 #define MAX_STRING_LEN 255
 
 #pragma pack(1)
@@ -34,7 +37,7 @@ typedef struct {
     unsigned char flags;
 
     // the string of the current node
-    char str[];
+    rune str[];
     // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 
@@ -46,12 +49,12 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 /* Create a new trie node. str is a string to be copied into the node, starting from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, float score,
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren, float score,
                         int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member of the node for
  * memory saving reasons */
-#define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(TrieNode) + n->len + 1))
+#define __trieNode_children(n) ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len+1)*sizeof(rune)))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
@@ -59,7 +62,7 @@ TrieNode *__newTrieNode(char *str, t_len offset, t_len len, t_len numChildren, f
 
 /* Add a child node to the parent node n, with a string str starting at offset up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, char *str, t_len offset, t_len len, float score);
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, float score);
 
 /* Split node n at string offset n. This returns a new node which has a string up until offset, and
 * a single child holding The old score of n, and its score */
@@ -71,17 +74,17 @@ typedef enum {
 } TrieAddOp;
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0 if we just replaced
  * the score. We pass a pointer to the node because it may actually change when splitting */
-int TrieNode_Add(TrieNode **n, char *str, t_len len, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, rune *str, t_len len, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns 0 if the entry was
 * not found.
 * Note that you cannot put entries with zero score */
-float TrieNode_Find(TrieNode *n, char *str, t_len len);
+float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete anything, 
 * but the node will not be persisted to disk, thus deleted after reload. 
 * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, char *str, t_len len);
+int TrieNode_Delete(TrieNode *n, rune *str, t_len len);
 
 /* Free the trie's root and all its children recursively */
 void TrieNode_Free(TrieNode *n);
@@ -100,7 +103,7 @@ typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
 // A callback for an automaton that receives the current state, evaluates the next byte,
 // and returns the next state of the automaton. If we should not continue down,
 // return F_STOP
-typedef FilterCode (*StepFilter)(unsigned char b, void *ctx, int *match, void *matchCtx);
+typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
 
 typedef void (*StackPopCallback)(void *ctx, int num);
 
@@ -111,7 +114,7 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-    char buf[MAX_STRING_LEN];
+    rune buf[MAX_STRING_LEN];
     t_len bufOffset;
 
     stackNode stack[MAX_STRING_LEN];
@@ -155,6 +158,6 @@ void TrieIterator_Free(TrieIterator *it);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue, or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, char **ptr, t_len *len, float *score, void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score, void *matchCtx);
 
 #endif
