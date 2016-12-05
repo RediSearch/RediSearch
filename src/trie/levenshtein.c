@@ -77,13 +77,16 @@ dfaNode *__newDfaNode(int distance, sparseVector *state) {
     ret->fallback = NULL;
     ret->distance = distance;
     ret->v = state;
-    memset(ret->edges, 0, 0xffff * sizeof(dfaNode *));
+    ret->edges = NULL;
+    ret->numEdges = 0;
+    
     return ret;
 }
 
 void __dfaNode_free(dfaNode *d) {
     sparseVector_free(d->v);
-
+    if (d->edges)
+        free(d->edges);
     free(d);
 }
 
@@ -116,6 +119,20 @@ dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
 
 void __dfn_putCache(Vector *cache, dfaNode *dfn) { Vector_Push(cache, dfn); }
 
+inline dfaNode *__dfn_getEdge(dfaNode *n, rune r) {
+    for (int i =0; i < n->numEdges; i++) {
+        if (n->edges[i].r == r) {
+            return n->edges[i].n;
+        }
+    }
+    return NULL;
+}
+
+void __dfn_addEdge(dfaNode *n, rune r, dfaNode *child) {
+    n->edges = realloc(n->edges, sizeof(dfaEdge)*(n->numEdges+1));
+    n->edges[n->numEdges++] = (dfaEdge){.r = r, .n = child};
+}
+
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     parent->match = SparseAutomaton_IsMatch(a, parent->v);
 
@@ -123,20 +140,21 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
         if (parent->v->entries[i].idx < a->len) {
             rune c = a->string[parent->v->entries[i].idx];
             // printf("%c ---> ", c);
-            if (parent->edges[c] == NULL) {
+            dfaNode *edge = __dfn_getEdge(parent, c);
+            if (edge == NULL) {
                 sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
 
                 if (nv->len > 0) {
                     dfaNode *dfn = __dfn_getCache(cache, nv);
                     if (dfn == NULL) {
                         int dist = nv->entries[nv->len - 1].val;
-
-                        parent->edges[c] = __newDfaNode(dist, nv);
-                        __dfn_putCache(cache, parent->edges[c]);
-                        dfa_build(parent->edges[c], a, cache);
+                        edge = __newDfaNode(dist, nv);
+                        __dfn_addEdge(parent, c, edge);
+                        __dfn_putCache(cache, edge);
+                        dfa_build(edge, a, cache);
                         continue;
                     } else {
-                        parent->edges[c] = dfn;
+                        __dfn_addEdge(parent, c, dfn);
                     }
                 }
                 sparseVector_free(nv);
@@ -226,7 +244,10 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
         }
     }
 
-    dfaNode *next = dn->edges[b] ? dn->edges[b] : dn->fallback;
+    // get the next state change
+    dfaNode *next = __dfn_getEdge(dn, b);
+    if (!next) 
+        next = dn->fallback;
 
     // we can continue - push the state on the stack
     if (next) {

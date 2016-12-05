@@ -20,15 +20,27 @@ typedef struct {
     int max;
 } SparseAutomaton;
 
+struct dfaEdge; 
+
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */
 typedef struct dfaNode {
     int distance;
 
     int match;
     sparseVector *v;
-    struct dfaNode *edges[0xFFFF];
+    struct dfaEdge *edges;
+    size_t numEdges;
     struct dfaNode *fallback;
 } dfaNode;
+
+typedef struct dfaEdge {
+    dfaNode *n;
+    rune r;
+} dfaEdge;
+
+/* Get an edge for a dfa node given the next rune */
+dfaNode *__dfn_getEdge(dfaNode *n, rune r);
+
 
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);

@@ -3,7 +3,7 @@
 #include "sparse_vector.h"
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
-  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + slen + 1;
+  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune)*(slen + 1);
 }
 
 TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren,
