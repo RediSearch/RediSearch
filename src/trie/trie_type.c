@@ -7,7 +7,7 @@
 #include "trie_type.h"
 #include "../dep/libnu/libnu.h"
 
-/* Convert a utf-8 string to constant width runes */ 
+/* Convert a utf-8 string to constant width runes */
 rune *__strToRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
@@ -21,7 +21,7 @@ rune *__strToRunes(char *str, size_t *len) {
   }
   if (len)
     *len = rlen;
-  
+
   return ret;
 }
 
@@ -277,14 +277,12 @@ void TrieType_Free(void *value) {
 
 int TrieType_Register(RedisModuleCtx *ctx) {
 
-    RedisModuleTypeMethods tm = {
-        .version = REDISMODULE_TYPE_METHOD_VERSION,
-        .rdb_load = TrieType_RdbLoad,
-        .rdb_save = TrieType_RdbSave,
-        .aof_rewrite = TrieType_AofRewrite,
-        .free = TrieType_Free
-    };
-    
+  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
+                               .rdb_load = TrieType_RdbLoad,
+                               .rdb_save = TrieType_RdbSave,
+                               .aof_rewrite = TrieType_AofRewrite,
+                               .free = TrieType_Free};
+
   TrieType = RedisModule_CreateDataType(ctx, "trietype0", 0, &tm);
   if (TrieType == NULL) {
     return REDISMODULE_ERR;
