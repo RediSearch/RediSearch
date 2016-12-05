@@ -33,7 +33,6 @@ CC=gcc
 UTIL = util
 RMUTIL = rmutil
 TRIE = trie
-LIBNU = libnu
 
 .PHONY: rmutil $(RMUTIL) 
 .PHONY: util $(UTIL)

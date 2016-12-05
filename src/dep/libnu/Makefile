@@ -3,11 +3,11 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -W -Wall -fno-common -g -ggdb -std=c99 -O2
-	SHOBJ_CPPFLAGS ?= -W -Wall -fno-common -g -ggdb
+	CFLAGS ?= -W -Wall -fno-common -g -ggdb -fPIC -std=c99 -O2
+	CPPFLAGS ?= -W -Wall -fno-common -g -ggdb
 else
-	SHOBJ_CFLAGS ?= -W -Wall -dynamic -fno-common -g -ggdb -std=c99 -O2
-	SHOBJ_CPPFLAGS ?= -W -Wall -dynamic -fno-common -g -ggdb -O2
+	CFLAGS ?= -W -Wall -dynamic -fno-common -g -fPIC -ggdb -std=c99 -O2
+	CPPFLAGS ?= -W -Wall -dynamic -fno-common -g -ggdb -O2
 endif
 
 SOURCEDIR = .
