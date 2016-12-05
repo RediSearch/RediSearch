@@ -33,6 +33,7 @@ CC=gcc
 UTIL = util
 RMUTIL = rmutil
 TRIE = trie
+LIBNU = libnu
 
 .PHONY: rmutil $(RMUTIL) 
 .PHONY: util $(UTIL)
@@ -61,6 +62,9 @@ tests:
 snowball:
 	$(MAKE) -C dep/snowball libstemmer.o
 
+libnu:
+	$(MAKE) -C dep/libnu
+
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
@@ -69,10 +73,10 @@ module.so: $(MODULE)
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball trie | module.so
+release: util rmutil snowball libnu trie | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball trie | module.so
+debug: util rmutil snowball libnu trie | module.so
 	
 
 clean:

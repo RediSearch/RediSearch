@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include "udb.h"
+#include "../udb.h"
 
 const size_t _NU_DUCET_CONTRACTIONS = 820; /* contractions included in switch */
 const size_t _NU_DUCET_CODEPOINTS = 19581; /* complementary codepoints number */
