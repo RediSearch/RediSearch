@@ -1,4 +1,3 @@
-
 #include <sys/param.h>
 #include <math.h>
 #include <time.h>
@@ -8,40 +7,44 @@
 #include "trie_type.h"
 #include "../dep/libnu/libnu.h"
 
-rune *__strToRunes(char *str, size_t len,  size_t *utflen) {
+/* Convert a utf-8 string to constant width runes */ 
+rune *__strToRunes(char *str, size_t *len) {
 
+  ssize_t rlen = nu_strlen(str, nu_utf8_read);
+  uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
 
-	  *utflen = nu_strlen(str, nu_utf8_read);
-    uint32_t *decoded = malloc(sizeof(*decoded) * utfLen + 1);
+  nu_readstr(str, decoded, nu_utf8_read);
 
-	  nu_readstr(str, decoded, nu_utf8_read);
-
-    rune *ret = calloc(*utflen, sizeof(rune));
-    for (int i = 0; i < *utflen; i++) {
-      ret[i] = (rune)decoded[i] & 0x0000FFFF;
-      printf("ret[%d]: %x\n", i, ret[i]);
-    }
-    return ret;
+  rune *ret = calloc(rlen + 1, sizeof(rune));
+  for (int i = 0; i < rlen; i++) {
+    ret[i] = (rune)decoded[i] & 0x0000FFFF;
+  }
+  if (len)
+    *len = rlen;
+  
+  return ret;
 }
 
-char *__runesToStr(rune *in, size_t len) {
+/* Convert a rune string to utf-8 characters */
+char *__runesToStr(rune *in, size_t len, size_t *utflen) {
 
-  uint32_t unicode[len+1];
+  uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
-    unicode[i] = (uint32_t)in[i] & 0x0000ffff; 
+    unicode[i] = (uint32_t)in[i] & 0x0000ffff;
   }
+  unicode[len] = 0;
 
-  char *ret = calloc(1, len*2 + 1);
-  
-	
-  
-	nu_writestr(unicode, ret, nu_utf8_write);
-  printf("Ret: %s\n", ret);
+  *utflen = nu_bytelen(unicode, nu_utf8_write);
+
+  char *ret = calloc(1, *utflen + 1);
+
+  nu_writestr(unicode, ret, nu_utf8_write);
   return ret;
 }
 
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
+
   tree->root = __newTrieNode(__strToRunes("", 0), 0, 0, 0, 0, 0);
   tree->size = 0;
   return tree;
@@ -51,20 +54,22 @@ void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
   size_t len;
   char *str = (char *)RedisModule_StringPtrLen(s, &len);
   Trie_InsertStringBuffer(t, str, len, score, incr);
-  
 }
 void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score,
                              int incr) {
-  t->size += TrieNode_Add(&t->root, __strToRunes(s, len), len, (float)score,
+
+  rune *runes = __strToRunes(s, &len);
+  t->size += TrieNode_Add(&t->root, runes, len, (float)score,
                           incr ? ADD_INCR : ADD_REPLACE);
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
-  int rc = TrieNode_Delete(t->root, __strToRunes(s, len), len);
+
+  rune *runes = __strToRunes(s, &len);
+  int rc = TrieNode_Delete(t->root, runes, len);
   t->size -= rc;
   return rc;
 }
-
 
 void TrieSearchResult_Free(TrieSearchResult *e) {
   free(e->str);
@@ -87,10 +92,12 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter(__strToRunes(s,len), len, maxDist, prefixMode);
+  size_t rlen;
+  rune *runes = __strToRunes(s, &rlen);
+  DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
-  //TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;
@@ -102,7 +109,6 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
       pooledEntry = malloc(sizeof(TrieSearchResult));
     }
     TrieSearchResult *ent = pooledEntry;
-    ent->len = slen;
 
     ent->score = score;
     if (maxDist > 0) {
@@ -115,8 +121,8 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
     }
 
     if (heap_count(pq) < heap_size(pq)) {
-      ent->str = __runesToStr(rstr, slen); 
-      //strndup(str, slen);
+      ent->str = __runesToStr(rstr, slen, &ent->len);
+      // strndup(str, slen);
       heap_offerx(pq, ent);
       pooledEntry = NULL;
 
@@ -129,7 +135,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist,
       if (ent->score >= it->minScore) {
         pooledEntry = heap_poll(pq);
         free(pooledEntry->str);
-        ent->str = __runesToStr(rstr, slen); 
+        ent->str = __runesToStr(rstr, slen, &ent->len);
         heap_offerx(pq, ent);
 
         // get the new minimal score
@@ -221,8 +227,9 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
     float score;
 
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
-      char *s = __runesToStr(rstr, len);
-      RedisModule_SaveStringBuffer(rdb, s, len);
+      size_t slen;
+      char *s = __runesToStr(rstr, len, &slen);
+      RedisModule_SaveStringBuffer(rdb, s, slen);
       RedisModule_SaveDouble(rdb, (double)score);
       free(s);
       count++;
@@ -243,8 +250,9 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key,
     float score;
 
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
-      char *s = __runesToStr(rstr, len);
-      RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, len,
+      size_t slen;
+      char *s = __runesToStr(rstr, len, &slen);
+      RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, slen,
                           (double)score);
       free(s);
     }
