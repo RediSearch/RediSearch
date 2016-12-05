@@ -276,9 +276,16 @@ void TrieType_Free(void *value) {
 }
 
 int TrieType_Register(RedisModuleCtx *ctx) {
-  TrieType = RedisModule_CreateDataType(ctx, "trietype0", 0, TrieType_RdbLoad,
-                                        TrieType_RdbSave, TrieType_AofRewrite,
-                                        TrieType_Digest, TrieType_Free);
+
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = TrieType_RdbLoad,
+        .rdb_save = TrieType_RdbSave,
+        .aof_rewrite = TrieType_AofRewrite,
+        .free = TrieType_Free
+    };
+    
+  TrieType = RedisModule_CreateDataType(ctx, "trietype0", 0, &tm);
   if (TrieType == NULL) {
     return REDISMODULE_ERR;
   }
