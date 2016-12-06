@@ -15,10 +15,12 @@
 * This DFA is used while traversing a Trie to decide where to stop.
 */
 typedef struct {
-    const unsigned char *string;
+    const rune *string;
     size_t len;
     int max;
 } SparseAutomaton;
+
+struct dfaEdge; 
 
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */
 typedef struct dfaNode {
@@ -26,9 +28,19 @@ typedef struct dfaNode {
 
     int match;
     sparseVector *v;
-    struct dfaNode *edges[255];
+    struct dfaEdge *edges;
+    size_t numEdges;
     struct dfaNode *fallback;
 } dfaNode;
+
+typedef struct dfaEdge {
+    dfaNode *n;
+    rune r;
+} dfaEdge;
+
+/* Get an edge for a dfa node given the next rune */
+dfaNode *__dfn_getEdge(dfaNode *n, rune r);
+
 
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);
@@ -38,13 +50,13 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
  * distance of maxEdits */
-SparseAutomaton NewSparseAutomaton(const unsigned char *s, size_t len, int maxEdits);
+SparseAutomaton NewSparseAutomaton(const rune *s, size_t len, int maxEdits);
 
 /* Create the initial state vector of the root automaton node */
 sparseVector *SparseAutomaton_Start(SparseAutomaton *a);
 
 /* Step from a given state of the automaton to the next step given a specific character */
-sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, unsigned char c);
+sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune c);
 
 /* Is the current state of the automaton a match for the query? */
 int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
@@ -69,10 +81,10 @@ typedef struct {
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
  * distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
  * onwards to all suffixes. */
-DFAFilter NewDFAFilter(unsigned char *str, size_t len, int maxDist, int prefixMode);
+DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator */
-FilterCode FilterFunc(unsigned char b, void *ctx, int *matched, void *matchCtx);
+FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 
 /* A stack-pop callback, passed to the trie iterator. It's called when we reach a dead end and need
  * to rewind the stack of the filter */

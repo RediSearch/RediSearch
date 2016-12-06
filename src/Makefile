@@ -21,6 +21,7 @@ REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a
+LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
@@ -60,18 +61,21 @@ tests:
 snowball:
 	$(MAKE) -C dep/snowball libstemmer.o
 
+libnu:
+	$(MAKE) -C dep/libnu
+
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) -lc -lm -Bsymbolic
+	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) $(LIBNU) -lc -lm -Bsymbolic
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball trie | module.so
+release: util rmutil snowball libnu trie | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball trie | module.so
+debug: util rmutil snowball libnu trie | module.so
 	
 
 clean:
