@@ -109,17 +109,24 @@ double tfidf(float freq, u_int32_t docFreq);
 Basically query execution creates a tree of iterators that activate each other recursively */
 typedef struct indexIterator {
     void *ctx;
-    // Read the next entry from the iterator, into hit *e.
-    // Returns INDEXREAD_EOF if at the end
+    /* Read the next entry from the iterator, into hit *e.
+    *  Returns INDEXREAD_EOF if at the end */
     int (*Read)(void *ctx, IndexHit *e);
-    // Skip to a docid, potentially reading the entry into hit, if the docId matches
+
+    /* Skip to a docid, potentially reading the entry into hit, if the docId matches */
     int (*SkipTo)(void *ctx, u_int32_t docId, IndexHit *hit);
-    // the last docId read
+    
+    /* the last docId read */
     t_docId (*LastDocId)(void *ctx);
-    // can we continue iteration?
+
+    /* can we continue iteration? */
     int (*HasNext)(void *ctx);
-    // release the iterator's context and free everything needed
+
+    /* release the iterator's context and free everything needed */
     void (*Free)(struct indexIterator *self);
+    
+    /* Return the number of results in this iterator. Used by the query execution on the top iterator */
+    size_t (*Len)(void *ctx);
 } IndexIterator;
 
 /* Free a union iterator */
@@ -163,7 +170,7 @@ int IR_HasNext(void *ctx);
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 
 /* The number of docs in an inverted index entry */
-u_int32_t IR_NumDocs(IndexReader *ir);
+size_t IR_NumDocs(void *ctx);
 
 /* LastDocId of an inverted index stateful reader */
 t_docId IR_LastDocId(void *ctx);
@@ -202,6 +209,7 @@ typedef struct {
     IndexIterator **its;
     int num;
     int pos;
+    size_t len;
     t_docId minDocId;
     IndexHit *currentHits;
     DocTable *docTable;
@@ -215,12 +223,14 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 int UI_Next(void *ctx);
 int UI_Read(void *ctx, IndexHit *hit);
 int UI_HasNext(void *ctx);
+size_t UI_Len(void *ctx);
 t_docId UI_LastDocId(void *ctx);
 
 /* The context used by the intersection methods during iterating an intersect iterator */
 typedef struct {
     IndexIterator **its;
     int num;
+    size_t len;
     int exact;
     t_docId lastDocId;
     IndexHit *currentHits;
@@ -236,6 +246,7 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit);
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexHit *hit);
 int II_HasNext(void *ctx);
+size_t II_Len(void *ctx);
 t_docId II_LastDocId(void *ctx);
 
 #endif

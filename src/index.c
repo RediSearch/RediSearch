@@ -187,7 +187,10 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
   return INDEXREAD_EOF;
 }
 
-u_int32_t IR_NumDocs(IndexReader *ir) { return ir->header.numDocs; }
+size_t IR_NumDocs(void *ir) { 
+  printf("num docs: %d\n", ((IndexReader *)ir)->header.numDocs);
+  return (size_t)((IndexReader *)ir)->header.numDocs; 
+}
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si,
                             DocTable *dt, int singleWordMode,
@@ -236,6 +239,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->LastDocId = IR_LastDocId;
   ri->HasNext = IR_HasNext;
   ri->Free = ReadIterator_Free;
+  ri->Len = IR_NumDocs;
   return ri;
 }
 
@@ -392,7 +396,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->num = num;
   ctx->docTable = dt;
   ctx->currentHits = calloc(num, sizeof(IndexHit));
-
+  ctx->len = 0;
   // bind the union iterator calls
   IndexIterator *it = malloc(sizeof(IndexIterator));
   it->ctx = ctx;
@@ -401,6 +405,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   it->SkipTo = UI_SkipTo;
   it->HasNext = UI_HasNext;
   it->Free = UnionIterator_Free;
+  it->Len = UI_Len;
   return it;
 }
 
@@ -444,6 +449,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
     *hit = ui->currentHits[minIdx];
     hit->type = H_UNION;
     ui->minDocId = ui->currentHits[minIdx].docId;
+    ui->len++;
     return INDEXREAD_OK;
 
   } while (minIdx >= 0);
@@ -532,6 +538,10 @@ void UnionIterator_Free(IndexIterator *it) {
   free(it);
 }
 
+size_t UI_Len(void *ctx) {
+  return ((UnionContext *)ctx)->len;
+}
+
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
     return;
@@ -563,6 +573,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
   ctx->its = its;
   ctx->num = num;
   ctx->lastDocId = 0;
+  ctx->len = 0;
   ctx->exact = exact;
   ctx->fieldMask = fieldMask;
   ctx->currentHits = calloc(num, sizeof(IndexHit));
@@ -578,6 +589,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
   it->Read = II_Read;
   it->SkipTo = II_SkipTo;
   it->HasNext = II_HasNext;
+  it->Len = II_Len;
   it->Free = IntersectIterator_Free;
   return it;
 }
@@ -714,7 +726,7 @@ int II_Read(void *ctx, IndexHit *hit) {
       }
 
       // LG_DEBUG("INTERSECT @%d", hit->docId);
-
+      ic->len++;
       return INDEXREAD_OK;
     }
 
@@ -737,3 +749,8 @@ int II_HasNext(void *ctx) {
 }
 
 t_docId II_LastDocId(void *ctx) { return ((IntersectContext *)ctx)->lastDocId; }
+
+
+size_t II_Len(void *ctx) {
+  return ((IntersectContext *)ctx)->len;
+}
