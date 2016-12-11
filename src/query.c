@@ -42,11 +42,14 @@ QueryStage *__newQueryStage(void *value, QueryOp op, int freeable) {
 QueryStage *NewTokenStage(Query *q, QueryToken *qt) {
     // If we are using stemming, stem the current token, and if needed add a
     // UNION of it an the stem
+    q->numTokens++;
     if (q->stemmer) {
         size_t sl;
         const char *stemmed = q->stemmer->Stem(q->stemmer->ctx, qt->s, qt->len, &sl);
 
         if (stemmed && strncasecmp(stemmed, qt->s, qt->len)) {
+            // we are now evaluating two tokens and not 1
+            q->numTokens++;
             // Create a new union
             QueryStage *us = NewLogicStage(Q_UNION);
 
@@ -222,8 +225,7 @@ int Query_Tokenize(Query *q) {
 
         switch (qt.type) {
             case T_WORD: {
-                // No stemmer or the stem is similar to the source
-                q->numTokens++;
+              
                 QueryStage_AddChild(current, NewTokenStage(q, &qt));
                 break;
             }

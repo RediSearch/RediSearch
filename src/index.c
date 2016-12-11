@@ -416,7 +416,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
     return 0;
   }
 
-  int minIdx = 0;
+  int minIdx = -1;
   do {
     // find the minimal iterator
     t_docId minDocId = __UINT32_MAX__;
@@ -449,7 +449,9 @@ int UI_Read(void *ctx, IndexHit *hit) {
     *hit = ui->currentHits[minIdx];
     hit->type = H_UNION;
     ui->minDocId = ui->currentHits[minIdx].docId;
+    
     ui->len++;
+    
     return INDEXREAD_OK;
 
   } while (minIdx >= 0);
