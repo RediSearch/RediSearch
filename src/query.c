@@ -280,7 +280,7 @@ double processHitScore(IndexHit *h, DocTable *dt) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-    __queryStage_Print(query->root, 0);
+    //__queryStage_Print(query->root, 0);
     QueryResult *res = malloc(sizeof(QueryResult));
     res->error = 0;
     res->errorString = NULL;

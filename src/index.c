@@ -188,7 +188,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 }
 
 size_t IR_NumDocs(void *ir) { 
-  printf("num docs: %d\n", ((IndexReader *)ir)->header.numDocs);
+  //printf("num docs: %d\n", ((IndexReader *)ir)->header.numDocs);
   return (size_t)((IndexReader *)ir)->header.numDocs; 
 }
 
