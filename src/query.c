@@ -71,10 +71,11 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
     // if there's only one word in the query and no special field filtering,
     // and we are not paging beyond MAX_SCOREINDEX_SIZE 
     // we can just use the optimized score index
-
+    
     int isSingleWord = q->numTokens == 1 && q->root->nchildren == 1 &&
             q->fieldMask == 0xff &&
             q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
+    //printf("singleword? %d, numTokens: %d, fields %x\n", isSingleWord, q->numTokens, q->fieldMask);
 
     IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, strlen(stage->value), q->docTable,
                                        isSingleWord, q->fieldMask);

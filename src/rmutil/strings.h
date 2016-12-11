@@ -7,7 +7,10 @@
 * Create a new RedisModuleString object from a printf-style format and arguments.
 * Note that RedisModuleString objects CANNOT be used as formatting arguments.
 */
-RedisModuleString *RMUtil_CreateFormattedString(RedisModuleCtx *ctx, const char *fmt, ...);
+// DEPRECATED since it was added to the RedisModule API. Replaced with a macro below
+//RedisModuleString *RMUtil_CreateFormattedString(RedisModuleCtx *ctx, const char *fmt, ...);
+#define RMUtil_CreateFormattedString RedisModule_CreateStringPrintf
+
 
 /* Return 1 if the two strings are equal. Case *sensitive* */
 int RMUtil_StringEquals(RedisModuleString *s1, RedisModuleString *s2);

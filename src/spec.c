@@ -91,7 +91,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 /* Saves the spec as a LIST, containing basically the arguments needed to recreate the spec */
 int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
     RedisModuleKey *k =
-        RedisModule_OpenKey(ctx, RMUtil_CreateFormattedString(ctx, "idx:%s", sp->name),
+        RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, "idx:%s", sp->name),
                             REDISMODULE_READ | REDISMODULE_WRITE);
     if (k == NULL) {
         return REDISMODULE_ERR;
@@ -107,7 +107,7 @@ int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
             RedisModule_CreateString(ctx, sp->fields[i].name, strlen(sp->fields[i].name)));
         if (sp->fields[i].type == F_FULLTEXT) {
             RedisModule_ListPush(k, REDISMODULE_LIST_TAIL,
-                                 RMUtil_CreateFormattedString(ctx, "%f", sp->fields[i].weight));
+                                 RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].weight));
         } else {
             RedisModule_ListPush(k, REDISMODULE_LIST_TAIL,
                                  RedisModule_CreateString(ctx, NUMERIC_STR, strlen(NUMERIC_STR)));
@@ -123,7 +123,7 @@ int IndexSpec_Load(RedisModuleCtx *ctx, IndexSpec *sp, const char *name) {
     sp->name = name;
 
     RedisModuleCallReply *resp = RedisModule_Call(
-        ctx, "LRANGE", "scc", RMUtil_CreateFormattedString(ctx, "idx:%s", sp->name), "0", "-1");
+        ctx, "LRANGE", "scc", RedisModule_CreateStringPrintf(ctx, "idx:%s", sp->name), "0", "-1");
     if (resp == NULL || RedisModule_CallReplyType(resp) != REDISMODULE_REPLY_ARRAY) {
         return REDISMODULE_ERR;
     }

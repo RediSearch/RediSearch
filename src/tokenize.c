@@ -68,6 +68,7 @@ int _tokenize(TokenizerCtx *ctx) {
                 t.s = strndup(stem, sl);
                 t.type = DT_STEM;
                 t.len = sl;
+                t.fieldId = ctx->fieldId;
                 t.stringFreeable = 1;
                 if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
                     break;

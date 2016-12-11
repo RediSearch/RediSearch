@@ -19,7 +19,7 @@ int numericFilter_Match(NumericFilter *f, double score) {
 #define NUMERIC_INDEX_KEY_FMT "num:%s/%s"
 
 RedisModuleString *fmtNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
-    return RMUtil_CreateFormattedString(ctx->redisCtx, NUMERIC_INDEX_KEY_FMT, ctx->spec->name,
+    return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERIC_INDEX_KEY_FMT, ctx->spec->name,
                                         field);
 }
 
@@ -46,7 +46,7 @@ int NumerIndex_Add(NumericIndex *idx, t_docId docId, double score) {
     if (idx->key == NULL) return REDISMODULE_ERR;
 
     return RedisModule_ZsetAdd(idx->key, score,
-                               RMUtil_CreateFormattedString(idx->ctx->redisCtx, "%u", docId), NULL);
+                               RedisModule_CreateStringPrintf(idx->ctx->redisCtx, "%u", docId), NULL);
 }
 
 int NumericFilter_Read(void *ctx, IndexHit *e) {

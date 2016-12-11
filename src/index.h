@@ -83,6 +83,8 @@ typedef struct indexReader {
     ScoreIndex *scoreIndex;
     int useScoreIndex;
     u_char fieldMask;
+
+    size_t len;
 } IndexReader;
 
 /* An IndexWriter writes forward index entries to an index buffer */

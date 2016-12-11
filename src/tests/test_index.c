@@ -247,8 +247,9 @@ int testUnion() {
                     15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+     printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT(h.docId == expected[i++]);
-    // printf("%d, ", h.docId);
+     //printf("%d, ", h.docId);
   }
   IW_Free(w);
   IW_Free(w2);

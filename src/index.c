@@ -94,15 +94,17 @@ int IR_Read(void *ctx, IndexHit *e) {
 
   // add tf-idf score of the entry to the hit
   if (rc == INDEXREAD_OK) {
-    // LG_DEBUG("docId %d Flags 0x%x, field mask 0x%x, intersection: %x",
-    // e->docId, e->flags,
-    // ir->fieldMask, e->flags & ir->fieldMask);
+    // printf("docId %d Flags 0x%x, field mask 0x%x, intersection: %x\n",
+    //  e->docId, e->flags,
+    //  ir->fieldMask, e->flags & ir->fieldMask);
     if (!(e->flags & ir->fieldMask)) {
-      // LG_DEBUG("Skipping %d", e->docId);
+      // pri/ntf("Skipping %d\n", e->docId);
       return INDEXREAD_NOTFOUND;
     }
 
     e->totalFreq = tfidf(freq, ir->header.numDocs);
+    ++ir->len;
+    // printf("hit %d\n", ir->len);
   }
   e->type = H_RAW;
 
@@ -187,9 +189,17 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
   return INDEXREAD_EOF;
 }
 
-size_t IR_NumDocs(void *ir) { 
-  //printf("num docs: %d\n", ((IndexReader *)ir)->header.numDocs);
-  return (size_t)((IndexReader *)ir)->header.numDocs; 
+size_t IR_NumDocs(void *ctx) {
+  IndexReader *ir = ctx;
+
+  // in single word optimized mode we only know the size of the record from the
+  // header.
+  if (ir->singleWordMode) {
+    return ir->header.numDocs;
+  }
+
+  // otherwise we use our counter
+  return ir->len;
 }
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si,
@@ -210,6 +220,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt,
   ret->skipIdxPos = 0;
   ret->skipIdx = NULL;
   ret->docTable = dt;
+  ret->len = 0;
   ret->singleWordMode = singleWordMode;
   // only use score index on single words, no field filter and large entries
   ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff &&
@@ -416,45 +427,54 @@ int UI_Read(void *ctx, IndexHit *hit) {
     return 0;
   }
 
-  int minIdx = -1;
+  
+  int numActive = 0;
   do {
     // find the minimal iterator
     t_docId minDocId = __UINT32_MAX__;
-    minIdx = -1;
+    int minIdx = -1;
+    numActive = 0;
+    int rc = INDEXREAD_EOF;
     for (int i = 0; i < ui->num; i++) {
       IndexIterator *it = ui->its[i];
 
       if (it == NULL)
         continue;
 
-      // if (it->HasNext(it->ctx)) {
-      // if this hit is behind the min id - read the next entry
-      if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
-        if (it->Read(it->ctx, &ui->currentHits[i]) != INDEXREAD_OK) {
-          continue;
+      rc = INDEXREAD_OK;
+      //if (it->HasNext(it->ctx)) {
+        // if this hit is behind the min id - read the next entry
+        if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
+          rc = INDEXREAD_NOTFOUND;
+          // read while we're not at the end and perhaps the flags do not match
+          while (rc == INDEXREAD_NOTFOUND) {
+            rc = it->Read(it->ctx, &ui->currentHits[i]);
+          }              
         }
-      }
-      if (ui->currentHits[i].docId < minDocId) {
-        minDocId = ui->currentHits[i].docId;
-        minIdx = i;
-      }
-      //}
+        
+        if (rc != INDEXREAD_EOF) {
+          numActive++;
+        } 
+
+        if (rc == INDEXREAD_OK && ui->currentHits[i].docId < minDocId) {
+          minDocId = ui->currentHits[i].docId;
+          minIdx = i;
+        }
+//      }
+       
+    }
+    
+    // take the minimum entry and yield it
+    if (minIdx != -1) {
+
+      *hit = ui->currentHits[minIdx];
+      hit->type = H_UNION;
+      ui->minDocId = ui->currentHits[minIdx].docId;
+      ui->len++;
+      return INDEXREAD_OK;
     }
 
-    // not found a new minimal docId
-    if (minIdx == -1) {
-      return INDEXREAD_EOF;
-    }
-
-    *hit = ui->currentHits[minIdx];
-    hit->type = H_UNION;
-    ui->minDocId = ui->currentHits[minIdx].docId;
-    
-    ui->len++;
-    
-    return INDEXREAD_OK;
-
-  } while (minIdx >= 0);
+  } while (numActive > 0);
 
   return INDEXREAD_EOF;
 }
@@ -540,9 +560,7 @@ void UnionIterator_Free(IndexIterator *it) {
   free(it);
 }
 
-size_t UI_Len(void *ctx) {
-  return ((UnionContext *)ctx)->len;
-}
+size_t UI_Len(void *ctx) { return ((UnionContext *)ctx)->len; }
 
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
@@ -752,7 +770,4 @@ int II_HasNext(void *ctx) {
 
 t_docId II_LastDocId(void *ctx) { return ((IntersectContext *)ctx)->lastDocId; }
 
-
-size_t II_Len(void *ctx) {
-  return ((IntersectContext *)ctx)->len;
-}
+size_t II_Len(void *ctx) { return ((IntersectContext *)ctx)->len; }

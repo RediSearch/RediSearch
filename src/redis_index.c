@@ -11,19 +11,19 @@
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term,
                                    size_t len) {
-  return RMUtil_CreateFormattedString(ctx->redisCtx, TERM_KEY_FORMAT,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, TERM_KEY_FORMAT,
                                       ctx->spec->name, len, term);
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term,
                                         size_t len) {
-  return RMUtil_CreateFormattedString(ctx->redisCtx, SKIPINDEX_KEY_FORMAT,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT,
                                       ctx->spec->name, len, term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term,
                                          size_t len) {
-  return RMUtil_CreateFormattedString(ctx->redisCtx, SCOREINDEX_KEY_FORMAT,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT,
                                       ctx->spec->name, len, term);
 }
 /**
@@ -470,7 +470,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
       RedisModule_CloseKey(k);
     }
 
-    RedisModuleString *dmd = RMUtil_CreateFormattedString(
+    RedisModuleString *dmd = RedisModule_CreateStringPrintf(
         ctx->redisCtx, DOCTABLE_KEY_FMT, ctx->spec->name);
     RedisModule_Call(ctx->redisCtx, "DEL", "cccs", REDISINDEX_DOCKEY_MAP,
                      REDISINDEX_DOCIDS_MAP, REDISINDEX_DOCIDCOUNTER, dmd);
