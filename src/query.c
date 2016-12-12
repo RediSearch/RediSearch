@@ -198,7 +198,7 @@ void __queryStage_Print(QueryStage *qs, int depth) {
             break;
         case Q_NUMERIC: {
             NumericFilter *f = qs->value;
-            printf("NUMERIC {%f < x < %f", f->min, f->max);
+            printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<", f->inclusiveMax ? "<=" : "<", f->max);
         } break;
         case Q_UNION:
             printf("UNION {\n");
@@ -218,7 +218,10 @@ void __queryStage_Print(QueryStage *qs, int depth) {
 }
 
 void Query_Free(Query *q) {
-    QueryStage_Free(q->root);
+    if (q->root) {
+        QueryStage_Free(q->root);
+    }
+    
     if (q->stemmer) {
         q->stemmer->Free(q->stemmer);
     }
@@ -247,7 +250,7 @@ double processHitScore(IndexHit *h, DocTable *dt) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-    //__queryStage_Print(query->root, 0);
+    __queryStage_Print(query->root, 0);
     QueryResult *res = malloc(sizeof(QueryResult));
     res->error = 0;
     res->errorString = NULL;

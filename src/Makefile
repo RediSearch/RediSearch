@@ -69,7 +69,7 @@ libnu:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(SHOBJ_LDFLAGS) $(LIBS) $(LIBNU) -lc -lm -Bsymbolic
+	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) $(QUERY_PARSE) $(SHOBJ_LDFLAGS) $(LIBS) $(LIBNU) -lc -lm -Bsymbolic
 
 
 release: CFLAGS += $(RELEASEFLAGS)

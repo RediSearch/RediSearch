@@ -182,8 +182,8 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             
     def testNumericRange(self):
         
-        with self.redis() as r:
-        
+        with self.redis(port = 6379) as r:
+            r.flushdb()
             self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0, 'score', 'numeric'))
             for i in xrange(100):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
@@ -197,10 +197,12 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             
             res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
                                     "filter", "score", 0, 50 )
-            self.assertEqual(51, res[0])                      
-            res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
+            self.assertEqual(51, res[0]) 
+            res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                     "filter", "score", "(0", "(50" )
-            self.assertEqual(49, res[0])
+            r = redis.Redis()
+            r.sscan
+            self.assertEqual(48, res[0])
             res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
                                     "filter", "score", "-inf", "+inf" )
             self.assertEqual(100, res[0])

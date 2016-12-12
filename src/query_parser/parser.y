@@ -1,9 +1,8 @@
 %left OR.
-%nonassoc LP RP.
-%left QUOTE.
+%nonassoc QUOTE.
+%right LP.
+%left RP.
 %left TERM.
-
-
 %token_type {QueryToken}  
  
 
@@ -30,70 +29,99 @@
 %default_type { QueryStage *}
 %default_destructor { QueryStage_Free($$); }
 
-query ::= stage(A). { ctx->root = A; }
+query ::= exprlist(A). { ctx->root = A; }
+query ::= expr(A). { ctx->root = A; }
 
-
-stage(A) ::= TERM(B). {
-    A = NewTokenStage(ctx->q, &B);
-}
-
-stage(A) ::= inter_stage(B). {
-    A = B;
-}
-
-stage(A) ::= sub_stage(B). {
-    A = B;
-}
-
-stage(A) ::= sub_stage(B) sub_stage(C). {
+exprlist(A) ::= expr(B) expr(C). {
     A = NewLogicStage(Q_INTERSECT);
     QueryStage_AddChild(A, B);
     QueryStage_AddChild(A, C);
 }
 
-stage(A) ::= sub_stage(B) OR sub_stage(C). {
-    A = NewLogicStage(Q_UNION);
+exprlist(A) ::= exprlist(B) expr(C). {
+      A = NewLogicStage(Q_INTERSECT);
     QueryStage_AddChild(A, B);
     QueryStage_AddChild(A, C);
 }
 
-
-sub_stage(A) ::= LP stage(B) RP. {
-    A = B;
-}
-
-stage(A) ::= union_stage(B). {
-    A = B;
-}
-
-sub_stage(A) ::= QUOTE inter_stage(B) QUOTE. {
+expr(A) ::= TERM(B). {  A = NewTokenStage(ctx->q, &B); }
+expr(A) ::= union(B). {  A = B; }
+expr(A) ::= LP expr(B) RP. { A = B; } 
+expr(A) ::= QUOTE exprlist(B) QUOTE. {
     B->op = Q_EXACT;
     A = B;
 }
 
+union(A) ::= union(B) OR TERM(C). {
+    QueryStage_AddChild(B, NewTokenStage(ctx->q, &C));
+    A = B;
+}
 
-union_stage(A) ::= TERM(B) OR TERM(C). {
+union(A) ::= TERM(B) OR TERM(C). {
     A = NewLogicStage(Q_UNION);
     QueryStage_AddChild(A, NewTokenStage(ctx->q, &B));
     QueryStage_AddChild(A, NewTokenStage(ctx->q, &C));
 }
+// query ::= exprlist(A). { ctx->root = A; }
 
-union_stage(A) ::= union_stage(B) OR TERM(C). {
-    QueryStage_AddChild(B, NewTokenStage(ctx->q, &C));
-    A = B;
-}
+// exprlist(A) ::= expr(B) SPACE expr(C). {
+//     A = NewLogicStage(Q_INTERSECT);
+//     QueryStage_AddChild(A, B);
+//     QueryStage_AddChild(A, C);
+// }
 
-inter_stage(A) ::= TERM(B) TERM(C). {
-    A = NewLogicStage(Q_INTERSECT);
-    QueryStage_AddChild(A, NewTokenStage(ctx->q, &B));
-    QueryStage_AddChild(A, NewTokenStage(ctx->q, &C));
-}
-
-inter_stage(A) ::= inter_stage(B) TERM(C). {
-    QueryStage_AddChild(B, NewTokenStage(ctx->q, &C));
-    A = B;
-}
+// exprlist(A) ::= exprlist(B) expr(C). {
+//     A = NewLogicStage(Q_INTERSECT);
+//     QueryStage_AddChild(A, B);
+//     QueryStage_AddChild(A, C);
+// }
 
 
+// expr(A) ::= phrase(B). { A = B; }
 
+
+// phrase(A) ::= TERM(B) TERM(C). {
+//     A = NewLogicStage(Q_INTERSECT);
+//     QueryStage_AddChild(A, NewTokenStage(ctx->q, &B));
+//     QueryStage_AddChild(A, NewTokenStage(ctx->q, &C));
+// }
+
+// phrase(A) ::= phrase(B) TERM(C). {
+//     QueryStage_AddChild(B, NewTokenStage(ctx->q, &C));
+//     A = B;
+// }
+
+// expr(A) ::= TERM(B). {  A = NewTokenStage(ctx->q, &B); }
+// //expr(A) ::= union(B). {  A = B; }
+// //expr(A) ::= exact(B). {A = B; }
+
+
+// // expr(A) ::= expr(B) expr(C). {
+// //     A = NewLogicStage(Q_INTERSECT);
+// //     QueryStage_AddChild(A, B);
+// //     QueryStage_AddChild(A, C);
+// // }
+
+// // union(A) ::= expr(B) OR expr(C). {
+// //     A = NewLogicStage(Q_UNION);
+// //     QueryStage_AddChild(A, B);
+// //     QueryStage_AddChild(A, C);
+// // }
+
+// // union(A) ::= union(B) OR TERM(C). {
+// //     QueryStage_AddChild(B, NewTokenStage(ctx->q, &C));
+// //     A = B;
+// // }
+// // union(A) ::= TERM(B) OR TERM(C). {
+// //     A = NewLogicStage(Q_UNION);
+// //     QueryStage_AddChild(A, NewTokenStage(ctx->q, &B));
+// //     QueryStage_AddChild(A, NewTokenStage(ctx->q, &C));
+// // }
+
+
+
+// // exact(A) ::= QUOTE phrase(B) QUOTE. {
+// //     B->op = Q_EXACT;
+// //     A = B;
+// // }
 
