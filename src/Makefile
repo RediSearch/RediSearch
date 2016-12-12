@@ -18,7 +18,7 @@ VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
-QUERY_PARSE=query_parser/tokenizer.o query_parser/query.c
+QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a
@@ -26,7 +26,7 @@ LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE))
+MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE))
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o

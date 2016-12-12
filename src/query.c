@@ -7,8 +7,7 @@
 
 #include "index.h"
 #include "tokenize.h"
-#include "query_parser/tokenizer.h"
-#include "query_parser/query.h"
+#include "query_parser/parser.h"
 #include "redis_index.h"
 #include "util/logging.h"
 #include "util/heap.h"
@@ -218,44 +217,6 @@ void __queryStage_Print(QueryStage *qs, int depth) {
     printf("}\n");
 }
 
-int Query_Tokenize(Query *q) {
-    QueryTokenizer t = NewQueryTokenizer(q->raw, q->len);
-
-    QueryStage *current = q->root;
-    QueryToken qt;
-    while (QueryTokenizer_HasNext(&t)) {
-       int tt = QueryTokenizer_Next(&t, &qt);
-
-        switch (tt) {
-            case TERM: {
-              
-                QueryStage_AddChild(current, NewTokenStage(q, &qt));
-                break;
-            }
-            case QUOTE:
-                if (current->op != Q_EXACT) {
-                    QueryStage *ns = NewLogicStage(Q_EXACT);
-                    QueryStage_AddChild(current, ns);
-                    current = ns;
-                } else {  // end of quote
-                    current = current->parent;
-                }
-                break;
-
-            // case T_STOPWORD:
-            // case T_END:
-            default:
-                break;
-        }
-
-        if (current == NULL) break;
-    }
-
-    //__queryStage_Print(q->root, 0);
-
-    return q->numTokens;
-}
-
 void Query_Free(Query *q) {
     QueryStage_Free(q->root);
     if (q->stemmer) {
@@ -264,6 +225,7 @@ void Query_Free(Query *q) {
     free(q->raw);
     free(q);
 }
+
 
 /* Compare hits for sorting in the heap during traversal of the top N */
 static int cmpHits(const void *e1, const void *e2, const void *udata) {

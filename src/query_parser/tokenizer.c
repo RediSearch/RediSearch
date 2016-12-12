@@ -1,5 +1,5 @@
 #include "tokenizer.h"
-#include "query.h"
+#include "parser.h"
 #include "../tokenize.h"
 #include <string.h>
 #include <strings.h>
@@ -15,6 +15,8 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len) {
 
   return ret;
 }
+ static char ctrls[255] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP, [')'] = RP };
+    
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
   // we return null if there's nothing more to read
@@ -37,34 +39,41 @@ int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
       }
     }
 
-    if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
+
+    if (ctrls[*t->pos]) {//} == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
       if (t->pos > currentTok) {
         goto word;
       }
-
-      int rc;
+      int rc = ctrls[*t->pos];
       tok->len = 1;
       tok->s = t->pos;
       tok->pos = t->pos - t->text;
-      switch (*t->pos) {
-        case '"':
-            rc = QUOTE;
-            break;
-        case '|':
-            rc = OR;
-            break;
-        case '(':
-            rc = LP;
-            break;
-        case ')':
-        default:
-            rc = RP;
-            break;
-      }
       ++t->pos;
       toklen = 0;
-
       return rc;
+      // int rc;
+      // tok->len = 1;
+      // tok->s = t->pos;
+      // tok->pos = t->pos - t->text;
+      // switch (*t->pos) {
+      //   case '"':
+      //       rc = QUOTE;
+      //       break;
+      //   case '|':
+      //       rc = OR;
+      //       break;
+      //   case '(':
+      //       rc = LP;
+      //       break;
+      //   case ')':
+      //   default:
+      //       rc = RP;
+      //       break;
+      // }
+      // ++t->pos;
+      // toklen = 0;
+
+      // return rc;
     }
     ++t->pos;
     ++toklen;

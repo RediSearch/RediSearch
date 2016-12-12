@@ -101,14 +101,12 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
                 u_char fieldMask, int verbatim, const char *lang);
 /* Free a query object */
 void Query_Free(Query *q);
-/* Tokenize the raw query and build the execution plan */
-int Query_Tokenize(Query *q);
 
 /* Lazily execute the parsed query and all its stages, and return a final result object */
 QueryResult *Query_Execute(Query *query);
 
 void QueryResult_Free(QueryResult *q);
 
-QueryStage *ParseQuery(Query *q, char **err);
+QueryStage *Query_Parse(Query *q, char **err);
 
 #endif

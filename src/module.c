@@ -331,9 +331,7 @@ cleanup:
 
 /*
 ## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS
-num>field
-...] [LANGUAGE lang]
-[VERBATIM]
+num>field ...] [LANGUAGE lang] [VERBATIM]
 
 Seach the index with a textual query, returning either documents or just ids.
 
@@ -466,7 +464,15 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q =
       NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang);
-  Query_Tokenize(q);
+    
+  char *errMsg = NULL;
+  if (!Query_Parse(q, &errMsg)) {
+    RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
+    RedisModule_ReplyWithError(ctx, errMsg);
+    free(errMsg);
+    Query_Free(q);
+    goto end;
+  }
 
   if (nf != NULL) {
     QueryStage_AddChild(q->root, NewNumericStage(nf));
