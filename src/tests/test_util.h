@@ -31,6 +31,8 @@
     return -1;                                                                 \
   }
 
+#define TEST_CASE(x, block) int x { block; return 0 }
+
 // #define TEST_START()                                                           \
 //   printf("Testing %s... ", __FUNCTION__);                                      \
 //   fflush(stdout);

@@ -4,7 +4,7 @@
 /* First off, code is included that follows the "include" declaration
 ** in the input grammar file. */
 #include <stdio.h>
-#line 20 "query.y"
+#line 20 "parser.y"
    
 
 #include <stdlib.h>
@@ -12,7 +12,7 @@
 #include <assert.h>
 #include "parse.h"
    
-#line 16 "query.c"
+#line 16 "parser.c"
 /* Next is all token values, in a form suitable for use by makeheaders.
 ** This section will be null unless lemon is run with the -m switch.
 */
@@ -383,9 +383,9 @@ static void yy_destructor(
     case 10: /* sub_stage */
     case 11: /* union_stage */
 {
-#line 31 "query.y"
+#line 31 "parser.y"
  QueryStage_Free((yypminor->yy5)); 
-#line 389 "query.c"
+#line 389 "parser.c"
 }
       break;
     default:  break;   /* If no destructor action specified: do nothing */
@@ -691,92 +691,92 @@ static void yy_reduce(
   **     break;
   */
       case 0: /* query ::= stage */
-#line 33 "query.y"
+#line 33 "parser.y"
 { ctx->root = yymsp[0].minor.yy5; }
-#line 697 "query.c"
+#line 697 "parser.c"
         break;
       case 1: /* stage ::= TERM */
-#line 36 "query.y"
+#line 36 "parser.y"
 {
     yygotominor.yy5 = NewTokenStage(ctx->q, &yymsp[0].minor.yy0);
 }
-#line 704 "query.c"
+#line 704 "parser.c"
         break;
       case 2: /* stage ::= inter_stage */
       case 3: /* stage ::= sub_stage */ yytestcase(yyruleno==3);
       case 7: /* stage ::= union_stage */ yytestcase(yyruleno==7);
-#line 40 "query.y"
+#line 40 "parser.y"
 {
     yygotominor.yy5 = yymsp[0].minor.yy5;
 }
-#line 713 "query.c"
+#line 713 "parser.c"
         break;
       case 4: /* stage ::= sub_stage sub_stage */
-#line 48 "query.y"
+#line 48 "parser.y"
 {
     yygotominor.yy5 = NewLogicStage(Q_INTERSECT);
     QueryStage_AddChild(yygotominor.yy5, yymsp[-1].minor.yy5);
     QueryStage_AddChild(yygotominor.yy5, yymsp[0].minor.yy5);
 }
-#line 722 "query.c"
+#line 722 "parser.c"
         break;
       case 5: /* stage ::= sub_stage OR sub_stage */
-#line 54 "query.y"
+#line 54 "parser.y"
 {
     yygotominor.yy5 = NewLogicStage(Q_UNION);
     QueryStage_AddChild(yygotominor.yy5, yymsp[-2].minor.yy5);
     QueryStage_AddChild(yygotominor.yy5, yymsp[0].minor.yy5);
 }
-#line 731 "query.c"
+#line 731 "parser.c"
         break;
       case 6: /* sub_stage ::= LP stage RP */
-#line 61 "query.y"
+#line 61 "parser.y"
 {
     yygotominor.yy5 = yymsp[-1].minor.yy5;
 }
-#line 738 "query.c"
+#line 738 "parser.c"
         break;
       case 8: /* sub_stage ::= QUOTE inter_stage QUOTE */
-#line 69 "query.y"
+#line 69 "parser.y"
 {
     yymsp[-1].minor.yy5->op = Q_EXACT;
     yygotominor.yy5 = yymsp[-1].minor.yy5;
 }
-#line 746 "query.c"
+#line 746 "parser.c"
         break;
       case 9: /* union_stage ::= TERM OR TERM */
-#line 75 "query.y"
+#line 75 "parser.y"
 {
     yygotominor.yy5 = NewLogicStage(Q_UNION);
     QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[-2].minor.yy0));
     QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
 }
-#line 755 "query.c"
+#line 755 "parser.c"
         break;
       case 10: /* union_stage ::= union_stage OR TERM */
-#line 81 "query.y"
+#line 81 "parser.y"
 {
     QueryStage_AddChild(yymsp[-2].minor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
     yygotominor.yy5 = yymsp[-2].minor.yy5;
 }
-#line 763 "query.c"
+#line 763 "parser.c"
         break;
       case 11: /* inter_stage ::= TERM TERM */
-#line 86 "query.y"
+#line 86 "parser.y"
 {
     yygotominor.yy5 = NewLogicStage(Q_INTERSECT);
     QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[-1].minor.yy0));
     QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
 }
-#line 772 "query.c"
+#line 772 "parser.c"
         break;
       case 12: /* inter_stage ::= inter_stage TERM */
-#line 92 "query.y"
+#line 92 "parser.y"
 {
     QueryStage_AddChild(yymsp[-1].minor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
     yygotominor.yy5 = yymsp[-1].minor.yy5;
 }
-#line 780 "query.c"
+#line 780 "parser.c"
         break;
       default:
         break;
@@ -838,7 +838,7 @@ static void yy_syntax_error(
 ){
   ParseARG_FETCH;
 #define TOKEN (yyminor.yy0)
-#line 10 "query.y"
+#line 10 "parser.y"
   
 
     int len = TOKEN.len + 100;
@@ -847,7 +847,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 851 "query.c"
+#line 851 "parser.c"
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 

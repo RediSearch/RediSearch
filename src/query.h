@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include "redismodule.h"
 #include "index.h"
-#include "tokenize.h"
+#include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "redis_index.h"
 #include "numeric_index.h"
@@ -108,5 +108,7 @@ int Query_Tokenize(Query *q);
 QueryResult *Query_Execute(Query *query);
 
 void QueryResult_Free(QueryResult *q);
+
+QueryStage *ParseQuery(Query *q, char **err);
 
 #endif

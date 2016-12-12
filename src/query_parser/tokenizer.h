@@ -24,15 +24,16 @@ typedef struct {
 works iteratively and is not callback based.  */
 typedef struct {
     const char *s;
-    size_t len;
+    int len;
+    int pos;
     //QueryTokenType type;
 } QueryToken;
 
-#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+()|'<>?";
-static const char *stopwords[] = {
-    "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
-    "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
-    "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};
+#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+<>?";
+// static const char *stopwords[] = {
+//     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
+//     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
+//     "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};
 
 
 /* Create a new query tokenizer. There is no need to free anything in the object */

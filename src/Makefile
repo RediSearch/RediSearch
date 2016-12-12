@@ -18,6 +18,7 @@ VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
+QUERY_PARSE=query_parser/tokenizer.o query_parser/query.c
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a

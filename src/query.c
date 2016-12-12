@@ -7,6 +7,8 @@
 
 #include "index.h"
 #include "tokenize.h"
+#include "query_parser/tokenizer.h"
+#include "query_parser/query.h"
 #include "redis_index.h"
 #include "util/logging.h"
 #include "util/heap.h"
@@ -75,7 +77,6 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
     int isSingleWord = q->numTokens == 1 && q->root->nchildren == 1 &&
             q->fieldMask == 0xff &&
             q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
-    //printf("singleword? %d, numTokens: %d, fields %x\n", isSingleWord, q->numTokens, q->fieldMask);
 
     IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, strlen(stage->value), q->docTable,
                                        isSingleWord, q->fieldMask);
@@ -221,16 +222,17 @@ int Query_Tokenize(Query *q) {
     QueryTokenizer t = NewQueryTokenizer(q->raw, q->len);
 
     QueryStage *current = q->root;
+    QueryToken qt;
     while (QueryTokenizer_HasNext(&t)) {
-        QueryToken qt = QueryTokenizer_Next(&t);
+       int tt = QueryTokenizer_Next(&t, &qt);
 
-        switch (qt.type) {
-            case T_WORD: {
+        switch (tt) {
+            case TERM: {
               
                 QueryStage_AddChild(current, NewTokenStage(q, &qt));
                 break;
             }
-            case T_QUOTE:
+            case QUOTE:
                 if (current->op != Q_EXACT) {
                     QueryStage *ns = NewLogicStage(Q_EXACT);
                     QueryStage_AddChild(current, ns);
@@ -240,8 +242,8 @@ int Query_Tokenize(Query *q) {
                 }
                 break;
 
-            case T_STOPWORD:
-            case T_END:
+            // case T_STOPWORD:
+            // case T_END:
             default:
                 break;
         }

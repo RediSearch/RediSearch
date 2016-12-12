@@ -1,23 +1,29 @@
-CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -O3 
+ifndef RM_INCLUDE_DIR
+	RM_INCLUDE_DIR=../
+endif
+
+CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -O3 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o  
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS=redis_buffer.o redis_index.o query.o spec.o
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o
+QUERY_PARSE=query_parser/tokenizer.c query_parser/query.c query_parser/parse.c
 LIBTRIE=trie/libtrie.a
 LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS)  $(REDIS) )
+DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) )
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
 
 
 stemmer: test_stemmer.o
-	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm 
+	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm
+
 test_stemmer: 
 	@(sh -c ./test_stemmer)
 .PHONY: test_stemmer
@@ -27,6 +33,13 @@ trie: test_trie.o
 test_trie: 	 
 	@(sh -c ./test_trie)
 .PHONY: test_trie
+
+query: test_query.o
+	$(CC) $(CFLAGS)  -o test_query test_query.o $ $(DEPS) -lc -lm
+
+test_query: query 	 
+	@(sh -c ./test_query)
+.PHONY: test_query
 
 index: test_index.o
 	$(CC) $(CFLAGS)  -o test_index test_index.o $ $(DEPS) -lc -lm

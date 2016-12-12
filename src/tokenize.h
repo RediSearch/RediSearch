@@ -43,7 +43,6 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 #define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
-#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+()|'<>?";
 static const char *stopwords[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
@@ -79,38 +78,5 @@ int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, Toke
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents.
 Does NOT normalize unicode */
 char *DefaultNormalize(char *s, size_t *len);
-
-/* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
-typedef struct {
-    const char *text;
-    size_t len;
-    char *pos;
-    const char *separators;
-    NormalizeFunc normalize;
-
-} QueryTokenizer;
-
-/* Quer tokenizer token type */
-typedef enum { T_WORD, T_QUOTE, T_AND, T_OR, T_END, T_STOPWORD } QueryTokenType;
-
-/* A token in the process of parsing a query. Unlike the document tokenizer,  it
-works iteratively and is not callback based.  */
-typedef struct {
-    const char *s;
-    size_t len;
-    QueryTokenType type;
-} QueryToken;
-
-/* Create a new query tokenizer. There is no need to free anything in the object */
-QueryTokenizer NewQueryTokenizer(char *text, size_t len);
-
-/* Read the next token from the tokenizer. If tit has reached the end of the
-query text, it will return a token with type T_END and null content.
-
-Note: The token's text might not be null terminated, so use the len variable */
-QueryToken QueryTokenizer_Next(QueryTokenizer *t);
-
-/* Returns 1 if the tokenizer can read more tokens from the query text */
-int QueryTokenizer_HasNext(QueryTokenizer *);
 
 #endif
