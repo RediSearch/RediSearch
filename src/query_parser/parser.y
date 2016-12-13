@@ -1,10 +1,11 @@
+
 %left OR.
 %nonassoc QUOTE.
 %right LP.
 %left RP.
 %left TERM.
+
 %token_type {QueryToken}  
- 
 
 %syntax_error {  
 
@@ -38,16 +39,18 @@ exprlist(A) ::= expr(B) expr(C). {
     QueryStage_AddChild(A, C);
 }
 
+
+expr(A) ::= exact(B). { A = B; }
+expr(A) ::= union(B). {  A = B; }
+expr(A) ::= LP expr(B) RP.  { A = B; } 
+expr(A) ::= TERM(B). [RP] {  A = NewTokenStage(ctx->q, &B); }
+
 exprlist(A) ::= exprlist(B) expr(C). {
-      A = NewLogicStage(Q_INTERSECT);
-    QueryStage_AddChild(A, B);
+    A = B;
     QueryStage_AddChild(A, C);
 }
 
-expr(A) ::= TERM(B). {  A = NewTokenStage(ctx->q, &B); }
-expr(A) ::= union(B). {  A = B; }
-expr(A) ::= LP expr(B) RP. { A = B; } 
-expr(A) ::= QUOTE exprlist(B) QUOTE. {
+exact(A) ::= QUOTE exprlist(B) QUOTE. {
     B->op = Q_EXACT;
     A = B;
 }
@@ -62,6 +65,9 @@ union(A) ::= TERM(B) OR TERM(C). {
     QueryStage_AddChild(A, NewTokenStage(ctx->q, &B));
     QueryStage_AddChild(A, NewTokenStage(ctx->q, &C));
 }
+
+
+
 // query ::= exprlist(A). { ctx->root = A; }
 
 // exprlist(A) ::= expr(B) SPACE expr(C). {

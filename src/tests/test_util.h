@@ -31,7 +31,17 @@
     return -1;                                                                 \
   }
 
-#define TEST_CASE(x, block) int x { block; return 0 }
+#define FAIL(fmt, ...)                                                         \
+  {                                                                            \
+    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__);                                  \
+    return -1;                                                                 \
+  }
+
+#define TEST_CASE(x, block)                                                    \
+  int x {                                                                      \
+    block;                                                                     \
+    return 0                                                                   \
+  }
 
 // #define TEST_START()                                                           \
 //   printf("Testing %s... ", __FUNCTION__);                                      \

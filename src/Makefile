@@ -53,6 +53,10 @@ $(RMUTIL):
 $(TRIE):
 	$(MAKE) -C $@
 
+query_parser:
+	$(MAKE) -C $@
+.PHONY: query_parser
+
 tests:
 	# low level redis-independant tests
 	$(MAKE) -C $@ build test
@@ -73,10 +77,10 @@ module.so: $(MODULE)
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball libnu trie | module.so
+release: util rmutil snowball libnu trie query_parser | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball libnu trie | module.so
+debug: util rmutil snowball libnu trie query_parser | module.so
 	
 
 clean:

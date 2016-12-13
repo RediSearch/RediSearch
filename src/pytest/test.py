@@ -200,8 +200,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(51, res[0]) 
             res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                     "filter", "score", "(0", "(50" )
-            r = redis.Redis()
-            r.sscan
+            
             self.assertEqual(48, res[0])
             res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent", 
                                     "filter", "score", "-inf", "+inf" )

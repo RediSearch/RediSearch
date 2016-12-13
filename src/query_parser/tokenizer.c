@@ -83,7 +83,7 @@ int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
   t->pos++;
 word : {
   char *w = strndup(currentTok, toklen);
-  int stopword = isStopword(w);
+  //int stopword = isStopword(w);
   *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text };
   return TERM;
 }

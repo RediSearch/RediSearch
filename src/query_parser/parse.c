@@ -19,7 +19,7 @@ QueryStage *Query_Parse(Query *q, char **err) {
   parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
 
   while ((t = QueryTokenizer_Next(&qt, &tok)) && ctx.ok) {
-    printf("tok %d, string %.*s\n", t, tok.len, tok.s);
+    //printf("tok %d, string %.*s\n", t, tok.len, tok.s);
     Parse(pParser, t, tok, &ctx);
   }
 
