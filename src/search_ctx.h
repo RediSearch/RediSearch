@@ -8,7 +8,8 @@
 typedef struct {
     RedisModuleCtx *redisCtx;
     IndexSpec *spec;
-    RedisModuleKey *docTableKey;
+    RedisModuleKey *docKeyTableKey;
+    RedisModuleKey *docIdTableKey;
 } RedisSearchCtx;
 
 #endif

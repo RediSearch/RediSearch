@@ -127,6 +127,8 @@ void Redis_CloseReader(IndexReader *r) {
   free(r);
 }
 
+
+
 /**
 Get a numeric incrementing doc Id for indexing, from a string docId of the
 document.
@@ -140,16 +142,16 @@ t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
                        int *isnew) {
   *isnew = 0;
     
-  if (!ctx->docTableKey) {
+  if (!ctx->docKeyTableKey) {
     
     RedisModuleString *kstr = RedisModule_CreateString(
         ctx->redisCtx, REDISINDEX_DOCKEY_MAP, strlen(REDISINDEX_DOCKEY_MAP));
 
-    ctx->docTableKey = RedisModule_OpenKey(
+    ctx->docKeyTableKey = RedisModule_OpenKey(
         ctx->redisCtx, kstr, REDISMODULE_WRITE | REDISMODULE_READ);
-    if (ctx->docTableKey == NULL ||
-        (RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
-         RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_HASH)) {
+    if (ctx->docKeyTableKey == NULL ||
+        (RedisModule_KeyType(ctx->docKeyTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
+         RedisModule_KeyType(ctx->docKeyTableKey) != REDISMODULE_KEYTYPE_HASH)) {
       return 0;
     }
   }
@@ -159,7 +161,7 @@ t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
   RedisModuleString *docIdStr = NULL;
   long long docId = 0;
 
-  if (RedisModule_HashGet(ctx->docTableKey, REDISMODULE_HASH_NONE, docKey,
+  if (RedisModule_HashGet(ctx->docKeyTableKey, REDISMODULE_HASH_NONE, docKey,
                           &docIdStr, NULL) == REDISMODULE_ERR) {
     return 0;
   }
@@ -192,14 +194,14 @@ t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
 
 RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
 
-  if (!ctx->docTableKey) {
+  if (!ctx->docIdTableKey) {
     RedisModuleString *kstr = RedisModule_CreateString(
         ctx->redisCtx, REDISINDEX_DOCIDS_MAP, strlen(REDISINDEX_DOCIDS_MAP));
 
-    ctx->docTableKey = RedisModule_OpenKey(ctx->redisCtx, kstr, REDISMODULE_READ);
-    if (ctx->docTableKey == NULL ||
-        (RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
-         RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_HASH)) {
+    ctx->docIdTableKey = RedisModule_OpenKey(ctx->redisCtx, kstr, REDISMODULE_READ);
+    if (ctx->docIdTableKey == NULL ||
+        (RedisModule_KeyType(ctx->docIdTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
+         RedisModule_KeyType(ctx->docIdTableKey) != REDISMODULE_KEYTYPE_HASH)) {
       return NULL;
     }
   }
@@ -209,10 +211,8 @@ RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
   RedisModuleString *docKey = NULL;
   static char buf[64];
   snprintf(buf, 64, "%d", docId);
-  if (RedisModule_HashGet(ctx->docTableKey, REDISMODULE_HASH_CFIELDS, buf,
-                          &docKey, NULL) == REDISMODULE_ERR) {
-    return NULL;
-  }
+  RedisModule_HashGet(ctx->docIdTableKey, REDISMODULE_HASH_CFIELDS, buf,
+                          &docKey, NULL);
   return docKey;
   
 }
