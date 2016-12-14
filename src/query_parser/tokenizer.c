@@ -19,6 +19,7 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len) {
     
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
+start:
   // we return null if there's nothing more to read
   if (t->pos >= t->text + t->len) {
     goto end;
@@ -40,7 +41,7 @@ int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
     }
 
 
-    if (ctrls[*t->pos]) {//} == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
+    if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
       if (t->pos > currentTok) {
         goto word;
       }
@@ -51,29 +52,7 @@ int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
       ++t->pos;
       toklen = 0;
       return rc;
-      // int rc;
-      // tok->len = 1;
-      // tok->s = t->pos;
-      // tok->pos = t->pos - t->text;
-      // switch (*t->pos) {
-      //   case '"':
-      //       rc = QUOTE;
-      //       break;
-      //   case '|':
-      //       rc = OR;
-      //       break;
-      //   case '(':
-      //       rc = LP;
-      //       break;
-      //   case ')':
-      //   default:
-      //       rc = RP;
-      //       break;
-      // }
-      // ++t->pos;
-      // toklen = 0;
 
-      // return rc;
     }
     ++t->pos;
     ++toklen;
@@ -83,9 +62,13 @@ int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
   t->pos++;
 word : {
   char *w = strndup(currentTok, toklen);
-  //int stopword = isStopword(w);
-  *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text };
-  return TERM;
+  if (!isStopword(w)) {
+    *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text };
+    return TERM;
+  } else {
+    // we just skip this token and go to the beginning of the function
+    goto start;
+  }
 }
 end:
   return 0; //(QueryToken){NULL, 0, T_END};

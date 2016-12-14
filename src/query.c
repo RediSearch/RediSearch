@@ -270,8 +270,8 @@ QueryResult *Query_Execute(Query *query) {
 
     // no query evaluation plan?
     if (query->root == NULL || it == NULL) {
-        res->error = QUERY_ERROR_INTERNAL;
-        res->errorString = QUERY_ERROR_INTERNAL_STR;
+        // res->error = QUERY_ERROR_INTERNAL;
+        // res->errorString = QUERY_ERROR_INTERNAL_STR;
         return res;
     }
 
