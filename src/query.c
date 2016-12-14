@@ -164,7 +164,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
 }
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask, int verbatim, const char *lang) {
+                u_char fieldMask, int verbatim, const char *lang, const char **stopwords) {
     Query *ret = calloc(1, sizeof(Query));
     ret->ctx = ctx;
     ret->len = len;
@@ -175,6 +175,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
     ret->root = __newQueryStage(NULL, Q_INTERSECT, 0);
     ret->numTokens = 0;
     ret->stemmer = NULL;
+    ret->stopwords = stopwords;
     if (!verbatim) {
         ret->stemmer = NewStemmer(SnowballStemmer, lang ? lang : DEFAULT_LANGUAGE);
     }
@@ -250,7 +251,7 @@ double processHitScore(IndexHit *h, DocTable *dt) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-    __queryStage_Print(query->root, 0);
+    //__queryStage_Print(query->root, 0);
     QueryResult *res = malloc(sizeof(QueryResult));
     res->error = 0;
     res->errorString = NULL;

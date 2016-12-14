@@ -5,13 +5,15 @@
 #include <strings.h>
 #include <ctype.h>
 
-QueryTokenizer NewQueryTokenizer(char *text, size_t len) {
+
+QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords) {
   QueryTokenizer ret;
   ret.text = text;
   ret.len = len;
   ret.pos = text;
   ret.normalize = DefaultNormalize;
   ret.separators = QUERY_SEPARATORS;
+  ret.stopwords = stopwords;
 
   return ret;
 }
@@ -54,7 +56,7 @@ start:
       return rc;
 
     }
-    ++t->pos;
+    *t->pos = tolower(*t->pos++);
     ++toklen;
   }
 
@@ -62,7 +64,7 @@ start:
   t->pos++;
 word : {
   char *w = strndup(currentTok, toklen);
-  if (!isStopword(w)) {
+  if (!isStopword(w, t->stopwords)) {
     *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text };
     return TERM;
   } else {

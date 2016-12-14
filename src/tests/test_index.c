@@ -6,6 +6,7 @@
 #include <math.h>
 #include <time.h>
 #include "../tokenize.h"
+#include "../query_parser/tokenizer.h"
 #include "../spec.h"
 #include "test_util.h"
 
@@ -415,37 +416,6 @@ int testIndexSpec() {
   return 0;
 }
 
-int testQueryTokenize() {
-  char *text = strdup("hello \"world wat\" wat");
-  QueryTokenizer qt = NewQueryTokenizer(text, strlen(text));
-
-  char *expected[] = {"hello", NULL, "world", "wat", NULL, "wat"};
-  QueryTokenType etypes[] = {T_WORD,  T_QUOTE, T_WORD, T_WORD,
-                             T_QUOTE, T_WORD,  T_END};
-  int i = 0;
-  while (QueryTokenizer_HasNext(&qt)) {
-    QueryToken t = QueryTokenizer_Next(&qt);
-    printf("%d Token text: %.*s, token type %d\n", i, (int)t.len, t.s, t.type);
-
-    // ASSERT((t.s == NULL && expected[i] == NULL) ||  (t.s != NULL &&
-    // expected[i] &&
-    // !strcmp(t.s, expected[i])))
-    if (t.s != NULL) {
-      ASSERT(expected[i] != NULL)
-      ASSERT(!strncmp(expected[i], t.s, t.len))
-    }
-    ASSERT(t.type == etypes[i])
-    i++;
-    free((char *)t.s);
-
-    if (t.type == T_END) {
-      break;
-    }
-  }
-  free(text);
-  return 0;
-}
-
 typedef union {
   int i;
   float f;
@@ -467,6 +437,6 @@ int main(int argc, char **argv) {
   TESTFUNC(testMemBuffer);
   TESTFUNC(testTokenize);
   TESTFUNC(testIndexSpec);
-  TESTFUNC(testQueryTokenize);
+  
   return 0;
 }

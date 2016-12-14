@@ -367,6 +367,8 @@ will yield less
 document. this can be
    used to merge results from multiple instances
 
+   - NOSTOPWORDS: If set, we do not check the query for stopwords
+
    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge.
 Defaults
 to English.
@@ -457,13 +459,15 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
+
   // open the documents metadata table
   InitDocTable(&sctx, &dt);
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q =
-      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang);
+      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang, nostopwords ? NULL : DEFAULT_STOPWORDS);
     
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

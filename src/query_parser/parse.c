@@ -15,7 +15,7 @@ QueryStage *Query_Parse(Query *q, char **err) {
   int t = 0;
 
   QueryToken tok;
-  QueryTokenizer qt = NewQueryTokenizer(q->raw, q->len);
+  QueryTokenizer qt = NewQueryTokenizer(q->raw, q->len, q->stopwords);
   parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
 
   while ((t = QueryTokenizer_Next(&qt, &tok)) && ctx.ok) {

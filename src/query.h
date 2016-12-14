@@ -55,6 +55,8 @@ typedef struct query {
     RedisSearchCtx *ctx;
 
     Stemmer *stemmer;
+
+    const char **stopwords;
 } Query;
 
 typedef struct {
@@ -98,7 +100,7 @@ void QueryStage_AddChild(QueryStage *parent, QueryStage *child);
 
 /* Initialize a new query object from user input. This does not parse the query just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask, int verbatim, const char *lang);
+                u_char fieldMask, int verbatim, const char *lang, const char **stopwords);
 /* Free a query object */
 void Query_Free(Query *q);
 
