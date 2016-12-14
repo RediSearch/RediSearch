@@ -12,19 +12,19 @@
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term,
                                    size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, TERM_KEY_FORMAT,
-                                      ctx->spec->name, len, term);
+                                        ctx->spec->name, len, term);
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term,
                                         size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT,
-                                      ctx->spec->name, len, term);
+                                        ctx->spec->name, len, term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term,
                                          size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT,
-                                      ctx->spec->name, len, term);
+                                        ctx->spec->name, len, term);
 }
 /**
 * Open a redis index writer on a redis key
@@ -139,54 +139,82 @@ TODO: Detect if the id is numeric and don't convert it
 t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
                        int *isnew) {
   *isnew = 0;
+    
+  if (!ctx->docTableKey) {
+    
+    RedisModuleString *kstr = RedisModule_CreateString(
+        ctx->redisCtx, REDISINDEX_DOCKEY_MAP, strlen(REDISINDEX_DOCKEY_MAP));
 
-  RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGET", "cs",
-                                               REDISINDEX_DOCKEY_MAP, docKey);
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
+    ctx->docTableKey = RedisModule_OpenKey(
+        ctx->redisCtx, kstr, REDISMODULE_WRITE | REDISMODULE_READ);
+    if (ctx->docTableKey == NULL ||
+        (RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
+         RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_HASH)) {
+      return 0;
+    }
+  }
+
+
+  // try loading the id 
+  RedisModuleString *docIdStr = NULL;
+  long long docId = 0;
+
+  if (RedisModule_HashGet(ctx->docTableKey, REDISMODULE_HASH_NONE, docKey,
+                          &docIdStr, NULL) == REDISMODULE_ERR) {
     return 0;
+  }
+  if (docIdStr != NULL) {
+    if (RedisModule_StringToLongLong(docIdStr, &docId) == REDISMODULE_ERR) {
+      return 0;
+    }
+    return (t_docId)docId;
+  }
 
   // not found - increment the global id counter and set in the map
-  if (RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL) {
-    RedisModuleCallReply *increp =
-        RedisModule_Call(ctx->redisCtx, "INCR", "c", REDISINDEX_DOCIDCOUNTER);
-    if (rep == NULL)
-      return 0;
+  RedisModuleCallReply *increp =
+      RedisModule_Call(ctx->redisCtx, "INCR", "c", REDISINDEX_DOCIDCOUNTER);
+  if (increp == NULL)
+    return 0;
 
-    long long ll = RedisModule_CallReplyInteger(increp);
-    RedisModuleString *ls =
-        RedisModule_CreateStringFromLongLong(ctx->redisCtx, ll);
+  long long ll = RedisModule_CallReplyInteger(increp);
+  RedisModuleString *ls =
+      RedisModule_CreateStringFromLongLong(ctx->redisCtx, ll);
 
-    // map docId => key
-    RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCIDS_MAP, ls,
-                     docKey);
-    // map key => docId
-    RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCKEY_MAP,
-                     docKey, ls);
-    *isnew = 1;
-    return (t_docId)ll;
-  }
-
-  // just convert the response to a number and return it
-  long long id;
-
-  if (RedisModule_StringToLongLong(RedisModule_CreateStringFromCallReply(rep),
-                                   &id) == REDISMODULE_OK) {
-    return (t_docId)id;
-  }
-
-  return 0;
+  // map docId => key
+  RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCIDS_MAP, ls,
+                   docKey);
+  // map key => docId
+  RedisModule_Call(ctx->redisCtx, "HSET", "css", REDISINDEX_DOCKEY_MAP, docKey,
+                   ls);
+  *isnew = 1;
+  return (t_docId)ll;
 }
 
 RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
-  RedisModuleCallReply *rep = RedisModule_Call(
-      ctx->redisCtx, "HGET", "cs", REDISINDEX_DOCIDS_MAP,
-      RedisModule_CreateStringFromLongLong(ctx->redisCtx, docId));
 
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL ||
-      RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR)
+  if (!ctx->docTableKey) {
+    RedisModuleString *kstr = RedisModule_CreateString(
+        ctx->redisCtx, REDISINDEX_DOCIDS_MAP, strlen(REDISINDEX_DOCIDS_MAP));
+
+    ctx->docTableKey = RedisModule_OpenKey(ctx->redisCtx, kstr, REDISMODULE_READ);
+    if (ctx->docTableKey == NULL ||
+        (RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
+         RedisModule_KeyType(ctx->docTableKey) != REDISMODULE_KEYTYPE_HASH)) {
+      return NULL;
+    }
+  }
+
+
+  // try loading the id 
+  RedisModuleString *docKey = NULL;
+  static char buf[64];
+  snprintf(buf, 64, "%d", docId);
+  if (RedisModule_HashGet(ctx->docTableKey, REDISMODULE_HASH_CFIELDS, buf,
+                          &docKey, NULL) == REDISMODULE_ERR) {
     return NULL;
-
-  return RedisModule_CreateStringFromCallReply(rep);
+  }
+  return docKey;
+  
 }
 
 /**
