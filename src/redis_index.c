@@ -56,7 +56,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term,
   ScoreIndexWriter scw = NewScoreIndexWriter(
       NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len)));
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  IndexWriter *w = NewIndexWriterBuf(bw, skw, scw);
+  IndexWriter *w = NewIndexWriterBuf(bw, skw, scw, INDEX_DEFAULT_FLAGS);
   return w;
 }
 

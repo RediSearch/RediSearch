@@ -56,12 +56,17 @@ void IndexHit_Terminate(IndexHit *h);
 Currently has no effect due to performance issues */
 int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt);
 
-#pragma pack(4)
+/* Index flags */
+#define INDEX_DEFAULT_FLAGS 0x00
+#define INDEX_NO_OFFSETS 0x01
+
+#pragma pack(1)
 /** The header of an inverted index record */
 typedef struct indexHeader {
     t_offset size;
     t_docId lastId;
     u_int32_t numDocs;
+    u_char flags;
 } IndexHeader;
 #pragma pack()
 
@@ -94,6 +99,8 @@ typedef struct indexWriter {
     t_docId lastId;
     // the number of documents encoded
     u_int32_t ndocs;
+
+    u_char flags; 
     // writer for the skip index
     BufferWriter skipIndexWriter;
     // writer for the score index
@@ -199,12 +206,12 @@ size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
 /* Create a new index writer with a memory buffer of a given capacity.
 NOTE: this is used for testing only */
-IndexWriter *NewIndexWriter(size_t cap);
+IndexWriter *NewIndexWriter(size_t cap, u_char flags);
 
 /* Create a new index writer with the given buffers for the actual index, skip index, and score
  * index */
 IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter,
-                               ScoreIndexWriter scoreWriter);
+                               ScoreIndexWriter scoreWriter, u_char flags);
 
 /* UnionContext is used during the running of a union iterator */
 typedef struct {
