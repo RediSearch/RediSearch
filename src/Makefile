@@ -77,10 +77,10 @@ module.so: $(MODULE)
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball libnu trie query_parser | module.so
+release: util rmutil snowball libnu trie | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball libnu trie query_parser | module.so
+debug: util rmutil snowball libnu trie  | module.so
 	
 
 clean:
