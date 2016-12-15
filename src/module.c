@@ -466,9 +466,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q =
-      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang, nostopwords ? NULL : DEFAULT_STOPWORDS);
-    
+  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim,
+                      lang, nostopwords ? NULL : DEFAULT_STOPWORDS);
+
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
     RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
@@ -721,11 +721,10 @@ int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 }
 
-
 /*
 ## FT.SUGDEL key str
 
-Delete a string from a suggestion index. 
+Delete a string from a suggestion index.
 
 ### Parameters:
 
@@ -755,8 +754,8 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char*)str, len));
-
+  return RedisModule_ReplyWithLongLong(ctx,
+                                       Trie_Delete(tree, (char *)str, len));
 }
 
 /*
@@ -891,7 +890,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
                                 "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand,
+  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand,
                                 "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
@@ -904,7 +903,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
                                 "readonly no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
-
 
   return REDISMODULE_OK;
 }
