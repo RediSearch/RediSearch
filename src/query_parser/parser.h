@@ -1,5 +1,5 @@
 #define OR                               1
-#define QUOTE                            2
-#define LP                               3
-#define RP                               4
+#define LP                               2
+#define RP                               3
+#define QUOTE                            4
 #define TERM                             5

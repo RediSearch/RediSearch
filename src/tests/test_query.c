@@ -6,65 +6,101 @@
 
 void __queryStage_Print(QueryStage *qs, int depth);
 
-int testQueryParser() {
+int isValidQuery(char *qt) {
   char *err = NULL;
-  char *qt = strdup("(hello|world) \"another world\"");
   RedisSearchCtx ctx;
-  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS);
+  Query *q =
+      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS);
 
   QueryStage *n = Query_Parse(q, &err);
 
-  if (err) 
+  if (err) {
+    FAIL("Error parsing query '%s': %s", qt, err);
+  }
+  ASSERT(n != NULL);
+  __queryStage_Print(n, 0);
+  Query_Free(q);
+  return 0;
+}
+
+#define assertValidQuery(qt)                                                   \
+  {                                                                            \
+    if (0 != isValidQuery(qt))                                                 \
+      return -1;                                                               \
+  }
+
+#define assertInvalidQuery(qt)                                                 \
+  {                                                                            \
+    if (0 == isValidQuery(qt))                                                 \
+      return -1;                                                               \
+  }
+
+int testQueryParser() {
+
+  assertValidQuery("hello");
+  assertValidQuery("hello world");
+  assertValidQuery("hello (world)");
+  assertValidQuery("\"hello world\"");
+  assertValidQuery("\"hello world\" \"foo bar\"");
+  assertValidQuery("hello \"foo bar\" world");
+  assertValidQuery("hello|hallo|yellow world");
+  assertValidQuery("(hello|world|foo) bar baz");
+  assertValidQuery("(hello|world|foo) (bar baz)");
+  assertValidQuery("(hello world|foo) \"bar baz\" bbbb");
+  // assertValidQuery("(hello world)|(goodbye moon)");
+
+  assertInvalidQuery("(foo");
+  assertInvalidQuery("\"foo");
+  assertInvalidQuery("");
+  assertInvalidQuery("()");
+
+  char *err = NULL;
+  char *qt = "(hello|world) and \"another world\" (foo is bar) baz ";
+  RedisSearchCtx ctx;
+  Query *q =
+      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS);
+
+  QueryStage *n = Query_Parse(q, &err);
+
+  if (err)
     FAIL("Error parsing query: %s", err);
   __queryStage_Print(n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT(n->op == Q_INTERSECT);
-  ASSERT(n->nchildren == 2);
-  ASSERT(n->children[0]->op == Q_UNION);
-  ASSERT(n->children[1]->op == Q_EXACT);
-  
-  
+  ASSERT(n->nchildren == 4);
 
- TIME_SAMPLE_RUN_LOOP(10000, { Query_Parse(q, &err); });
+  ASSERT(n->children[0]->op == Q_UNION);
+  ASSERT_STRING_EQ("hello", n->children[0]->children[0]->value);
+  ASSERT_STRING_EQ("world", n->children[0]->children[1]->value);
+
+  ASSERT(n->children[1]->op == Q_EXACT);
+  ASSERT_STRING_EQ("another", n->children[1]->children[0]->value);
+  ASSERT_STRING_EQ("world", n->children[1]->children[1]->value);
+
+  ASSERT(n->children[2]->op == Q_INTERSECT);
+  ASSERT_STRING_EQ("foo", n->children[2]->children[0]->value);
+  ASSERT_STRING_EQ("bar", n->children[2]->children[1]->value);
+
+  ASSERT(n->children[3]->op == Q_LOAD);
+  ASSERT_STRING_EQ("baz", n->children[3]->value);
+  Query_Free(q);
   return 0;
 }
 
+void benchmarkQueryParser() {
+  char *qt = "(hello|world) \"another world\"";
+  RedisSearchCtx ctx;
+  char *err = NULL;
 
-// int testQueryTokenize() {
-//   char *text = strdup("hello \"world wat\" wat");
-//   QueryTokenizer qt = NewQueryTokenizer(text, strlen(text), DEFAULT_STOPWORDS);
-
-//   char *expected[] = {"hello", NULL, "world", "wat", NULL, "wat"};
-//   QueryTokenType etypes[] = {T_WORD,  T_QUOTE, T_WORD, T_WORD,
-//                              T_QUOTE, T_WORD,  T_END};
-//   int i = 0;
-//   while (QueryTokenizer_HasNext(&qt)) {
-//     QueryToken t = QueryTokenizer_Next(&qt);
-//     printf("%d Token text: %.*s, token type %d\n", i, (int)t.len, t.s, t.type);
-
-//     // ASSERT((t.s == NULL && expected[i] == NULL) ||  (t.s != NULL &&
-//     // expected[i] &&
-//     // !strcmp(t.s, expected[i])))
-//     if (t.s != NULL) {
-//       ASSERT(expected[i] != NULL)
-//       ASSERT(!strncmp(expected[i], t.s, t.len))
-//     }
-//     ASSERT(t.type == etypes[i])
-//     i++;
-//     free((char *)t.s);
-
-//     if (t.type == T_END) {
-//       break;
-//     }
-//   }
-//   free(text);
-//   return 0;
-// }
-
+  Query *q =
+      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS);
+  TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
+}
 
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
+  benchmarkQueryParser();
 }

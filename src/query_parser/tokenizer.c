@@ -5,8 +5,8 @@
 #include <strings.h>
 #include <ctype.h>
 
-
-QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords) {
+QueryTokenizer NewQueryTokenizer(char *text, size_t len,
+                                 const char **stopwords) {
   QueryTokenizer ret;
   ret.text = text;
   ret.len = len;
@@ -17,8 +17,7 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords)
 
   return ret;
 }
- static char ctrls[255] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP, [')'] = RP };
-    
+static char ctrls[255] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP, [')'] = RP};
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
 start:
@@ -42,7 +41,6 @@ start:
       }
     }
 
-
     if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
       if (t->pos > currentTok) {
         goto word;
@@ -54,7 +52,6 @@ start:
       ++t->pos;
       toklen = 0;
       return rc;
-
     }
     *t->pos = tolower(*t->pos++);
     ++toklen;
@@ -65,7 +62,7 @@ start:
 word : {
   char *w = strndup(currentTok, toklen);
   if (!isStopword(w, t->stopwords)) {
-    *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text };
+    *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text};
     return TERM;
   } else {
     // we just skip this token and go to the beginning of the function

@@ -25,6 +25,9 @@
     fprintf(stderr, "Assertion '%s' Failed\n", __STRING(expr));                \
     return -1;                                                                 \
   }
+
+#define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
+
 #define ASSERT_EQUAL_INT(x, y, ...)                                            \
   if (x != y) {                                                                \
     fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", x, y);                      \
@@ -33,7 +36,7 @@
 
 #define FAIL(fmt, ...)                                                         \
   {                                                                            \
-    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__);                                  \
+    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__);                         \
     return -1;                                                                 \
   }
 
