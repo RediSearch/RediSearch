@@ -34,7 +34,6 @@ traditional redis search approaches.
 * Geo filters.
 * NOT queries (foo -bar).
 * Spelling correction
-* Full boolean query syntax
 * Aggregations
 * Deletion and Updating (without full index rebuild)
 
@@ -201,7 +200,7 @@ Seach the index with a textual query, returning either documents or just ids.
     - index: The Fulltext index name. The index must be first created with FT.CREATE
 
     - query: the text query to search. If it's more than a single word, put it in quotes.
-    Basic syntax like quotes for exact matching is supported.
+    See below for documentation on query syntax. 
 
     - NOCONTENT: If it appears after the query, we only return the document ids and not 
     the content. This is useful if rediseach is only an index on an external document collection
@@ -216,6 +215,7 @@ Seach the index with a textual query, returning either documents or just ids.
     FT.CREATE, we will limit results to those having numeric values ranging between min and max.
     min and max follow ZRANGE syntax, and can be -inf, +inf and use `(` for exclusive ranges.
 
+    - NOSTOPWORDS: If set, we do not filter stopwords from the query. 
    
     - WITHSCORES: If set, we also return the relative internal score of each document. this can be
     used to merge results from multiple instances
@@ -237,6 +237,15 @@ Seach the index with a textual query, returning either documents or just ids.
 > Array reply, where the first element is the total number of results, and then pairs of
 > document id, and a nested array of field/value, unless NOCONTENT was given
    
+## Search Query Syntax (since 0.3):
+
+We support a simple syntax for complex queries with the following rules:
+
+* Multi-word phrases are (AND) simply a list of tokens, e.g. `foo bar baz`.
+* Exact phrases are wrapped in qoutes, e.e.g `"hello world"`.
+* OR unions i.e word1 OR word2, are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
+* An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
+* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 ----
 
 
