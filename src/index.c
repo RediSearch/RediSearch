@@ -26,24 +26,22 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq,
     *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
     // LG_DEBUG("READ Quantized score %d, freq %f", quantizedScore, *freq);
   }
-  
+
   BufferReadByte(ir->buf, (char *)flags);
 
-  if (! (ir->header.flags & INDEX_NO_OFFSETS)) {
-    size_t offsetsLen = ReadVarint(ir->buf);
+  size_t offsetsLen = ReadVarint(ir->buf);
 
-    // If needed - read offset vectors
-    if (offsets != NULL && !ir->singleWordMode) {
-      offsets->cap = offsetsLen;
-      offsets->data = ir->buf->pos;
-      offsets->pos = offsets->data;
-      offsets->ctx = NULL;
-      offsets->offset = 0;
-      offsets->type = BUFFER_READ;
-    }
-
-    BufferSkip(ir->buf, offsetsLen);
+  // If needed - read offset vectors
+  if (offsets != NULL && !ir->singleWordMode) {
+    offsets->cap = offsetsLen;
+    offsets->data = ir->buf->pos;
+    offsets->pos = offsets->data;
+    offsets->ctx = NULL;
+    offsets->offset = 0;
+    offsets->type = BUFFER_READ;
   }
+
+  BufferSkip(ir->buf, offsetsLen);
   ir->lastId = *docId;
   return INDEXREAD_OK;
 }
@@ -87,7 +85,7 @@ int IR_Read(void *ctx, IndexHit *e) {
   }
 
   VarintVector *offsets = NULL;
-  if (!ir->singleWordMode && !(ir->header.flags & INDEX_NO_OFFSETS)) {
+  if (!ir->singleWordMode) {
     offsets = &e->offsetVecs[0];
     e->numOffsetVecs = 1;
   }
@@ -261,7 +259,7 @@ size_t IW_Len(IndexWriter *w) { return BufferLen(w->bw.buf); }
 void writeIndexHeader(IndexWriter *w) {
   size_t offset = w->bw.buf->offset;
   BufferSeek(w->bw.buf, 0);
-  IndexHeader h = {offset, w->lastId, w->ndocs, w->flags};
+  IndexHeader h = {offset, w->lastId, w->ndocs};
   LG_DEBUG(
       "Writing index header. offest %d , lastId %d, ndocs %d, will seek to %zd",
       h.size, h.lastId, w->ndocs, offset);
@@ -269,25 +267,24 @@ void writeIndexHeader(IndexWriter *w) {
   BufferSeek(w->bw.buf, offset);
 }
 
-IndexWriter *NewIndexWriter(size_t cap, u_char flags) {
+IndexWriter *NewIndexWriter(size_t cap) {
 
   return NewIndexWriterBuf(
       NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
       NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
-      NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE))), flags);
+      NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE))));
 }
 
 IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter,
-                               ScoreIndexWriter siw,  u_char flags) {
+                               ScoreIndexWriter siw) {
   IndexWriter *w = malloc(sizeof(IndexWriter));
   w->bw = bw;
   w->skipIndexWriter = skipIdnexWriter;
   w->ndocs = 0;
   w->lastId = 0;
   w->scoreWriter = siw;
-  w->flags = INDEX_NO_OFFSETS;
- 
-  IndexHeader h = {.size = 0, .lastId = 0, .numDocs = 0, .flags = flags};
+
+  IndexHeader h = {0, 0, 0};
   if (indexReadHeader(w->bw.buf, &h)) {
 
     if (h.size > 0) {
@@ -345,14 +342,10 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
   // freq,
   //          quantizedScore);
 
-  size_t offsetsSz = offsets ? VV_Size(offsets) : 0;
+  size_t offsetsSz = VV_Size(offsets);
   // // calculate the overall len
   size_t len =
-      varintSize(quantizedScore) + 1;
-      
-  if (offsets) {
-    len += varintSize(offsetsSz) + offsetsSz; 
-  } 
+      varintSize(quantizedScore) + 1 + varintSize(offsetsSz) + offsetsSz;
 
   // Write docId
   WriteVarint(docId - w->lastId, &w->bw);
@@ -363,13 +356,10 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
   WriteVarint(quantizedScore, &w->bw);
   // encode flags
   w->bw.Write(w->bw.buf, &flags, 1);
+  // write offsets size
+  WriteVarint(offsetsSz, &w->bw);
+  w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
 
-  if (offsets) {
-    // write offsets size
-    WriteVarint(offsetsSz, &w->bw);
-    w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
-  }
-  
   w->lastId = docId;
   if (w->ndocs % SKIPINDEX_STEP == 0) {
     IW_WriteSkipIndexEntry(w);
@@ -380,12 +370,8 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
 
 /* Write a forward-index entry to an index writer */
 void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
-  
-  // only take the offsets from the forward entry if we are writing offsets
-  VarintVector *offsets = NULL;
-  if (!w->flags & INDEX_NO_OFFSETS) {
-    offsets = ent->vw->bw.buf;
-  }
+  // VVW_Truncate(ent->vw);
+  VarintVector *offsets = ent->vw->bw.buf;
 
   IW_GenericWrite(w, ent->docId, ent->freq * ent->docScore, ent->flags,
                   offsets);
