@@ -110,7 +110,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len,
     si = LoadRedisSkipIndex(ctx, term, len);
   }
 
-  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask);
+  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask,
+                           NewTerm(term));
 }
 
 void Redis_CloseReader(IndexReader *r) {
@@ -127,8 +128,6 @@ void Redis_CloseReader(IndexReader *r) {
   free(r);
 }
 
-
-
 /**
 Get a numeric incrementing doc Id for indexing, from a string docId of the
 document.
@@ -141,23 +140,24 @@ TODO: Detect if the id is numeric and don't convert it
 t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey,
                        int *isnew) {
   *isnew = 0;
-    
+
   if (!ctx->docKeyTableKey) {
-    
+
     RedisModuleString *kstr = RedisModule_CreateString(
         ctx->redisCtx, REDISINDEX_DOCKEY_MAP, strlen(REDISINDEX_DOCKEY_MAP));
 
     ctx->docKeyTableKey = RedisModule_OpenKey(
         ctx->redisCtx, kstr, REDISMODULE_WRITE | REDISMODULE_READ);
     if (ctx->docKeyTableKey == NULL ||
-        (RedisModule_KeyType(ctx->docKeyTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
-         RedisModule_KeyType(ctx->docKeyTableKey) != REDISMODULE_KEYTYPE_HASH)) {
+        (RedisModule_KeyType(ctx->docKeyTableKey) !=
+             REDISMODULE_KEYTYPE_EMPTY &&
+         RedisModule_KeyType(ctx->docKeyTableKey) !=
+             REDISMODULE_KEYTYPE_HASH)) {
       return 0;
     }
   }
 
-
-  // try loading the id 
+  // try loading the id
   RedisModuleString *docIdStr = NULL;
   long long docId = 0;
 
@@ -198,7 +198,8 @@ RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
     RedisModuleString *kstr = RedisModule_CreateString(
         ctx->redisCtx, REDISINDEX_DOCIDS_MAP, strlen(REDISINDEX_DOCIDS_MAP));
 
-    ctx->docIdTableKey = RedisModule_OpenKey(ctx->redisCtx, kstr, REDISMODULE_READ);
+    ctx->docIdTableKey =
+        RedisModule_OpenKey(ctx->redisCtx, kstr, REDISMODULE_READ);
     if (ctx->docIdTableKey == NULL ||
         (RedisModule_KeyType(ctx->docIdTableKey) != REDISMODULE_KEYTYPE_EMPTY &&
          RedisModule_KeyType(ctx->docIdTableKey) != REDISMODULE_KEYTYPE_HASH)) {
@@ -206,15 +207,13 @@ RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId) {
     }
   }
 
-
-  // try loading the id 
+  // try loading the id
   RedisModuleString *docKey = NULL;
   static char buf[64];
   snprintf(buf, 64, "%d", docId);
   RedisModule_HashGet(ctx->docIdTableKey, REDISMODULE_HASH_CFIELDS, buf,
-                          &docKey, NULL);
+                      &docKey, NULL);
   return docKey;
-  
 }
 
 /**

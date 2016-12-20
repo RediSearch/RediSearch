@@ -232,9 +232,9 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-u_int32_t _getHitScore(void *ctx) {
-  return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
-}
+// u_int32_t _getHitScore(void *ctx) {
+//   return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
+// }
 
 /* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>]
 *  Index a document that's already saved in redis as a HASH object, unrelated to

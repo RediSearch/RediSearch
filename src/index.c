@@ -4,6 +4,35 @@
 #include <sys/param.h>
 #include <math.h>
 
+void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
+  if (r->numRecords < MAX_INTERSECT_WORDS) {
+    r->records[r->numRecords++] = *record;
+    r->docId = record->docId;
+    r->flags |= record->flags;
+    r->totalTF += record->tf;
+  }
+}
+
+void IndexResult_Print(IndexResult *r) {
+
+  printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF,
+         r->flags);
+
+  for (int i = 0; i < r->numRecords; i++) {
+    printf("\t%s, tf %f, flags %x\n", r->records[i].term->str, r->records[i].tf,
+           r->records[i].flags);
+  }
+  printf("----------\n");
+}
+Term *NewTerm(char *str) {
+  Term *ret = malloc(sizeof(Term));
+  ret->idf = 1;
+  ret->metadata = NULL;
+  ret->str = str;
+  return ret;
+}
+
+void Term_Free(Term *t) { free(t); }
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
   // LG_DEBUG("ir %p size %d, offset %d. has next? %d\n", ir, ir->header.size,
@@ -71,9 +100,10 @@ inline double tfidf(float freq, u_int32_t docFreq) {
   return freq * idf;
 }
 
-int IR_Read(void *ctx, IndexHit *e) {
+int IR_Read(void *ctx, IndexResult *e) {
   float freq;
   IndexReader *ir = ctx;
+  IndexRecord rec = {.term = ir->term};
 
   if (ir->useScoreIndex && ir->scoreIndex) {
     ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
@@ -86,27 +116,24 @@ int IR_Read(void *ctx, IndexHit *e) {
 
   VarintVector *offsets = NULL;
   if (!ir->singleWordMode) {
-    offsets = &e->offsetVecs[0];
-    e->numOffsetVecs = 1;
+    offsets = rec.offsets;
   }
 
-  int rc = IR_GenericRead(ir, &e->docId, &freq, &e->flags, offsets);
+  int rc = IR_GenericRead(ir, &rec.docId, &rec.tf, &rec.flags, offsets);
 
   // add tf-idf score of the entry to the hit
   if (rc == INDEXREAD_OK) {
     // printf("docId %d Flags 0x%x, field mask 0x%x, intersection: %x\n",
     //  e->docId, e->flags,
     //  ir->fieldMask, e->flags & ir->fieldMask);
-    if (!(e->flags & ir->fieldMask)) {
+    if (!(rec.flags & ir->fieldMask)) {
       // pri/ntf("Skipping %d\n", e->docId);
       return INDEXREAD_NOTFOUND;
     }
 
-    e->totalFreq = tfidf(freq, ir->header.numDocs);
     ++ir->len;
-    // printf("hit %d\n", ir->len);
+    IndexResult_PutRecord(e, &rec);
   }
-  e->type = H_RAW;
 
   // LG_DEBUG("Read docId %d, rc %d", e->docId, rc);
   return rc;
@@ -125,38 +152,40 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   ir->lastId = docId;
 }
 
-void IndexHit_Init(IndexHit *h) {
+void IndexResult_Init(IndexResult *h) {
   h->docId = 0;
-  h->numOffsetVecs = 0;
-  h->totalFreq = 0;
+  h->numRecords = 0;
+  h->totalTF = 0;
   h->type = H_RAW;
-  h->hasMetadata = 0;
+  // h->hasMetadata = 0;
 }
 
-IndexHit NewIndexHit() {
-  IndexHit h;
-  IndexHit_Init(&h);
+IndexResult NewIndexResult() {
+  IndexResult h;
+  IndexResult_Init(&h);
   return h;
 }
 
-int IndexHit_LoadMetadata(IndexHit *h, DocTable *dt) {
-  int rc = 0;
-  if ((rc = DocTable_GetMetadata(dt, h->docId, &h->metadata)) ==
-      REDISMODULE_OK) {
-    h->hasMetadata = 1;
-  }
-  return rc;
-}
+// int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt) {
+
+//   int rc = 0;
+//   if ((rc = DocTable_GetMetadata(dt, h->docId, &h->metadata)) ==
+//       REDISMODULE_OK) {
+//     h->hasMetadata = 1;
+//   }
+//   return rc;
+// }
 
 /**
 Skip to the given docId, or one place after it
 @param ctx IndexReader context
 @param docId docId to seek to
 @param hit an index hit we put our reads into
-@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if
+@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF
+if
 at EOF
 */
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   IndexReader *ir = ctx;
 
   SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
@@ -192,7 +221,8 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 size_t IR_NumDocs(void *ctx) {
   IndexReader *ir = ctx;
 
-  // in single word optimized mode we only know the size of the record from the
+  // in single word optimized mode we only know the size of the record from
+  // the
   // header.
   if (ir->singleWordMode) {
     return ir->header.numDocs;
@@ -206,16 +236,16 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si,
                             DocTable *dt, int singleWordMode,
                             u_char fieldMask) {
   return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt,
-                           singleWordMode, NULL, fieldMask);
+                           singleWordMode, NULL, fieldMask, NULL);
 }
 
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt,
                                int singleWordMode, ScoreIndex *sci,
-                               u_char fieldMask) {
+                               u_char fieldMask, Term *term) {
   IndexReader *ret = malloc(sizeof(IndexReader));
   ret->buf = buf;
   indexReadHeader(buf, &ret->header);
-
+  ret->term = term;
   ret->lastId = 0;
   ret->skipIdxPos = 0;
   ret->skipIdx = NULL;
@@ -239,6 +269,7 @@ void IR_Free(IndexReader *ir) {
     ScoreIndex_Free(ir->scoreIndex);
   }
   SkipIndex_Free(ir->skipIdx);
+  Term_Free(ir->term);
   free(ir);
 }
 
@@ -260,9 +291,9 @@ void writeIndexHeader(IndexWriter *w) {
   size_t offset = w->bw.buf->offset;
   BufferSeek(w->bw.buf, 0);
   IndexHeader h = {offset, w->lastId, w->ndocs};
-  LG_DEBUG(
-      "Writing index header. offest %d , lastId %d, ndocs %d, will seek to %zd",
-      h.size, h.lastId, w->ndocs, offset);
+  LG_DEBUG("Writing index header. offest %d , lastId %d, ndocs %d, will seek "
+           "to %zd",
+           h.size, h.lastId, w->ndocs, offset);
   w->bw.Write(w->bw.buf, &h, sizeof(IndexHeader));
   BufferSeek(w->bw.buf, offset);
 }
@@ -338,7 +369,8 @@ void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
   // quantize the score to compress it to max 4 bytes
   // freq is between 0 and 1
   int quantizedScore = floorl(freq * (double)FREQ_QUANTIZE_FACTOR);
-  // LG_DEBUG("docId %d, flags %x, Score %f, quantized score %d", docId, flags,
+  // LG_DEBUG("docId %d, flags %x, Score %f, quantized score %d", docId,
+  // flags,
   // freq,
   //          quantizedScore);
 
@@ -406,7 +438,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->its = its;
   ctx->num = num;
   ctx->docTable = dt;
-  ctx->currentHits = calloc(num, sizeof(IndexHit));
+  ctx->currentHits = calloc(num, sizeof(IndexResult));
   ctx->len = 0;
   // bind the union iterator calls
   IndexIterator *it = malloc(sizeof(IndexIterator));
@@ -420,14 +452,13 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   return it;
 }
 
-int UI_Read(void *ctx, IndexHit *hit) {
+int UI_Read(void *ctx, IndexResult *hit) {
   UnionContext *ui = ctx;
   // nothing to do
   if (ui->num == 0) {
     return 0;
   }
 
-  
   int numActive = 0;
   do {
     // find the minimal iterator
@@ -442,28 +473,27 @@ int UI_Read(void *ctx, IndexHit *hit) {
         continue;
 
       rc = INDEXREAD_OK;
-      //if (it->HasNext(it->ctx)) {
-        // if this hit is behind the min id - read the next entry
-        if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
-          rc = INDEXREAD_NOTFOUND;
-          // read while we're not at the end and perhaps the flags do not match
-          while (rc == INDEXREAD_NOTFOUND) {
-            rc = it->Read(it->ctx, &ui->currentHits[i]);
-          }              
+      // if (it->HasNext(it->ctx)) {
+      // if this hit is behind the min id - read the next entry
+      if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
+        rc = INDEXREAD_NOTFOUND;
+        // read while we're not at the end and perhaps the flags do not match
+        while (rc == INDEXREAD_NOTFOUND) {
+          rc = it->Read(it->ctx, &ui->currentHits[i]);
         }
-        
-        if (rc != INDEXREAD_EOF) {
-          numActive++;
-        } 
+      }
 
-        if (rc == INDEXREAD_OK && ui->currentHits[i].docId < minDocId) {
-          minDocId = ui->currentHits[i].docId;
-          minIdx = i;
-        }
-//      }
-       
+      if (rc != INDEXREAD_EOF) {
+        numActive++;
+      }
+
+      if (rc == INDEXREAD_OK && ui->currentHits[i].docId < minDocId) {
+        minDocId = ui->currentHits[i].docId;
+        minIdx = i;
+      }
+      //      }
     }
-    
+
     // take the minimum entry and yield it
     if (minIdx != -1) {
 
@@ -480,7 +510,7 @@ int UI_Read(void *ctx, IndexHit *hit) {
 }
 
 int UI_Next(void *ctx) {
-  IndexHit h = NewIndexHit();
+  IndexResult h = NewIndexResult();
   return UI_Read(ctx, &h);
 }
 
@@ -502,10 +532,11 @@ Skip to the given docId, or one place after it
 @param ctx IndexReader context
 @param docId docId to seek to
 @param hit an index hit we put our reads into
-@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if
+@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF
+if
 at EOF
 */
-int UI_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   UnionContext *ui = ctx;
 
   int n = 0;
@@ -596,9 +627,9 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
   ctx->len = 0;
   ctx->exact = exact;
   ctx->fieldMask = fieldMask;
-  ctx->currentHits = calloc(num, sizeof(IndexHit));
+  ctx->currentHits = calloc(num, sizeof(IndexResult));
   for (int i = 0; i < num; i++) {
-    IndexHit_Init(&ctx->currentHits[i]);
+    IndexResult_Init(&ctx->currentHits[i]);
   }
   ctx->docTable = dt;
 
@@ -614,7 +645,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
   return it;
 }
 
-int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
+int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   IntersectContext *ic = ctx;
 
   int nfound = 0;
@@ -645,11 +676,11 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexHit *hit) {
 }
 
 int II_Next(void *ctx) {
-  // IndexHit h;
+  // IndexResult h;
   return II_Read(ctx, NULL);
 }
 
-int II_Read(void *ctx, IndexHit *hit) {
+int II_Read(void *ctx, IndexResult *hit) {
   IntersectContext *ic = (IntersectContext *)ctx;
 
   if (ic->num == 0)
@@ -661,7 +692,7 @@ int II_Read(void *ctx, IndexHit *hit) {
     // LG_DEBUG("II %p last docId %d", ic,     ic->lastDocId);
     nh = 0;
     for (i = 0; i < ic->num; i++) {
-      IndexHit *h = &ic->currentHits[i];
+      IndexResult *h = &ic->currentHits[i];
       // LG_DEBUG("h->docId: %d, ic->lastDocId: %d", h->docId, ic->lastDocId);
       // skip to the next
       int rc = INDEXREAD_OK;
@@ -692,21 +723,10 @@ int II_Read(void *ctx, IndexHit *hit) {
     if (nh == ic->num) {
       // sum up all hits
       if (hit != NULL) {
-        hit->numOffsetVecs = 0;
-        hit->flags = 0;
-        hit->type = H_INTERSECTED;
-        hit->docId = ic->currentHits[0].docId;
         for (int i = 0; i < nh; i++) {
-          IndexHit *hh = &ic->currentHits[i];
-
-          hit->flags |= hh->flags;
-          hit->totalFreq += hh->totalFreq;
-
-          int n = 0;
-          // Copy the offset vectors of the hits
-          while (hit->numOffsetVecs < MAX_INTERSECT_WORDS &&
-                 n < hh->numOffsetVecs) {
-            hit->offsetVecs[hit->numOffsetVecs++] = hh->offsetVecs[n++];
+          IndexResult *hh = &ic->currentHits[i];
+          for (int j = 0; j < hh->numRecords; j++) {
+            IndexResult_PutRecord(hit, &hh->records[j]);
           }
         }
       }
@@ -715,7 +735,8 @@ int II_Read(void *ctx, IndexHit *hit) {
       if (ic->its[0]->Read(ic->its[0]->ctx, &ic->currentHits[0]) ==
           INDEXREAD_EOF) {
         // if we're at the end we don't want to return EOF right now,
-        // but advancing docId makes sure we'll read the first iterator again in
+        // but advancing docId makes sure we'll read the first iterator again
+        // in
         // the next
         // round
         ic->lastDocId++;
@@ -737,7 +758,8 @@ int II_Read(void *ctx, IndexHit *hit) {
 
       // In exact mode, make sure the minimal distance is the number of words
       if (ic->exact && hit != NULL) {
-        int md = VV_MinDistance(hit->offsetVecs, hit->numOffsetVecs);
+        printf("TODO: Fix minDistance filter!\n");
+        int md = 1; // VV_MinDistance(hit->offsetVecs, hit->numOffsetVecs);
 
         if (md > ic->num - 1) {
           continue;
