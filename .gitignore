@@ -1,18 +1,7 @@
-*.o
-*.so
-*.a
-*.pyc
-.vscode
-testung
-*.db
-/mdma
-**/callgrind.*
-**/*.out
-**/*.rdb
-**.csv
-**/test_stemmer
-**/test_trie
-**/test_tree
-**/.clang_complete
-
+*
+!*.c
+!*.h
+!*.py
+!.gitignore
+!**/Makefile
 

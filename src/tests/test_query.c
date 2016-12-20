@@ -36,7 +36,7 @@ int isValidQuery(char *qt) {
   }
 
 int testQueryParser() {
-
+  // test some valid queries
   assertValidQuery("hello");
   assertValidQuery("hello world");
   assertValidQuery("hello (world)");

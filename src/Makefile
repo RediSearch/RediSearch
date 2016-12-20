@@ -55,6 +55,7 @@ $(TRIE):
 
 query_parser:
 	$(MAKE) -C $@
+	
 .PHONY: query_parser
 
 tests:

@@ -39,6 +39,7 @@ query: test_query.o
 
 test_query: query 	 
 	@(sh -c ./test_query)
+	
 .PHONY: test_query
 
 index: test_index.o
