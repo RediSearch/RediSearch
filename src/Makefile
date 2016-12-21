@@ -15,7 +15,7 @@ CFLAGS= -fPIC -lc -lm -std=gnu99 -I./
 RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o
-INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o
+INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS=redis_buffer.o module.o redis_index.o query.o spec.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
@@ -26,7 +26,7 @@ LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE))
+MODULE=$(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE)
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o

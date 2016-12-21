@@ -69,7 +69,6 @@ int NumericFilter_Read(void *ctx, IndexResult *e) {
   e->flags = 0xFF;
   //   e->numOffsetVecs = 0;
   e->totalTF = 0;
-  e->type = H_RAW;
 
   return INDEXREAD_EOF;
 }
@@ -97,7 +96,6 @@ int NumericFilter_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
         hit->flags = 0xFF;
         // hit->numOffsetVecs = 0;
         hit->totalTF = 0;
-        hit->type = H_RAW;
         return INDEXREAD_OK;
       }
     }

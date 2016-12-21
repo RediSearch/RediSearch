@@ -253,9 +253,9 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 This is done only for the root iterator */
 double processHitScore(IndexResult *h, DocTable *dt) {
   // for exact hits we don't need to calculate minimal offset dist
-  int md = 1;
+  int md = IndexResult_MinOffsetDelta(h);
   // h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-  return (h->totalTF) / pow((double)(md ? md : 1), 2);
+  return (h->totalTF) / (double)powerof2(md);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -301,7 +301,7 @@ QueryResult *Query_Execute(Query *query) {
     } else if (rc == INDEXREAD_NOTFOUND) {
       continue;
     }
-    IndexResult_Print(h);
+    // IndexResult_Print(h);
     h->totalTF = processHitScore(h, query->docTable);
 
     if (heap_count(pq) < heap_size(pq)) {
@@ -327,6 +327,7 @@ QueryResult *Query_Execute(Query *query) {
 
   if (pooledHit) {
     free(pooledHit);
+    pooledHit = NULL;
   }
   res->totalResults = it->Len(it->ctx);
   it->Free(it);

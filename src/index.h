@@ -12,52 +12,7 @@
 #include "doc_table.h"
 #include "score_index.h"
 #include "skip_index.h"
-
-#define MAX_INTERSECT_WORDS 8
-
-/** HitType tells us what type of hit we're dealing with */
-typedef enum {
-  // A raw term hit
-  H_RAW,
-  // a hit that is the intersection of two or more hits
-  H_INTERSECTED,
-
-  // a hit that is the exact intersection of two or more hits
-  H_EXACT,
-
-  // a hit that is the union of two or more hits
-  H_UNION
-} HitType;
-
-typedef struct {
-  char *str;
-  double idf;
-  void *metadata;
-} Term;
-
-Term *NewTerm(char *str);
-void Term_Free(Term *t);
-
-typedef struct {
-  t_docId docId;
-  Term *term;
-  float tf;
-  u_char flags;
-  VarintVector *offsets;
-  // PayLoad payload;
-} IndexRecord;
-
-typedef struct {
-  t_docId docId;
-  double totalTF;
-  u_char flags;
-  IndexRecord records[MAX_INTERSECT_WORDS];
-  int numRecords;
-  int type;
-} IndexResult;
-
-void IndexResult_PutRecord(IndexResult *r, IndexRecord *record);
-void IndexResult_Print(IndexResult *r);
+#include "index_result.h"
 // /* An IndexResult is the data structure used when reading indexes.
 // Each hit representsa single document entry in an inverted index */
 // typedef struct {

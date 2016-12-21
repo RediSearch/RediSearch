@@ -128,7 +128,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual("doc2", res[1])
 
     def testInfields(self):
-        with self.redis() as r:
+        with self.redis(port=6379) as r:
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',

@@ -1,5 +1,5 @@
-#ifndef __EXPANDER_H__
-#define __EXPANDER_H__
+#ifdef __EXPANDER_H__
+//#define __EXPANDER_H__
 #include <stdlib.h>
 #include "types.h"
 #include "varint.h"
@@ -64,7 +64,6 @@ typedef struct {
 } IndexResult;
 
 void IndexResult_PutRecord(IndexRecord *record);
-
 
 typedef double (*ScoreFunction)(IndexResult *);
 #endif
