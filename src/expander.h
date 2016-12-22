@@ -39,31 +39,4 @@ typedef struct queryNode {
 typedef struct QueryContext QueryContext;
 typedef QueryNode *(*QueryExpander)(QueryContext *q, QueryNode *);
 
-typedef struct {
-  char *str;
-  double idf;
-  void *metadata;
-} Term;
-
-typedef struct {
-  t_docId docId;
-  Term *term;
-  double tf;
-  u_char flags;
-  VarintVector *offsets;
-  // PayLoad payload;
-} IndexRecord;
-
-typedef struct {
-  t_docId docId;
-  double totalTF;
-  u_char flags;
-  IndexRecord records[8];
-  int numRecords;
-  int type;
-} IndexResult;
-
-void IndexResult_PutRecord(IndexRecord *record);
-
-typedef double (*ScoreFunction)(IndexResult *);
 #endif

@@ -249,13 +249,21 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
   }
   return h1->docId - h2->docId;
 }
+
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
-double processHitScore(IndexResult *h, DocTable *dt) {
-  // for exact hits we don't need to calculate minimal offset dist
+double CalculateResultScore(IndexResult *h, DocTable *dt) {
+
+  if (h->numRecords == 1) {
+    return 1;
+  }
+
+  double tfidf = 0;
+  for (int i = 0; i < h->numRecords; i++) {
+    tfidf += h->records[i].tf * h->records[i].term->idf;
+  }
   int md = IndexResult_MinOffsetDelta(h);
-  // h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-  return (h->totalTF) / (double)powerof2(md);
+  return tfidf / (double)pow(md, 2);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -302,7 +310,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
     // IndexResult_Print(h);
-    h->totalTF = processHitScore(h, query->docTable);
+    h->totalTF = CalculateResultScore(h, query->docTable);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
