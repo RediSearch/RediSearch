@@ -193,7 +193,7 @@ void __queryNode_Print(QueryNode *qs, int depth);
 QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
   QueryNode *xn = e->Expand(e->ctx, q, n);
   if (xn) {
-    printf("expanded node %p!\n", xn);
+    // printf("expanded node %p!\n", xn);
     __queryNode_Print(xn, 0);
     return xn;
   }
@@ -275,7 +275,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double CalculateResultScore(IndexResult *h, DocTable *dt) {
-  return h->totalTF;
+  // return h->totalTF;
   if (h->numRecords == 1) {
     return h->totalTF;
   }
