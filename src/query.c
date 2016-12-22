@@ -205,7 +205,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   return ret;
 }
 
-void __QueryNode_Print(QueryNode *qs, int depth) {
+void __queryNode_Print(QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
@@ -213,7 +213,7 @@ void __QueryNode_Print(QueryNode *qs, int depth) {
   case QN_PHRASE:
     printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
     for (int i = 0; i < qs->pn.numChildren; i++) {
-      __QueryNode_Print(qs->pn.children[i], depth + 1);
+      __queryNode_Print(qs->pn.children[i], depth + 1);
     }
 
     break;
@@ -229,7 +229,7 @@ void __QueryNode_Print(QueryNode *qs, int depth) {
   case QN_UNION:
     printf("UNION {\n");
     for (int i = 0; i < qs->un.numChildren; i++) {
-      __QueryNode_Print(qs->un.children[i], depth + 1);
+      __queryNode_Print(qs->un.children[i], depth + 1);
     }
     break;
   }
