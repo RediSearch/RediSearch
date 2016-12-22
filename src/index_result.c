@@ -72,13 +72,13 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     int p2 = VV_Next(&v2);
 
     int cd = abs(p2 - p1);
-    while (cd > 1 && VV_HasNext(&v1) && VV_HasNext(&v2))   {
+    while (cd > 1 && p1 != -1  && p2 != -1)   {
+        cd = MIN(abs(p2 - p1), cd);
         if (p2 > p1) {
           p1 = VV_Next(&v1);
         } else {
           p2 = VV_Next(&v2);
         }
-        cd = MIN(abs(p2 - p1), cd);
     }
     //printf("docId %d dist %d: %d\n", r->docId, i, cd);
     dist += cd * cd;
