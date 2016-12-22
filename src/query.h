@@ -10,6 +10,9 @@
 #include "numeric_index.h"
 #include "query_node.h"
 
+/* forward declaration to avoid include loop */
+struct QueryExpander;
+
 /* A Query represents the parse tree and execution plan for a single search
  * query */
 typedef struct query {
@@ -35,7 +38,7 @@ typedef struct query {
 
   RedisSearchCtx *ctx;
 
-  Stemmer *stemmer;
+  struct QueryExpander *expander;
 
   const char **stopwords;
 } Query;
@@ -83,6 +86,7 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node);
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
                 int limit, u_char fieldMask, int verbatim, const char *lang,
                 const char **stopwords);
+void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);
 

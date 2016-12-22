@@ -480,6 +480,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto end;
   }
 
+  Query_Expand(q);
+
   if (nf != NULL) {
     QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
   }

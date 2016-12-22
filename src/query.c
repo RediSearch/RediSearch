@@ -12,6 +12,7 @@
 #include "util/logging.h"
 #include "util/heap.h"
 #include "query.h"
+#include "expander.h"
 
 void _queryTokenNode_Free(QueryTokenNode *tn) { free(tn->str); }
 
@@ -61,26 +62,6 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
   QueryNode *ret = __newQueryNode(QN_TOKEN);
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len};
   return ret;
-  // if (q->stemmer) {
-  //   size_t sl;
-  //   const char *stemmed =
-  //       q->stemmer->Stem(q->stemmer->ctx, qt->s, qt->len, &sl);
-
-  //   if (stemmed && strncasecmp(stemmed, qt->s, qt->len)) {
-  //     // we are now evaluating two tokens and not 1
-  //     q->numTokens++;
-  //     // Create a new union
-  //     QueryNode *us = NewLogicStage(Q_UNION);
-
-  //     // Add the token and the ste as the union's children
-  //     QueryNode_AddChild(us, __newQueryNode((char *)qt->s, Q_LOAD, 1));
-  //     QueryNode_AddChild(us, __newQueryNode(strndup(stemmed, sl), Q_LOAD,
-  //     1));
-  //     return us;
-  //   }
-  // }
-
-  // return __newQueryNode((char *)qt->s, Q_LOAD, 1);
 }
 
 QueryNode *NewUnionNode() {
@@ -184,6 +165,8 @@ void QueryUnionNode_AddChild(QueryUnionNode *parent, QueryNode *child) {
   parent->children[parent->numChildren++] = child;
 }
 
+QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
+
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
                 int limit, u_char fieldMask, int verbatim, const char *lang,
                 const char **stopwords) {
@@ -196,13 +179,41 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   ret->raw = strndup(query, len);
   ret->root = NewPhraseNode(0);
   ret->numTokens = 0;
-  ret->stemmer = NULL;
-  ret->stopwords = stopwords;
+  ret->expander = NULL;
   if (!verbatim) {
-    ret->stemmer = NewStemmer(SnowballStemmer, lang ? lang : DEFAULT_LANGUAGE);
+    ret->expander = malloc(sizeof(QueryExpander));
+    ret->expander->Expand = StemmerExpand;
+    ret->expander->ctx =
+        NewStemmer(SnowballStemmer, lang ? lang : DEFAULT_LANGUAGE);
   }
 
   return ret;
+}
+void __queryNode_Print(QueryNode *qs, int depth);
+QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
+  QueryNode *xn = e->Expand(e->ctx, q, n);
+  if (xn) {
+    printf("expanded node %p!\n", xn);
+    __queryNode_Print(xn, 0);
+    return xn;
+  }
+
+  if (n->type == QN_PHRASE) {
+    for (int i = 0; i < n->pn.numChildren; i++) {
+      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+    }
+  } else if (n->type == QN_UNION) {
+    for (int i = 0; i < n->pn.numChildren; i++) {
+      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+    }
+  }
+  return n;
+}
+
+void Query_Expand(Query *q) {
+  if (q->expander) {
+    q->root = __queryNode_Expand(q, q->expander, q->root);
+  }
 }
 
 void __queryNode_Print(QueryNode *qs, int depth) {
@@ -242,9 +253,9 @@ void Query_Free(Query *q) {
     QueryNode_Free(q->root);
   }
 
-  if (q->stemmer) {
-    q->stemmer->Free(q->stemmer);
-  }
+  // if (q->stemmer) {
+  //   q->stemmer->Free(q->stemmer);
+  // }
   free(q->raw);
   free(q);
 }
