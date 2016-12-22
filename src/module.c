@@ -16,6 +16,7 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "query_node.h"
 
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
                 int nosave) {
@@ -38,7 +39,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
   }
 
   DocTable dt;
-  if (InitDocTable(ctx, &dt) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  if (InitDocTable(ctx, &dt) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
   if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
     *errorString = "Could not save document metadata";
     return REDISMODULE_ERR;
@@ -63,28 +65,28 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
     }
 
     switch (fs->type) {
-      case F_FULLTEXT:
-        totalTokens += tokenize(c, fs->weight, fs->id, idx,
-                                forwardIndexTokenFunc, idx->stemmer);
-        break;
-      case F_NUMERIC: {
-        double score;
+    case F_FULLTEXT:
+      totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc,
+                              idx->stemmer);
+      break;
+    case F_NUMERIC: {
+      double score;
 
-        if (RedisModule_StringToDouble(doc.fields[i].text, &score) ==
-            REDISMODULE_ERR) {
-          *errorString = "Could not parse numeric index value";
-          goto error;
-        }
-
-        NumericIndex *ni = NewNumericIndex(ctx, fs);
-
-        if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
-          *errorString = "Could not save numeric index value";
-          goto error;
-        }
-        NumerIndex_Free(ni);
-        break;
+      if (RedisModule_StringToDouble(doc.fields[i].text, &score) ==
+          REDISMODULE_ERR) {
+        *errorString = "Could not parse numeric index value";
+        goto error;
       }
+
+      NumericIndex *ni = NewNumericIndex(ctx, fs);
+
+      if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
+        *errorString = "Could not save numeric index value";
+        goto error;
+      }
+      NumerIndex_Free(ni);
+      break;
+    }
     }
   }
 
@@ -470,6 +472,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
+
     RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
     RedisModule_ReplyWithError(ctx, errMsg);
     free(errMsg);
@@ -478,7 +481,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (nf != NULL) {
-    QueryStage_AddChild(q->root, NewNumericStage(nf));
+    QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
   }
   q->docTable = &dt;
 
@@ -653,7 +656,8 @@ real
 Integer reply: the current size of the suggestion dictionary.
 */
 int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
+  if (argc < 4 || argc > 5)
+    return RedisModule_WrongArity(ctx);
 
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
@@ -706,7 +710,8 @@ Integer reply: the current size of the suggestion dictionary.
 int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc != 2) return RedisModule_WrongArity(ctx);
+  if (argc != 2)
+    return RedisModule_WrongArity(ctx);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY &&
@@ -736,7 +741,8 @@ Integer reply: 1 if the string was found and deleted, 0 otherwise.
 int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc != 3) return RedisModule_WrongArity(ctx);
+  if (argc != 3)
+    return RedisModule_WrongArity(ctx);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY &&
@@ -786,7 +792,8 @@ Array reply: a list of the top suggestions matching the prefix
 int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc < 3 || argc > 8) return RedisModule_WrongArity(ctx);
+  if (argc < 3 || argc > 8)
+    return RedisModule_WrongArity(ctx);
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   // make sure the key is a trie
@@ -851,7 +858,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
 
   // register trie type
-  if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  if (TrieType_Register(ctx) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand,
                                 "write deny-oom no-cluster", 1, 1,

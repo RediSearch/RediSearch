@@ -6,10 +6,10 @@
 //#include "../rmutil/alloc.h"
 
 typedef struct {
-    Query *q;
-    QueryStage *root;
-    int ok;
-    char *errorMsg;
-}parseCtx;
+  Query *q;
+  QueryNode *root;
+  int ok;
+  char *errorMsg;
+} parseCtx;
 
 #endif // !__QUERY_PARSER_PARSE_H__

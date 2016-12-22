@@ -8,107 +8,90 @@
 #include "spec.h"
 #include "redis_index.h"
 #include "numeric_index.h"
-// QueryOp marks a query stage with its respective "op" in the query processing tree
-typedef enum {
-    Q_INTERSECT,
-    Q_UNION,
-    Q_EXACT,
-    Q_LOAD,
-    Q_NUMERIC,
-} QueryOp;
+#include "query_node.h"
 
-/* A query stage represents a single iterative execution stage of a query.
-the processing of a query is done by chaining multiple query stages in a tree,
-and combining their inputs and outputs */
-typedef struct queryStage {
-    void *value;
-    int valueFreeable;
-    QueryOp op;
-
-    struct queryStage **children;
-    struct queryStage *parent;
-    int nchildren;
-} QueryStage;
-
-/* A Query represents the parse tree and execution plan for a single search query */
+/* A Query represents the parse tree and execution plan for a single search
+ * query */
 typedef struct query {
-    // the raw query text
-    char *raw;
-    // the raw text len
-    size_t len;
-    // the token count
-    int numTokens;
+  // the raw query text
+  char *raw;
+  // the raw text len
+  size_t len;
+  // the token count
+  int numTokens;
 
-    // paging offset
-    size_t offset;
-    // paging limit
-    size_t limit;
+  // paging offset
+  size_t offset;
+  // paging limit
+  size_t limit;
 
-    // field Id bitmask
-    u_char fieldMask;
+  // field Id bitmask
+  u_char fieldMask;
 
-    // the query execution stage at the root of the query
-    QueryStage *root;
-    // Document metatdata table, to be used during execution
-    DocTable *docTable;
+  // the query execution stage at the root of the query
+  QueryNode *root;
+  // Document metatdata table, to be used during execution
+  DocTable *docTable;
 
-    RedisSearchCtx *ctx;
+  RedisSearchCtx *ctx;
 
-    Stemmer *stemmer;
+  Stemmer *stemmer;
 
-    const char **stopwords;
+  const char **stopwords;
 } Query;
 
 typedef struct {
-    RedisModuleString *id;
-    double score;
+  RedisModuleString *id;
+  double score;
 } ResultEntry;
 
 /* QueryResult represents the final processed result of a query execution */
 typedef struct queryResult {
-    size_t totalResults;
-    size_t numResults;
-    ResultEntry *results;
-    int error;
-    char *errorString;
+  size_t totalResults;
+  size_t numResults;
+  ResultEntry *results;
+  int error;
+  char *errorString;
 } QueryResult;
 
 /* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores);
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent,
+                          int withscores);
 
-/* Evaluate a query stage and prepare it for execution. As execution is lazy this doesn't
+/* Evaluate a query stage and prepare it for execution. As execution is lazy
+this doesn't
 actually do anything besides prepare the execution chaing */
-IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
+IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 
 /* Free the query execution stage and its children recursively */
-void QueryStage_Free(QueryStage *s);
-QueryStage *NewTokenStage(Query *q, QueryToken *qt);
-QueryStage *NewLogicStage(QueryOp op);
-QueryStage *NewNumericStage(NumericFilter *flt);
+void QueryNode_Free(QueryNode *n);
+QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
+QueryNode *NewPhraseNode(int exact);
+QueryNode *NewUnionNode();
+QueryNode *NewNumericNode(NumericFilter *flt);
 
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage);
-IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage);
-IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage);
-IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage);
-IndexIterator *query_EvalNumericStage(Query *q, QueryStage *stage);
-IndexIterator *Query_EvalStage(Query *q, QueryStage *s);
+IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node);
+IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node);
+IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node);
+IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node);
 
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1
 
-void QueryStage_AddChild(QueryStage *parent, QueryStage *child);
-
-/* Initialize a new query object from user input. This does not parse the query just yet */
-Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask, int verbatim, const char *lang, const char **stopwords);
+/* Initialize a new query object from user input. This does not parse the query
+ * just yet */
+Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
+                int limit, u_char fieldMask, int verbatim, const char *lang,
+                const char **stopwords);
 /* Free a query object */
 void Query_Free(Query *q);
 
-/* Lazily execute the parsed query and all its stages, and return a final result object */
+/* Lazily execute the parsed query and all its stages, and return a final result
+ * object */
 QueryResult *Query_Execute(Query *query);
 
 void QueryResult_Free(QueryResult *q);
 
-QueryStage *Query_Parse(Query *q, char **err);
+QueryNode *Query_Parse(Query *q, char **err);
 
 #endif

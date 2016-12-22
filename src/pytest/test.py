@@ -3,11 +3,11 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
     def testAdd(self):
         with self.redis() as r:
-
+            r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'title', 1.0, 'body', 1.0))
             self.assertTrue(r.exists('idx:idx'))
@@ -22,6 +22,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testSearch(self):
         with self.redis() as r:
+            r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
@@ -128,7 +129,8 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual("doc2", res[1])
 
     def testInfields(self):
-        with self.redis(port=6379) as r:
+        with self.redis() as r:
+            r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
@@ -180,6 +182,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testStemming(self):
         with self.redis() as r:
+            r.flushdb()
             self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello kitty'))
@@ -226,7 +229,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
     def testSuggestions(self):
 
         with self.redis() as r:
-
+            r.flushdb()
             self.assertEqual(1, r.execute_command(
                 'ft.SUGADD', 'ac', 'hello world', 1))
             self.assertEqual(1, r.execute_command(

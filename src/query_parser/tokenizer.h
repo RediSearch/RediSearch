@@ -5,40 +5,42 @@
 
 #include "../stopwords.h"
 
-// A NormalizeFunc converts a raw token to the normalized form in which it will be stored
+// A NormalizeFunc converts a raw token to the normalized form in which it will
+// be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
-
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
-    const char *text;
-    size_t len;
-    char *pos;
-    const char *separators;
-    NormalizeFunc normalize;
-    const char **stopwords;
+  const char *text;
+  size_t len;
+  char *pos;
+  const char *separators;
+  NormalizeFunc normalize;
+  const char **stopwords;
 
 } QueryTokenizer;
 
 /* Quer tokenizer token type */
-//typedef enum { T_WORD, T_QUOTE, T_AND, T_OR, T_END, T_STOPWORD } QueryTokenType;
+// typedef enum { T_WORD, T_QUOTE, T_AND, T_OR, T_END, T_STOPWORD }
+// QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
 works iteratively and is not callback based.  */
 typedef struct {
-    const char *s;
-    int len;
-    int pos;
-    //QueryTokenType type;
+  const char *s;
+  int len;
+  int pos;
+  // QueryTokenType ;
 } QueryToken;
 
 #define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+<>?";
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 
-
-/* Create a new query tokenizer. There is no need to free anything in the object */
-QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords);
+/* Create a new query tokenizer. There is no need to free anything in the object
+ */
+QueryTokenizer NewQueryTokenizer(char *text, size_t len,
+                                 const char **stopwords);
 
 /* Read the next token from the tokenizer. If tit has reached the end of the
 query text, it will return a token with type T_END and null content.

@@ -13,75 +13,105 @@
 #include "util/heap.h"
 #include "query.h"
 
-void QueryStage_Free(QueryStage *s) {
-  // recursively free the child stages
-  for (int i = 0; i < s->nchildren; i++) {
-    QueryStage_Free(s->children[i]);
+void _queryTokenNode_Free(QueryTokenNode *tn) { free(tn->str); }
+
+void _queryPhraseNode_Free(QueryPhraseNode *pn) {
+  for (int i = 0; i < pn->numChildren; i++) {
+    QueryNode_Free(pn->children[i]);
   }
-  // free the children array
-  if (s->children) {
-    free(s->children);
-  }
-  // the term is strdupped, so needs to be freed
-  if (s->value && s->valueFreeable) {
-    free(s->value);
-  }
-  free(s);
 }
 
-QueryStage *__newQueryStage(void *value, QueryOp op, int freeable) {
-  QueryStage *s = malloc(sizeof(QueryStage));
-  s->children = NULL;
-  s->nchildren = 0;
-  s->op = op;
-  s->value = value;
-  s->valueFreeable = freeable;
-  s->parent = NULL;
+void _queryUnionNode_Free(QueryUnionNode *pn) {
+  for (int i = 0; i < pn->numChildren; i++) {
+    QueryNode_Free(pn->children[i]);
+  }
+}
+
+// void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
+
+void QueryNode_Free(QueryNode *n) {
+
+  switch (n->type) {
+  case QN_TOKEN:
+    _queryTokenNode_Free(&n->tn);
+    break;
+  case QN_PHRASE:
+    _queryPhraseNode_Free(&n->pn);
+    break;
+  case QN_UNION:
+    _queryUnionNode_Free(&n->un);
+    break;
+  case QN_NUMERIC:
+    break; //_queryNumericNode_Free(&n->nn);
+  }
+  free(n);
+}
+
+QueryNode *__newQueryNode(QueryNodeType type) {
+  QueryNode *s = calloc(1, sizeof(QueryNode));
+  s->type = type;
   return s;
 }
 
-QueryStage *NewTokenStage(Query *q, QueryToken *qt) {
+QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
   // If we are using stemming, stem the current token, and if needed add a
   // UNION of it an the stem
   q->numTokens++;
-  if (q->stemmer) {
-    size_t sl;
-    const char *stemmed =
-        q->stemmer->Stem(q->stemmer->ctx, qt->s, qt->len, &sl);
 
-    if (stemmed && strncasecmp(stemmed, qt->s, qt->len)) {
-      // we are now evaluating two tokens and not 1
-      q->numTokens++;
-      // Create a new union
-      QueryStage *us = NewLogicStage(Q_UNION);
+  QueryNode *ret = __newQueryNode(QN_TOKEN);
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len};
+  return ret;
+  // if (q->stemmer) {
+  //   size_t sl;
+  //   const char *stemmed =
+  //       q->stemmer->Stem(q->stemmer->ctx, qt->s, qt->len, &sl);
 
-      // Add the token and the ste as the union's children
-      QueryStage_AddChild(us, __newQueryStage((char *)qt->s, Q_LOAD, 1));
-      QueryStage_AddChild(us, __newQueryStage(strndup(stemmed, sl), Q_LOAD, 1));
-      return us;
-    }
-  }
+  //   if (stemmed && strncasecmp(stemmed, qt->s, qt->len)) {
+  //     // we are now evaluating two tokens and not 1
+  //     q->numTokens++;
+  //     // Create a new union
+  //     QueryNode *us = NewLogicStage(Q_UNION);
 
-  return __newQueryStage((char *)qt->s, Q_LOAD, 1);
+  //     // Add the token and the ste as the union's children
+  //     QueryNode_AddChild(us, __newQueryNode((char *)qt->s, Q_LOAD, 1));
+  //     QueryNode_AddChild(us, __newQueryNode(strndup(stemmed, sl), Q_LOAD,
+  //     1));
+  //     return us;
+  //   }
+  // }
+
+  // return __newQueryNode((char *)qt->s, Q_LOAD, 1);
 }
 
-QueryStage *NewLogicStage(QueryOp op) { return __newQueryStage(NULL, op, 0); }
-
-QueryStage *NewNumericStage(NumericFilter *flt) {
-  return __newQueryStage(flt, Q_NUMERIC, 0);
+QueryNode *NewUnionNode() {
+  QueryNode *ret = __newQueryNode(QN_UNION);
+  ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
+  return ret;
 }
 
-IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
+QueryNode *NewPhraseNode(int exact) {
+  QueryNode *ret = __newQueryNode(QN_PHRASE);
+  ret->pn =
+      (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  return ret;
+}
+
+QueryNode *NewNumericNode(NumericFilter *flt) {
+  QueryNode *ret = __newQueryNode(QN_NUMERIC);
+  ret->nn = (QueryNumericNode){.nf = flt};
+  return ret;
+}
+
+IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
 
-  int isSingleWord = q->numTokens == 1 && q->root->nchildren == 1 &&
-                     q->fieldMask == 0xff &&
+  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff &&
                      q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
 
-  IndexReader *ir = Redis_OpenReader(q->ctx, stage->value, strlen(stage->value),
-                                     q->docTable, isSingleWord, q->fieldMask);
+  IndexReader *ir = Redis_OpenReader(q->ctx, node->str, node->len, q->docTable,
+                                     isSingleWord, q->fieldMask);
   if (ir == NULL) {
     return NULL;
   }
@@ -89,84 +119,69 @@ IndexIterator *query_EvalLoadStage(Query *q, QueryStage *stage) {
   return NewReadIterator(ir);
 }
 
-IndexIterator *query_EvalIntersectStage(Query *q, QueryStage *stage) {
+IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
   // an intersect stage with one child is the same as the child, so we just
   // return it
-  if (stage->nchildren == 1) {
-    return Query_EvalStage(q, stage->children[0]);
+  if (node->numChildren == 1) {
+    return Query_EvalNode(q, node->children[0]);
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator *));
-  for (int i = 0; i < stage->nchildren; i++) {
-    iters[i] = Query_EvalStage(q, stage->children[i]);
+  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  for (int i = 0; i < node->numChildren; i++) {
+    iters[i] = Query_EvalNode(q, node->children[i]);
   }
 
-  IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 0,
-                                           q->docTable, q->fieldMask);
+  IndexIterator *ret = NewIntersecIterator(
+      iters, node->numChildren, node->exact, q->docTable, q->fieldMask);
   return ret;
 }
 
-IndexIterator *query_EvalNumericStage(Query *q, QueryStage *stage) {
-  NumericFilter *nf = stage->value;
+IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 
-  return NewNumericFilterIterator(nf);
+  return NewNumericFilterIterator(node->nf);
 }
 
-IndexIterator *query_EvalUnionStage(Query *q, QueryStage *stage) {
+IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
   // a union stage with one child is the same as the child, so we just return it
-  if (stage->nchildren == 1) {
-    return Query_EvalStage(q, stage->children[0]);
+  if (node->numChildren == 1) {
+    return Query_EvalNode(q, node->children[0]);
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator *));
-  for (int i = 0; i < stage->nchildren; i++) {
-    iters[i] = Query_EvalStage(q, stage->children[i]);
+  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  for (int i = 0; i < node->numChildren; i++) {
+    iters[i] = Query_EvalNode(q, node->children[i]);
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, stage->nchildren, q->docTable);
+  IndexIterator *ret = NewUnionIterator(iters, node->numChildren, q->docTable);
   return ret;
 }
 
-IndexIterator *query_EvalExactIntersectStage(Query *q, QueryStage *stage) {
-  // an intersect stage with one child is the same as the child, so we just
-  // return it
-  if (stage->nchildren == 1) {
-    return Query_EvalStage(q, stage->children[0]);
-  }
-  IndexIterator **iters = calloc(stage->nchildren, sizeof(IndexIterator *));
-  for (int i = 0; i < stage->nchildren; i++) {
-    iters[i] = Query_EvalStage(q, stage->children[i]);
-  }
-
-  IndexIterator *ret = NewIntersecIterator(iters, stage->nchildren, 1,
-                                           q->docTable, q->fieldMask);
-  return ret;
-}
-
-IndexIterator *Query_EvalStage(Query *q, QueryStage *s) {
-  switch (s->op) {
-  case Q_LOAD:
-    return query_EvalLoadStage(q, s);
-  case Q_INTERSECT:
-    return query_EvalIntersectStage(q, s);
-  case Q_EXACT:
-    return query_EvalExactIntersectStage(q, s);
-  case Q_UNION:
-    return query_EvalUnionStage(q, s);
-  case Q_NUMERIC:
-    return query_EvalNumericStage(q, s);
+IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
+  switch (n->type) {
+  case QN_TOKEN:
+    return query_EvalTokenNode(q, &n->tn);
+  case QN_PHRASE:
+    return query_EvalPhraseNode(q, &n->pn);
+  case QN_UNION:
+    return query_EvalUnionNode(q, &n->un);
+  case QN_NUMERIC:
+    return query_EvalNumericNode(q, &n->nn);
   }
 
   return NULL;
 }
 
-void QueryStage_AddChild(QueryStage *parent, QueryStage *child) {
-  parent->children =
-      realloc(parent->children, sizeof(QueryStage *) * (parent->nchildren + 1));
-  parent->children[parent->nchildren++] = child;
-  child->parent = parent;
+void QueryPhraseNode_AddChild(QueryPhraseNode *parent, QueryNode *child) {
+  parent->children = realloc(parent->children,
+                             sizeof(QueryNode *) * (parent->numChildren + 1));
+  parent->children[parent->numChildren++] = child;
+}
+void QueryUnionNode_AddChild(QueryUnionNode *parent, QueryNode *child) {
+  parent->children = realloc(parent->children,
+                             sizeof(QueryNode *) * (parent->numChildren + 1));
+  parent->children[parent->numChildren++] = child;
 }
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
@@ -179,7 +194,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);
-  ret->root = __newQueryStage(NULL, Q_INTERSECT, 0);
+  ret->root = NewPhraseNode(0);
   ret->numTokens = 0;
   ret->stemmer = NULL;
   ret->stopwords = stopwords;
@@ -190,45 +205,41 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   return ret;
 }
 
-void __queryStage_Print(QueryStage *qs, int depth) {
+void __QueryNode_Print(QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
-  switch (qs->op) {
-  case Q_EXACT:
-    printf("EXACT {\n");
+  switch (qs->type) {
+  case QN_PHRASE:
+    printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
+    for (int i = 0; i < qs->pn.numChildren; i++) {
+      __QueryNode_Print(qs->pn.children[i], depth + 1);
+    }
+
     break;
-  case Q_LOAD:
-    printf("{%s", (char *)qs->value);
+  case QN_TOKEN:
+    printf("{%s", (char *)qs->tn.str);
     break;
-  case Q_INTERSECT:
-    printf("INTERSECT {\n");
-    break;
-  case Q_NUMERIC: {
-    NumericFilter *f = qs->value;
+
+  case QN_NUMERIC: {
+    NumericFilter *f = qs->nn.nf;
     printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
            f->inclusiveMax ? "<=" : "<", f->max);
   } break;
-  case Q_UNION:
+  case QN_UNION:
     printf("UNION {\n");
+    for (int i = 0; i < qs->un.numChildren; i++) {
+      __QueryNode_Print(qs->un.children[i], depth + 1);
+    }
     break;
   }
 
-  for (int i = 0; i < qs->nchildren; i++) {
-    __queryStage_Print(qs->children[i], depth + 1);
-  }
-
-  if (qs->nchildren > 0) {
-    for (int i = 0; i < depth; i++) {
-      printf("  ");
-    }
-  }
   printf("}\n");
 }
 
 void Query_Free(Query *q) {
   if (q->root) {
-    QueryStage_Free(q->root);
+    QueryNode_Free(q->root);
   }
 
   if (q->stemmer) {
@@ -253,9 +264,9 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double CalculateResultScore(IndexResult *h, DocTable *dt) {
-
+  return h->totalTF;
   if (h->numRecords == 1) {
-    return 1;
+    return h->totalTF;
   }
 
   double tfidf = 0;
@@ -267,7 +278,7 @@ double CalculateResultScore(IndexResult *h, DocTable *dt) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryStage_Print(query->root, 0);
+  //__QueryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
@@ -282,7 +293,7 @@ QueryResult *Query_Execute(Query *query) {
   //  start lazy evaluation of all query steps
   IndexIterator *it = NULL;
   if (query->root != NULL) {
-    it = Query_EvalStage(query, query->root);
+    it = Query_EvalNode(query, query->root);
   }
 
   // no query evaluation plan?

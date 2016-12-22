@@ -11,8 +11,9 @@
 #include <string.h>
 #include <assert.h>
 #include "parse.h"
+#include "../query_node.h"
    
-#line 16 "parser.c"
+#line 17 "parser.c"
 /* Next is all token values, in a form suitable for use by makeheaders.
 ** This section will be null unless lemon is run with the -m switch.
 */
@@ -69,7 +70,7 @@
 typedef union {
   int yyinit;
   ParseTOKENTYPE yy0;
-  QueryStage * yy5;
+  QueryNode * yy11;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
@@ -383,9 +384,9 @@ static void yy_destructor(
     case 10: /* union */
     case 11: /* exact */
 {
-#line 31 "parser.y"
- QueryStage_Free((yypminor->yy5)); 
-#line 389 "parser.c"
+#line 32 "parser.y"
+ QueryNode_Free((yypminor->yy11)); 
+#line 390 "parser.c"
 }
       break;
     default:  break;   /* If no destructor action specified: do nothing */
@@ -692,82 +693,82 @@ static void yy_reduce(
   */
       case 0: /* query ::= exprlist */
       case 1: /* query ::= expr */ yytestcase(yyruleno==1);
-#line 33 "parser.y"
-{ ctx->root = yymsp[0].minor.yy5; }
-#line 698 "parser.c"
+#line 34 "parser.y"
+{ ctx->root = yymsp[0].minor.yy11; }
+#line 699 "parser.c"
         break;
       case 2: /* exprlist ::= expr expr */
-#line 36 "parser.y"
+#line 37 "parser.y"
 {
-    yygotominor.yy5 = NewLogicStage(Q_INTERSECT);
-    QueryStage_AddChild(yygotominor.yy5, yymsp[-1].minor.yy5);
-    QueryStage_AddChild(yygotominor.yy5, yymsp[0].minor.yy5);
+    yygotominor.yy11 = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(&yygotominor.yy11->pn, yymsp[-1].minor.yy11);
+    QueryPhraseNode_AddChild(&yygotominor.yy11->pn, yymsp[0].minor.yy11);
 }
-#line 707 "parser.c"
+#line 708 "parser.c"
         break;
       case 3: /* exprlist ::= exprlist expr */
-#line 42 "parser.y"
+#line 43 "parser.y"
 {
-    yygotominor.yy5 = yymsp[-1].minor.yy5;
-    QueryStage_AddChild(yygotominor.yy5, yymsp[0].minor.yy5);
+    yygotominor.yy11 = yymsp[-1].minor.yy11;
+    QueryPhraseNode_AddChild(&yygotominor.yy11->pn, yymsp[0].minor.yy11);
 }
-#line 715 "parser.c"
+#line 716 "parser.c"
         break;
       case 4: /* expr ::= union */
-#line 47 "parser.y"
-{  yygotominor.yy5 = yymsp[0].minor.yy5;}
-#line 720 "parser.c"
+#line 48 "parser.y"
+{  yygotominor.yy11 = yymsp[0].minor.yy11;}
+#line 721 "parser.c"
         break;
       case 5: /* expr ::= LP expr RP */
       case 6: /* expr ::= LP exprlist RP */ yytestcase(yyruleno==6);
-#line 48 "parser.y"
-{ yygotominor.yy5 = yymsp[-1].minor.yy5; }
-#line 726 "parser.c"
+#line 49 "parser.y"
+{ yygotominor.yy11 = yymsp[-1].minor.yy11; }
+#line 727 "parser.c"
         break;
       case 7: /* expr ::= TERM */
-#line 50 "parser.y"
-{  yygotominor.yy5 = NewTokenStage(ctx->q, &yymsp[0].minor.yy0);  }
-#line 731 "parser.c"
+#line 51 "parser.y"
+{  yygotominor.yy11 = NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);  }
+#line 732 "parser.c"
         break;
       case 8: /* exact ::= QUOTE TERM */
-#line 53 "parser.y"
+#line 54 "parser.y"
 {
-    yygotominor.yy5 = NewLogicStage(Q_EXACT);
-    QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
+    yygotominor.yy11 = NewPhraseNode(1);
+    QueryPhraseNode_AddChild(&yygotominor.yy11->pn, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
-#line 739 "parser.c"
+#line 740 "parser.c"
         break;
       case 9: /* exact ::= exact TERM */
-#line 58 "parser.y"
+#line 59 "parser.y"
 {
-    QueryStage_AddChild(yymsp[-1].minor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
-    yygotominor.yy5 = yymsp[-1].minor.yy5;
+    QueryPhraseNode_AddChild(&yymsp[-1].minor.yy11->pn, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
+    yygotominor.yy11 = yymsp[-1].minor.yy11;
 }
-#line 747 "parser.c"
+#line 748 "parser.c"
         break;
       case 10: /* expr ::= exact QUOTE */
-#line 63 "parser.y"
+#line 64 "parser.y"
 {
-    yygotominor.yy5 = yymsp[-1].minor.yy5;
+    yygotominor.yy11 = yymsp[-1].minor.yy11;
 }
-#line 754 "parser.c"
+#line 755 "parser.c"
         break;
       case 11: /* union ::= union OR TERM */
-#line 67 "parser.y"
+#line 68 "parser.y"
 {
-    QueryStage_AddChild(yymsp[-2].minor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
-    yygotominor.yy5 = yymsp[-2].minor.yy5;
+    QueryUnionNode_AddChild(&yymsp[-2].minor.yy11->un, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
+    yygotominor.yy11 = yymsp[-2].minor.yy11;
 }
-#line 762 "parser.c"
+#line 763 "parser.c"
         break;
       case 12: /* union ::= TERM OR TERM */
-#line 73 "parser.y"
+#line 74 "parser.y"
 {
-    yygotominor.yy5 = NewLogicStage(Q_UNION);
-    QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[-2].minor.yy0));
-    QueryStage_AddChild(yygotominor.yy5, NewTokenStage(ctx->q, &yymsp[0].minor.yy0));
+    yygotominor.yy11 = NewUnionNode();
+    QueryUnionNode_AddChild(&yygotominor.yy11->un, NewTokenNode(ctx->q, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+    QueryUnionNode_AddChild(&yygotominor.yy11->un, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
-#line 771 "parser.c"
+#line 772 "parser.c"
         break;
       default:
         break;
@@ -838,7 +839,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 842 "parser.c"
+#line 843 "parser.c"
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 
