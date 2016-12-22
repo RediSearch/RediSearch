@@ -1,5 +1,7 @@
 #include "index_result.h"
 #include "varint.h"
+#include <math.h>
+#include <sys/param.h>
 
 void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
   if (r->numRecords < MAX_INTERSECT_WORDS) {
@@ -58,46 +60,30 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     return 1;
   }
 
-  int minDist = 0;
   int dist = 0;
   int num = r->numRecords;
 
-  VarintVectorIterator iters[num];
-  int vals[num];
-  int i;
-  for (i = 0; i < num; i++) {
+  for (int i = 1; i < num; i++) {
+    BufferSeek(&r->records[i-1].offsets, 0);
     BufferSeek(&r->records[i].offsets, 0);
-    iters[i] = VarIntVector_iter(&r->records[i].offsets);
-    vals[i] = VV_Next(&iters[i]);
-    if (i >= 1) {
-      dist += abs(vals[i] - vals[i - 1]);
+    VarintVectorIterator v1 = VarIntVector_iter(&r->records[i - 1].offsets);
+    VarintVectorIterator v2 = VarIntVector_iter(&r->records[i].offsets);
+    int p1 = VV_Next(&v1);
+    int p2 = VV_Next(&v2);
+
+    int cd = abs(p2 - p1);
+    while (cd > 1 && VV_HasNext(&v1) && VV_HasNext(&v2))   {
+        if (p2 > p1) {
+          p1 = VV_Next(&v1);
+        } else {
+          p2 = VV_Next(&v2);
+        }
+        cd = MIN(abs(p2 - p1), cd);
     }
+    //printf("docId %d dist %d: %d\n", r->docId, i, cd);
+    dist += cd * cd;
+
   }
-
-  minDist = dist;
-
-  while (minDist >= num) {
-    // find the smallest iterator and advance it
-    int minIdx = -1;
-
-    for (i = 0; i < num; i++) {
-      if (VV_HasNext(&iters[i]) && (minIdx == -1 || vals[i] < vals[minIdx])) {
-        minIdx = i;
-      }
-    }
-    // all lists are at their end
-    if (minIdx == -1)
-      break;
-
-    dist -= minIdx > 0 ? abs(vals[minIdx] - vals[minIdx - 1]) : 0;
-    dist -= minIdx < num - 1 ? abs(vals[minIdx + 1] - vals[minIdx]) : 0;
-
-    vals[minIdx] = VV_Next(&iters[minIdx]);
-    dist += minIdx > 0 ? abs(vals[minIdx] - vals[minIdx - 1]) : 0;
-    dist += minIdx < num - 1 ? abs(vals[minIdx + 1] - vals[minIdx]) : 0;
-
-    minDist = dist < minDist ? dist : minDist;
-  }
-
-  return minDist;
+  //printf("total dist: %d\n", dist);
+  return dist;
 }

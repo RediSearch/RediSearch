@@ -285,7 +285,8 @@ double CalculateResultScore(IndexResult *h, DocTable *dt) {
     tfidf += h->records[i].tf * h->records[i].term->idf;
   }
   int md = IndexResult_MinOffsetDelta(h);
-  return tfidf / (double)pow(md, 2);
+  // h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
+  return (h->totalTF) / (double)(md);
 }
 
 QueryResult *Query_Execute(Query *query) {
