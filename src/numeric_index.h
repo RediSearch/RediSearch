@@ -12,7 +12,7 @@ typedef struct numericIndex {
   RedisSearchCtx *ctx;
 } NumericIndex;
 
-typedef struct {
+typedef struct numericFilter {
   NumericIndex *idx;
   double min;
   double max;

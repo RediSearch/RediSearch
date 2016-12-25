@@ -460,6 +460,15 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  // parse the optional expander argument
+  const char *expander = NULL;
+  if (argc > 3) {
+    RMUtil_ParseArgsAfter("EXPANDER", &argv[3], argc - 3, "c", &expander);
+  }
+  if (!expander) {
+    expander = STEMMER_EXPANDER_NAME;
+  }
+
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // open the documents metadata table
@@ -468,7 +477,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim,
-                      lang, nostopwords ? NULL : DEFAULT_STOPWORDS);
+                      lang, nostopwords ? NULL : DEFAULT_STOPWORDS, expander);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
@@ -855,9 +864,13 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx) {
+
   // LOGGING_INIT(0xFFFFFFFF);
   if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
+
+  /* Self initialization */
+  RegisterStemmerExpander();
 
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR)

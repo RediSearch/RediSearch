@@ -26,13 +26,6 @@
 //   HitType type;
 // } IndexResult;
 
-/** Reset the state of an existing index hit. This can be used to
-recycle index hits during reads */
-void IndexResult_Init(IndexResult *h);
-/** Init a new index hit. This is not a heap allocation and doesn't neeed to be
- * freed */
-IndexResult NewIndexResult();
-
 /* Free the internal data of an index hit. Since index hits are usually on the
 stack,
 this does not actually free the hit itself */

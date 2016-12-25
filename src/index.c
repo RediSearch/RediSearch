@@ -395,6 +395,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->num = num;
   ctx->docTable = dt;
   ctx->currentHits = calloc(num, sizeof(IndexResult));
+  for (int i = 0; i < num; i++) {
+    ctx->currentHits[i] = NewIndexResult();
+  }
   ctx->len = 0;
   // bind the union iterator calls
   IndexIterator *it = malloc(sizeof(IndexIterator));
@@ -453,8 +456,11 @@ int UI_Read(void *ctx, IndexResult *hit) {
 
     // take the minimum entry and yield it
     if (minIdx != -1) {
-
-      *hit = ui->currentHits[minIdx];
+      if (hit) {
+        if (hit) {
+          IndexResult_Add(hit, &ui->currentHits[minIdx]);
+        }
+      }
 
       ui->minDocId = ui->currentHits[minIdx].docId;
       ui->len++;
@@ -467,8 +473,8 @@ int UI_Read(void *ctx, IndexResult *hit) {
 }
 
 int UI_Next(void *ctx) {
-  IndexResult h = NewIndexResult();
-  return UI_Read(ctx, &h);
+  // IndexResult h = NewIndexResult();
+  return UI_Read(ctx, NULL);
 }
 
 // return 1 if at least one sub iterator has next
@@ -515,9 +521,11 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
       ui->minDocId = ui->currentHits[i].docId;
     }
 
-    *hit = ui->currentHits[i];
     // we found a hit - no need to continue
     if (rc == INDEXREAD_OK) {
+      if (hit) {
+        IndexResult_Add(hit, &ui->currentHits[i]);
+      }
       return rc;
     }
     n++;
@@ -540,6 +548,7 @@ void UnionIterator_Free(IndexIterator *it) {
     if (ui->its[i]) {
       ui->its[i]->Free(ui->its[i]);
     }
+    IndexResult_Free(&ui->currentHits[i]);
   }
 
   free(ui->currentHits);
@@ -567,7 +576,9 @@ void IntersectIterator_Free(IndexIterator *it) {
     if (ui->its[i] != NULL) {
       ui->its[i]->Free(ui->its[i]);
     }
+    IndexResult_Free(&ui->currentHits[i]);
   }
+
   free(ui->currentHits);
   free(ui->its);
   free(it->ctx);
@@ -586,7 +597,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
   ctx->fieldMask = fieldMask;
   ctx->currentHits = calloc(num, sizeof(IndexResult));
   for (int i = 0; i < num; i++) {
-    IndexResult_Init(&ctx->currentHits[i]);
+    ctx->currentHits[i] = NewIndexResult();
   }
   ctx->docTable = dt;
 
@@ -625,7 +636,11 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     }
   }
   if (nfound == ic->num) {
-    *hit = ic->currentHits[0];
+    if (hit) {
+      for (int i = 0; i < ic->num; i++) {
+        IndexResult_Add(hit, &ic->currentHits[i]);
+      }
+    }
     return INDEXREAD_OK;
   }
 
@@ -682,10 +697,7 @@ int II_Read(void *ctx, IndexResult *hit) {
       // sum up all hits
       if (hit != NULL) {
         for (int i = 0; i < nh; i++) {
-          IndexResult *hh = &ic->currentHits[i];
-          for (int j = 0; j < hh->numRecords; j++) {
-            IndexResult_PutRecord(hit, &hh->records[j]);
-          }
+          IndexResult_Add(hit, &ic->currentHits[i]);
         }
       }
 

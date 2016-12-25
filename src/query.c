@@ -169,7 +169,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
                 int limit, u_char fieldMask, int verbatim, const char *lang,
-                const char **stopwords) {
+                const char **stopwords, const char *expander) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -179,13 +179,8 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   ret->raw = strndup(query, len);
   ret->root = NewPhraseNode(0);
   ret->numTokens = 0;
-  ret->expander = NULL;
-  if (!verbatim) {
-    ret->expander = malloc(sizeof(QueryExpander));
-    ret->expander->Expand = StemmerExpand;
-    ret->expander->ctx =
-        NewStemmer(SnowballStemmer, lang ? lang : DEFAULT_LANGUAGE);
-  }
+  ret->expander = verbatim ? NULL : GetQueryExpander(expander);
+  ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   return ret;
 }
@@ -194,7 +189,7 @@ QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
   QueryNode *xn = e->Expand(e->ctx, q, n);
   if (xn) {
     // printf("expanded node %p!\n", xn);
-    __queryNode_Print(xn, 0);
+    //__queryNode_Print(xn, 0);
     return xn;
   }
 
@@ -256,6 +251,10 @@ void Query_Free(Query *q) {
   // if (q->stemmer) {
   //   q->stemmer->Free(q->stemmer);
   // }
+  if (q->expander && q->expander->ctx) {
+    free(q->expander->ctx);
+    free(q->expander);
+  }
   free(q->raw);
   free(q);
 }
@@ -321,6 +320,7 @@ QueryResult *Query_Execute(Query *query) {
     // TODO - Use static allocation
     if (pooledHit == NULL) {
       pooledHit = malloc(sizeof(IndexResult));
+      *pooledHit = NewIndexResult();
     }
     IndexResult *h = pooledHit;
     IndexResult_Init(h);
@@ -356,6 +356,7 @@ QueryResult *Query_Execute(Query *query) {
   }
 
   if (pooledHit) {
+    IndexResult_Free(pooledHit);
     free(pooledHit);
     pooledHit = NULL;
   }

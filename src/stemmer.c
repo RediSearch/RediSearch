@@ -22,27 +22,48 @@ int IsSupportedLanguage(const char *language, size_t len) {
 
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
 
-  if (ctx && n->type == QN_TOKEN) {
-    Stemmer *stemmer = ctx;
-    size_t sl;
-    const char *stemmed =
-        stemmer->Stem(stemmer->ctx, n->tn.str, n->tn.len, &sl);
+  if (n->type == QN_TOKEN && q->language) {
 
-    if (stemmed && strncasecmp(stemmed, n->tn.str, n->tn.len)) {
-      // we are now evaluating two tokens and not 1
-      q->numTokens++;
-      // Create a new union
-      QueryNode *us = NewUnionNode();
-
-      // Add the token and the ste as the union's children
-      QueryUnionNode_AddChild(&us->un, n);
-      QueryUnionNode_AddChild(&us->un,
-                              NewTokenNode(q, strndup(stemmed, sl), sl));
-
-      return us;
+    struct sb_stemmer *sb = sb_stemmer_new(q->language, NULL);
+    // No stemmer available for this language - just return the node so we won't
+    // be called again
+    if (!sb) {
+      return n;
     }
+
+    const sb_symbol *b = (const sb_symbol *)n->tn.str;
+    const sb_symbol *stemmed =
+        sb_stemmer_stem(sb, (const sb_symbol *)n->tn.str, n->tn.len);
+
+    QueryNode *ret = NULL;
+    if (stemmed) {
+
+      if (stemmed && strncasecmp(stemmed, n->tn.str, n->tn.len)) {
+        // we are now evaluating two tokens and not 1
+        q->numTokens++;
+        // Create a new union
+        ret = NewUnionNode();
+
+        int sl = sb_stemmer_length(sb);
+        // Add the token and the ste as the union's children
+        QueryUnionNode_AddChild(&ret->un, n);
+        QueryUnionNode_AddChild(&ret->un,
+                                NewTokenNode(q, strndup(stemmed, sl), sl));
+      }
+    }
+    sb_stemmer_delete(sb);
+    return ret;
   }
+
   return NULL;
+}
+
+void RegisterStemmerExpander() {
+
+  QueryExpander qx =
+      (QueryExpander){.Expand = StemmerExpand, .Free = NULL, .ctx = NULL};
+
+  RegisterQueryExpander(STEMMER_EXPANDER_NAME, qx);
 }
 
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len,

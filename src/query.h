@@ -40,6 +40,8 @@ typedef struct query {
 
   struct QueryExpander *expander;
 
+  const char *language;
+
   const char **stopwords;
 } Query;
 
@@ -85,7 +87,7 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node);
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
                 int limit, u_char fieldMask, int verbatim, const char *lang,
-                const char **stopwords);
+                const char **stopwords, const char *expander);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

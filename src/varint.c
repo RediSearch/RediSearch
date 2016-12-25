@@ -49,14 +49,15 @@ VarintVectorIterator VarIntVector_iter(VarintVector *v) {
   return ret;
 }
 
-inline int VV_HasNext(VarintVectorIterator *vi) { return !BufferAtEnd(vi->buf); }
+inline int VV_HasNext(VarintVectorIterator *vi) {
+  return !BufferAtEnd(vi->buf);
+}
 
 inline int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
-    int i = ReadVarint(vi->buf) + vi->lastValue;
-    vi->lastValue = i;
-    vi->index++;
-    return i;
+    ++vi->index;
+    vi->lastValue = ReadVarint(vi->buf) + vi->lastValue;
+    return vi->lastValue;
   }
 
   return -1;
