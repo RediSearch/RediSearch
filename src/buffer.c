@@ -111,7 +111,7 @@ position if where is outside bounds
 */
 inline size_t BufferSkip(Buffer *b, int bytes) {
   // if overflow - just skip to the end
-  if (b->pos + bytes > b->data + b->cap) {
+  if (b->offset + bytes > b->cap) {
     b->pos = b->data + b->cap;
     b->offset = b->cap;
     return b->cap;

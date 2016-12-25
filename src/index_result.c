@@ -3,15 +3,22 @@
 #include <math.h>
 #include <sys/param.h>
 
-void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
-  if (r->numRecords < MAX_INTERSECT_WORDS) {
-    r->records[r->numRecords++] = *record;
-    r->docId = record->docId;
-    r->flags |= record->flags;
-    r->totalTF += record->tf;
+inline void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
+  if (r->numRecords == r->recordsCap) {
+    r->recordsCap = r->recordsCap ? r->recordsCap * 2 : DEFAULT_RECORDLIST_SIZE;
+    r->records = realloc(r->records, r->recordsCap * sizeof(IndexRecord));
   }
+  r->records[r->numRecords++] = *record;
+  r->docId = record->docId;
+  r->flags |= record->flags;
+  r->totalTF += record->tf;
 }
 
+void IndexResult_Add(IndexResult *dst, IndexResult *src) {
+  for (int i = 0; i < src->numRecords; i++) {
+    IndexResult_PutRecord(dst, &src->records[i]);
+  }
+}
 void IndexResult_Print(IndexResult *r) {
 
   printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF,
@@ -35,6 +42,7 @@ Term *NewTerm(char *str) {
 void Term_Free(Term *t) { free(t); }
 
 void IndexResult_Init(IndexResult *h) {
+
   h->docId = 0;
   h->numRecords = 0;
   h->flags = 0;
@@ -44,11 +52,18 @@ void IndexResult_Init(IndexResult *h) {
 
 IndexResult NewIndexResult() {
   IndexResult h;
+  h.recordsCap = DEFAULT_RECORDLIST_SIZE;
+  h.records = calloc(h.recordsCap, sizeof(IndexRecord));
   IndexResult_Init(&h);
   return h;
 }
 
-void IndexResult_Free(IndexResult *r) {}
+void IndexResult_Free(IndexResult *r) {
+  if (r->records) {
+    free(r->records);
+    r->records = NULL;
+  }
+}
 /**
 Find the minimal distance between members of the vectos.
 e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
@@ -64,7 +79,7 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
   int num = r->numRecords;
 
   for (int i = 1; i < num; i++) {
-    BufferSeek(&r->records[i-1].offsets, 0);
+    BufferSeek(&r->records[i - 1].offsets, 0);
     BufferSeek(&r->records[i].offsets, 0);
     VarintVectorIterator v1 = VarIntVector_iter(&r->records[i - 1].offsets);
     VarintVectorIterator v2 = VarIntVector_iter(&r->records[i].offsets);
@@ -72,18 +87,17 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     int p2 = VV_Next(&v2);
 
     int cd = abs(p2 - p1);
-    while (cd > 1 && p1 != -1  && p2 != -1)   {
-        cd = MIN(abs(p2 - p1), cd);
-        if (p2 > p1) {
-          p1 = VV_Next(&v1);
-        } else {
-          p2 = VV_Next(&v2);
-        }
+    while (cd > 1 && p1 != -1 && p2 != -1) {
+      cd = MIN(abs(p2 - p1), cd);
+      if (p2 > p1) {
+        p1 = VV_Next(&v1);
+      } else {
+        p2 = VV_Next(&v2);
+      }
     }
-    //printf("docId %d dist %d: %d\n", r->docId, i, cd);
+    // printf("docId %d dist %d: %d\n", r->docId, i, cd);
     dist += cd * cd;
-
   }
-  //printf("total dist: %d\n", dist);
+  // printf("total dist: %d\n", dist);
   return dist;
 }

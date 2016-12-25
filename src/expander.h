@@ -19,8 +19,22 @@
 * node below the returned one.
 */
 typedef struct QueryExpander {
+  /* The expand method - receive a query node, and optionally return a new node
+   * replacing it */
   QueryNode *(*Expand)(void *ctx, Query *q, QueryNode *);
+  /* Free method - free the expander's context. If set to NULL we just call
+   * free(ctx) if ctx is not NULL */
+  void (*Free)(void *ctx);
+
+  /* Private context, e.g. stemmer instance */
   void *ctx;
 } QueryExpander;
+
+/* Register a query expander by name (case insensitive) */
+void RegisterQueryExpander(const char *name, QueryExpander exp);
+
+/* Get a query expander by name (case insensitive). If the expander does not
+ * exist we return NULL */
+QueryExpander *GetQueryExpander(const char *name);
 
 #endif

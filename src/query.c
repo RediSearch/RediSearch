@@ -274,8 +274,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
-double CalculateResultScore(IndexResult *h, DocTable *dt) {
-  // return h->totalTF;
+double CalculateResultScore(IndexResult *h) {
   if (h->numRecords == 1) {
     return h->totalTF;
   }
@@ -284,9 +283,9 @@ double CalculateResultScore(IndexResult *h, DocTable *dt) {
   for (int i = 0; i < h->numRecords; i++) {
     tfidf += h->records[i].tf * h->records[i].term->idf;
   }
+
   int md = IndexResult_MinOffsetDelta(h);
-  // h->type == H_EXACT ? 1 : VV_MinDistance(h->offsetVecs, h->numOffsetVecs);
-  return (h->totalTF) / (double)(md);
+  return tfidf / (double)(md);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -333,7 +332,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
     // IndexResult_Print(h);
-    h->totalTF = CalculateResultScore(h, query->docTable);
+    h->totalTF = CalculateResultScore(h);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
