@@ -81,11 +81,11 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
                                             'title', 'hello another world',
                                             'body', 'lorem ist ipsum lorem lorem'))
 
-            res = r.execute_command(
-                'ft.search', 'idx', '"hello world"', 'verbatim')
-            self.assertEqual(3, len(res))
-            self.assertEqual(1, res[0])
-            self.assertEqual("doc1", res[1])
+            # res = r.execute_command(
+            #     'ft.search', 'idx', '"hello world"', 'verbatim')
+            # self.assertEqual(3, len(res))
+            # self.assertEqual(1, res[0])
+            # self.assertEqual("doc1", res[1])
 
             res = r.execute_command(
                 'ft.search', 'idx', "hello \"another world\"", 'verbatim')

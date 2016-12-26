@@ -1,18 +1,18 @@
+#include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
-#include <math.h>
 #include <sys/param.h>
 
+#include "expander.h"
 #include "index.h"
-#include "tokenize.h"
+#include "query.h"
 #include "query_parser/parser.h"
 #include "redis_index.h"
-#include "util/logging.h"
+#include "tokenize.h"
 #include "util/heap.h"
-#include "query.h"
-#include "expander.h"
+#include "util/logging.h"
 
 void _queryTokenNode_Free(QueryTokenNode *tn) { free(tn->str); }
 
@@ -31,19 +31,18 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
-
   switch (n->type) {
-  case QN_TOKEN:
-    _queryTokenNode_Free(&n->tn);
-    break;
-  case QN_PHRASE:
-    _queryPhraseNode_Free(&n->pn);
-    break;
-  case QN_UNION:
-    _queryUnionNode_Free(&n->un);
-    break;
-  case QN_NUMERIC:
-    break; //_queryNumericNode_Free(&n->nn);
+    case QN_TOKEN:
+      _queryTokenNode_Free(&n->tn);
+      break;
+    case QN_PHRASE:
+      _queryPhraseNode_Free(&n->pn);
+      break;
+    case QN_UNION:
+      _queryUnionNode_Free(&n->un);
+      break;
+    case QN_NUMERIC:
+      break;  //_queryNumericNode_Free(&n->nn);
   }
   free(n);
 }
@@ -72,8 +71,7 @@ QueryNode *NewUnionNode() {
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = __newQueryNode(QN_PHRASE);
-  ret->pn =
-      (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
 }
 
@@ -88,11 +86,11 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
 
-  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff &&
-                     q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
+  int isSingleWord =
+      q->numTokens == 1 && q->fieldMask == 0xff && q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
 
-  IndexReader *ir = Redis_OpenReader(q->ctx, node->str, node->len, q->docTable,
-                                     isSingleWord, q->fieldMask);
+  IndexReader *ir =
+      Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);
   if (ir == NULL) {
     return NULL;
   }
@@ -113,13 +111,12 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
 
-  IndexIterator *ret = NewIntersecIterator(
-      iters, node->numChildren, node->exact, q->docTable, q->fieldMask);
+  IndexIterator *ret =
+      NewIntersecIterator(iters, node->numChildren, node->exact, q->docTable, q->fieldMask);
   return ret;
 }
 
 IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
-
   return NewNumericFilterIterator(node->nf);
 }
 
@@ -141,35 +138,33 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
 
 IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
   switch (n->type) {
-  case QN_TOKEN:
-    return query_EvalTokenNode(q, &n->tn);
-  case QN_PHRASE:
-    return query_EvalPhraseNode(q, &n->pn);
-  case QN_UNION:
-    return query_EvalUnionNode(q, &n->un);
-  case QN_NUMERIC:
-    return query_EvalNumericNode(q, &n->nn);
+    case QN_TOKEN:
+      return query_EvalTokenNode(q, &n->tn);
+    case QN_PHRASE:
+      return query_EvalPhraseNode(q, &n->pn);
+    case QN_UNION:
+      return query_EvalUnionNode(q, &n->un);
+    case QN_NUMERIC:
+      return query_EvalNumericNode(q, &n->nn);
   }
 
   return NULL;
 }
 
 void QueryPhraseNode_AddChild(QueryPhraseNode *parent, QueryNode *child) {
-  parent->children = realloc(parent->children,
-                             sizeof(QueryNode *) * (parent->numChildren + 1));
+  parent->children = realloc(parent->children, sizeof(QueryNode *) * (parent->numChildren + 1));
   parent->children[parent->numChildren++] = child;
 }
 void QueryUnionNode_AddChild(QueryUnionNode *parent, QueryNode *child) {
-  parent->children = realloc(parent->children,
-                             sizeof(QueryNode *) * (parent->numChildren + 1));
+  parent->children = realloc(parent->children, sizeof(QueryNode *) * (parent->numChildren + 1));
   parent->children[parent->numChildren++] = child;
 }
 
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
-Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
-                int limit, u_char fieldMask, int verbatim, const char *lang,
-                const char **stopwords, const char *expander) {
+Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
+                u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
+                const char *expander) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -179,9 +174,10 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
   ret->raw = strndup(query, len);
   ret->root = NewPhraseNode(0);
   ret->numTokens = 0;
+  ret->stopwords = stopwords;
   ret->expander = verbatim ? NULL : GetQueryExpander(expander);
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
-
+  // printf("query expander: %p\n", ret->expander);
   return ret;
 }
 void __queryNode_Print(QueryNode *qs, int depth);
@@ -216,28 +212,28 @@ void __queryNode_Print(QueryNode *qs, int depth) {
     printf("  ");
   }
   switch (qs->type) {
-  case QN_PHRASE:
-    printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
-    for (int i = 0; i < qs->pn.numChildren; i++) {
-      __queryNode_Print(qs->pn.children[i], depth + 1);
-    }
+    case QN_PHRASE:
+      printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
+      for (int i = 0; i < qs->pn.numChildren; i++) {
+        __queryNode_Print(qs->pn.children[i], depth + 1);
+      }
 
-    break;
-  case QN_TOKEN:
-    printf("{%s", (char *)qs->tn.str);
-    break;
+      break;
+    case QN_TOKEN:
+      printf("{%s", (char *)qs->tn.str);
+      break;
 
-  case QN_NUMERIC: {
-    NumericFilter *f = qs->nn.nf;
-    printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
-           f->inclusiveMax ? "<=" : "<", f->max);
-  } break;
-  case QN_UNION:
-    printf("UNION {\n");
-    for (int i = 0; i < qs->un.numChildren; i++) {
-      __queryNode_Print(qs->un.children[i], depth + 1);
-    }
-    break;
+    case QN_NUMERIC: {
+      NumericFilter *f = qs->nn.nf;
+      printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
+             f->inclusiveMax ? "<=" : "<", f->max);
+    } break;
+    case QN_UNION:
+      printf("UNION {\n");
+      for (int i = 0; i < qs->un.numChildren; i++) {
+        __queryNode_Print(qs->un.children[i], depth + 1);
+      }
+      break;
   }
 
   printf("}\n");
@@ -274,6 +270,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
 double CalculateResultScore(IndexResult *h) {
+  // IndexResult_Print(h);
   if (h->numRecords == 1) {
     return h->totalTF;
   }
@@ -288,7 +285,7 @@ double CalculateResultScore(IndexResult *h) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__QueryNode_Print(query->root, 0);
+  //__queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
@@ -308,8 +305,6 @@ QueryResult *Query_Execute(Query *query) {
 
   // no query evaluation plan?
   if (query->root == NULL || it == NULL) {
-    // res->error = QUERY_ERROR_INTERNAL;
-    // res->errorString = QUERY_ERROR_INTERNAL_STR;
     return res;
   }
 
@@ -371,14 +366,12 @@ QueryResult *Query_Execute(Query *query) {
   for (int i = 0; i < n; ++i) {
     IndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    res->results[n - i - 1] =
-        (ResultEntry){Redis_GetDocKey(query->ctx, h->docId), h->totalTF};
+    res->results[n - i - 1] = (ResultEntry){Redis_GetDocKey(query->ctx, h->docId), h->totalTF};
 
     free(h);
   }
 
-  // if we still have something in the heap (meaning offset > 0), we need to
-  // poll...
+  // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
     IndexResult *h = heap_poll(pq);
     free(h);
@@ -393,8 +386,7 @@ void QueryResult_Free(QueryResult *q) {
   free(q);
 }
 
-int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx,
-                                     int withscores) {
+int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int withscores) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
@@ -413,8 +405,7 @@ int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx,
   return REDISMODULE_OK;
 }
 
-int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx,
-                                       int withscores) {
+int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int withscores) {
   // With content mode - return and load the documents
   RedisModuleCtx *ctx = sctx->redisCtx;
   int ndocs;
@@ -452,8 +443,7 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx,
   return REDISMODULE_OK;
 }
 
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent,
-                          int withscores) {
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, int withscores) {
   RedisModuleCtx *ctx = sctx->redisCtx;
 
   if (r->errorString != NULL) {

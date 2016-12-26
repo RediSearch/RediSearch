@@ -1,12 +1,8 @@
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 #include "forward_index.h"
 #include "index.h"
 #include "numeric_index.h"
 #include "query.h"
+#include "query_node.h"
 #include "redis_index.h"
 #include "redismodule.h"
 #include "rmutil/strings.h"
@@ -16,7 +12,11 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
-#include "query_node.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
                 int nosave) {

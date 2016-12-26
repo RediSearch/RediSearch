@@ -6,6 +6,7 @@ import time
 import os
 import itertools
 
+
 def get_random_port():
     sock = socket.socket()
     sock.listen(0)
@@ -16,6 +17,7 @@ def get_random_port():
 
 
 class DisposableRedis(object):
+
     def __init__(self, port=None, path='redis-server', **extra_args):
         """
         :param port: port number to start the redis server on. Specify none to automatically generate
@@ -29,40 +31,37 @@ class DisposableRedis(object):
         # in that case `port` is randomly generated
         self.port = None
         self.extra_args = list(itertools.chain(
-                *(('--%s'%k, v) for k, v in extra_args.items())
-               ))
+            *(('--%s' % k, v) for k, v in extra_args.items())
+        ))
         self.path = path
-        
-       
+
     def __enter__(self):
         if self._port is None:
             self.port = get_random_port()
         else:
             self.port = self._port
         args = [self.path,
-             '--port', str(self.port),
-             '--dir', tempfile.gettempdir(),
-             '--save', ''] + self.extra_args
-       
+                '--port', str(self.port),
+                '--dir', tempfile.gettempdir(),
+                '--save', ''] + self.extra_args
+
         self.process = subprocess.Popen(
             args,
-             #cwd=os.getcwd(),
             stdin=subprocess.PIPE,
             stdout=open(os.devnull, 'w')
         )
-       
-       
+
         while True:
             try:
                 self.client().ping()
-
                 break
             except redis.ConnectionError:
                 self.process.poll()
                 if self.process.returncode is not None:
-                    raise RuntimeError("Process has exited")
+                    raise RuntimeError(
+                        "Process has exited with code {}".format(self.process.returncode))
                 time.sleep(0.1)
-        
+
         return self.client()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -74,5 +73,3 @@ class DisposableRedis(object):
         """
 
         return redis.StrictRedis(port=self.port)
-
-

@@ -5,6 +5,7 @@
 
 inline void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
   if (r->numRecords == r->recordsCap) {
+    // printf("expanding record cap from %d\n", r->recordsCap);
     r->recordsCap = r->recordsCap ? r->recordsCap * 2 : DEFAULT_RECORDLIST_SIZE;
     r->records = realloc(r->records, r->recordsCap * sizeof(IndexRecord));
   }
@@ -19,14 +20,15 @@ void IndexResult_Add(IndexResult *dst, IndexResult *src) {
     IndexResult_PutRecord(dst, &src->records[i]);
   }
 }
+
 void IndexResult_Print(IndexResult *r) {
 
   printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF,
          r->flags);
 
   for (int i = 0; i < r->numRecords; i++) {
-    printf("\t%s, tf %f, flags %x\n", r->records[i].term->str, r->records[i].tf,
-           r->records[i].flags);
+    printf("\t%s, %d tf %f, flags %x\n", r->records[i].term->str,
+           r->records[i].docId, r->records[i].tf, r->records[i].flags);
   }
   printf("----------\n");
 }

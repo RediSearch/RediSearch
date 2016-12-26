@@ -230,6 +230,7 @@ typedef struct {
   IndexResult *currentHits;
   DocTable *docTable;
   u_char fieldMask;
+  int atEnd;
 } IntersectContext;
 
 /* Create a new intersect iterator over the given list of child iterators. If

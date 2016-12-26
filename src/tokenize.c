@@ -1,8 +1,8 @@
+#include "forward_index.h"
+#include "tokenize.h"
+#include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
-#include <ctype.h>
-#include "tokenize.h"
-#include "forward_index.h"
 
 int tokenize(const char *text, float score, u_char fieldId, void *ctx,
              TokenFunc f, Stemmer *s) {
@@ -26,7 +26,7 @@ inline int isStopword(const char *w, const char **stopwords) {
   }
   int i = 0;
   while (stopwords[i] != NULL) {
-
+    // printf("%s %s\n", w, stopwords[i]);
     if (!strcmp(w, stopwords[i++])) {
       return 1;
     }
