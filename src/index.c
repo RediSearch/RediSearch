@@ -91,18 +91,14 @@ int IR_Read(void *ctx, IndexResult *e) {
 
   int rc = IR_GenericRead(ir, &rec.docId, &rec.tf, &rec.flags, offsets);
 
-  // add tf-idf score of the entry to the hit
+  // add the record to the current result
   if (rc == INDEXREAD_OK) {
-    // printf("docId %d Flags 0x%x, field mask 0x%x, intersection: %x\n",
-    //  e->docId, e->flags,
-    //  ir->fieldMask, e->flags & ir->fieldMask);
     if (!(rec.flags & ir->fieldMask)) {
-      // pri/ntf("Skipping %d\n", e->docId);
       return INDEXREAD_NOTFOUND;
     }
 
     ++ir->len;
-    // printf("Read %s->%d\n", rec.term->str, rec.docId);
+
     IndexResult_PutRecord(e, &rec);
   }
 
@@ -168,8 +164,6 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
       if (rc == INDEXREAD_OK || readId > docId) {
         IR_Seek(ir, offset, lastId);
         IR_Read(ir, hit);
-        // printf("IRSkipto rc: %d, seekId: %d, readId: %d\n", rc, docId,
-        // readId);
         return rc;
       }
       lastId = readId;
@@ -184,8 +178,7 @@ size_t IR_NumDocs(void *ctx) {
   IndexReader *ir = ctx;
 
   // in single word optimized mode we only know the size of the record from
-  // the
-  // header.
+  // the header.
   if (ir->singleWordMode) {
     return ir->header.numDocs;
   }
@@ -210,8 +203,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
   // compute IDF based on num of docs in the header
   ret->term->idf =
       logb(1.0F + TOTALDOCS_PLACEHOLDER / (ret->header.numDocs ? ret->header.numDocs : (double)1));
-  // printf("term: %s, numDocs: %d, idf: %f\n", term->str, ret->header.numDocs,
-  //        ret->term->idf);
+
   ret->lastId = 0;
   ret->skipIdxPos = 0;
   ret->skipIdx = NULL;
