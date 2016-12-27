@@ -2,48 +2,48 @@
 #define __TESTUTIL_H__
 
 #include <assert.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-#define TESTFUNC(f)                                                            \
-  printf("Testing %s ...\n------------------\n", __STRING(f));                 \
-  fflush(stdout);                                                              \
-  if (f()) {                                                                   \
-    printf("Test %s FAILED!\n", __STRING(f));                                  \
-    exit(1);                                                                   \
-  } else                                                                       \
+#define TESTFUNC(f)                                            \
+  printf("Testing %s ...\n------------------\n", __STRING(f)); \
+  fflush(stdout);                                              \
+  if (f()) {                                                   \
+    printf("Test %s FAILED!\n", __STRING(f));                  \
+    exit(1);                                                   \
+  } else                                                       \
     printf("Test %s PASSED\n", __STRING(f));
 
-#define ASSERTM(expr, ...)                                                     \
-  if (!(expr)) {                                                               \
-    fprintf(stderr, "Assertion '%s' Failed: " __VA_ARGS__ "\n",                \
-            __STRING(expr));                                                   \
-    return -1;                                                                 \
+#define ASSERTM(expr, ...)                                                       \
+  if (!(expr)) {                                                                 \
+    fprintf(stderr, "Assertion '%s' Failed: " __VA_ARGS__ "\n", __STRING(expr)); \
+    return -1;                                                                   \
   }
-#define ASSERT(expr)                                                           \
-  if (!(expr)) {                                                               \
-    fprintf(stderr, "Assertion '%s' Failed\n", __STRING(expr));                \
-    return -1;                                                                 \
+#define ASSERT(expr)                                            \
+  if (!(expr)) {                                                \
+    fprintf(stderr, "Assertion '%s' Failed\n", __STRING(expr)); \
+    return -1;                                                  \
   }
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
-#define ASSERT_EQUAL_INT(x, y, ...)                                            \
-  if (x != y) {                                                                \
-    fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", x, y);                      \
-    return -1;                                                                 \
+#define ASSERT_EQUAL_INT(x, y, ...)                       \
+  if (x != y) {                                           \
+    fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", x, y); \
+    return -1;                                            \
   }
 
-#define FAIL(fmt, ...)                                                         \
-  {                                                                            \
-    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__);                         \
-    return -1;                                                                 \
+#define FAIL(fmt, ...)                                 \
+  {                                                    \
+    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__); \
+    return -1;                                         \
   }
 
-#define TEST_CASE(x, block)                                                    \
-  int x {                                                                      \
-    block;                                                                     \
-    return 0                                                                   \
+#define RETURN_TEST_SUCCESS return 0;
+#define TEST_CASE(x, block) \
+  int x {                   \
+    block;                  \
+    return 0                \
   }
 
 // #define TEST_START()                                                           \

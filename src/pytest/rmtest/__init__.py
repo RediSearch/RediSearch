@@ -4,12 +4,14 @@ import os
 
 REDIS_MODULE_PATH_ENVVAR = 'REDIS_MODULE_PATH'
 REDIS_PATH_ENVVAR = 'REDIS_PATH'
+REDIS_PORT_ENVVAR = 'REDIS_PORT'
 
 
 def ModuleTestCase(module_path, redis_path='redis-server', fixed_port=None):
 
     module_path = os.getenv(REDIS_MODULE_PATH_ENVVAR, module_path)
     redis_path = os.getenv(REDIS_PATH_ENVVAR, redis_path)
+    fixed_port = os.getenv(REDIS_PORT_ENVVAR, fixed_port)
 
     class _ModuleTestCase(unittest.TestCase):
 

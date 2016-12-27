@@ -1,16 +1,16 @@
-#include <stdio.h>
-#include "test_util.h"
+#include "../expander.h"
 #include "../query.h"
 #include "../query_parser/tokenizer.h"
+#include "test_util.h"
 #include "time_sample.h"
+#include <stdio.h>
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
 int isValidQuery(char *qt) {
   char *err = NULL;
   RedisSearchCtx ctx;
-  Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -23,16 +23,14 @@ int isValidQuery(char *qt) {
   return 0;
 }
 
-#define assertValidQuery(qt)                                                   \
-  {                                                                            \
-    if (0 != isValidQuery(qt))                                                 \
-      return -1;                                                               \
+#define assertValidQuery(qt)              \
+  {                                       \
+    if (0 != isValidQuery(qt)) return -1; \
   }
 
-#define assertInvalidQuery(qt)                                                 \
-  {                                                                            \
-    if (0 == isValidQuery(qt))                                                 \
-      return -1;                                                               \
+#define assertInvalidQuery(qt)            \
+  {                                       \
+    if (0 == isValidQuery(qt)) return -1; \
   }
 
 int testQueryParser() {
@@ -57,13 +55,11 @@ int testQueryParser() {
   char *err = NULL;
   char *qt = "(hello|world) and \"another world\" (foo is bar) baz ";
   RedisSearchCtx ctx;
-  Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
-  if (err)
-    FAIL("Error parsing query: %s", err);
+  if (err) FAIL("Error parsing query: %s", err);
   __queryNode_Print(n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
@@ -90,13 +86,60 @@ int testQueryParser() {
   return 0;
 }
 
+// a dummy expander that expands all tokens to TOKEN or "foo"
+QueryNode *dummyExpander(void *ctx, Query *q, QueryNode *n) {
+  QueryNode *ret = NULL;
+  if (n->type == QN_TOKEN) {
+    ret = NewUnionNode();
+    // Add the token and the ste as the union's children
+    QueryUnionNode_AddChild(&ret->un, n);
+    QueryUnionNode_AddChild(&ret->un, NewTokenNode(q, strdup("foo"), 3));
+  }
+
+  return ret;
+}
+
+int testQueryExpander() {
+
+  RegisterQueryExpander("dummy",
+                        (QueryExpander){.Expand = dummyExpander, .Free = NULL, .ctx = NULL});
+
+  QueryExpander *e = GetQueryExpander("dummy");
+  ASSERT(e != NULL);
+  ASSERT(NULL == GetQueryExpander("return null"));
+
+  // now create some query
+  char *err = NULL;
+  char *qt = "hello world";
+
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, "dummy");
+  QueryNode *n = Query_Parse(q, &err);
+
+  if (err) FAIL("Error parsing query: %s", err);
+
+  ASSERT_EQUAL_INT(q->numTokens, 2)
+  Query_Expand(q);
+  __queryNode_Print(n, 0);
+  ASSERT_EQUAL_INT(q->numTokens, 4)
+
+  ASSERT(n->pn.children[0]->type == QN_UNION);
+  ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
+  ASSERT_STRING_EQ("foo", n->pn.children[0]->un.children[1]->tn.str);
+
+  ASSERT(n->pn.children[1]->type == QN_UNION);
+  ASSERT_STRING_EQ("world", n->pn.children[1]->un.children[0]->tn.str);
+  ASSERT_STRING_EQ("foo", n->pn.children[1]->un.children[1]->tn.str);
+
+  Query_Free(q);
+  RETURN_TEST_SUCCESS;
+}
+
 void benchmarkQueryParser() {
   char *qt = "(hello|world) \"another world\"";
   RedisSearchCtx ctx;
   char *err = NULL;
 
-  Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL);
   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
 }
 
@@ -104,5 +147,7 @@ int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
+  TESTFUNC(testQueryExpander);
+
   benchmarkQueryParser();
 }

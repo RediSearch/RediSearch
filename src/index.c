@@ -200,9 +200,11 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
   indexReadHeader(buf, &ret->header);
   ret->term = term;
 
-  // compute IDF based on num of docs in the header
-  ret->term->idf =
-      logb(1.0F + TOTALDOCS_PLACEHOLDER / (ret->header.numDocs ? ret->header.numDocs : (double)1));
+  if (term) {
+    // compute IDF based on num of docs in the header
+    ret->term->idf = logb(
+        1.0F + TOTALDOCS_PLACEHOLDER / (ret->header.numDocs ? ret->header.numDocs : (double)1));
+  }
 
   ret->lastId = 0;
   ret->skipIdxPos = 0;

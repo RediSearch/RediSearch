@@ -1,14 +1,14 @@
-#include <stdio.h>
-#include "../varint.h"
-#include "../index.h"
 #include "../buffer.h"
-#include <assert.h>
-#include <math.h>
-#include <time.h>
-#include "../tokenize.h"
+#include "../index.h"
 #include "../query_parser/tokenizer.h"
 #include "../spec.h"
+#include "../tokenize.h"
+#include "../varint.h"
 #include "test_util.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <time.h>
 
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
@@ -35,28 +35,40 @@ int testVarint() {
 }
 
 int testDistance() {
-  // VarintVectorWriter *vw = NewVarintVectorWriter(8);
-  // VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
-  // VVW_Write(vw, 1);
-  // VVW_Write(vw2, 4);
+  VarintVectorWriter *vw = NewVarintVectorWriter(8);
+  VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
+  VarintVectorWriter *vw3 = NewVarintVectorWriter(8);
+  VVW_Write(vw, 1);
+  VVW_Write(vw, 9);
+  VVW_Write(vw, 13);
+  VVW_Write(vw, 16);
+  VVW_Write(vw, 22);
 
-  // // VVW_Write(vw, 9);
-  // VVW_Write(vw2, 7);
+  VVW_Write(vw2, 4);
+  VVW_Write(vw2, 7);
+  VVW_Write(vw2, 32);
 
-  // VVW_Write(vw, 9);
-  // VVW_Write(vw, 13);
+  VVW_Write(vw3, 20);
+  VVW_Write(vw3, 25);
 
-  // VVW_Write(vw, 16);
-  // VVW_Write(vw, 22);
-  // VVW_Truncate(vw);
-  // VVW_Truncate(vw2);
+  VVW_Truncate(vw);
+  VVW_Truncate(vw2);
 
-  // VarintVector v[2] = {*vw->bw.buf, *vw2->bw.buf};
-  // int delta = VV_MinDistance(v, 2);
-  // printf("%d\n", delta);
+  IndexResult res = NewIndexResult();
+  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw->bw.buf});
+  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw2->bw.buf});
 
-  // VVW_Free(vw);
-  // VVW_Free(vw2);
+  int delta = IndexResult_MinOffsetDelta(&res);
+  ASSERT_EQUAL_INT(4, delta);
+
+  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
+  delta = IndexResult_MinOffsetDelta(&res);
+  ASSERT_EQUAL_INT(53, delta);
+
+  VVW_Free(vw);
+  VVW_Free(vw2);
+  VVW_Free(vw3);
+  IndexResult_Free(&res);
 
   return 0;
 }
@@ -84,16 +96,14 @@ int testIndexReadWrite() {
     VVW_Truncate(h.vw);
 
     IW_WriteEntry(w, &h);
-    printf("doc %d, score %f offset %zd\n", h.docId, h.docScore,
-           w->bw.buf->offset);
+    printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
   }
 
-  LG_INFO("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
-          w->ndocs);
+  LG_INFO("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
-  LG_INFO("Score writer: numEntries: %d, minscore: %f\n",
-          w->scoreWriter.header.numEntries, w->scoreWriter.header.lowestScore);
+  LG_INFO("Score writer: numEntries: %d, minscore: %f\n", w->scoreWriter.header.numEntries,
+          w->scoreWriter.header.lowestScore);
   ScoreIndex *si = NewScoreIndex(w->scoreWriter.bw.buf);
   for (int i = 0; i < si->header.numEntries; i++) {
     printf("Entry %d, offset %d, score %f docId %d\n", i, si->entries[i].offset,
@@ -109,16 +119,14 @@ int testIndexReadWrite() {
   //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId,
   //     w->skipIdx.entries[x].offset);
   //   }
-  printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w),
-         w->ndocs);
+  printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
   int n = 0;
 
   for (int xx = 0; xx < 1; xx++) {
     SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
     printf("si: %d\n", si->len);
-    IndexReader *ir =
-        NewIndexReader(w->bw.buf->data, w->bw.buf->cap, si, NULL, 1, 0xff);
+    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, si, NULL, 1, 0xff);
     IndexResult h = NewIndexResult();
 
     struct timespec start_time, end_time;
@@ -204,8 +212,7 @@ int printIntersect(void *ctx, IndexResult *hits, int argc) {
 int testReadIterator() {
   IndexWriter *w = createIndex(10, 1);
 
-  IndexReader *r1 =
-      NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0xff, NULL);
+  IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0xff, NULL);
   IndexResult h = NewIndexResult();
 
   IndexIterator *it = NewReadIterator(r1);
@@ -232,12 +239,10 @@ int testReadIterator() {
 int testUnion() {
   IndexWriter *w = createIndex(10, 2);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 =
-      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0xff);
+  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0xff);
   IndexWriter *w2 = createIndex(10, 3);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
-  IndexReader *r2 =
-      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0xff);
+  IndexReader *r2 = NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0xff);
   printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -245,8 +250,7 @@ int testUnion() {
 
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL);
   IndexResult h = NewIndexResult();
-  int expected[] = {2,  3,  4,  6,  8,  9,  10, 12, 14,
-                    15, 16, 18, 20, 21, 24, 27, 30};
+  int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     printf("%d <=> %d\n", h.docId, expected[i]);
@@ -264,12 +268,10 @@ int testUnion() {
 int testIntersection() {
   IndexWriter *w = createIndex(100000, 4);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 =
-      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0xff);
+  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0xff);
   IndexWriter *w2 = createIndex(100000, 2);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
-  IndexReader *r2 =
-      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0xff);
+  IndexReader *r2 = NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0xff);
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -297,7 +299,7 @@ int testIntersection() {
   printf("%d intersections in %ldns\n", count, diffInNanos);
   printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
-  ASSERT(topFreq == 2850000.5);
+  ASSERT(topFreq == 475000.0625);
 
   IW_Free(w);
   IW_Free(w2);

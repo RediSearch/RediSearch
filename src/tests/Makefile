@@ -5,7 +5,7 @@ endif
 CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -O3 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o 
-TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
+TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
 REDIS=redis_buffer.o redis_index.o query.o spec.o 
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o

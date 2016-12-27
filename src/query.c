@@ -14,7 +14,9 @@
 #include "util/heap.h"
 #include "util/logging.h"
 
-void _queryTokenNode_Free(QueryTokenNode *tn) { free(tn->str); }
+void _queryTokenNode_Free(QueryTokenNode *tn) {
+  free(tn->str);
+}
 
 void _queryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
@@ -175,9 +177,9 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->root = NewPhraseNode(0);
   ret->numTokens = 0;
   ret->stopwords = stopwords;
-  ret->expander = verbatim ? NULL : GetQueryExpander(expander);
+  ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
-  // printf("query expander: %p\n", ret->expander);
+
   return ret;
 }
 void __queryNode_Print(QueryNode *qs, int depth);

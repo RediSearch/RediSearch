@@ -3,7 +3,7 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
+class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testAdd(self):
         with self.redis() as r:
@@ -81,11 +81,11 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
                                             'title', 'hello another world',
                                             'body', 'lorem ist ipsum lorem lorem'))
 
-            # res = r.execute_command(
-            #     'ft.search', 'idx', '"hello world"', 'verbatim')
-            # self.assertEqual(3, len(res))
-            # self.assertEqual(1, res[0])
-            # self.assertEqual("doc1", res[1])
+            res = r.execute_command(
+                'ft.search', 'idx', '"hello world"', 'verbatim')
+            self.assertEqual(3, len(res))
+            self.assertEqual(1, res[0])
+            self.assertEqual("doc1", res[1])
 
             res = r.execute_command(
                 'ft.search', 'idx', "hello \"another world\"", 'verbatim')
@@ -199,6 +199,24 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
 
+    def testExpander(self):
+
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
+                                            'title', 'hello kitty'))
+
+            res = r.execute_command(
+                'ft.search', 'idx', 'hellos', "nocontent", "expander", "stem")
+            self.assertEqual(2, len(res))
+            self.assertEqual(1, res[0])
+
+            res = r.execute_command(
+                'ft.search', 'idx', 'hellos', "nocontent", "expander", "noexpander")
+            self.assertEqual(1, len(res))
+            self.assertEqual(0, res[0])
+
     def testNumericRange(self):
 
         with self.redis() as r:
@@ -221,7 +239,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
             res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                     "filter", "score", "(0", "(50")
 
-            self.assertEqual(48, res[0])
+            self.assertEqual(49, res[0])
             res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                     "filter", "score", "-inf", "+inf")
             self.assertEqual(100, res[0])

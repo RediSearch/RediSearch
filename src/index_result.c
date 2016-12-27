@@ -23,12 +23,11 @@ void IndexResult_Add(IndexResult *dst, IndexResult *src) {
 
 void IndexResult_Print(IndexResult *r) {
 
-  printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF,
-         r->flags);
+  printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF, r->flags);
 
   for (int i = 0; i < r->numRecords; i++) {
-    printf("\t%s, %d tf %f, flags %x\n", r->records[i].term->str,
-           r->records[i].docId, r->records[i].tf, r->records[i].flags);
+    printf("\t%s, %d tf %f, flags %x\n", r->records[i].term->str, r->records[i].docId,
+           r->records[i].tf, r->records[i].flags);
   }
   printf("----------\n");
 }
@@ -41,7 +40,9 @@ Term *NewTerm(char *str) {
   return ret;
 }
 
-void Term_Free(Term *t) { free(t); }
+void Term_Free(Term *t) {
+  free(t);
+}
 
 void IndexResult_Init(IndexResult *h) {
 
@@ -97,9 +98,7 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
         p2 = VV_Next(&v2);
       }
     }
-    // printf("docId %d dist %d: %d\n", r->docId, i, cd);
     dist += cd * cd;
   }
-  // printf("total dist: %d\n", dist);
   return dist;
 }

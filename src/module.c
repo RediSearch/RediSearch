@@ -18,8 +18,7 @@
 #include <string.h>
 #include <time.h>
 
-int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
-                int nosave) {
+int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
   int isnew;
   t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
 
@@ -39,8 +38,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
   }
 
   DocTable dt;
-  if (InitDocTable(ctx, &dt) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  if (InitDocTable(ctx, &dt) == REDISMODULE_ERR) return REDISMODULE_ERR;
   if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
     *errorString = "Could not save document metadata";
     return REDISMODULE_ERR;
@@ -65,28 +63,26 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
     }
 
     switch (fs->type) {
-    case F_FULLTEXT:
-      totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc,
-                              idx->stemmer);
-      break;
-    case F_NUMERIC: {
-      double score;
+      case F_FULLTEXT:
+        totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer);
+        break;
+      case F_NUMERIC: {
+        double score;
 
-      if (RedisModule_StringToDouble(doc.fields[i].text, &score) ==
-          REDISMODULE_ERR) {
-        *errorString = "Could not parse numeric index value";
-        goto error;
+        if (RedisModule_StringToDouble(doc.fields[i].text, &score) == REDISMODULE_ERR) {
+          *errorString = "Could not parse numeric index value";
+          goto error;
+        }
+
+        NumericIndex *ni = NewNumericIndex(ctx, fs);
+
+        if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
+          *errorString = "Could not save numeric index value";
+          goto error;
+        }
+        NumerIndex_Free(ni);
+        break;
       }
-
-      NumericIndex *ni = NewNumericIndex(ctx, fs);
-
-      if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
-        *errorString = "Could not save numeric index value";
-        goto error;
-      }
-      NumerIndex_Free(ni);
-      break;
-    }
     }
   }
 
@@ -96,8 +92,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString,
 
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
     while (entry != NULL) {
-      LG_DEBUG("doc %d entry: %.*s freq %f\n", idx->docId, (int)entry->len,
-               entry->term, entry->freq);
+      LG_DEBUG("doc %d entry: %.*s freq %f\n", idx->docId, (int)entry->len, entry->term,
+               entry->freq);
       ForwardIndex_NormalizeFreq(idx, entry);
       IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
       IW_WriteEntry(w, entry);
@@ -159,8 +155,7 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
-int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
-                       int argc) {
+int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
 
@@ -168,8 +163,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   // fieldsIdx,
   // argc-fieldsIdx, nosave);
   // nosave must be at place 4 and we must have at least 7 fields
-  if (argc < 7 || fieldsIdx == 0 || (argc - fieldsIdx) % 2 == 0 ||
-      (nosave && nosave != 4)) {
+  if (argc < 7 || fieldsIdx == 0 || (argc - fieldsIdx) % 2 == 0 || (nosave && nosave != 4)) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -177,8 +171,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   IndexSpec sp;
   // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-      REDISMODULE_OK) {
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     goto cleanup;
   }
@@ -192,8 +185,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto cleanup;
   }
   if (ds > 1 || ds < 0) {
-    RedisModule_ReplyWithError(
-        ctx, "Document scores must be normalized between 0.0 ... 1.0");
+    RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
     goto cleanup;
   }
 
@@ -205,8 +197,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto cleanup;
   }
 
-  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2,
-                             lang ? lang : DEFAULT_LANGUAGE);
+  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE);
 
   size_t len;
   int n = 0;
@@ -218,8 +209,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     doc.fields[n].text = argv[i + 1];
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n",
-           RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
+           doc.numFields);
   const char *msg = NULL;
   int rc = AddDocument(&sctx, doc, &msg, nosave);
   if (rc == REDISMODULE_ERR) {
@@ -278,8 +269,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexSpec sp;
   // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-      REDISMODULE_OK) {
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     goto cleanup;
   }
@@ -293,8 +283,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
   if (ds > 1 || ds < 0) {
-    RedisModule_ReplyWithError(
-        ctx, "Document scores must be normalized between 0.0 ... 1.0");
+    RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
     goto cleanup;
   }
 
@@ -314,8 +303,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc.score = ds;
   doc.language = lang ? lang : DEFAULT_LANGUAGE;
 
-  LG_DEBUG("Adding doc %s with %d fields\n",
-           RedisModule_StringPtrLen(doc.docKey, NULL), doc.numFields);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
+           doc.numFields);
   const char *msg = NULL;
   int rc = AddDocument(&sctx, doc, &msg, 1);
   if (rc == REDISMODULE_ERR) {
@@ -412,8 +401,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   sp.name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-      REDISMODULE_OK) {
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     return REDISMODULE_OK;
   }
@@ -425,8 +413,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (inFieldsIdx > 0) {
     RMUtil_ParseArgs(argv, argc, inFieldsIdx + 1, "l", &numFields);
     if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {
-      fieldMask =
-          IndexSpec_ParseFieldMask(&sp, &argv[inFieldsIdx + 2], numFields);
+      fieldMask = IndexSpec_ParseFieldMask(&sp, &argv[inFieldsIdx + 2], numFields);
     }
     LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
   }
@@ -463,7 +450,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // parse the optional expander argument
   const char *expander = NULL;
   if (argc > 3) {
-    RMUtil_ParseArgsAfter("EXPANDER", &argv[3], argc - 3, "c", &expander);
+    RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &expander);
   }
   if (!expander) {
     expander = STEMMER_EXPANDER_NAME;
@@ -476,8 +463,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim,
-                      lang, nostopwords ? NULL : DEFAULT_STOPWORDS, expander);
+  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
@@ -533,8 +520,7 @@ scoring.
 
     OK or an error
 */
-int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
-                       int argc) {
+int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc < 4 || argc % 2 == 1) {
     return RedisModule_WrongArity(ctx);
@@ -542,8 +528,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   RedisModule_AutoMemory(ctx);
 
   IndexSpec sp;
-  if (IndexSpec_ParseRedisArgs(&sp, ctx, &argv[2], argc - 2) !=
-      REDISMODULE_OK) {
+  if (IndexSpec_ParseRedisArgs(&sp, ctx, &argv[2], argc - 2) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Could not parse field specs");
     return REDISMODULE_OK;
   }
@@ -581,8 +566,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 * instances
 *
 */
-int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
-                         int argc) {
+int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -592,10 +576,8 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   IndexSpec sp;
   // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-      REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(
-        ctx, "Index not defined or could not be loaded");
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
   }
 
   RedisSearchCtx sctx = {ctx, &sp};
@@ -625,8 +607,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexSpec sp;
   // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) !=
-      REDISMODULE_OK) {
+  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     return REDISMODULE_OK;
   }
@@ -667,16 +648,13 @@ real
 Integer reply: the current size of the suggestion dictionary.
 */
 int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4 || argc > 5)
-    return RedisModule_WrongArity(ctx);
+  if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
 
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  RedisModuleKey *key =
-      RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(key) != TrieType) {
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
@@ -721,12 +699,10 @@ Integer reply: the current size of the suggestion dictionary.
 int SuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc != 2)
-    return RedisModule_WrongArity(ctx);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(key) != TrieType) {
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
@@ -752,12 +728,10 @@ Integer reply: 1 if the string was found and deleted, 0 otherwise.
 int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc != 3)
-    return RedisModule_WrongArity(ctx);
+  if (argc != 3) return RedisModule_WrongArity(ctx);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(key) != TrieType) {
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
@@ -767,8 +741,7 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx,
-                                       Trie_Delete(tree, (char *)str, len));
+  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)str, len));
 }
 
 /*
@@ -803,14 +776,12 @@ Array reply: a list of the top suggestions matching the prefix
 int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc < 3 || argc > 8)
-    return RedisModule_WrongArity(ctx);
+  if (argc < 3 || argc > 8) return RedisModule_WrongArity(ctx);
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   // make sure the key is a trie
   int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(key) != TrieType) {
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
@@ -873,52 +844,46 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   RegisterStemmerExpander();
 
   // register trie type
-  if (TrieType_Register(ctx) == REDISMODULE_ERR)
+  if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom no-cluster", 1,
+                                1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand,
-                                "write deny-oom no-cluster", 1, 1,
+  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom no-cluster", 1,
+                                1, 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom no-cluster", 1,
+                                1, 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.create", CreateIndexCommand, "write no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand,
-                                "write deny-oom no-cluster", 1, 1,
+  if (RedisModule_CreateCommand(ctx, "ft.optimize", OptimizeIndexCommand, "write no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand,
-                                "readonly deny-oom no-cluster", 1, 1,
+  if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write no-cluster", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand, "write no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.create", CreateIndexCommand,
-                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.optimize", OptimizeIndexCommand,
-                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand,
-                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand,
-                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand,
-                                "write no-cluster", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand,
-                                "readonly no-cluster", 1, 1,
+  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand,
-                                "readonly no-cluster", 1, 1,
+  if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand, "readonly no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand, "readonly no-cluster", 1,
+                                1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
