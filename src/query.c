@@ -110,11 +110,11 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
 
   IndexReader *ir =
       Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);
-  ir->term->metadata = node->metadata;
+
   if (ir == NULL) {
     return NULL;
   }
-
+  ir->term->metadata = node->metadata;
   return NewReadIterator(ir);
 }
 
