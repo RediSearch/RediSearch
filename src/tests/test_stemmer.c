@@ -1,7 +1,7 @@
-#include "test_util.h"
-#include <string.h>
 #include "../stemmer.h"
 #include "../tokenize.h"
+#include "test_util.h"
+#include <string.h>
 
 int testStemmer() {
 
@@ -9,8 +9,7 @@ int testStemmer() {
   ASSERT(s != NULL)
 
   size_t sl;
-  const char *stem =
-      s->Stem(s->ctx, "arbitrary", (size_t)strlen("arbitrary"), &sl);
+  const char *stem = s->Stem(s->ctx, "arbitrary", (size_t)strlen("arbitrary"), &sl);
   ASSERT(stem != NULL)
   ASSERT(!strcasecmp(stem, "arbitrari"));
   ASSERT(sl == strlen(stem));
@@ -65,7 +64,6 @@ int testTokenize() {
 
 int main(int argc, char **argv) {
 
-  TEST_START();
   TESTFUNC(testStemmer);
   TESTFUNC(testTokenize);
 }

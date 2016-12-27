@@ -58,9 +58,9 @@ query_parser:
 	
 .PHONY: query_parser
 
-tests:
+test:
 	# low level redis-independant tests
-	$(MAKE) -C $@ build test
+	$(MAKE) -C tests build test
 	# high level python integration tests
 	$(MAKE) -C pytest test
 
