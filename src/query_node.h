@@ -18,14 +18,6 @@ typedef enum {
   QN_NUMERIC
 } QueryNodeType;
 
-/* Private data saved into query nodes by query expanders, that can later be used by scoring and
- * filter functions. The id is there to make sure the private data is the same type when writing and
- * reading it */
-typedef struct {
-  char id;
-  void *data;
-} QueryNodePrivateData;
-
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
@@ -41,17 +33,23 @@ typedef struct {
 } QueryUnionNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
- * Union node with several token nodes */
+ * Union node with several token nodes. A token can have private metadata written by expanders or
+ * tokenizers. Later this gets passed to scoring functions in a Term object. See IndexRecord */
 typedef struct {
   char *str;
   size_t len;
+
+  /* Private data that can be written by expanders and read by filters/scorers.
+  It is passed to the Term object of an index result record */
+  void *metadata;
+
 } QueryTokenNode;
 
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;
 
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it is,
- * and a union of all possible nodes. It has private data that may be written by expanders */
+ * and a union of all possible nodes  */
 typedef struct queryNode {
   union {
     QueryPhraseNode pn;
@@ -59,9 +57,6 @@ typedef struct queryNode {
     QueryUnionNode un;
     QueryNumericNode nn;
   };
-
-  /* Private data that can be written by expanders and read by filters/scorers */
-  QueryNodePrivateData *privdata;
 
   /* The node type, for resolving the union access */
   QueryNodeType type;

@@ -1,14 +1,14 @@
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
-#include <stdlib.h>
-#include "redismodule.h"
 #include "index.h"
-#include "query_parser/tokenizer.h"
-#include "spec.h"
-#include "redis_index.h"
 #include "numeric_index.h"
 #include "query_node.h"
+#include "query_parser/tokenizer.h"
+#include "redis_index.h"
+#include "redismodule.h"
+#include "spec.h"
+#include <stdlib.h>
 
 /* forward declaration to avoid include loop */
 struct QueryExpander;
@@ -60,8 +60,7 @@ typedef struct queryResult {
 } QueryResult;
 
 /* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent,
-                          int withscores);
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores);
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy
 this doesn't
@@ -71,6 +70,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 /* Free the query execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
+QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata);
+
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);
@@ -85,9 +86,9 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node);
 
 /* Initialize a new query object from user input. This does not parse the query
  * just yet */
-Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset,
-                int limit, u_char fieldMask, int verbatim, const char *lang,
-                const char **stopwords, const char *expander);
+Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
+                u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
+                const char *expander);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

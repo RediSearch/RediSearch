@@ -92,8 +92,11 @@ QueryNode *dummyExpander(void *ctx, Query *q, QueryNode *n) {
   if (n->type == QN_TOKEN) {
     ret = NewUnionNode();
     // Add the token and the ste as the union's children
+
+    int *md = malloc(sizeof(int));
+    *md = 1337;
     QueryUnionNode_AddChild(&ret->un, n);
-    QueryUnionNode_AddChild(&ret->un, NewTokenNode(q, strdup("foo"), 3));
+    QueryUnionNode_AddChild(&ret->un, NewTokenNodeMetadata(q, strdup("foo"), 3, md));
   }
 
   return ret;
@@ -125,11 +128,14 @@ int testQueryExpander() {
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("foo", n->pn.children[0]->un.children[1]->tn.str);
+  ASSERT(n->pn.children[0]->un.children[1]->tn.metadata != NULL);
+  ASSERT((*(int *)(n->pn.children[0]->un.children[1]->tn.metadata)) == 1337);
 
   ASSERT(n->pn.children[1]->type == QN_UNION);
   ASSERT_STRING_EQ("world", n->pn.children[1]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("foo", n->pn.children[1]->un.children[1]->tn.str);
-
+  ASSERT(n->pn.children[1]->un.children[1]->tn.metadata != NULL);
+  ASSERT((*(int *)(n->pn.children[1]->un.children[1]->tn.metadata)) == 1337);
   Query_Free(q);
   RETURN_TEST_SUCCESS;
 }
@@ -146,8 +152,8 @@ void benchmarkQueryParser() {
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
-  TESTFUNC(testQueryParser);
+  // TESTFUNC(testQueryParser);
   TESTFUNC(testQueryExpander);
 
-  benchmarkQueryParser();
+  // benchmarkQueryParser();
 }

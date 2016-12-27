@@ -41,6 +41,7 @@ Term *NewTerm(char *str) {
 }
 
 void Term_Free(Term *t) {
+
   free(t);
 }
 

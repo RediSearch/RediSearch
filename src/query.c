@@ -14,13 +14,21 @@
 #include "util/heap.h"
 #include "util/logging.h"
 
+void __queryNode_Print(QueryNode *qs, int depth);
+
 void _queryTokenNode_Free(QueryTokenNode *tn) {
   free(tn->str);
+  if (tn->metadata) {
+    free(tn->metadata);
+  }
 }
 
 void _queryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
+  }
+  if (pn->children) {
+    free(pn->children);
   }
 }
 
@@ -28,11 +36,15 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
+  if (pn->children) {
+    free(pn->children);
+  }
 }
 
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
+
   switch (n->type) {
     case QN_TOKEN:
       _queryTokenNode_Free(&n->tn);
@@ -55,14 +67,19 @@ QueryNode *__newQueryNode(QueryNodeType type) {
   return s;
 }
 
-QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
+QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata) {
   // If we are using stemming, stem the current token, and if needed add a
   // UNION of it an the stem
   q->numTokens++;
 
   QueryNode *ret = __newQueryNode(QN_TOKEN);
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len};
+
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .metadata = metadata};
   return ret;
+}
+
+QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
+  return NewTokenNodeMetadata(q, s, len, NULL);
 }
 
 QueryNode *NewUnionNode() {
@@ -93,6 +110,7 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
 
   IndexReader *ir =
       Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);
+  ir->term->metadata = node->metadata;
   if (ir == NULL) {
     return NULL;
   }
@@ -182,7 +200,6 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
 
   return ret;
 }
-void __queryNode_Print(QueryNode *qs, int depth);
 QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
   QueryNode *xn = e->Expand(e->ctx, q, n);
   if (xn) {
@@ -250,8 +267,7 @@ void Query_Free(Query *q) {
   //   q->stemmer->Free(q->stemmer);
   // }
   if (q->expander && q->expander->ctx) {
-    free(q->expander->ctx);
-    free(q->expander);
+    q->expander->Free(q->expander->ctx);
   }
   free(q->raw);
   free(q);
