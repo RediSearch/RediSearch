@@ -7,4 +7,5 @@ pages:
     - 'Overview': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Commands': 'Commands.md'
+    - 'Query Syntax': 'Query_Syntax.md'
     - 'Stemming Support': Stemming.md

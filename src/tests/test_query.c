@@ -45,6 +45,7 @@ int testQueryParser() {
   assertValidQuery("(hello|world|foo) bar baz");
   assertValidQuery("(hello|world|foo) (bar baz)");
   assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
+  assertValidQuery("(barack|barrack) obama");
   // assertValidQuery("(hello world)|(goodbye moon)");
 
   assertInvalidQuery("(foo");
@@ -152,8 +153,8 @@ void benchmarkQueryParser() {
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
-  // TESTFUNC(testQueryParser);
+  TESTFUNC(testQueryParser);
   TESTFUNC(testQueryExpander);
 
-  // benchmarkQueryParser();
+  benchmarkQueryParser();
 }

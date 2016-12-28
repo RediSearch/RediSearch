@@ -158,28 +158,17 @@ Search the index with a textual query, returning either documents or just ids.
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
 - **EXPANDER expander**: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.
 
-Complexity
+### Complexity
 
 O(n) for single word queries (though for popular words we save a cache of the top 50 results).
 
-O(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.
-
+Complexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.
 
 ### Returns
 
 **Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
-
-### Search Query Syntax:
-
-  We support a simple syntax for complex queries with the following rules:
-
-* Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
-* Exact phrases are wrapped in quotes, e.g `"hello world"`.
-* OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-* An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
-* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
 ----
 
