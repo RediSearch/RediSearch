@@ -12,19 +12,24 @@ We support a simple syntax for complex queries with the following rules:
 
 
 * Simple phrase query - hello AND world
-  	hello world
+
+        hello world
 
 * Exact phrase query - **hello** FOLLOWED BY **world**
-  	"hello world"
+
+        "hello world"
 
 * Union: documents containing either **hello** OR **world**
-  	hello|world
+
+        hello|world
 
 * Intersection of unions
-  	(hello\|halo) (world\|werld)
+
+        (hello|halo) (world|werld)
 
 * Union inside phrase
-  	(barack\|barrack) obama
+
+        (barack|barrack) obama
 
 ### Technical Note
 
