@@ -11,7 +11,23 @@
 
     
     <url>
+     <loc>/Quick_Start/</loc>
+     <lastmod>2016-12-28</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
      <loc>/Commands/</loc>
+     <lastmod>2016-12-28</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
+     <loc>/Stemming/</loc>
      <lastmod>2016-12-28</lastmod>
      <changefreq>daily</changefreq>
     </url>

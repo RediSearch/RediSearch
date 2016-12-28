@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
     
       
-        <title>RediSearch Documentation</title>
+        <title>Quick Start - RediSearch Documentation</title>
       
       
       
@@ -17,31 +17,31 @@
     
     <meta property="og:url" content="None">
     <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="None/./">
+    <meta property="og:image" content="None/../">
     <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     
-    <link rel="shortcut icon" type="image/x-icon" href="./assets/images/favicon-e565ddfa3b.ico">
-    <link rel="icon" type="image/x-icon" href="./assets/images/favicon-e565ddfa3b.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
+    <link rel="icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
     <style>
       @font-face {
       	font-family: 'Icon';
-      	src: url('./assets/fonts/icon.eot?52m981');
-      	src: url('./assets/fonts/icon.eot?#iefix52m981')
+      	src: url('../assets/fonts/icon.eot?52m981');
+      	src: url('../assets/fonts/icon.eot?#iefix52m981')
                format('embedded-opentype'),
-      		   url('./assets/fonts/icon.woff?52m981')
+      		   url('../assets/fonts/icon.woff?52m981')
                format('woff'),
-      		   url('./assets/fonts/icon.ttf?52m981')
+      		   url('../assets/fonts/icon.ttf?52m981')
                format('truetype'),
-      		   url('./assets/fonts/icon.svg?52m981#icon')
+      		   url('../assets/fonts/icon.svg?52m981#icon')
                format('svg');
       	font-weight: normal;
       	font-style: normal;
       }
     </style>
-    <link rel="stylesheet" href="./assets/stylesheets/application-a422ff04cc.css">
+    <link rel="stylesheet" href="../assets/stylesheets/application-a422ff04cc.css">
     
     
       
@@ -58,7 +58,7 @@
       </style>
     
     
-    <script src="./assets/javascripts/modernizr-4ab42b99fd.js"></script>
+    <script src="../assets/javascripts/modernizr-4ab42b99fd.js"></script>
     
   </head>
   
@@ -87,7 +87,7 @@
             
           </span>
         
-        RediSearch Documentation
+        Quick Start
       </div>
     </div>
     
@@ -138,8 +138,17 @@
           
             
   <li>
-    <a class="current" title="Overview" href=".">
+    <a class="" title="Overview" href="..">
       Overview
+    </a>
+    
+  </li>
+
+          
+            
+  <li>
+    <a class="current" title="Quick Start" href="./">
+      Quick Start
     </a>
     
       
@@ -149,14 +158,38 @@
         <ul>
           
             <li class="anchor">
-              <a title="Overview" href="#overview">
-                Overview
+              <a title="Building and running:" href="#building-and-running">
+                Building and running:
               </a>
             </li>
           
             <li class="anchor">
-              <a title="Primary Features:" href="#primary-features">
-                Primary Features:
+              <a title="Creating an index with fields and weights:" href="#creating-an-index-with-fields-and-weights">
+                Creating an index with fields and weights:
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Adding documents to the index:" href="#adding-documents-to-the-index">
+                Adding documents to the index:
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Searching the index:" href="#searching-the-index">
+                Searching the index:
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Dropping the index:" href="#dropping-the-index">
+                Dropping the index:
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Adding and getting Auto-complete suggestions:" href="#adding-and-getting-auto-complete-suggestions">
+                Adding and getting Auto-complete suggestions:
               </a>
             </li>
           
@@ -168,16 +201,7 @@
           
             
   <li>
-    <a class="" title="Quick Start" href="Quick_Start/">
-      Quick Start
-    </a>
-    
-  </li>
-
-          
-            
-  <li>
-    <a class="" title="Commands" href="Commands/">
+    <a class="" title="Commands" href="../Commands/">
       Commands
     </a>
     
@@ -186,7 +210,7 @@
           
             
   <li>
-    <a class="" title="Stemming Support" href="Stemming/">
+    <a class="" title="Stemming Support" href="../Stemming/">
       Stemming Support
     </a>
     
@@ -203,31 +227,55 @@
       <article class="article">
         <div class="wrapper">
           
-          <h1 id="welcome-to-redisearch">Welcome to RediSearch</h1>
-<p>RediSearch is a Full-Text search over Redis, developed by RedisLabs</p>
-<h2 id="overview">Overview</h2>
-<p>Redisearch impements a search engine on top of redis, but unlike other redis 
-search libraries, it does not use internal data structures like sorted sets.</p>
-<p>Inverted indexes are stored on top of Redis strings using binary encoding,
-and not mapped to existing data structures (see <a href="DESIGN.md">DESIGN.md</a>). </p>
-<p>This allows much faster performance, significantly less memory consumption, and
-more advanced features like exact phrase matching, that are not possible with 
-traditional redis search approaches. </p>
-<h2 id="primary-features">Primary Features:</h2>
-<ul>
-<li>Full-Text indexing of multiple fields in documents.</li>
-<li>Incremental indexing without performance loss.</li>
-<li>Document ranking (provided manually by the user at index time).</li>
-<li>Field weights.</li>
-<li>Auto-complete suggestions (with fuzzy prefix suggestions)</li>
-<li>Exact Phrase Search of up to 8 words.</li>
-<li>Stemming based query expansion in <a href="#stemming-support">many languages</a> (using <a href="http://snowballstem.org/">Snowball</a>).</li>
-<li>Limiting searches to specific document fields (up to 8 fields supported).</li>
-<li>Numeric filters and ranges.</li>
-<li>Supports any utf-8 encoded text.</li>
-<li>Retrieve full document content or just ids</li>
-<li>Automatically index existing HASH keys as documents.</li>
-</ul>
+          <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:</h1>
+<h2 id="building-and-running">Building and running:</h2>
+<pre><code class="sh">git clone https://github.com/RedisLabsModules/RediSearch.git
+cd RediSearch/src
+make all
+
+# Assuming you have a redis build from the unstable branch:
+/path/to/redis-server --loadmodule ./module.so
+</code></pre>
+
+<h2 id="creating-an-index-with-fields-and-weights">Creating an index with fields and weights:</h2>
+<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0
+OK 
+
+</code></pre>
+
+<h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
+<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 fields title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
+OK
+</code></pre>
+
+<h2 id="searching-the-index">Searching the index:</h2>
+<pre><code>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
+1) (integer) 1
+2) &quot;doc1&quot;
+3) 1) &quot;title&quot;
+   2) &quot;hello world&quot;
+   3) &quot;body&quot;
+   4) &quot;lorem ipsum&quot;
+   5) &quot;url&quot;
+   6) &quot;http://redis.io&quot;
+</code></pre>
+
+<blockquote>
+<p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
+</blockquote>
+<h2 id="dropping-the-index">Dropping the index:</h2>
+<pre><code>127.0.0.1:6379&gt; FT.DROP myIdx
+OK
+</code></pre>
+
+<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:</h2>
+<pre><code>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
+OK
+
+127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
+1) &quot;hello world&quot;
+
+</code></pre>
           <aside class="copyright" role="note">
             
             Documentation built with
@@ -244,17 +292,33 @@ traditional redis search approaches. </p>
   <nav class="pagination" aria-label="Footer">
     <div class="previous">
       
+        <a href=".." title="Overview">
+          <span class="direction">
+            Previous
+          </span>
+          <div class="page">
+            <div class="button button-previous" role="button" aria-label="Previous">
+              <i class="icon icon-back"></i>
+            </div>
+            <div class="stretch">
+              <div class="title">
+                Overview
+              </div>
+            </div>
+          </div>
+        </a>
+      
     </div>
     <div class="next">
       
-        <a href="Quick_Start/" title="Quick Start">
+        <a href="../Commands/" title="Commands">
           <span class="direction">
             Next
           </span>
           <div class="page">
             <div class="stretch">
               <div class="title">
-                Quick Start
+                Commands
               </div>
             </div>
             <div class="button button-next" role="button" aria-label="Next">
@@ -280,10 +344,10 @@ traditional redis search approaches. </p>
       </div>
     </main>
     <script>
-      var base_url = '.';
+      var base_url = '..';
       var repo_id  = '';
     </script>
-    <script src="./assets/javascripts/application-997097ee0c.js"></script>
+    <script src="../assets/javascripts/application-997097ee0c.js"></script>
     
     
   </body>

@@ -2,23 +2,63 @@
     "docs": [
         {
             "location": "/", 
-            "text": "Welcome to MkDocs\n\n\nFor full documentation visit \nmkdocs.org\n.\n\n\nCommands\n\n\n\n\nmkdocs new [dir-name]\n - Create a new project.\n\n\nmkdocs serve\n - Start the live-reloading docs server.\n\n\nmkdocs build\n - Build the documentation site.\n\n\nmkdocs help\n - Print this help message.\n\n\n\n\nProject layout\n\n\nmkdocs.yml    # The configuration file.\ndocs/\n    index.md  # The documentation homepage.\n    ...       # Other markdown pages, images and other files.", 
-            "title": "Home"
+            "text": "Welcome to RediSearch\n\n\nRediSearch is a Full-Text search over Redis, developed by RedisLabs\n\n\nOverview\n\n\nRedisearch impements a search engine on top of redis, but unlike other redis \nsearch libraries, it does not use internal data structures like sorted sets.\n\n\nInverted indexes are stored on top of Redis strings using binary encoding,\nand not mapped to existing data structures (see \nDESIGN.md\n). \n\n\nThis allows much faster performance, significantly less memory consumption, and\nmore advanced features like exact phrase matching, that are not possible with \ntraditional redis search approaches. \n\n\nPrimary Features:\n\n\n\n\nFull-Text indexing of multiple fields in documents.\n\n\nIncremental indexing without performance loss.\n\n\nDocument ranking (provided manually by the user at index time).\n\n\nField weights.\n\n\nAuto-complete suggestions (with fuzzy prefix suggestions)\n\n\nExact Phrase Search of up to 8 words.\n\n\nStemming based query expansion in \nmany languages\n (using \nSnowball\n).\n\n\nLimiting searches to specific document fields (up to 8 fields supported).\n\n\nNumeric filters and ranges.\n\n\nSupports any utf-8 encoded text.\n\n\nRetrieve full document content or just ids\n\n\nAutomatically index existing HASH keys as documents.", 
+            "title": "Overview"
         }, 
         {
-            "location": "/#welcome-to-mkdocs", 
-            "text": "For full documentation visit  mkdocs.org .", 
-            "title": "Welcome to MkDocs"
+            "location": "/#welcome-to-redisearch", 
+            "text": "RediSearch is a Full-Text search over Redis, developed by RedisLabs", 
+            "title": "Welcome to RediSearch"
         }, 
         {
-            "location": "/#commands", 
-            "text": "mkdocs new [dir-name]  - Create a new project.  mkdocs serve  - Start the live-reloading docs server.  mkdocs build  - Build the documentation site.  mkdocs help  - Print this help message.", 
-            "title": "Commands"
+            "location": "/#overview", 
+            "text": "Redisearch impements a search engine on top of redis, but unlike other redis \nsearch libraries, it does not use internal data structures like sorted sets.  Inverted indexes are stored on top of Redis strings using binary encoding,\nand not mapped to existing data structures (see  DESIGN.md ).   This allows much faster performance, significantly less memory consumption, and\nmore advanced features like exact phrase matching, that are not possible with \ntraditional redis search approaches.", 
+            "title": "Overview"
         }, 
         {
-            "location": "/#project-layout", 
-            "text": "mkdocs.yml    # The configuration file.\ndocs/\n    index.md  # The documentation homepage.\n    ...       # Other markdown pages, images and other files.", 
-            "title": "Project layout"
+            "location": "/#primary-features", 
+            "text": "Full-Text indexing of multiple fields in documents.  Incremental indexing without performance loss.  Document ranking (provided manually by the user at index time).  Field weights.  Auto-complete suggestions (with fuzzy prefix suggestions)  Exact Phrase Search of up to 8 words.  Stemming based query expansion in  many languages  (using  Snowball ).  Limiting searches to specific document fields (up to 8 fields supported).  Numeric filters and ranges.  Supports any utf-8 encoded text.  Retrieve full document content or just ids  Automatically index existing HASH keys as documents.", 
+            "title": "Primary Features:"
+        }, 
+        {
+            "location": "/Quick_Start/", 
+            "text": "Quick Start Guide for RediSearch:\n\n\nBuilding and running:\n\n\ngit clone https://github.com/RedisLabsModules/RediSearch.git\ncd RediSearch/src\nmake all\n\n# Assuming you have a redis build from the unstable branch:\n/path/to/redis-server --loadmodule ./module.so\n\n\n\n\nCreating an index with fields and weights:\n\n\n127.0.0.1:6379\n FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0\nOK \n\n\n\n\n\nAdding documents to the index:\n\n\n127.0.0.1:6379\n FT.ADD myIdx doc1 1.0 fields title \nhello world\n body \nlorem ipsum\n url \nhttp://redis.io\n \nOK\n\n\n\n\nSearching the index:\n\n\n127.0.0.1:6379\n FT.SEARCH myIdx \nhello world\n LIMIT 0 10\n1) (integer) 1\n2) \ndoc1\n\n3) 1) \ntitle\n\n   2) \nhello world\n\n   3) \nbody\n\n   4) \nlorem ipsum\n\n   5) \nurl\n\n   6) \nhttp://redis.io\n\n\n\n\n\n\n\nNOTE\n: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. \n\n\n\n\nDropping the index:\n\n\n127.0.0.1:6379\n FT.DROP myIdx\nOK\n\n\n\n\nAdding and getting Auto-complete suggestions:\n\n\n127.0.0.1:6379\n FT.SUGADD autocomplete \nhello world\n 100\nOK\n\n127.0.0.1:6379\n FT.SUGGET autocomplete \nhe\n\n1) \nhello world", 
+            "title": "Quick Start"
+        }, 
+        {
+            "location": "/Quick_Start/#quick-start-guide-for-redisearch", 
+            "text": "", 
+            "title": "Quick Start Guide for RediSearch:"
+        }, 
+        {
+            "location": "/Quick_Start/#building-and-running", 
+            "text": "git clone https://github.com/RedisLabsModules/RediSearch.git\ncd RediSearch/src\nmake all\n\n# Assuming you have a redis build from the unstable branch:\n/path/to/redis-server --loadmodule ./module.so", 
+            "title": "Building and running:"
+        }, 
+        {
+            "location": "/Quick_Start/#creating-an-index-with-fields-and-weights", 
+            "text": "127.0.0.1:6379  FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0\nOK", 
+            "title": "Creating an index with fields and weights:"
+        }, 
+        {
+            "location": "/Quick_Start/#adding-documents-to-the-index", 
+            "text": "127.0.0.1:6379  FT.ADD myIdx doc1 1.0 fields title  hello world  body  lorem ipsum  url  http://redis.io  \nOK", 
+            "title": "Adding documents to the index:"
+        }, 
+        {
+            "location": "/Quick_Start/#searching-the-index", 
+            "text": "127.0.0.1:6379  FT.SEARCH myIdx  hello world  LIMIT 0 10\n1) (integer) 1\n2)  doc1 \n3) 1)  title \n   2)  hello world \n   3)  body \n   4)  lorem ipsum \n   5)  url \n   6)  http://redis.io    NOTE : Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment.", 
+            "title": "Searching the index:"
+        }, 
+        {
+            "location": "/Quick_Start/#dropping-the-index", 
+            "text": "127.0.0.1:6379  FT.DROP myIdx\nOK", 
+            "title": "Dropping the index:"
+        }, 
+        {
+            "location": "/Quick_Start/#adding-and-getting-auto-complete-suggestions", 
+            "text": "127.0.0.1:6379  FT.SUGADD autocomplete  hello world  100\nOK\n\n127.0.0.1:6379  FT.SUGGET autocomplete  he \n1)  hello world", 
+            "title": "Adding and getting Auto-complete suggestions:"
         }, 
         {
             "location": "/Commands/", 
@@ -284,6 +324,21 @@
             "location": "/Commands/#returns_9", 
             "text": "Integer Reply: the current size of the suggestion dictionary.", 
             "title": "Returns:"
+        }, 
+        {
+            "location": "/Stemming/", 
+            "text": "Stemming Support\n\n\nRediSearch supports stemming - that is adding the base form of a word to the index. This allows \nthe query for \"going\" to also return results for \"go\" and \"gone\", for example. \n\n\nThe current stemming support is based on the Snowball stemmer library, which supports most European\nlanguages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif\nlangauge support, please open an issue). \n\n\nFor further details see the \nSnowball Stemmer website\n.\n\n\nSupported languages:\n\n\nThe following languages are supported, and can be passed to the engine \nwhen indexing or querying, with lowercase letters:\n\n\n\n\narabic\n\n\ndanish\n\n\ndutch\n\n\nenglish\n\n\nfinnish\n\n\nfrench\n\n\ngerman\n\n\nhungarian\n\n\nitalian\n\n\nnorwegian\n\n\nportuguese\n\n\nromanian\n\n\nrussian\n\n\nspanish\n\n\nswedish\n\n\ntamil\n\n\nturkish", 
+            "title": "Stemming Support"
+        }, 
+        {
+            "location": "/Stemming/#stemming-support", 
+            "text": "RediSearch supports stemming - that is adding the base form of a word to the index. This allows \nthe query for \"going\" to also return results for \"go\" and \"gone\", for example.   The current stemming support is based on the Snowball stemmer library, which supports most European\nlanguages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif\nlangauge support, please open an issue).   For further details see the  Snowball Stemmer website .", 
+            "title": "Stemming Support"
+        }, 
+        {
+            "location": "/Stemming/#supported-languages", 
+            "text": "The following languages are supported, and can be passed to the engine \nwhen indexing or querying, with lowercase letters:   arabic  danish  dutch  english  finnish  french  german  hungarian  italian  norwegian  portuguese  romanian  russian  spanish  swedish  tamil  turkish", 
+            "title": "Supported languages:"
         }
     ]
 }
