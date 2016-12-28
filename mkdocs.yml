@@ -9,3 +9,5 @@ pages:
     - 'Commands': 'Commands.md'
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stemming Support': Stemming.md
+
+google_analytics: ['UA-89573912-1', 'github page']
