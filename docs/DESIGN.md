@@ -153,5 +153,10 @@ RediSearch also allows for Fuzzy Suggestions, meaning you can get suggestions to
 
 However, since searching for fuzzy prefixes, especially very short ones, will traverse an enormous amount of suggestions (in fact, fuzzy suggestions for any single letter will traverse the entire dictionary!), it is recommended to use this feature carefully, and only when considering the performance penalty it incurs. Since redis is single threaded, blocking it for any amount of time means no other queries can be processed at that time. 
 
-Note: currently, fuzzy searching will work correctly with the latin alphabet only. However the general approach of autocomplete suggestions works on any utf-8 encoded text. This is because the Automaton and trie work at a byte level and not rune level.
+To support unicode fuzzy matching, we use 16-bit "runes" inside the trie, and not bytes. This increases memory consumption if the text is purely ascii, but allows completion with the same level of support to all modern languages. This is done in the following manner:
+
+1. We assume all input to FT.SUG* commands is valid utf-8.
+2. We convert the input strings to 32-bit unicode, optionally normalizing, case-folding and removing accents on the way. If the conversion fails it's because the input is not valid utf-8.
+3. We trim the 32-bit runes to 16-bit runes using the lower 16 bits. These can be used for insertion, deletion and search.
+4. We convert the output of searches back to utf-8.
 
