@@ -242,24 +242,29 @@
 <h2 id="a-few-examples">A few examples</h2>
 <ul>
 <li>
-<p>Simple phrase query - hello AND world
-    hello world</p>
+<p>Simple phrase query - hello AND world</p>
+<pre><code>hello world
+</code></pre>
 </li>
 <li>
-<p>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong>
-    "hello world"</p>
+<p>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong></p>
+<pre><code>"hello world"
+</code></pre>
 </li>
 <li>
-<p>Union: documents containing either <strong>hello</strong> OR <strong>world</strong>
-    hello|world</p>
+<p>Union: documents containing either <strong>hello</strong> OR <strong>world</strong></p>
+<pre><code>hello|world
+</code></pre>
 </li>
 <li>
-<p>Intersection of unions
-    (hello\|halo) (world\|werld)</p>
+<p>Intersection of unions</p>
+<pre><code>(hello|halo) (world|werld)
+</code></pre>
 </li>
 <li>
-<p>Union inside phrase
-    (barack\|barrack) obama</p>
+<p>Union inside phrase</p>
+<pre><code>(barack|barrack) obama
+</code></pre>
 </li>
 </ul>
 <h3 id="technical-note">Technical Note</h3>
