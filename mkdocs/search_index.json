@@ -1,0 +1,289 @@
+{
+    "docs": [
+        {
+            "location": "/", 
+            "text": "Welcome to MkDocs\n\n\nFor full documentation visit \nmkdocs.org\n.\n\n\nCommands\n\n\n\n\nmkdocs new [dir-name]\n - Create a new project.\n\n\nmkdocs serve\n - Start the live-reloading docs server.\n\n\nmkdocs build\n - Build the documentation site.\n\n\nmkdocs help\n - Print this help message.\n\n\n\n\nProject layout\n\n\nmkdocs.yml    # The configuration file.\ndocs/\n    index.md  # The documentation homepage.\n    ...       # Other markdown pages, images and other files.", 
+            "title": "Home"
+        }, 
+        {
+            "location": "/#welcome-to-mkdocs", 
+            "text": "For full documentation visit  mkdocs.org .", 
+            "title": "Welcome to MkDocs"
+        }, 
+        {
+            "location": "/#commands", 
+            "text": "mkdocs new [dir-name]  - Create a new project.  mkdocs serve  - Start the live-reloading docs server.  mkdocs build  - Build the documentation site.  mkdocs help  - Print this help message.", 
+            "title": "Commands"
+        }, 
+        {
+            "location": "/#project-layout", 
+            "text": "mkdocs.yml    # The configuration file.\ndocs/\n    index.md  # The documentation homepage.\n    ...       # Other markdown pages, images and other files.", 
+            "title": "Project layout"
+        }, 
+        {
+            "location": "/Commands/", 
+            "text": "RediSeach Full Command Documentation\n\n\nFT.CREATE\n\n\nFormat:\n\n\n  FT.CREATE {index} \n    {field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]\n\n\n\n\nDescription:\n\n\nCreates an index with the given spec. The index name will be used in all the key names\nso keep it short!\n\n\nParameters:\n\n\n\n\n\n\nindex\n: the index name to create. If it exists the old spec will be overwritten\n\n\n\n\n\n\nfield weight|NUMERIC\n:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.\n\n\n\n\n\n\nIf NUMRERIC is set instead of a weight, the index will expect numeric values in this field.\n\n\nComplexity\n\n\nO(1)\n\n\nReturns:\n\n\nOK or an error\n\n\n\n\nFT.ADD\n\n\nFormat:\n\n\nFT.ADD {index} {docId} {score} \n    [NOSAVE]\n    [LANGUAGE {language}] \n    FIELDS {field} {value} [{field} {value}...]\n\n\n\n\nDescription\n\n\nAdd a documet to the index.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id that will be returned from searches. \n  Note that the same docId cannot be added twice to the same index\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nNOSAVE\n: If set to true, we will not save the actual document in the index and only index it.\n\n\n\n\n\n\nFIELDS\n: Following the FIELDS specifier, we are looking for pairs of  \n{field} {value}\n to be indexed.\n\n\n\n\n\n\nEach field will be scored based on the index spec given in FT.CREATE. \n  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set \n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\n\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.ADDHASH\n\n\nFormat\n\n\n FT.ADDHASH {index} {docId} {score} [LANGUAGE language]\n\n\n\n\nDescription\n\n\nAdd a documet to the index from an existing HASH key in Redis.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id. This has to be an existing HASH key in redis that will hold the fields \n    the index needs.\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\n\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.SEARCH\n\n\nFormat\n\n\nFT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]\n    [FILTER numeric_field min max]\n    [LANGUAGE language]\n    [EXPANDER expander]\n    [INFIELDS num field ... ]\n    [LIMIT offset num]\n\n\n\n\nDescription\n\n\nSearch the index with a textual query, returning either documents or just ids.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nquery\n: the text query to search. If it's more than a single word, put it in quotes.\n  See below for documentation on query syntax. \n\n\nNOCONTENT\n: If it appears after the query, we only return the document ids and not \n  the content. This is useful if rediseach is only an index on an external document collection\n\n\nLIMIT first num\n: If the parameters appear after the query, we limit the results to \n  the offset and number of results given. The default is 0 10\n\n\nINFIELDS num field ...\n: If set, filter the results to ones appearing only in specific\n  fields of the document, like title or url. num is the number of specified field arguments\n\n\nFILTER numeric_field min max\n: If set, and numeric_field is defined as a numeric field in \n  FT.CREATE, we will limit results to those having numeric values ranging between min and max.\n  min and max follow ZRANGE syntax, and can be \n-inf\n, \n+inf\n and use \n(\n for exclusive ranges.\n\n\nNOSTOPWORDS\n: If set, we do not filter stopwords from the query. \n\n\nWITHSCORES\n: If set, we also return the relative internal score of each document. this can be\n  used to merge results from multiple instances\n\n\nVERBATIM\n: if set, we do not try to use stemming for query expansion but search the query terms verbatim.\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during search for query expansion. \n  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.\n\n\nEXPANDER expander\n: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.\n\n\n\n\nComplexity\n\n\nO(n) for single word queries (though for popular words we save a cache of the top 50 results).\n\n\nO(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.\n\n\nReturns\n\n\nArray reply,\n where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. \n\n\nIf \nNOCONTENT\n was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.\n\n\nSearch Query Syntax:\n\n\nWe support a simple syntax for complex queries with the following rules:\n\n\n\n\nMulti-word phrases simply a list of tokens, e.g. \nfoo bar baz\n, and imply intersection (AND) of the terms.\n\n\nExact phrases are wrapped in quotes, e.g \n\"hello world\"\n.\n\n\nOR Unions (i.e \nword1 OR word2\n), are expressed with a pipe (\n|\n), e.g. \nhello|hallo|shalom|hola\n.\n\n\nAn expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. \n(hello|hella) (world|werld)\n.\n\n\nCombinations of the above can be used together, e.g \nhello (world|foo) \"bar baz\" bbbb\n\n\n\n\n\n\nFT.DROP\n\n\nFormat\n\n\nFT.DROP {index}\n\n\n\n\nDescription\n\n\nDeletes all the keys associated with the index. \n\n\nIf no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact\nthat the index specification is not deleted.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nReturns\n\n\nStatus Reply: OK on success.\n\n\n\n\nFT.OPTIMIZE\n\n\nFormat\n\n\nFT.OPTIMIZE {index}\n\n\n\n\nDescription\n\n\nAfter the index is built (and doesn't need to be updated again withuot a complete rebuild)\nwe can optimize memory consumption by trimming all index buffers to their actual size.\n\n\nWarning 1\n: Do not run it if you intend to update your index afterward.\n\n\nWarning 2\n: This blocks redis for a long time. Do not run it on production instances\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nReturns:\n\n\nInteger Reply - the number of index entries optimized.\n\n\n\n\nFT.SUGGADD\n\n\nFormat\n\n\nFT.SUGADD {key} {string} {score} [INCR]\n\n\n\n\nDescription\n\n\nAdd a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the\nindex definitions, and leaves creating and updating suggestino dictionaries to the user.\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the suggestion string we index\n\n\nscore\n: a floating point number of the suggestion string's weight\n\n\nINCR\n: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.\n\n\n\n\nFT.SUGGET\n\n\nFormat\n\n\nFT.SUGGET {key} {prefix} [FUZZY] [MAX num]\n\n\n\n\nDescription\n\n\nGet completion suggestions for a prefix\n\n\nParameters:\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nprefix\n: the prefix to complete on\n\n\nFUZZY\n: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent\n\n\nMAX num\n: If set, we limit the results to a maximum of \nnum\n. (\nNote\n: The default is 5, and the number cannot be greater than 10).\n\n\nWITHSCORES\n: If set, we also return the score of each suggestion. this can be\n  used to merge results from multiple instances\n\n\n\n\nReturns:\n\n\nArray Reply: a list of the top suggestions matching the prefix, optionally with score after each entry\n\n\n\n\nFT.SUGDEL\n\n\nFormat\n\n\nFT.SUGDEL {key} {string}\n\n\n\n\nDescription\n\n\nDelete a string from a suggestion index. \n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the string to delete\n\n\n\n\nReturns:\n\n\nInteger Reply: 1 if the string was found and deleted, 0 otherwise.\n\n\n\n\nFT.SUGLEN\n\n\nFormat\n\n\nFT.SUGLEN {key}\n\n\n\n\nDescription\n\n\nGet the size of an autoc-complete suggestion dictionary\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.", 
+            "title": "Commands"
+        }, 
+        {
+            "location": "/Commands/#rediseach-full-command-documentation", 
+            "text": "", 
+            "title": "RediSeach Full Command Documentation"
+        }, 
+        {
+            "location": "/Commands/#ftcreate", 
+            "text": "", 
+            "title": "FT.CREATE"
+        }, 
+        {
+            "location": "/Commands/#format", 
+            "text": "FT.CREATE {index} \n    {field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]", 
+            "title": "Format:"
+        }, 
+        {
+            "location": "/Commands/#description", 
+            "text": "Creates an index with the given spec. The index name will be used in all the key names\nso keep it short!", 
+            "title": "Description:"
+        }, 
+        {
+            "location": "/Commands/#parameters", 
+            "text": "index : the index name to create. If it exists the old spec will be overwritten    field weight|NUMERIC :  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.    If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#complexity", 
+            "text": "O(1)", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns", 
+            "text": "OK or an error", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftadd", 
+            "text": "", 
+            "title": "FT.ADD"
+        }, 
+        {
+            "location": "/Commands/#format_1", 
+            "text": "FT.ADD {index} {docId} {score} \n    [NOSAVE]\n    [LANGUAGE {language}] \n    FIELDS {field} {value} [{field} {value}...]", 
+            "title": "Format:"
+        }, 
+        {
+            "location": "/Commands/#description_1", 
+            "text": "Add a documet to the index.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_1", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE    docId : The document's id that will be returned from searches. \n  Note that the same docId cannot be added twice to the same index    score : The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1    NOSAVE : If set to true, we will not save the actual document in the index and only index it.    FIELDS : Following the FIELDS specifier, we are looking for pairs of   {field} {value}  to be indexed.    Each field will be scored based on the index spec given in FT.CREATE. \n  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set    LANGUAGE language : If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:    \"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#complexity_1", 
+            "text": "O(n), where n is the number of tokens in the document", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_1", 
+            "text": "OK on success, or an error if something went wrong.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftaddhash", 
+            "text": "", 
+            "title": "FT.ADDHASH"
+        }, 
+        {
+            "location": "/Commands/#format_2", 
+            "text": "FT.ADDHASH {index} {docId} {score} [LANGUAGE language]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_2", 
+            "text": "Add a documet to the index from an existing HASH key in Redis.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_2", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE    docId : The document's id. This has to be an existing HASH key in redis that will hold the fields \n    the index needs.    score : The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1    LANGUAGE language : If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:     \"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#complexity_2", 
+            "text": "O(n), where n is the number of tokens in the document", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_2", 
+            "text": "OK on success, or an error if something went wrong.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftsearch", 
+            "text": "", 
+            "title": "FT.SEARCH"
+        }, 
+        {
+            "location": "/Commands/#format_3", 
+            "text": "FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]\n    [FILTER numeric_field min max]\n    [LANGUAGE language]\n    [EXPANDER expander]\n    [INFIELDS num field ... ]\n    [LIMIT offset num]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_3", 
+            "text": "Search the index with a textual query, returning either documents or just ids.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_3", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  query : the text query to search. If it's more than a single word, put it in quotes.\n  See below for documentation on query syntax.   NOCONTENT : If it appears after the query, we only return the document ids and not \n  the content. This is useful if rediseach is only an index on an external document collection  LIMIT first num : If the parameters appear after the query, we limit the results to \n  the offset and number of results given. The default is 0 10  INFIELDS num field ... : If set, filter the results to ones appearing only in specific\n  fields of the document, like title or url. num is the number of specified field arguments  FILTER numeric_field min max : If set, and numeric_field is defined as a numeric field in \n  FT.CREATE, we will limit results to those having numeric values ranging between min and max.\n  min and max follow ZRANGE syntax, and can be  -inf ,  +inf  and use  (  for exclusive ranges.  NOSTOPWORDS : If set, we do not filter stopwords from the query.   WITHSCORES : If set, we also return the relative internal score of each document. this can be\n  used to merge results from multiple instances  VERBATIM : if set, we do not try to use stemming for query expansion but search the query terms verbatim.  LANGUAGE language : If set, we use a stemmer for the supplied langauge during search for query expansion. \n  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.  EXPANDER expander : If set, we will use a custom query expander instead of the stemmer. Currently has no affect.   Complexity  O(n) for single word queries (though for popular words we save a cache of the top 50 results).  O(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_3", 
+            "text": "Array reply,  where the first element is the total number of results, and then pairs of document id, and a nested array of field/value.   If  NOCONTENT  was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#search-query-syntax", 
+            "text": "We support a simple syntax for complex queries with the following rules:   Multi-word phrases simply a list of tokens, e.g.  foo bar baz , and imply intersection (AND) of the terms.  Exact phrases are wrapped in quotes, e.g  \"hello world\" .  OR Unions (i.e  word1 OR word2 ), are expressed with a pipe ( | ), e.g.  hello|hallo|shalom|hola .  An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g.  (hello|hella) (world|werld) .  Combinations of the above can be used together, e.g  hello (world|foo) \"bar baz\" bbbb", 
+            "title": "Search Query Syntax:"
+        }, 
+        {
+            "location": "/Commands/#ftdrop", 
+            "text": "", 
+            "title": "FT.DROP"
+        }, 
+        {
+            "location": "/Commands/#format_4", 
+            "text": "FT.DROP {index}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_4", 
+            "text": "Deletes all the keys associated with the index.   If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact\nthat the index specification is not deleted.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_4", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_4", 
+            "text": "Status Reply: OK on success.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftoptimize", 
+            "text": "Format  FT.OPTIMIZE {index}  Description  After the index is built (and doesn't need to be updated again withuot a complete rebuild)\nwe can optimize memory consumption by trimming all index buffers to their actual size.  Warning 1 : Do not run it if you intend to update your index afterward.  Warning 2 : This blocks redis for a long time. Do not run it on production instances", 
+            "title": "FT.OPTIMIZE"
+        }, 
+        {
+            "location": "/Commands/#parameters_5", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_5", 
+            "text": "Integer Reply - the number of index entries optimized.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsuggadd", 
+            "text": "", 
+            "title": "FT.SUGGADD"
+        }, 
+        {
+            "location": "/Commands/#format_5", 
+            "text": "FT.SUGADD {key} {string} {score} [INCR]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_5", 
+            "text": "Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the\nindex definitions, and leaves creating and updating suggestino dictionaries to the user.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_6", 
+            "text": "key : the suggestion dictionary key.  string : the suggestion string we index  score : a floating point number of the suggestion string's weight  INCR : if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_6", 
+            "text": "Integer Reply: the current size of the suggestion dictionary.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsugget", 
+            "text": "", 
+            "title": "FT.SUGGET"
+        }, 
+        {
+            "location": "/Commands/#format_6", 
+            "text": "FT.SUGGET {key} {prefix} [FUZZY] [MAX num]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_6", 
+            "text": "Get completion suggestions for a prefix", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_7", 
+            "text": "key : the suggestion dictionary key.  prefix : the prefix to complete on  FUZZY : if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent  MAX num : If set, we limit the results to a maximum of  num . ( Note : The default is 5, and the number cannot be greater than 10).  WITHSCORES : If set, we also return the score of each suggestion. this can be\n  used to merge results from multiple instances", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#returns_7", 
+            "text": "Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsugdel", 
+            "text": "", 
+            "title": "FT.SUGDEL"
+        }, 
+        {
+            "location": "/Commands/#format_7", 
+            "text": "FT.SUGDEL {key} {string}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_7", 
+            "text": "Delete a string from a suggestion index.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_8", 
+            "text": "key : the suggestion dictionary key.  string : the string to delete", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_8", 
+            "text": "Integer Reply: 1 if the string was found and deleted, 0 otherwise.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsuglen", 
+            "text": "Format  FT.SUGLEN {key}", 
+            "title": "FT.SUGLEN"
+        }, 
+        {
+            "location": "/Commands/#description_8", 
+            "text": "Get the size of an autoc-complete suggestion dictionary", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_9", 
+            "text": "key : the suggestion dictionary key.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_9", 
+            "text": "Integer Reply: the current size of the suggestion dictionary.", 
+            "title": "Returns:"
+        }
+    ]
+}

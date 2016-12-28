@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="no-js ie6"><![endif]-->
+<!--[if IE 7 ]><html class="no-js ie7"><![endif]-->
+<!--[if IE 8 ]><html class="no-js ie8"><![endif]-->
+<!--[if IE 9 ]><html class="no-js ie9"><![endif]-->
+<!--[if (gt IE 9)|!(IE)]><!--> <html class="no-js"> <!--<![endif]-->
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
+    
+      
+        <title>Commands - RediSearch Documentation</title>
+      
+      
+      
+      
+    
+    <meta property="og:url" content="None">
+    <meta property="og:title" content="RediSearch Documentation">
+    <meta property="og:image" content="None/../">
+    <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    
+    <link rel="shortcut icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
+    <link rel="icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
+    <style>
+      @font-face {
+      	font-family: 'Icon';
+      	src: url('../assets/fonts/icon.eot?52m981');
+      	src: url('../assets/fonts/icon.eot?#iefix52m981')
+               format('embedded-opentype'),
+      		   url('../assets/fonts/icon.woff?52m981')
+               format('woff'),
+      		   url('../assets/fonts/icon.ttf?52m981')
+               format('truetype'),
+      		   url('../assets/fonts/icon.svg?52m981#icon')
+               format('svg');
+      	font-weight: normal;
+      	font-style: normal;
+      }
+    </style>
+    <link rel="stylesheet" href="../assets/stylesheets/application-a422ff04cc.css">
+    
+    
+      
+      
+      
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Ubuntu:400,700|Ubuntu+Mono">
+      <style>
+        body, input {
+          font-family: 'Ubuntu', Helvetica, Arial, sans-serif;
+        }
+        pre, code {
+          font-family: 'Ubuntu Mono', 'Courier New', 'Courier', monospace;
+        }
+      </style>
+    
+    
+    <script src="../assets/javascripts/modernizr-4ab42b99fd.js"></script>
+    
+  </head>
+  
+  
+  
+  <body class=" ">
+    
+    <div class="backdrop">
+      <div class="backdrop-paper"></div>
+    </div>
+    <input class="toggle" type="checkbox" id="toggle-drawer">
+    <input class="toggle" type="checkbox" id="toggle-search">
+    <label class="toggle-button overlay" for="toggle-drawer"></label>
+    <header class="header">
+      <nav aria-label="Header">
+  <div class="bar default">
+    <div class="button button-menu" role="button" aria-label="Menu">
+      <label class="toggle-button icon icon-menu" for="toggle-drawer">
+        <span></span>
+      </label>
+    </div>
+    <div class="stretch">
+      <div class="title">
+        
+          <span class="path">
+            
+          </span>
+        
+        Commands
+      </div>
+    </div>
+    
+    
+    <div class="button button-search" role="button" aria-label="Search">
+      <label class="toggle-button icon icon-search" title="Search" for="toggle-search"></label>
+    </div>
+  </div>
+  <div class="bar search">
+    <div class="button button-close" role="button" aria-label="Close">
+      <label class="toggle-button icon icon-back" for="toggle-search"></label>
+    </div>
+    <div class="stretch">
+      <div class="field">
+        <input class="query" type="text" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck>
+      </div>
+    </div>
+    <div class="button button-reset" role="button" aria-label="Search">
+      <button class="toggle-button icon icon-close" id="reset-search"></button>
+    </div>
+  </div>
+</nav>
+    </header>
+    <main class="main">
+      
+      <div class="drawer">
+        <nav aria-label="Navigation">
+  
+  <a href="/" class="project">
+    <div class="banner">
+      
+      <div class="name">
+        <strong>
+          RediSearch Documentation
+          <span class="version">
+            
+          </span>
+        </strong>
+        
+      </div>
+    </div>
+  </a>
+  <div class="scrollable">
+    <div class="wrapper">
+      
+      <div class="toc">
+        <ul>
+          
+            
+  <li>
+    <a class="" title="Home" href="..">
+      Home
+    </a>
+    
+  </li>
+
+          
+            
+  <li>
+    <a class="current" title="Commands" href="./">
+      Commands
+    </a>
+    
+      
+        
+      
+      
+        <ul>
+          
+            <li class="anchor">
+              <a title="FT.CREATE" href="#ftcreate">
+                FT.CREATE
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.ADD" href="#ftadd">
+                FT.ADD
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.ADDHASH" href="#ftaddhash">
+                FT.ADDHASH
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.SEARCH" href="#ftsearch">
+                FT.SEARCH
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.DROP" href="#ftdrop">
+                FT.DROP
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.OPTIMIZE" href="#ftoptimize">
+                FT.OPTIMIZE
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.SUGGADD" href="#ftsuggadd">
+                FT.SUGGADD
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.SUGGET" href="#ftsugget">
+                FT.SUGGET
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.SUGDEL" href="#ftsugdel">
+                FT.SUGDEL
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="FT.SUGLEN" href="#ftsuglen">
+                FT.SUGLEN
+              </a>
+            </li>
+          
+        </ul>
+      
+    
+  </li>
+
+          
+        </ul>
+        
+      </div>
+    </div>
+  </div>
+</nav>
+      </div>
+      <article class="article">
+        <div class="wrapper">
+          
+          <h1 id="rediseach-full-command-documentation">RediSeach Full Command Documentation</h1>
+<h2 id="ftcreate">FT.CREATE</h2>
+<h3 id="format">Format:</h3>
+<pre><code>  FT.CREATE {index} 
+    {field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]
+</code></pre>
+
+<h3 id="description">Description:</h3>
+<p>Creates an index with the given spec. The index name will be used in all the key names
+so keep it short!</p>
+<h3 id="parameters">Parameters:</h3>
+<ul>
+<li>
+<p><strong>index</strong>: the index name to create. If it exists the old spec will be overwritten</p>
+</li>
+<li>
+<p><strong>field weight|NUMERIC</strong>:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.</p>
+</li>
+</ul>
+<p>If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.</p>
+<h3 id="complexity">Complexity</h3>
+<p>O(1)</p>
+<h3 id="returns">Returns:</h3>
+<p>OK or an error</p>
+<hr />
+<h2 id="ftadd">FT.ADD</h2>
+<h3 id="format_1">Format:</h3>
+<pre><code>FT.ADD {index} {docId} {score} 
+    [NOSAVE]
+    [LANGUAGE {language}] 
+    FIELDS {field} {value} [{field} {value}...]
+</code></pre>
+
+<h3 id="description_1">Description</h3>
+<p>Add a documet to the index.</p>
+<h3 id="parameters_1">Parameters:</h3>
+<ul>
+<li>
+<p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
+</li>
+<li>
+<p><strong>docId</strong>: The document's id that will be returned from searches. 
+  Note that the same docId cannot be added twice to the same index</p>
+</li>
+<li>
+<p><strong>score</strong>: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
+  If you don't have a score just set it to 1</p>
+</li>
+<li>
+<p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the index and only index it.</p>
+</li>
+<li>
+<p><strong>FIELDS</strong>: Following the FIELDS specifier, we are looking for pairs of  <code>{field} {value}</code> to be indexed.</p>
+</li>
+</ul>
+<p>Each field will be scored based on the index spec given in FT.CREATE. 
+  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set </p>
+<ul>
+<li><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+  If an unsupported language is sent, the command returns an error. 
+  The supported languages are:</li>
+</ul>
+<blockquote>
+<p>"arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+"german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+"russian", "spanish",   "swedish", "tamil",     "turkish"</p>
+</blockquote>
+<h3 id="complexity_1">Complexity</h3>
+<p>O(n), where n is the number of tokens in the document</p>
+<h3 id="returns_1">Returns</h3>
+<p>OK on success, or an error if something went wrong.</p>
+<hr />
+<h2 id="ftaddhash">FT.ADDHASH</h2>
+<h3 id="format_2">Format</h3>
+<pre><code> FT.ADDHASH {index} {docId} {score} [LANGUAGE language]
+</code></pre>
+
+<h3 id="description_2">Description</h3>
+<p>Add a documet to the index from an existing HASH key in Redis.</p>
+<h3 id="parameters_2">Parameters:</h3>
+<ul>
+<li>
+<p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
+</li>
+<li>
+<p><strong>docId</strong>: The document's id. This has to be an existing HASH key in redis that will hold the fields 
+    the index needs.</p>
+</li>
+<li>
+<p><strong>score</strong>: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
+  If you don't have a score just set it to 1</p>
+</li>
+<li>
+<p><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+  If an unsupported language is sent, the command returns an error. 
+  The supported languages are:</p>
+</li>
+</ul>
+<blockquote>
+<p>"arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+"german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+"russian", "spanish",   "swedish", "tamil",     "turkish"</p>
+</blockquote>
+<h3 id="complexity_2">Complexity</h3>
+<p>O(n), where n is the number of tokens in the document</p>
+<h3 id="returns_2">Returns</h3>
+<p>OK on success, or an error if something went wrong.</p>
+<hr />
+<h2 id="ftsearch">FT.SEARCH</h2>
+<h3 id="format_3">Format</h3>
+<pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
+    [FILTER numeric_field min max]
+    [LANGUAGE language]
+    [EXPANDER expander]
+    [INFIELDS num field ... ]
+    [LIMIT offset num]
+</code></pre>
+
+<h3 id="description_3">Description</h3>
+<p>Search the index with a textual query, returning either documents or just ids.</p>
+<h3 id="parameters_3">Parameters</h3>
+<ul>
+<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>query</strong>: the text query to search. If it's more than a single word, put it in quotes.
+  See below for documentation on query syntax. </li>
+<li><strong>NOCONTENT</strong>: If it appears after the query, we only return the document ids and not 
+  the content. This is useful if rediseach is only an index on an external document collection</li>
+<li><strong>LIMIT first num</strong>: If the parameters appear after the query, we limit the results to 
+  the offset and number of results given. The default is 0 10</li>
+<li><strong>INFIELDS num field ...</strong>: If set, filter the results to ones appearing only in specific
+  fields of the document, like title or url. num is the number of specified field arguments</li>
+<li><strong>FILTER numeric_field min max</strong>: If set, and numeric_field is defined as a numeric field in 
+  FT.CREATE, we will limit results to those having numeric values ranging between min and max.
+  min and max follow ZRANGE syntax, and can be <strong>-inf</strong>, <strong>+inf</strong> and use <code>(</code> for exclusive ranges.</li>
+<li><strong>NOSTOPWORDS</strong>: If set, we do not filter stopwords from the query. </li>
+<li><strong>WITHSCORES</strong>: If set, we also return the relative internal score of each document. this can be
+  used to merge results from multiple instances</li>
+<li><strong>VERBATIM</strong>: if set, we do not try to use stemming for query expansion but search the query terms verbatim.</li>
+<li><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during search for query expansion. 
+  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.</li>
+<li><strong>EXPANDER expander</strong>: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.</li>
+</ul>
+<p>Complexity</p>
+<p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>
+<p>O(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.</p>
+<h3 id="returns_3">Returns</h3>
+<p><strong>Array reply,</strong> where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. </p>
+<p>If <strong>NOCONTENT</strong> was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.</p>
+<h3 id="search-query-syntax">Search Query Syntax:</h3>
+<p>We support a simple syntax for complex queries with the following rules:</p>
+<ul>
+<li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
+<li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
+<li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
+<li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
+<li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
+</ul>
+<hr />
+<h2 id="ftdrop">FT.DROP</h2>
+<h3 id="format_4">Format</h3>
+<pre><code>FT.DROP {index}
+</code></pre>
+
+<h3 id="description_4">Description</h3>
+<p>Deletes all the keys associated with the index. </p>
+<p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+that the index specification is not deleted.</p>
+<h3 id="parameters_4">Parameters</h3>
+<ul>
+<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+</ul>
+<h3 id="returns_4">Returns</h3>
+<p>Status Reply: OK on success.</p>
+<hr />
+<h2 id="ftoptimize">FT.OPTIMIZE</h2>
+<p>Format</p>
+<pre><code>FT.OPTIMIZE {index}
+</code></pre>
+
+<p>Description</p>
+<p>After the index is built (and doesn't need to be updated again withuot a complete rebuild)
+we can optimize memory consumption by trimming all index buffers to their actual size.</p>
+<p><strong>Warning 1</strong>: Do not run it if you intend to update your index afterward.</p>
+<p><strong>Warning 2</strong>: This blocks redis for a long time. Do not run it on production instances</p>
+<h3 id="parameters_5">Parameters</h3>
+<ul>
+<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+</ul>
+<h3 id="returns_5">Returns:</h3>
+<p>Integer Reply - the number of index entries optimized.</p>
+<hr />
+<h2 id="ftsuggadd">FT.SUGGADD</h2>
+<h3 id="format_5">Format</h3>
+<pre><code>FT.SUGADD {key} {string} {score} [INCR]
+</code></pre>
+
+<h3 id="description_5">Description</h3>
+<p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
+index definitions, and leaves creating and updating suggestino dictionaries to the user.</p>
+<h3 id="parameters_6">Parameters</h3>
+<ul>
+<li><strong>key</strong>: the suggestion dictionary key.</li>
+<li><strong>string</strong>: the suggestion string we index</li>
+<li><strong>score</strong>: a floating point number of the suggestion string's weight</li>
+<li><strong>INCR</strong>: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time</li>
+</ul>
+<h3 id="returns_6">Returns:</h3>
+<p>Integer Reply: the current size of the suggestion dictionary.</p>
+<hr />
+<h2 id="ftsugget">FT.SUGGET</h2>
+<h3 id="format_6">Format</h3>
+<pre><code>FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
+</code></pre>
+
+<h3 id="description_6">Description</h3>
+<p>Get completion suggestions for a prefix</p>
+<h3 id="parameters_7">Parameters:</h3>
+<ul>
+<li><strong>key</strong>: the suggestion dictionary key.</li>
+<li><strong>prefix</strong>: the prefix to complete on</li>
+<li><strong>FUZZY</strong>: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent</li>
+<li><strong>MAX num</strong>: If set, we limit the results to a maximum of <code>num</code>. (<strong>Note</strong>: The default is 5, and the number cannot be greater than 10).</li>
+<li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be
+  used to merge results from multiple instances</li>
+</ul>
+<h3 id="returns_7">Returns:</h3>
+<p>Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry</p>
+<hr />
+<h2 id="ftsugdel">FT.SUGDEL</h2>
+<h3 id="format_7">Format</h3>
+<pre><code>FT.SUGDEL {key} {string}
+</code></pre>
+
+<h3 id="description_7">Description</h3>
+<p>Delete a string from a suggestion index. </p>
+<h3 id="parameters_8">Parameters</h3>
+<ul>
+<li><strong>key</strong>: the suggestion dictionary key.</li>
+<li><strong>string</strong>: the string to delete</li>
+</ul>
+<h3 id="returns_8">Returns:</h3>
+<p>Integer Reply: 1 if the string was found and deleted, 0 otherwise.</p>
+<hr />
+<h2 id="ftsuglen">FT.SUGLEN</h2>
+<p>Format</p>
+<pre><code>FT.SUGLEN {key}
+</code></pre>
+
+<h3 id="description_8">Description</h3>
+<p>Get the size of an autoc-complete suggestion dictionary</p>
+<h3 id="parameters_9">Parameters</h3>
+<ul>
+<li><strong>key</strong>: the suggestion dictionary key.</li>
+</ul>
+<h3 id="returns_9">Returns:</h3>
+<p>Integer Reply: the current size of the suggestion dictionary.</p>
+          <aside class="copyright" role="note">
+            
+            Documentation built with
+            <a href="http://www.mkdocs.org" target="_blank">MkDocs</a>
+            using the
+            <a href="http://squidfunk.github.io/mkdocs-material/" target="_blank">
+              Material
+            </a>
+            theme.
+          </aside>
+          
+            <footer class="footer">
+              
+  <nav class="pagination" aria-label="Footer">
+    <div class="previous">
+      
+        <a href=".." title="Home">
+          <span class="direction">
+            Previous
+          </span>
+          <div class="page">
+            <div class="button button-previous" role="button" aria-label="Previous">
+              <i class="icon icon-back"></i>
+            </div>
+            <div class="stretch">
+              <div class="title">
+                Home
+              </div>
+            </div>
+          </div>
+        </a>
+      
+    </div>
+    <div class="next">
+      
+    </div>
+  </nav>
+
+            </footer>
+          
+        </div>
+      </article>
+      <div class="results" role="status" aria-live="polite">
+        <div class="scrollable">
+          <div class="wrapper">
+            <div class="meta"></div>
+            <div class="list"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script>
+      var base_url = '..';
+      var repo_id  = '';
+    </script>
+    <script src="../assets/javascripts/application-997097ee0c.js"></script>
+    
+    
+  </body>
+</html>

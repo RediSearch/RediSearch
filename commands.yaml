@@ -1,0 +1,56 @@
+FT.CREATE:
+    summary: Set the string value of a key
+    complexity: O(1)
+    arguments:
+        - 
+            comment: the index name
+            name: index_name
+            type: key
+        - 
+            name:
+                - field
+                - score | NUMERIC
+            type:
+                - string
+                - double | enum
+                - enum:
+                    - NUMERIC
+            comment: 
+                pairs of field name and relative weight in scoring. 
+                The weight is a double, but does not need to be normalized.
+       
+    since: 0.1
+    returns:
+        type: status
+        value: OK on success, error otherwise
+
+FT.ADD:
+    complexity: O(1)
+    arguments:
+        - 
+            comment: the index name
+            name: index_name
+            type: key
+        - 
+            name: docId
+            type: string
+        -
+            name: score
+            type: double
+            comment: The document's score, between 0.0 and 1.0
+        - 
+            command: LANGUAGE
+            name:
+                - lang
+            type:
+                - string
+            optional: true
+        -
+            name: nosave
+            type: enum
+            enum: [NOSAVE]
+        -
+        
+ index docId score [LANGUAGE lang] [NOSAVE] FIELDS <field> <text> ....
+
+
