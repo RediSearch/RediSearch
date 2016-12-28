@@ -1,6 +1,6 @@
 site_name: RediSearch Documentation
 theme: material
-
+site_url: 'http://redislabsmodules.github.io/RediSearch/'
 
 pages:
     - 'Overview': 'index.md'
