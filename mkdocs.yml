@@ -2,3 +2,8 @@ site_name: RediSearch Documentation
 theme: material
 
 
+pages:
+    - 'Overview': 'index.md'
+    - 'Quick Start': 'Quick_Start.md'
+    - 'Commands': 'Commands.md'
+    - 'Stemming Support': Stemming.md
