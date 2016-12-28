@@ -3,6 +3,10 @@
 !**/*.h
 !**/*.c
 !**/*.py
+!**/*.md
 !.gitignore
 !**/Makefile
+!**/*.yml
+!**/*.yaml
+/site
 

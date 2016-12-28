@@ -4,7 +4,8 @@
 
 ### Format:
 ```
-  FT.CREATE {index} {field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]
+  FT.CREATE {index} 
+  	{field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]
 ```
 
 ### Description:
@@ -15,7 +16,9 @@ so keep it short!
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **field weight|NUMERIC**:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized. If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.
+* **field weight|NUMERIC**:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.
+
+  If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.
 
 ### Complexity
 O(1)
@@ -133,7 +136,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
 
 Search the index with a textual query, returning either documents or just ids.
 
-### Parameters:
+### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
@@ -153,41 +156,68 @@ Search the index with a textual query, returning either documents or just ids.
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
 - **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
-- EXPANDER expander: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.
+- **EXPANDER expander**: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.
+
+Complexity
+
+O(n) for single word queries (though for popular words we save a cache of the top 50 results).
+
+O(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.
 
 
-### Returns:
+### Returns
 
-Array reply, where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
+**Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
 
-If NOCONTENT was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
+If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-## Search Query Syntax (since 0.3):
+### Search Query Syntax:
 
   We support a simple syntax for complex queries with the following rules:
 
-* Multi-word phrases are (AND) simply a list of tokens, e.g. `foo bar baz`.
-* Exact phrases are wrapped in qoutes, e.e.g `"hello world"`.
-    * OR unions i.e word1 OR word2, are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-    * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
-    * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
+* Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
+* Exact phrases are wrapped in quotes, e.g `"hello world"`.
+* OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
+* An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
+* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
 ----
 
+## FT.DROP
 
-## FT.DROP index
+### Format
+
+```
+FT.DROP {index}
+```
+
+### Description
+
 Deletes all the keys associated with the index. 
 
 If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
 
-### Returns:
+### Parameters
 
-> Simple String reply - OK on success.
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
+### Returns
+
+Status Reply: OK on success.
 
 ---
 
-## FT.OPTIMIZE index
+## FT.OPTIMIZE
+
+Format
+
+```
+FT.OPTIMIZE {index}
+```
+
+Description
+
 After the index is built (and doesn't need to be updated again withuot a complete rebuild)
 we can optimize memory consumption by trimming all index buffers to their actual size.
 
@@ -195,83 +225,109 @@ we can optimize memory consumption by trimming all index buffers to their actual
 
   **Warning 2**: This blocks redis for a long time. Do not run it on production instances
 
+### Parameters
+
+* **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
 ### Returns:
 
-> Integer Reply - the number of index entries optimized.
+Integer Reply - the number of index entries optimized.
 
 ---
 
-## FT.SUGGADD key string score [INCR]
+## FT.SUGGADD
+
+### Format
+
+```
+FT.SUGADD {key} {string} {score} [INCR]
+```
+
+### Description
 
 Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestino dictionaries to the user.
 
-### Parameters:
+### Parameters
 
 - **key**: the suggestion dictionary key.
-
 - **string**: the suggestion string we index
-
-   - **score**: a floating point number of the suggestion string's weight
-
-   - **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of
-      replacing the score. This is useful for updating the dictionary based on user queries in real
-      time
+- **score**: a floating point number of the suggestion string's weight
+- **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time
 
 ### Returns:
 
-> Integer reply: the current size of the suggestion dictionary.
+Integer Reply: the current size of the suggestion dictionary.
 
 ---
 
-## FT.SUGLEN key
+## FT.SUGGET
 
-Get the size of an autoc-complete suggestion dictionary
+### Format
 
-### Parameters:
+```
+FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
+```
 
-- **key**: the suggestion dictionary key.
-
-### Returns:
-
-> Integer reply: the current size of the suggestion dictionary.
-
----
-
-## FT.SUGGET key prefix [FUZZY] [MAX num]
+### Description
 
 Get completion suggestions for a prefix
 
 ### Parameters:
 
 - **key**: the suggestion dictionary key.
-
 - **prefix**: the prefix to complete on
-
-   - **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from
-      the prefix sent
-
-   - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number
-     cannot be greater than 10).
-
-   - **WITHSCORES**: If set, we also return the score of each suggestion. this can be
-     used to merge results from multiple instances
-
+- **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent
+- **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number cannot be greater than 10).
+- **WITHSCORES**: If set, we also return the score of each suggestion. this can be
+  used to merge results from multiple instances
 
 ### Returns:
 
-> Array reply: a list of the top suggestions matching the prefix
+Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry
 
-## FT.SUGDEL key str
+---
+
+## FT.SUGDEL
+
+### Format
+
+```
+FT.SUGDEL {key} {string}
+```
+
+### Description
 
 Delete a string from a suggestion index. 
 
-### Parameters:
+### Parameters
 
 - **key**: the suggestion dictionary key.
-
-- **str**: the string to delete
+- **string**: the string to delete
 
 ### Returns:
 
-> Integer reply: 1 if the string was found and deleted, 0 otherwise.
+Integer Reply: 1 if the string was found and deleted, 0 otherwise.
+
+----
+
+## FT.SUGLEN
+
+Format
+
+```
+FT.SUGLEN {key}
+```
+
+### Description
+
+Get the size of an autoc-complete suggestion dictionary
+
+### Parameters
+
+* **key**: the suggestion dictionary key.
+
+### Returns:
+
+Integer Reply: the current size of the suggestion dictionary.
+
