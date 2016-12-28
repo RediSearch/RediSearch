@@ -1,6 +1,8 @@
 # Welcome to RediSearch 
 
-RediSearch is a Full-Text search over Redis, developed by RedisLabs
+RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
+
+The source code is available at [github.com/RedisLabsModules/RediSearch](github.com/RedisLabsModules/RediSearch).
 
 ## Overview
 
