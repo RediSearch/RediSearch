@@ -258,6 +258,15 @@
           
             
   <li>
+    <a class="" title="Query Syntax" href="../Query_Syntax/">
+      Query Syntax
+    </a>
+    
+  </li>
+
+          
+            
+  <li>
     <a class="" title="Stemming Support" href="../Stemming/">
       Stemming Support
     </a>
@@ -417,21 +426,12 @@ so keep it short!</p>
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.</li>
 <li><strong>EXPANDER expander</strong>: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.</li>
 </ul>
-<p>Complexity</p>
+<h3 id="complexity_3">Complexity</h3>
 <p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>
-<p>O(n + k*log(m)) for multi word queries, where n is the number of intersection points, and m is the the length of most frequent term in the query, and k is the number of terms.</p>
+<p>Complexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.</p>
 <h3 id="returns_3">Returns</h3>
 <p><strong>Array reply,</strong> where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. </p>
 <p>If <strong>NOCONTENT</strong> was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.</p>
-<h3 id="search-query-syntax">Search Query Syntax:</h3>
-<p>We support a simple syntax for complex queries with the following rules:</p>
-<ul>
-<li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
-<li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
-<li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
-<li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
-<li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
-</ul>
 <hr />
 <h2 id="ftdrop">FT.DROP</h2>
 <h3 id="format_4">Format</h3>
@@ -566,14 +566,14 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
     </div>
     <div class="next">
       
-        <a href="../Stemming/" title="Stemming Support">
+        <a href="../Query_Syntax/" title="Query Syntax">
           <span class="direction">
             Next
           </span>
           <div class="page">
             <div class="stretch">
               <div class="title">
-                Stemming Support
+                Query Syntax
               </div>
             </div>
             <div class="button button-next" role="button" aria-label="Next">

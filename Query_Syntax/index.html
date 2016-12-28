@@ -9,17 +9,17 @@
     <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
     
       
-        <title>Quick Start - RediSearch Documentation</title>
+        <title>Query Syntax - RediSearch Documentation</title>
       
       
       
-        <link rel="canonical" href="https://redislabsmodules.github.io/RediSearch/Quick_Start/">
+        <link rel="canonical" href="https://redislabsmodules.github.io/RediSearch/Query_Syntax/">
       
       
     
-    <meta property="og:url" content="https://redislabsmodules.github.io/RediSearch/Quick_Start/">
+    <meta property="og:url" content="https://redislabsmodules.github.io/RediSearch/Query_Syntax/">
     <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="https://redislabsmodules.github.io/RediSearch/Quick_Start//../">
+    <meta property="og:image" content="https://redislabsmodules.github.io/RediSearch/Query_Syntax//../">
     <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -92,7 +92,7 @@
             
           </span>
         
-        Quick Start
+        Query Syntax
       </div>
     </div>
     
@@ -171,54 +171,9 @@
           
             
   <li>
-    <a class="current" title="Quick Start" href="./">
+    <a class="" title="Quick Start" href="../Quick_Start/">
       Quick Start
     </a>
-    
-      
-        
-      
-      
-        <ul>
-          
-            <li class="anchor">
-              <a title="Building and running:" href="#building-and-running">
-                Building and running:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Creating an index with fields and weights:" href="#creating-an-index-with-fields-and-weights">
-                Creating an index with fields and weights:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Adding documents to the index:" href="#adding-documents-to-the-index">
-                Adding documents to the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Searching the index:" href="#searching-the-index">
-                Searching the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Dropping the index:" href="#dropping-the-index">
-                Dropping the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Adding and getting Auto-complete suggestions:" href="#adding-and-getting-auto-complete-suggestions">
-                Adding and getting Auto-complete suggestions:
-              </a>
-            </li>
-          
-        </ul>
-      
     
   </li>
 
@@ -234,9 +189,24 @@
           
             
   <li>
-    <a class="" title="Query Syntax" href="../Query_Syntax/">
+    <a class="current" title="Query Syntax" href="./">
       Query Syntax
     </a>
+    
+      
+        
+      
+      
+        <ul>
+          
+            <li class="anchor">
+              <a title="A few examples" href="#a-few-examples">
+                A few examples
+              </a>
+            </li>
+          
+        </ul>
+      
     
   </li>
 
@@ -260,55 +230,47 @@
       <article class="article">
         <div class="wrapper">
           
-          <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:</h1>
-<h2 id="building-and-running">Building and running:</h2>
-<pre><code class="sh">git clone https://github.com/RedisLabsModules/RediSearch.git
-cd RediSearch/src
-make all
-
-# Assuming you have a redis build from the unstable branch:
-/path/to/redis-server --loadmodule ./module.so
-</code></pre>
-
-<h2 id="creating-an-index-with-fields-and-weights">Creating an index with fields and weights:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0
-OK 
-
-</code></pre>
-
-<h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 fields title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
-OK
-</code></pre>
-
-<h2 id="searching-the-index">Searching the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
-1) (integer) 1
-2) &quot;doc1&quot;
-3) 1) &quot;title&quot;
-   2) &quot;hello world&quot;
-   3) &quot;body&quot;
-   4) &quot;lorem ipsum&quot;
-   5) &quot;url&quot;
-   6) &quot;http://redis.io&quot;
-</code></pre>
-
-<blockquote>
-<p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
-</blockquote>
-<h2 id="dropping-the-index">Dropping the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.DROP myIdx
-OK
-</code></pre>
-
-<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
-OK
-
-127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
-1) &quot;hello world&quot;
-
-</code></pre>
+          <h1 id="search-query-syntax">Search Query Syntax:</h1>
+<p>We support a simple syntax for complex queries with the following rules:</p>
+<ul>
+<li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
+<li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
+<li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
+<li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
+<li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
+</ul>
+<h2 id="a-few-examples">A few examples</h2>
+<table>
+<thead>
+<tr>
+<th>Query</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hello world</td>
+<td>Simple phrase query - hello AND world</td>
+</tr>
+<tr>
+<td>"hello world"</td>
+<td>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong></td>
+</tr>
+<tr>
+<td>hello\</td>
+<td>world</td>
+</tr>
+<tr>
+<td>(hello\</td>
+<td>halo) (world\</td>
+</tr>
+<tr>
+<td>(barack\</td>
+<td>barrack) obama</td>
+</tr>
+</tbody>
+</table>
+<p>The query parser is built using the Lemon Parser Generator. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
           <aside class="copyright" role="note">
             
             Documentation built with
@@ -325,7 +287,7 @@ OK
   <nav class="pagination" aria-label="Footer">
     <div class="previous">
       
-        <a href=".." title="Overview">
+        <a href="../Commands/" title="Commands">
           <span class="direction">
             Previous
           </span>
@@ -335,7 +297,7 @@ OK
             </div>
             <div class="stretch">
               <div class="title">
-                Overview
+                Commands
               </div>
             </div>
           </div>
@@ -344,14 +306,14 @@ OK
     </div>
     <div class="next">
       
-        <a href="../Commands/" title="Commands">
+        <a href="../Stemming/" title="Stemming Support">
           <span class="direction">
             Next
           </span>
           <div class="page">
             <div class="stretch">
               <div class="title">
-                Commands
+                Stemming Support
               </div>
             </div>
             <div class="button button-next" role="button" aria-label="Next">

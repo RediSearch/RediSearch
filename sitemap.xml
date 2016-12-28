@@ -27,6 +27,14 @@
 
     
     <url>
+     <loc>https://redislabsmodules.github.io/RediSearch//Query_Syntax/</loc>
+     <lastmod>2016-12-28</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
      <loc>https://redislabsmodules.github.io/RediSearch//Stemming/</loc>
      <lastmod>2016-12-28</lastmod>
      <changefreq>daily</changefreq>
