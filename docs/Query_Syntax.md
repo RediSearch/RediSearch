@@ -10,14 +10,22 @@ We support a simple syntax for complex queries with the following rules:
 
 ## A few examples
 
-| Query                        | Description                              |
-| ---------------------------- | ---------------------------------------- |
-| hello world                  | Simple phrase query - hello AND world    |
-| "hello world"                | Exact phrase query - **hello** FOLLOWED BY **world** |
-| hello\|world                 | Union: documents containing either **hello** OR **world** |
-| (hello\|halo) (world\|werld) | Intersection of unions                   |
-| (barack\|barrack) obama      | (**barack** OR **barrack**) AND **obama** |
 
+* Simple phrase query - hello AND world
+  	hello world
 
+* Exact phrase query - **hello** FOLLOWED BY **world**
+  	"hello world"
+
+* Union: documents containing either **hello** OR **world**
+  	hello|world
+
+* Intersection of unions
+  	(hello\|halo) (world\|werld)
+
+* Union inside phrase
+  	(barack\|barrack) obama
+
+### Technical Note
 
 The query parser is built using the Lemon Parser Generator. You can see the grammar definition [at the git repo.](https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y)
