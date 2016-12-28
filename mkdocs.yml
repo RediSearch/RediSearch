@@ -10,4 +10,4 @@ pages:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stemming Support': Stemming.md
 
-google_analytics: ['UA-89573912-1', 'github page']
+google_analytics: ['UA-89573912-1', 'redisearch']
