@@ -327,7 +327,7 @@
         }, 
         {
             "location": "/Query_Syntax/", 
-            "text": "Search Query Syntax:\n\n\nWe support a simple syntax for complex queries with the following rules:\n\n\n\n\nMulti-word phrases simply a list of tokens, e.g. \nfoo bar baz\n, and imply intersection (AND) of the terms.\n\n\nExact phrases are wrapped in quotes, e.g \n\"hello world\"\n.\n\n\nOR Unions (i.e \nword1 OR word2\n), are expressed with a pipe (\n|\n), e.g. \nhello|hallo|shalom|hola\n.\n\n\nAn expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. \n(hello|hella) (world|werld)\n.\n\n\nCombinations of the above can be used together, e.g \nhello (world|foo) \"bar baz\" bbbb\n\n\n\n\nA few examples\n\n\n\n\n\n\n\n\nQuery\n\n\nDescription\n\n\n\n\n\n\n\n\n\n\nhello world\n\n\nSimple phrase query - hello AND world\n\n\n\n\n\n\n\"hello world\"\n\n\nExact phrase query - \nhello\n FOLLOWED BY \nworld\n\n\n\n\n\n\nhello\\\n\n\nworld\n\n\n\n\n\n\n(hello\\\n\n\nhalo) (world\\\n\n\n\n\n\n\n(barack\\\n\n\nbarrack) obama\n\n\n\n\n\n\n\n\nThe query parser is built using the Lemon Parser Generator. You can see the grammar definition \nat the git repo.", 
+            "text": "Search Query Syntax:\n\n\nWe support a simple syntax for complex queries with the following rules:\n\n\n\n\nMulti-word phrases simply a list of tokens, e.g. \nfoo bar baz\n, and imply intersection (AND) of the terms.\n\n\nExact phrases are wrapped in quotes, e.g \n\"hello world\"\n.\n\n\nOR Unions (i.e \nword1 OR word2\n), are expressed with a pipe (\n|\n), e.g. \nhello|hallo|shalom|hola\n.\n\n\nAn expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. \n(hello|hella) (world|werld)\n.\n\n\nCombinations of the above can be used together, e.g \nhello (world|foo) \"bar baz\" bbbb\n\n\n\n\nA few examples\n\n\n\n\n\n\nSimple phrase query - hello AND world\n    hello world\n\n\n\n\n\n\nExact phrase query - \nhello\n FOLLOWED BY \nworld\n\n    \"hello world\"\n\n\n\n\n\n\nUnion: documents containing either \nhello\n OR \nworld\n\n    hello|world\n\n\n\n\n\n\nIntersection of unions\n    (hello\\|halo) (world\\|werld)\n\n\n\n\n\n\nUnion inside phrase\n    (barack\\|barrack) obama\n\n\n\n\n\n\nTechnical Note\n\n\nThe query parser is built using the Lemon Parser Generator. You can see the grammar definition \nat the git repo.", 
             "title": "Query Syntax"
         }, 
         {
@@ -337,8 +337,13 @@
         }, 
         {
             "location": "/Query_Syntax/#a-few-examples", 
-            "text": "Query  Description      hello world  Simple phrase query - hello AND world    \"hello world\"  Exact phrase query -  hello  FOLLOWED BY  world    hello\\  world    (hello\\  halo) (world\\    (barack\\  barrack) obama     The query parser is built using the Lemon Parser Generator. You can see the grammar definition  at the git repo.", 
+            "text": "Simple phrase query - hello AND world\n    hello world    Exact phrase query -  hello  FOLLOWED BY  world \n    \"hello world\"    Union: documents containing either  hello  OR  world \n    hello|world    Intersection of unions\n    (hello\\|halo) (world\\|werld)    Union inside phrase\n    (barack\\|barrack) obama", 
             "title": "A few examples"
+        }, 
+        {
+            "location": "/Query_Syntax/#technical-note", 
+            "text": "The query parser is built using the Lemon Parser Generator. You can see the grammar definition  at the git repo.", 
+            "title": "Technical Note"
         }, 
         {
             "location": "/Stemming/", 

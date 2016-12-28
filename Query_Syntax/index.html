@@ -240,36 +240,29 @@
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
 <h2 id="a-few-examples">A few examples</h2>
-<table>
-<thead>
-<tr>
-<th>Query</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>hello world</td>
-<td>Simple phrase query - hello AND world</td>
-</tr>
-<tr>
-<td>"hello world"</td>
-<td>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong></td>
-</tr>
-<tr>
-<td>hello\</td>
-<td>world</td>
-</tr>
-<tr>
-<td>(hello\</td>
-<td>halo) (world\</td>
-</tr>
-<tr>
-<td>(barack\</td>
-<td>barrack) obama</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li>
+<p>Simple phrase query - hello AND world
+    hello world</p>
+</li>
+<li>
+<p>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong>
+    "hello world"</p>
+</li>
+<li>
+<p>Union: documents containing either <strong>hello</strong> OR <strong>world</strong>
+    hello|world</p>
+</li>
+<li>
+<p>Intersection of unions
+    (hello\|halo) (world\|werld)</p>
+</li>
+<li>
+<p>Union inside phrase
+    (barack\|barrack) obama</p>
+</li>
+</ul>
+<h3 id="technical-note">Technical Note</h3>
 <p>The query parser is built using the Lemon Parser Generator. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
           <aside class="copyright" role="note">
             
