@@ -3,7 +3,7 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
+class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testAdd(self):
         with self.redis() as r:
@@ -49,7 +49,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
             res = r.execute_command('ft.search', 'idx', '(hello|hallo) world', 'nocontent','verbatim', 'limit', '0', '100')
             self.assertEqual(51, len(res))
             self.assertEqual(50, res[0])
-            
+
             res = r.execute_command('ft.search', 'idx', '(hello|world)(hallo|werld)', 'nocontent','verbatim', 'limit', '0', '100')
             self.assertEqual(1, len(res))
             self.assertEqual(0, res[0])
