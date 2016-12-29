@@ -3,7 +3,7 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
     def testAdd(self):
         with self.redis() as r:
@@ -19,6 +19,40 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertExists(r, prefix + ':idx/hello')
                 self.assertExists(r, prefix + ':idx/world')
                 self.assertExists(r, prefix + ':idx/lorem')
+            
+    def testUnion(self):
+
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command('ft.create', 'idx', 'f', 1.0))
+            for i in range(100):
+                    
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'f', 'hello world' if i % 2 == 0 else 'hallo werld'))
+
+            res = r.execute_command('ft.search', 'idx', 'hello|hallo|world|werld', 'nocontent', 'limit', '0', '100')
+            self.assertEqual(101, len(res))
+            self.assertEqual(100, res[0])
+
+            res = r.execute_command('ft.search', 'idx', 'hello|world', 'nocontent', 'limit', '0', '100')
+            self.assertEqual(51, len(res))
+            self.assertEqual(50, res[0])
+
+            res = r.execute_command('ft.search', 'idx', '(hello|hallo)(werld|world)', 'nocontent','verbatim', 'limit', '0', '100')
+            self.assertEqual(101, len(res))
+            self.assertEqual(100, res[0])
+
+            res = r.execute_command('ft.search', 'idx', '(hello|werld)(hallo|world)', 'nocontent','verbatim', 'limit', '0', '100')
+            self.assertEqual(101, len(res))
+            self.assertEqual(100, res[0])
+            
+            res = r.execute_command('ft.search', 'idx', '(hello|hallo) world', 'nocontent','verbatim', 'limit', '0', '100')
+            self.assertEqual(51, len(res))
+            self.assertEqual(50, res[0])
+            
+            res = r.execute_command('ft.search', 'idx', '(hello|world)(hallo|werld)', 'nocontent','verbatim', 'limit', '0', '100')
+            self.assertEqual(1, len(res))
+            self.assertEqual(0, res[0])
 
     def testSearch(self):
         with self.redis() as r:
@@ -68,7 +102,8 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertTrue(float(res[2]) > 0)
             self.assertEqual(res[3], "doc1")
             self.assertTrue(float(res[4]) > 0)
-
+        
+    
     def testExact(self):
         with self.redis() as r:
             r.flushdb()
@@ -162,7 +197,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
             res = r.execute_command(
                 'ft.search', 'idx',  '\"hello world\"', 'verbatim', "infields", 1, "body", "nocontent")
-            print res
+            
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
