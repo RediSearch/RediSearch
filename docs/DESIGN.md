@@ -21,7 +21,7 @@ See [https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redis
 
 We use this API in the module mainly to encode inverted indexes, and for other auxiliary data structures besides that. 
 
-A generic "Buffer" implementation using DMA strings can be found in [redis_buffer.c](src/redis_buffer.c). It automatically resizes
+A generic "Buffer" implementation using DMA strings can be found in [redis_buffer.c](../src/redis_buffer.c). It automatically resizes
 the redis string it uses as raw memory, when the capacity needs to grow.
  
 ## Inverted index encoding
