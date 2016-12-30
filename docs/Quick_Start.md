@@ -15,7 +15,7 @@ make all
 ## Creating an index with fields and weights:
 
 ```
-127.0.0.1:6379> FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0
+127.0.0.1:6379> FT.CREATE myIdx title 5.0 body 1.0 url 1.0
 OK 
 
 ``` 
