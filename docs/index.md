@@ -24,7 +24,7 @@ traditional redis search approaches.
 * Field weights.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search of up to 8 words.
-* Stemming based query expansion in [many languages](#stemming-support) (using [Snowball](http://snowballstem.org/)).
+* Stemming based query expansion in [many languages](Stemming.md#supported-languages) (using [Snowball](http://snowballstem.org/)).
 * Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
 * Supports any utf-8 encoded text.
