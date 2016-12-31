@@ -133,7 +133,7 @@ int testTrie() {
 
 int testUnicode() {
 
-  char *str = "\xc4\x8caji\xc4\x87";
+  char *str = "\xc4\x8c\xc4\x87";
 
   rune *rn = __strToRunes("", NULL);
   TrieNode *root = __newTrieNode(rn, 0, 0, 0, 1, 0);
