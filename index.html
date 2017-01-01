@@ -13,13 +13,13 @@
       
       
       
-        <link rel="canonical" href="https://redislabsmodules.github.io/RediSearch/">
+        <link rel="canonical" href="http://redisearch.io/">
       
       
     
-    <meta property="og:url" content="https://redislabsmodules.github.io/RediSearch/">
+    <meta property="og:url" content="http://redisearch.io/">
     <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="https://redislabsmodules.github.io/RediSearch//./">
+    <meta property="og:image" content="http://redisearch.io//./">
     <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -243,7 +243,7 @@
 <p>Redisearch impements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.</p>
 <p>Inverted indexes are stored on top of Redis strings using binary encoding,
-and not mapped to existing data structures (see <a href="DESIGN.md">DESIGN.md</a>). </p>
+and not mapped to existing data structures (see <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/docs/DESIGN.md">DESIGN.md</a>). </p>
 <p>This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. </p>
@@ -255,7 +255,7 @@ traditional redis search approaches. </p>
 <li>Field weights.</li>
 <li>Auto-complete suggestions (with fuzzy prefix suggestions)</li>
 <li>Exact Phrase Search of up to 8 words.</li>
-<li>Stemming based query expansion in <a href="#stemming-support">many languages</a> (using <a href="http://snowballstem.org/">Snowball</a>).</li>
+<li>Stemming based query expansion in <a href="./Stemming/">many languages</a> (using <a href="http://snowballstem.org/">Snowball</a>).</li>
 <li>Limiting searches to specific document fields (up to 8 fields supported).</li>
 <li>Numeric filters and ranges.</li>
 <li>Supports any utf-8 encoded text.</li>

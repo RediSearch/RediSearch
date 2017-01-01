@@ -22,7 +22,7 @@
         }, 
         {
             "location": "/Quick_Start/", 
-            "text": "Quick Start Guide for RediSearch:\n\n\nBuilding and running:\n\n\ngit clone https://github.com/RedisLabsModules/RediSearch.git\ncd RediSearch/src\nmake all\n\n# Assuming you have a redis build from the unstable branch:\n/path/to/redis-server --loadmodule ./module.so\n\n\n\n\nCreating an index with fields and weights:\n\n\n127.0.0.1:6379\n FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0\nOK \n\n\n\n\n\nAdding documents to the index:\n\n\n127.0.0.1:6379\n FT.ADD myIdx doc1 1.0 fields title \nhello world\n body \nlorem ipsum\n url \nhttp://redis.io\n \nOK\n\n\n\n\nSearching the index:\n\n\n127.0.0.1:6379\n FT.SEARCH myIdx \nhello world\n LIMIT 0 10\n1) (integer) 1\n2) \ndoc1\n\n3) 1) \ntitle\n\n   2) \nhello world\n\n   3) \nbody\n\n   4) \nlorem ipsum\n\n   5) \nurl\n\n   6) \nhttp://redis.io\n\n\n\n\n\n\n\nNOTE\n: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. \n\n\n\n\nDropping the index:\n\n\n127.0.0.1:6379\n FT.DROP myIdx\nOK\n\n\n\n\nAdding and getting Auto-complete suggestions:\n\n\n127.0.0.1:6379\n FT.SUGADD autocomplete \nhello world\n 100\nOK\n\n127.0.0.1:6379\n FT.SUGGET autocomplete \nhe\n\n1) \nhello world", 
+            "text": "Quick Start Guide for RediSearch:\n\n\nBuilding and running:\n\n\ngit clone https://github.com/RedisLabsModules/RediSearch.git\ncd RediSearch/src\nmake all\n\n# Assuming you have a redis build from the unstable branch:\n/path/to/redis-server --loadmodule ./module.so\n\n\n\n\nCreating an index with fields and weights:\n\n\n127.0.0.1:6379\n FT.CREATE myIdx title 5.0 body 1.0 url 1.0\nOK \n\n\n\n\n\nAdding documents to the index:\n\n\n127.0.0.1:6379\n FT.ADD myIdx doc1 1.0 fields title \nhello world\n body \nlorem ipsum\n url \nhttp://redis.io\n \nOK\n\n\n\n\nSearching the index:\n\n\n127.0.0.1:6379\n FT.SEARCH myIdx \nhello world\n LIMIT 0 10\n1) (integer) 1\n2) \ndoc1\n\n3) 1) \ntitle\n\n   2) \nhello world\n\n   3) \nbody\n\n   4) \nlorem ipsum\n\n   5) \nurl\n\n   6) \nhttp://redis.io\n\n\n\n\n\n\n\nNOTE\n: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. \n\n\n\n\nDropping the index:\n\n\n127.0.0.1:6379\n FT.DROP myIdx\nOK\n\n\n\n\nAdding and getting Auto-complete suggestions:\n\n\n127.0.0.1:6379\n FT.SUGADD autocomplete \nhello world\n 100\nOK\n\n127.0.0.1:6379\n FT.SUGGET autocomplete \nhe\n\n1) \nhello world", 
             "title": "Quick Start"
         }, 
         {
@@ -37,7 +37,7 @@
         }, 
         {
             "location": "/Quick_Start/#creating-an-index-with-fields-and-weights", 
-            "text": "127.0.0.1:6379  FT.CREATE myIdx title TEXT 5.0 body TEXT 1.0 url 1.0\nOK", 
+            "text": "127.0.0.1:6379  FT.CREATE myIdx title 5.0 body 1.0 url 1.0\nOK", 
             "title": "Creating an index with fields and weights:"
         }, 
         {
