@@ -18,8 +18,6 @@
 #include <string.h>
 #include <time.h>
 
-#define MAX_RESULTS 1000
-
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
   int isnew;
   t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
@@ -396,7 +394,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (limit <= 0) {
     return RedisModule_WrongArity(ctx);
   }
-  limit = limit > MAX_RESULTS ? MAX_RESULTS : limit;
 
   // Parse and load the index
   IndexSpec sp;
