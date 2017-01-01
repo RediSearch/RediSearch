@@ -472,7 +472,7 @@ int UI_Next(void *ctx) {
 
 // return 1 if at least one sub iterator has next
 int UI_HasNext(void *ctx) {
-  
+
   UnionContext *u = ctx;
   for (int i = 0; i < u->num; i++) {
     IndexIterator *it = u->its[i];
@@ -494,9 +494,9 @@ if
 at EOF
 */
 int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
-  
+
   UnionContext *ui = ctx;
-  
+
   int n = 0;
   int rc = INDEXREAD_EOF;
   // skip all iterators to docId
@@ -504,13 +504,19 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     // this happens for non existent words
     if (ui->its[i] == NULL) continue;
 
-    if (ui->currentHits[i].docId != docId && docId != 0) {
+    if (ui->currentHits[i].docId < docId || docId == 0) {
+
       ui->currentHits[i].numRecords = 0;
       if ((rc = ui->its[i]->SkipTo(ui->its[i]->ctx, docId, &ui->currentHits[i])) == INDEXREAD_EOF) {
         continue;
       }
+
     } else {
-      rc = INDEXREAD_OK;
+      if (hit) {
+        hit->numRecords = 0;
+        hit->docId = ui->currentHits[i].docId;
+      }
+      rc = ui->currentHits[i].docId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
 
     // advance the minimal docId for reads
@@ -533,7 +539,6 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   if (n == 0) {
     return INDEXREAD_EOF;
   }
-
   return INDEXREAD_NOTFOUND;
 }
 
@@ -623,7 +628,6 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     IndexIterator *it = ic->its[i];
     rc = INDEXREAD_OK;
 
-    
     // only read if we're not already at the final position
     if (ic->currentHits[i].docId != ic->lastDocId || ic->lastDocId == 0) {
       ic->currentHits[i].numRecords = 0;
@@ -652,6 +656,11 @@ int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
       }
     }
     return INDEXREAD_OK;
+  }
+  // we add the actual last doc id we read, so if anyone is looking at what we returned it would
+  // look sane
+  if (hit) {
+    hit->docId = ic->lastDocId;
   }
 
   return INDEXREAD_NOTFOUND;
@@ -729,7 +738,7 @@ int II_Read(void *ctx, IndexResult *hit) {
       // In exact mode, make sure the minimal distance is the number of words
       if (ic->exact && hit != NULL) {
         int md = IndexResult_MinOffsetDelta(hit);
-        
+
         if (md > ic->num - 1) {
           continue;
         }
@@ -746,7 +755,7 @@ int II_Read(void *ctx, IndexResult *hit) {
 
 int II_HasNext(void *ctx) {
   IntersectContext *ic = ctx;
-  //printf("%p %d\n", ic, ic->atEnd);
+  // printf("%p %d\n", ic, ic->atEnd);
   return ic->atEnd;
 }
 
