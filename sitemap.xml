@@ -3,7 +3,7 @@
 
     
     <url>
-     <loc>https://redislabsmodules.github.io/RediSearch//</loc>
+     <loc>http://redisearch.io/</loc>
      <lastmod>2017-01-01</lastmod>
      <changefreq>daily</changefreq>
     </url>
@@ -11,7 +11,7 @@
 
     
     <url>
-     <loc>https://redislabsmodules.github.io/RediSearch//Quick_Start/</loc>
+     <loc>http://redisearch.io/Quick_Start/</loc>
      <lastmod>2017-01-01</lastmod>
      <changefreq>daily</changefreq>
     </url>
@@ -19,7 +19,7 @@
 
     
     <url>
-     <loc>https://redislabsmodules.github.io/RediSearch//Commands/</loc>
+     <loc>http://redisearch.io/Commands/</loc>
      <lastmod>2017-01-01</lastmod>
      <changefreq>daily</changefreq>
     </url>
@@ -27,7 +27,7 @@
 
     
     <url>
-     <loc>https://redislabsmodules.github.io/RediSearch//Query_Syntax/</loc>
+     <loc>http://redisearch.io/Query_Syntax/</loc>
      <lastmod>2017-01-01</lastmod>
      <changefreq>daily</changefreq>
     </url>
@@ -35,7 +35,7 @@
 
     
     <url>
-     <loc>https://redislabsmodules.github.io/RediSearch//Stemming/</loc>
+     <loc>http://redisearch.io/Stemming/</loc>
      <lastmod>2017-01-01</lastmod>
      <changefreq>daily</changefreq>
     </url>
