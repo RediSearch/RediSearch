@@ -19,16 +19,17 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
 
   *docId = ReadVarint(ir->buf) + ir->lastId;
   int len = ReadVarint(ir->buf);
+  size_t pos = BufferOffset(ir->buf);
 
   int quantizedScore = ReadVarint(ir->buf);
   if (freq != NULL) {
     *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
-    // LG_DEBUG("READ Quantized score %d, freq %f", quantizedScore, *freq);
+    // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
   }
 
   BufferReadByte(ir->buf, (char *)flags);
 
-  size_t offsetsLen = ReadVarint(ir->buf);
+  size_t offsetsLen = len - (BufferOffset(ir->buf) - pos);
 
   // If needed - read offset vectors
   if (offsets != NULL && !ir->singleWordMode) {
@@ -326,11 +327,11 @@ size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
   ScoreIndexWriter_AddEntry(&w->scoreWriter, ent->freq, BufferOffset(w->bw.buf), w->lastId);
   // quantize the score to compress it to max 4 bytes
   // freq is between 0 and 1
-  int quantizedScore = floorl(ent->freq * (double)FREQ_QUANTIZE_FACTOR);
+  int quantizedScore = floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
 
-  size_t offsetsSz = VV_Size(offsets);
+  size_t offsetsSz = offsets->offset;
   // // calculate the overall len
-  size_t len = varintSize(quantizedScore) + 1 + varintSize(offsetsSz) + offsetsSz;
+  size_t len = varintSize(quantizedScore) + 1 + offsetsSz;
 
   // Write docId
   ret += WriteVarint(ent->docId - w->lastId, &w->bw);
@@ -342,7 +343,7 @@ size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
   // encode flags
   ret += w->bw.Write(w->bw.buf, &ent->flags, 1);
   // write offsets size
-  ret += WriteVarint(offsetsSz, &w->bw);
+  // ret += WriteVarint(offsetsSz, &w->bw);
   ret += w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
 
   w->lastId = ent->docId;

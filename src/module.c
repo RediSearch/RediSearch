@@ -323,6 +323,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     goto cleanup;
   }
+  sp.stats = &stats;
 
   RedisSearchCtx sctx = {ctx, &sp};
 

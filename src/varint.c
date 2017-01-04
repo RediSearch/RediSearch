@@ -1,9 +1,9 @@
+#include "varint.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
 #include <sys/param.h>
-#include "varint.h"
 
 static int msb = (int)(~0ULL << 25);
 
@@ -25,8 +25,7 @@ int WriteVarint(int value, BufferWriter *w) {
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
   varint[pos] = value & 127;
-  while (value >>= 7)
-    varint[--pos] = 128 | (--value & 127);
+  while (value >>= 7) varint[--pos] = 128 | (--value & 127);
 
   return w->Write(w->buf, varint + pos, 16 - pos);
 }
@@ -64,7 +63,7 @@ inline int VV_Next(VarintVectorIterator *vi) {
 }
 
 size_t VV_Size(VarintVector *vv) {
-  if (vv->type == BUFFER_WRITE) {
+  if (vv->type & BUFFER_WRITE) {
     return BufferLen(vv);
   }
   // for readonly buffers the size is the capacity
