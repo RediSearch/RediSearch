@@ -37,13 +37,15 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     return REDISMODULE_ERR;
   }
 
+#ifdef __REDISEARCH_DOC_TABLES__
+  /********* CURRENTLY DISABLED Jan 3 2017 **********************/
   DocTable dt;
   if (InitDocTable(ctx, &dt) == REDISMODULE_ERR) return REDISMODULE_ERR;
   if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
     *errorString = "Could not save document metadata";
     return REDISMODULE_ERR;
   }
-
+#endif
   ForwardIndex *idx = NewForwardIndex(doc);
 
   int totalTokens = 0;
@@ -96,13 +98,39 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
                entry->freq);
       ForwardIndex_NormalizeFreq(idx, entry);
       IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
-      IW_WriteEntry(w, entry);
+      int isNew = w->bw.buf->offset == sizeof(IndexHeader);
+      size_t cap = isNew ? 0 : w->bw.buf->cap;
+      size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
+      // size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
+      size_t sz = IW_WriteEntry(w, entry);
 
+      /*******************************************
+      * update stats for the index
+      ********************************************/
+
+      /* record the change in capacity of the buffer */
+      ctx->spec->stats->invertedCap += w->bw.buf->cap - cap;
+      ctx->spec->stats->skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
+      // ctx->spec->stats->scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
+      /* record the actual size consumption change */
+      ctx->spec->stats->invertedSize += sz;
+
+      ctx->spec->stats->numRecords++;
+      /* increment the number of terms if this is a new term*/
+      if (isNew) {
+        ctx->spec->stats->numTerms++;
+        ctx->spec->stats->termsSize += entry->len;
+      }
+      /* Record the space saved for offset vectors */
+      ctx->spec->stats->offsetVecsSize += entry->vw->bw.buf->offset;
+      ctx->spec->stats->offsetVecRecords += entry->vw->nmemb;
       Redis_CloseWriter(w);
 
       entry = ForwardIndexIterator_Next(&it);
     }
+    // ctx->spec->stats->numDocuments += 1;
   }
+  ctx->spec->stats->numDocuments += 1;
   ForwardIndexFree(idx);
   return REDISMODULE_OK;
 
@@ -155,6 +183,9 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
+
+static IndexStats stats = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
@@ -175,6 +206,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
     goto cleanup;
   }
+  sp.stats = &stats;
 
   RedisSearchCtx sctx = {ctx, &sp};
 
@@ -222,6 +254,24 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 cleanup:
   IndexSpec_Free(&sp);
+  if (stats.numDocuments % 1000 == 0) {
+    printf(
+        "stats: numDocs %'zd, numTerms %'zd, term overhead: %'zdMB, numRecords: %'zd, idx cap "
+        "%'zdMB, idx sz %'zdMB, skcap: %zdMB, sccap %zdMB, "
+        "offsetVecsSize %'zdMB. cap overhead: %.02f\n",
+        stats.numDocuments, stats.numTerms, stats.termsSize / 0x100000, stats.numRecords,
+        stats.invertedCap / 0x100000, stats.invertedSize / 0x100000,
+        stats.skipIndexesSize / 0x100000, stats.scoreIndexesSize / 0x100000,
+        stats.offsetVecsSize / 0x100000,
+        (float)(stats.invertedCap - stats.invertedSize) / (float)stats.invertedCap);
+    printf(
+        "avg records/doc: %.02f, avg. bytes per record %.02f, avg. offsets/term %.02f, avg offset "
+        "bits/record %.02f\n\n",
+        (float)stats.numRecords / (float)stats.numDocuments,
+        (float)stats.invertedSize / (float)stats.numRecords,
+        (float)stats.offsetVecRecords / (float)stats.numRecords,
+        8.0F * (float)stats.offsetVecsSize / (float)stats.offsetVecRecords);
+  }
   return REDISMODULE_OK;
 }
 
