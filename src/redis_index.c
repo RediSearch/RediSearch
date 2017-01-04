@@ -99,7 +99,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len,
     si = LoadRedisSkipIndex(ctx, term, len);
   }
 
-  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask, NewTerm(term));
+  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask, NewTerm((char *)term));
 }
 
 void Redis_CloseReader(IndexReader *r) {

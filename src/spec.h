@@ -1,8 +1,8 @@
 #ifndef __SPEC_H__
 #define __SPEC_H__
+#include "redismodule.h"
 #include <stdlib.h>
 #include <string.h>
-#include "redismodule.h"
 
 typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
 
@@ -13,17 +13,31 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 Each field has a type, allowing us to add non text fields in the future */
 typedef struct fieldSpec {
-    const char *name;
-    FieldType type;
-    double weight;
-    int id;
-    // TODO: More options here..
+  const char *name;
+  FieldType type;
+  double weight;
+  int id;
+  // TODO: More options here..
 } FieldSpec;
 
 typedef struct {
-    FieldSpec *fields;
-    int numFields;
-    const char *name;
+  size_t numDocuments;
+  size_t numTerms;
+  size_t numRecords;
+  size_t invertedSize;
+  size_t invertedCap;
+  size_t skipIndexesSize;
+  size_t scoreIndexesSize;
+  size_t offsetVecsSize;
+  size_t offsetVecRecords;
+  size_t termsSize;
+} IndexStats;
+
+typedef struct {
+  FieldSpec *fields;
+  int numFields;
+  const char *name;
+  IndexStats *stats;
 } IndexSpec;
 
 /*
