@@ -494,7 +494,9 @@ if
 at EOF
 */
 int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
-
+  if (docId == 0) {
+    return UI_Read(ctx, hit);
+  }
   UnionContext *ui = ctx;
 
   int n = 0;

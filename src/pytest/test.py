@@ -51,6 +51,11 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(100, res[0])
 
             res = r.execute_command(
+                'ft.search', 'idx', '(hallo|hello)(world|werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
+            self.assertEqual(101, len(res))
+            self.assertEqual(100, res[0])
+
+            res = r.execute_command(
                 'ft.search', 'idx', '(hello|werld)(hallo|world)', 'nocontent', 'verbatim', 'limit', '0', '100')
             self.assertEqual(101, len(res))
             self.assertEqual(100, res[0])
