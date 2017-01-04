@@ -1,18 +1,18 @@
 #ifndef __INDEX_H__
 #define __INDEX_H__
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <string.h>
-#include "types.h"
-#include "varint.h"
-#include "forward_index.h"
-#include "util/logging.h"
 #include "doc_table.h"
+#include "forward_index.h"
+#include "index_result.h"
 #include "score_index.h"
 #include "skip_index.h"
-#include "index_result.h"
+#include "types.h"
+#include "util/logging.h"
+#include "varint.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 // /* An IndexResult is the data structure used when reading indexes.
 // Each hit representsa single document entry in an inverted index */
 // typedef struct {
@@ -125,18 +125,16 @@ void IntersectIterator_Free(IndexIterator *it);
 void ReadIterator_Free(IndexIterator *it);
 
 // used only internally for unit testing
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si,
-                            DocTable *docTable, int singleWordMode,
-                            u_char fieldMask);
+IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable,
+                            int singleWordMode, u_char fieldMask);
 
 /* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable,
-                               int singleWordMode, ScoreIndex *sci,
-                               u_char fieldMask, Term *term);
+IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode,
+                               ScoreIndex *sci, u_char fieldMask, Term *term);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
@@ -179,8 +177,9 @@ IndexIterator *NewReadIterator(IndexReader *ir);
 size_t IW_Close(IndexWriter *w);
 
 /* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
- * indexes if needed */
-void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
+ * indexes if needed.
+ * Returns the number of bytes written to the index */
+size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent);
 
 /* Get the len of the index writer's buffer */
 size_t IW_Len(IndexWriter *w);
@@ -236,8 +235,8 @@ typedef struct {
 /* Create a new intersect iterator over the given list of child iterators. If
 exact is one
 we will only yield results that are exact matches */
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact,
-                                   DocTable *t, u_char fieldMask);
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t,
+                                   u_char fieldMask);
 int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexResult *hit);

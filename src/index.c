@@ -317,44 +317,41 @@ void IW_WriteSkipIndexEntry(IndexWriter *w) {
   w->skipIndexWriter.Write(b, &se, sizeof(SkipEntry));
 }
 
-void IW_GenericWrite(IndexWriter *w, t_docId docId, float freq, u_char flags,
-                     VarintVector *offsets) {
-  ScoreIndexWriter_AddEntry(&w->scoreWriter, freq, BufferOffset(w->bw.buf), w->lastId);
+/* Write a forward-index entry to an index writer */
+size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
+  // VVW_Truncate(ent->vw);
+  size_t ret = 0;
+  VarintVector *offsets = ent->vw->bw.buf;
+
+  ScoreIndexWriter_AddEntry(&w->scoreWriter, ent->freq, BufferOffset(w->bw.buf), w->lastId);
   // quantize the score to compress it to max 4 bytes
   // freq is between 0 and 1
-  int quantizedScore = floorl(freq * (double)FREQ_QUANTIZE_FACTOR);
+  int quantizedScore = floorl(ent->freq * (double)FREQ_QUANTIZE_FACTOR);
 
   size_t offsetsSz = VV_Size(offsets);
   // // calculate the overall len
   size_t len = varintSize(quantizedScore) + 1 + varintSize(offsetsSz) + offsetsSz;
 
   // Write docId
-  WriteVarint(docId - w->lastId, &w->bw);
+  ret += WriteVarint(ent->docId - w->lastId, &w->bw);
   // encode len
 
-  WriteVarint(len, &w->bw);
+  ret += WriteVarint(len, &w->bw);
   // encode freq
-  WriteVarint(quantizedScore, &w->bw);
+  ret += WriteVarint(quantizedScore, &w->bw);
   // encode flags
-  w->bw.Write(w->bw.buf, &flags, 1);
+  ret += w->bw.Write(w->bw.buf, &ent->flags, 1);
   // write offsets size
-  WriteVarint(offsetsSz, &w->bw);
-  w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
+  ret += WriteVarint(offsetsSz, &w->bw);
+  ret += w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
 
-  w->lastId = docId;
+  w->lastId = ent->docId;
   if (w->ndocs % SKIPINDEX_STEP == 0) {
     IW_WriteSkipIndexEntry(w);
   }
 
   w->ndocs++;
-}
-
-/* Write a forward-index entry to an index writer */
-void IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
-  // VVW_Truncate(ent->vw);
-  VarintVector *offsets = ent->vw->bw.buf;
-
-  IW_GenericWrite(w, ent->docId, ent->freq * ent->docScore, ent->flags, offsets);
+  return ret;
 }
 
 size_t IW_Close(IndexWriter *w) {
