@@ -49,6 +49,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
   ForwardIndex *idx = NewForwardIndex(doc);
 
   int totalTokens = 0;
+
   for (int i = 0; i < doc.numFields; i++) {
     // printf("Tokenizing %s: %s\n",
     // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
@@ -66,7 +67,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     switch (fs->type) {
       case F_FULLTEXT:
-        totalTokens += tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer);
+        totalTokens =
+            tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens);
         break;
       case F_NUMERIC: {
         double score;
@@ -101,7 +103,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
       int isNew = w->bw.buf->offset == sizeof(IndexHeader);
       size_t cap = isNew ? 0 : w->bw.buf->cap;
       size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
-      // size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
+      size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
       size_t sz = IW_WriteEntry(w, entry);
 
       /*******************************************
@@ -109,28 +111,28 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
       ********************************************/
 
       /* record the change in capacity of the buffer */
-      ctx->spec->stats->invertedCap += w->bw.buf->cap - cap;
-      ctx->spec->stats->skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
-      // ctx->spec->stats->scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
+      ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
+      ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
+      ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
       /* record the actual size consumption change */
-      ctx->spec->stats->invertedSize += sz;
+      ctx->spec->stats.invertedSize += sz;
 
-      ctx->spec->stats->numRecords++;
+      ctx->spec->stats.numRecords++;
       /* increment the number of terms if this is a new term*/
       if (isNew) {
-        ctx->spec->stats->numTerms++;
-        ctx->spec->stats->termsSize += entry->len;
+        ctx->spec->stats.numTerms++;
+        ctx->spec->stats.termsSize += entry->len;
       }
       /* Record the space saved for offset vectors */
-      ctx->spec->stats->offsetVecsSize += entry->vw->bw.buf->offset;
-      ctx->spec->stats->offsetVecRecords += entry->vw->nmemb;
+      ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
+      ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
       Redis_CloseWriter(w);
 
       entry = ForwardIndexIterator_Next(&it);
     }
     // ctx->spec->stats->numDocuments += 1;
   }
-  ctx->spec->stats->numDocuments += 1;
+  ctx->spec->stats.numDocuments += 1;
   ForwardIndexFree(idx);
   return REDISMODULE_OK;
 
@@ -184,8 +186,6 @@ English.
 Returns OK on success, or an error if something went wrong.
 */
 
-static IndexStats stats = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
@@ -200,15 +200,13 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec sp;
-  // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
     goto cleanup;
   }
-  sp.stats = &stats;
 
-  RedisSearchCtx sctx = {ctx, &sp};
+  RedisSearchCtx sctx = {ctx, sp};
 
   // Load the document score
   double ds = 0;
@@ -253,25 +251,68 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   free(doc.fields);
 
 cleanup:
-  IndexSpec_Free(&sp);
-  if (stats.numDocuments % 1000 == 0) {
-    printf(
-        "stats: numDocs %'zd, numTerms %'zd, term overhead: %'zdMB, numRecords: %'zd, idx cap "
-        "%'zdMB, idx sz %'zdMB, skcap: %zdMB, sccap %zdMB, "
-        "offsetVecsSize %'zdMB. cap overhead: %.02f\n",
-        stats.numDocuments, stats.numTerms, stats.termsSize / 0x100000, stats.numRecords,
-        stats.invertedCap / 0x100000, stats.invertedSize / 0x100000,
-        stats.skipIndexesSize / 0x100000, stats.scoreIndexesSize / 0x100000,
-        stats.offsetVecsSize / 0x100000,
-        (float)(stats.invertedCap - stats.invertedSize) / (float)stats.invertedCap);
-    printf(
-        "avg records/doc: %.02f, avg. bytes per record %.02f, avg. offsets/term %.02f, avg offset "
-        "bits/record %.02f\n\n",
-        (float)stats.numRecords / (float)stats.numDocuments,
-        (float)stats.invertedSize / (float)stats.numRecords,
-        (float)stats.offsetVecRecords / (float)stats.numRecords,
-        8.0F * (float)stats.offsetVecsSize / (float)stats.offsetVecRecords);
+
+  return REDISMODULE_OK;
+}
+
+#define __reply_kvnum(n, k, v)                 \
+  RedisModule_ReplyWithSimpleString(ctx, k);   \
+  RedisModule_ReplyWithDouble(ctx, (double)v); \
+  n += 2
+#define __reply_kvstr(n, k, v)               \
+  RedisModule_ReplyWithSimpleString(ctx, k); \
+  RedisModule_ReplyWithSimpleString(ctx, v); \
+  n += 2
+
+/* FT.INFO {index}
+*  Provide info and stats about an index
+*/
+int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+  if (argc < 2) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  int n = 0, _ = 0;
+
+  __reply_kvstr(n, "index_name", sp->name);
+
+  RedisModule_ReplyWithSimpleString(ctx, "fields");
+  RedisModule_ReplyWithArray(ctx, sp->numFields);
+  for (int i = 0; i < sp->numFields; i++) {
+    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
+    __reply_kvstr(_, "type", sp->fields[i].type == F_FULLTEXT ? "FULLTEXT" : "NUMERIC");
+    __reply_kvnum(_, "weight", sp->fields[i].weight);
+  }
+  n += 2;
+
+  __reply_kvnum(n, "num_docs", sp->stats.numDocuments);
+  __reply_kvnum(n, "num_terms", sp->stats.numTerms);
+  __reply_kvnum(n, "num_records", sp->stats.numRecords);
+  __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
+                                           (float)sp->stats.invertedCap);
+
+  __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
+  __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
+  __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
+
+  __reply_kvnum(n, "records_per_doc_avg",
+                (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+  __reply_kvnum(n, "bytes_per_record_avg",
+                (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
+  __reply_kvnum(n, "offsets_per_term_avg",
+                (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
+  __reply_kvnum(n, "offset_bits_per_record_avg",
+                8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+
+  RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
 
@@ -317,15 +358,13 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec sp;
-  // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
     goto cleanup;
   }
-  sp.stats = &stats;
 
-  RedisSearchCtx sctx = {ctx, &sp};
+  RedisSearchCtx sctx = {ctx, sp};
 
   // Load the document score
   double ds = 0;
@@ -366,7 +405,6 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   free(doc.fields);
 
 cleanup:
-  IndexSpec_Free(&sp);
   return REDISMODULE_OK;
 }
 
@@ -446,15 +484,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  // Parse and load the index
-  IndexSpec sp;
-  sp.numFields = 0;
-  sp.name = RedisModule_StringPtrLen(argv[1], NULL);
-
-  // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
-    return REDISMODULE_OK;
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
   // if INFIELDS exists, parse the field mask
@@ -464,13 +496,13 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (inFieldsIdx > 0) {
     RMUtil_ParseArgs(argv, argc, inFieldsIdx + 1, "l", &numFields);
     if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {
-      fieldMask = IndexSpec_ParseFieldMask(&sp, &argv[inFieldsIdx + 2], numFields);
+      fieldMask = IndexSpec_ParseFieldMask(sp, &argv[inFieldsIdx + 2], numFields);
     }
     LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
   }
 
   // Parse numeric filter. currently only one supported
-  RedisSearchCtx sctx = {ctx, &sp};
+  RedisSearchCtx sctx = {ctx, sp};
   NumericFilter *nf = NULL;
   int filterIdx = RMUtil_ArgExists("FILTER", argv, argc, 3);
   if (filterIdx > 0 && filterIdx + 4 <= argc) {
@@ -546,7 +578,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryResult_Free(r);
   Query_Free(q);
 end:
-  IndexSpec_Free(&sp);
   return REDISMODULE_OK;
 }
 
@@ -578,24 +609,25 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec sp;
-  if (IndexSpec_ParseRedisArgs(&sp, ctx, &argv[2], argc - 2) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Could not parse field specs");
-    return REDISMODULE_OK;
+  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Could not parse field specs");
   }
 
-  size_t len;
-  sp.name = RedisModule_StringPtrLen(argv[1], &len);
+  RedisModuleKey *k =
+      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name),
+                          REDISMODULE_READ | REDISMODULE_WRITE);
 
-  if (IndexSpec_Save(ctx, &sp) == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, "Could not save index spec");
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  // check that the key is empty
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+                    RedisModule_ModuleTypeGetType(k) != IndexSpecType)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Could not create index key. Perhaps the key already exists?");
   }
 
-  IndexSpec_Free(&sp);
+  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
 
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /* FT.OPTIMIZE <index>
@@ -625,13 +657,12 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec sp;
-  // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  RedisSearchCtx sctx = {ctx, &sp};
+  RedisSearchCtx sctx = {ctx, sp};
   RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
   size_t len;
   const char *prefix = RedisModule_StringPtrLen(pf, &len);
@@ -656,14 +687,12 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec sp;
-  // load the index by name
-  if (IndexSpec_Load(ctx, &sp, RedisModule_StringPtrLen(argv[1], NULL)) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Index not defined or could not be loaded");
-    return REDISMODULE_OK;
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  RedisSearchCtx sctx = {ctx, &sp};
+  RedisSearchCtx sctx = {ctx, sp};
 
   Redis_DropIndex(&sctx, 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -897,6 +926,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
+  if (IndexSpec_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
   if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom no-cluster", 1,
                                 1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
@@ -918,6 +949,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write no-cluster", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.info", IndexInfoCommand, "readonly no-cluster", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 

@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <strings.h>
 
-int tokenize(const char *text, float score, u_char fieldId, void *ctx,
-             TokenFunc f, Stemmer *s) {
+int tokenize(const char *text, float score, u_char fieldId, void *ctx, TokenFunc f, Stemmer *s,
+             u_int offset) {
   TokenizerCtx tctx;
   tctx.text = text;
   tctx.pos = (char **)&text;
@@ -16,6 +16,7 @@ int tokenize(const char *text, float score, u_char fieldId, void *ctx,
   tctx.normalize = DefaultNormalize;
   tctx.fieldId = fieldId;
   tctx.stemmer = s;
+  tctx.lastOffset = offset;
 
   return _tokenize(&tctx);
 }
@@ -37,14 +38,13 @@ inline int isStopword(const char *w, const char **stopwords) {
 
 // tokenize the text in the context
 int _tokenize(TokenizerCtx *ctx) {
-  u_int pos = 0;
+  u_int pos = ctx->lastOffset + 1;
 
   while (*ctx->pos != NULL) {
     // get the next token
     char *tok = strsep(ctx->pos, ctx->separators);
     // this means we're at the end
-    if (tok == NULL)
-      break;
+    if (tok == NULL) break;
 
     // normalize the token
     size_t tlen;
@@ -56,9 +56,9 @@ int _tokenize(TokenizerCtx *ctx) {
     }
 
     // skip stopwords
-    if (isStopword(tok, DEFAULT_STOPWORDS))
+    if (isStopword(tok, DEFAULT_STOPWORDS)) {
       continue;
-
+    }
     // create the token struct
     Token t = {tok, tlen, ++pos, ctx->fieldScore, ctx->fieldId, DT_WORD, 0};
 
