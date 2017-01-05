@@ -43,9 +43,10 @@ char *__runesToStr(rune *in, size_t len, size_t *utflen) {
 
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
-
-  tree->root = __newTrieNode(__strToRunes("", 0), 0, 0, 0, 0, 0);
+  rune *rs = __strToRunes("", 0);
+  tree->root = __newTrieNode(rs, 0, 0, 0, 0, 0);
   tree->size = 0;
+  free(rs);
   return tree;
 }
 
@@ -58,6 +59,7 @@ void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int inc
 
   rune *runes = __strToRunes(s, &len);
   t->size += TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+  free(runes);
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
@@ -70,7 +72,10 @@ int Trie_Delete(Trie *t, char *s, size_t len) {
 }
 
 void TrieSearchResult_Free(TrieSearchResult *e) {
-  free(e->str);
+  if (e->str) {
+    free(e->str);
+    e->str = NULL;
+  }
   free(e);
 }
 
@@ -105,6 +110,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
   while (TrieIterator_Next(it, &rstr, &slen, &score, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry = malloc(sizeof(TrieSearchResult));
+      pooledEntry->str = NULL;
     }
     TrieSearchResult *ent = pooledEntry;
 
@@ -133,6 +139,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       if (ent->score >= it->minScore) {
         pooledEntry = heap_poll(pq);
         free(pooledEntry->str);
+        pooledEntry->str = NULL;
         ent->str = __runesToStr(rstr, slen, &ent->len);
         heap_offerx(pq, ent);
 
@@ -148,6 +155,10 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     }
 
     // dist = maxDist + 3;
+  }
+
+  if (pooledEntry) {
+    TrieSearchResult_Free(pooledEntry);
   }
 
   // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
@@ -166,18 +177,23 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
   // trim the results to remove irrelevant results
   if (trim) {
     float maxScore = 0;
-    for (int i = 0; i < n; ++i) {
+    int i;
+    for (i = 0; i < n; ++i) {
       TrieSearchResult *h;
       Vector_Get(ret, i, &h);
 
-      if (trim) {
-        if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
-          // TODO: Fix trimming the vector
-          ret->top = i;
-          break;
-        }
+      if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
+        // TODO: Fix trimming the vector
+        ret->top = i;
+        break;
       }
       maxScore = MAX(maxScore, h->score);
+    }
+
+    for (; i < n; ++i) {
+      TrieSearchResult *h;
+      Vector_Get(ret, i, &h);
+      TrieSearchResult_Free(h);
     }
   }
 
