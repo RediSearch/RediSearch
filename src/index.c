@@ -140,37 +140,44 @@ if
 at EOF
 */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
-  IndexReader *ir = ctx;
 
-  SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
-
-  if (ent != NULL || ir->skipIdx == NULL || ir->skipIdx->len == 0 ||
-      docId <= ir->skipIdx->entries[0].docId) {
-
-    if (ent != NULL && ent->offset > BufferOffset(ir->buf)) {
-      IR_Seek(ir, ent->offset, ent->docId);
-    }
-
-    int rc;
-    t_docId lastId = ir->lastId, readId = 0;
-    t_offset offset = ir->buf->offset;
-
-    do {
-
-      // do a quick-read until we hit or pass the desired document
-      if ((rc = IR_TryRead(ir, &readId, docId)) == INDEXREAD_EOF) {
-        return rc;
-      }
-      // rewind 1 document and re-read it...
-      if (rc == INDEXREAD_OK || readId > docId) {
-        IR_Seek(ir, offset, lastId);
-        IR_Read(ir, hit);
-        return rc;
-      }
-      lastId = readId;
-      offset = ir->buf->offset;
-    } while (rc != INDEXREAD_EOF);
+  /* If we are skipping to 0, it's just like a normal read */
+  if (docId == 0) {
+    return IR_Read(ctx, hit);
   }
+
+  IndexReader *ir = ctx;
+  /* check if the id is out of range */
+  if (docId > ir->header.lastId) {
+    return INDEXREAD_EOF;
+  }
+
+  /* try to find an entry in the skip index if possible */
+  SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
+  /* Seek to the correct location if we found a skip index entry */
+  if (ent != NULL && ent->offset > BufferOffset(ir->buf)) {
+    IR_Seek(ir, ent->offset, ent->docId);
+  }
+
+  int rc;
+  t_docId lastId = ir->lastId, readId = 0;
+  t_offset offset = ir->buf->offset;
+
+  do {
+
+    // do a quick-read until we hit or pass the desired document
+    if ((rc = IR_TryRead(ir, &readId, docId)) == INDEXREAD_EOF) {
+      return rc;
+    }
+    // rewind 1 document and re-read it...
+    if (rc == INDEXREAD_OK || readId > docId) {
+      IR_Seek(ir, offset, lastId);
+      IR_Read(ir, hit);
+      return rc;
+    }
+    lastId = readId;
+    offset = ir->buf->offset;
+  } while (rc != INDEXREAD_EOF);
 
   return INDEXREAD_EOF;
 }
@@ -424,7 +431,7 @@ int UI_Read(void *ctx, IndexResult *hit) {
 
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
-      if (ui->currentHits[i].docId <= ui->minDocId || ui->minDocId == 0) {
+      while (ui->currentHits[i].docId <= ui->minDocId && rc != INDEXREAD_EOF) {
         rc = INDEXREAD_NOTFOUND;
         // read while we're not at the end and perhaps the flags do not match
         while (rc == INDEXREAD_NOTFOUND) {
@@ -618,6 +625,11 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocT
 }
 
 int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
+
+  /* A seek with docId 0 is equivalent to a read */
+  if (docId == 0) {
+    return II_Read(ctx, hit);
+  }
   IntersectContext *ic = ctx;
 
   int nfound = 0;

@@ -3,7 +3,7 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
     def testAdd(self):
         with self.redis() as r:
