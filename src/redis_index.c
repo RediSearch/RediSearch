@@ -396,6 +396,8 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
   if (w) {
     // Truncate the main index buffer to its final size
     w->bw.Truncate(w->bw.buf, 0);
+    sctx->spec->stats.invertedCap += w->bw.buf->cap;
+    sctx->spec->stats.invertedSize += w->bw.buf->offset;
 
     // for small entries, delete the score index
     if (w->ndocs < SCOREINDEX_DELETE_THRESHOLD) {
@@ -406,10 +408,12 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
     } else {
       // truncate the score index to its final size
       w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);
+      sctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap;
     }
 
     // truncate the skip index
     w->skipIndexWriter.Truncate(w->skipIndexWriter.buf, 0);
+    sctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap;
 
     Redis_CloseWriter(w);
   }

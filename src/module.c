@@ -662,7 +662,14 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  /* Zero the stats in sp that are affected by optimization */
+  sp->stats.invertedCap = 0;
+  sp->stats.invertedSize = 0;
+  sp->stats.scoreIndexesSize = 0;
+  sp->stats.skipIndexesSize = 0;
+
   RedisSearchCtx sctx = {ctx, sp};
+
   RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
   size_t len;
   const char *prefix = RedisModule_StringPtrLen(pf, &len);
