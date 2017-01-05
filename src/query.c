@@ -311,10 +311,6 @@ QueryResult *Query_Execute(Query *query) {
   res->results = NULL;
   res->numResults = 0;
 
-  int num = query->offset + query->limit;
-  heap_t *pq = malloc(heap_sizeof(num));
-  heap_init(pq, cmpHits, NULL, num);
-
   //  start lazy evaluation of all query steps
   IndexIterator *it = NULL;
   if (query->root != NULL) {
@@ -325,6 +321,10 @@ QueryResult *Query_Execute(Query *query) {
   if (query->root == NULL || it == NULL) {
     return res;
   }
+
+  int num = query->offset + query->limit;
+  heap_t *pq = malloc(heap_sizeof(num));
+  heap_init(pq, cmpHits, NULL, num);
 
   IndexResult *pooledHit = NULL;
   double minScore = 0;
@@ -385,6 +385,7 @@ QueryResult *Query_Execute(Query *query) {
     IndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     res->results[n - i - 1] = (ResultEntry){Redis_GetDocKey(query->ctx, h->docId), h->totalTF};
+    IndexResult_Free(h);
 
     free(h);
   }
@@ -392,6 +393,7 @@ QueryResult *Query_Execute(Query *query) {
   // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
     IndexResult *h = heap_poll(pq);
+    IndexResult_Free(h);
     free(h);
   }
 

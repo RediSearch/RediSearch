@@ -35,6 +35,10 @@ void ForwardIndexFree(ForwardIndex *idx) {
     }
   }
   kh_destroy(32, idx->hits);
+
+  if (idx->stemmer) {
+    idx->stemmer->Free(idx->stemmer);
+  }
   free(idx);
   // TODO: check if we need to free each entry separately
 }
