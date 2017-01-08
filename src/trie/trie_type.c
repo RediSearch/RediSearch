@@ -63,7 +63,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
   heap_init(pq, cmpEntries, NULL, num);
 
   size_t rlen;
-  rune *runes = __strToRunes(s, &rlen);
+  rune *runes = __strToFoldedRunes(s, &rlen);
   DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);

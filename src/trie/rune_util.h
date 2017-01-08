@@ -19,4 +19,8 @@ rune *__strToRunes(char *str, size_t *len);
 /* Convert a rune string to utf-8 characters */
 char *__runesToStr(rune *in, size_t len, size_t *utflen);
 
+rune __runeToFold(rune r);
+
+rune *__strToFoldedRunes(char *str, size_t *len);
+
 #endif
