@@ -124,6 +124,82 @@ OK on success, or an error if something went wrong.
 
 ----
 
+## FT.INFO
+
+### Format
+
+```
+FT.INFO {index} 
+```
+
+### Description
+
+Return information and statistics on the index. Returned values include:
+
+* Number of documents.
+* Number of distinct terms.
+* Average bytes per record.
+* Size and capacity of the index buffers.
+
+Example:
+
+```
+127.0.0.1:6379> ft.info wik{0}
+ 1) index_name
+ 2) wikipedia
+ 3) fields
+ 4) 1) 1) title
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) "1"
+    2) 1) body
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) "1"
+ 5) num_docs
+ 6) "502694"
+ 7) num_terms
+ 8) "439158"
+ 9) num_records
+10) "8098583"
+11) inverted_sz_mb
+12) "45.58
+13) inverted_cap_mb
+14) "56.61
+15) inverted_cap_ovh
+16) "0.19
+17) offset_vectors_sz_mb
+18) "9.27
+19) skip_index_size_mb
+20) "7.35
+21) score_index_size_mb
+22) "30.8
+23) records_per_doc_avg
+24) "16.1
+25) bytes_per_record_avg
+26) "5.90
+27) offsets_per_term_avg
+28) "1.20
+29) offset_bits_per_record_avg
+30) "8.00
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
+### Complexity
+
+O(1)
+
+### Returns
+
+Array Response. A nested array of keys and values.
+
+---
+
 ## FT.SEARCH 
 
 ### Format
