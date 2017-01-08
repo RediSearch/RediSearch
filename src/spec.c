@@ -1,8 +1,6 @@
 #include "rmutil/strings.h"
 #include "spec.h"
 #include "util/logging.h"
-
-#include "dep/tpl/tpl.h"
 #include <math.h>
 
 RedisModuleType *IndexSpecType;
