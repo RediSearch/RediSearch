@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <string.h>
 #include "levenshtein.h"
+#include "rune_util.h"
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check

@@ -5,7 +5,7 @@ endif
 
 CFLAGS = -g -fPIC -lc -lm -O3 -std=gnu99 -I$(RM_INCLUDE_DIR) -Wall -Wno-unused-function
 CC=gcc
-OBJS=levenshtein.o sparse_vector.o trie.o trie_type.o
+OBJS=levenshtein.o rune_util.o sparse_vector.o trie.o trie_type.o
 
 all: libtrie.a
 
