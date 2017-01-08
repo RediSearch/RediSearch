@@ -582,7 +582,7 @@ end:
 }
 
 /*
-## FT.CREATE <index> [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+## FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC] ...
 
 Creates an index with the given spec. The index name will be used in all the

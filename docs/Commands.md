@@ -5,7 +5,8 @@
 ### Format:
 ```
   FT.CREATE {index} 
-  	{field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]
+    [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC] ...
 ```
 
 ### Description:
@@ -16,9 +17,13 @@ so keep it short!
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **field weight|NUMERIC**:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.
+* **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not allow exact searches)
 
-  If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.
+* **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.
+
+* **NOSCOREIDX**: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.
+
+* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They can be either numeric or textual. For textual fields we optionally specify a weight. The default weight is 1.0.
 
 ### Complexity
 O(1)
