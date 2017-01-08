@@ -9,7 +9,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'title', 1.0, 'body', 1.0))
+                'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
             self.assertTrue(r.exists('idx:idx'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                             'title', 'hello world',
@@ -24,7 +24,8 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         with self.redis() as r:
             r.flushdb()
-            self.assertOk(r.execute_command('ft.create', 'idx', 'f', 1.0))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text'))
             for i in range(100):
 
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -74,7 +75,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
+                'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10.0, 'body', 'text'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello world',
                                             'body', 'lorem ist ipsum'))
@@ -123,7 +124,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
+                'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10.0, 'body', 'text'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello world',
                                             'body', 'lorem ist ipsum'))
@@ -147,8 +148,8 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         with self.redis() as r:
             r.flushdb()
-            self.assertOk(r.execute_command('ft.create', 'idx',
-                                            'title', 10.0, 'body', 1.0, 'price', 'numeric'))
+            self.assertOk(r.execute_command('ft.create', 'idx', 'schema',
+                                            'title', 'text', 'weight', 10.0, 'body', 'text', 'price', 'numeric'))
 
             self.assertTrue(
                 r.hmset('doc1', {"title": "hello world", "body": "lorem ipsum", "price": 2}))
@@ -182,7 +183,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'title', 10.0, 'body', 1.0))
+                'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10.0, 'body', 'text', 'weight', 1.0))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello world',
                                             'body', 'lorem ipsum'))
@@ -233,7 +234,8 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
     def testStemming(self):
         with self.redis() as r:
             r.flushdb()
-            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello kitty'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
@@ -253,7 +255,8 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         with self.redis() as r:
             r.flushdb()
-            self.assertOk(r.execute_command('ft.create', 'idx', 'title', 10.0))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                             'title', 'hello kitty'))
 
@@ -271,8 +274,8 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         with self.redis() as r:
             r.flushdb()
-            self.assertOk(r.execute_command('ft.create', 'idx',
-                                            'title', 10.0, 'score', 'numeric'))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric'))
             for i in xrange(100):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
                                                 'title', 'hello kitty', 'score', i))

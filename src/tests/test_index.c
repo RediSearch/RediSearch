@@ -381,7 +381,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL);
+  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0);
   ASSERT(ctx.num == 5);
 
   free(txt);
@@ -402,20 +402,71 @@ int testTokenize() {
 // }
 
 int testIndexSpec() {
-  const char *args[4] = {"title", "0.1", "body", "2.0"};
-  IndexSpec s;
 
-  int rc = IndexSpec_Parse(&s, args, 4);
-  ASSERT(rc == REDISMODULE_OK);
-  ASSERT(s.numFields == 2)
+  const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
+  const char *args[] = {"SCHEMA", title, "text", "weight", "0.1", body,     "text",
+                        "weight", "2.0", foo,    "text",   bar,   "numeric"};
 
-  FieldSpec *f = IndexSpec_GetField(&s, args[0], strlen(args[0]));
+  char *err = NULL;
+
+  IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  if (err != NULL) {
+    FAIL("Error parsing spec: %s", err);
+  }
+  ASSERT(s != NULL);
+  ASSERT(err == NULL);
+  ASSERT(s->numFields == 4)
+
+  ASSERT(s->flags & Index_StoreScoreIndexes);
+  ASSERT(s->flags & Index_StoreFieldFlags);
+  ASSERT(s->flags & Index_StoreTermOffsets);
+
+  FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT(f != NULL);
-  assert(strcmp(f->name, args[0]) == 0);
-  assert(f->weight == 0.1);
+  ASSERT(f->type == F_FULLTEXT);
+  ASSERT(strcmp(f->name, body) == 0);
+  ASSERT(f->weight == 2.0);
+  ASSERT(f->id == 2);
 
-  ASSERT(IndexSpec_GetField(&s, "foo", 3) == NULL)
-  IndexSpec_Free(&s);
+  f = IndexSpec_GetField(s, title, strlen(title));
+  ASSERT(f != NULL);
+  ASSERT(f->type == F_FULLTEXT);
+  ASSERT(strcmp(f->name, title) == 0);
+  ASSERT(f->weight == 0.1);
+  ASSERT(f->id == 1);
+
+  f = IndexSpec_GetField(s, foo, strlen(foo));
+  ASSERT(f != NULL);
+  ASSERT(f->type == F_FULLTEXT);
+  ASSERT(strcmp(f->name, foo) == 0);
+  ASSERT(f->weight == 1);
+  ASSERT(f->id == 4);
+
+  f = IndexSpec_GetField(s, bar, strlen(bar));
+  ASSERT(f != NULL);
+  ASSERT(f->type == F_NUMERIC);
+  ASSERT(strcmp(f->name, bar) == 0);
+  ASSERT(f->weight == 0);
+  ASSERT(f->id == 0);
+
+  ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
+  IndexSpec_Free(s);
+
+  const char *args2[] = {
+      "NOOFFSETS", "NOFIELDS", "NOSCOREIDX", "SCHEMA", title, "text",
+  };
+  s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  if (err != NULL) {
+    FAIL("Error parsing spec: %s", err);
+  }
+  ASSERT(s != NULL);
+  ASSERT(err == NULL);
+  ASSERT(s->numFields == 1);
+
+  ASSERT(!(s->flags & Index_StoreScoreIndexes));
+  ASSERT(!(s->flags & Index_StoreFieldFlags));
+  ASSERT(!(s->flags & Index_StoreTermOffsets));
+
   return 0;
 }
 

@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -O3 
+CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -O0
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o 
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 

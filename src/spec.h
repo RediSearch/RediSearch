@@ -38,12 +38,12 @@ typedef struct {
 } IndexStats;
 
 typedef enum {
-  Index_DefaultFlags = 0x00,
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
-  Index_StoreScores = 0x04,
+  Index_StoreScoreIndexes = 0x04,
 } IndexFlags;
 
+#define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
 #define INDEX_CURRENT_VERSION 1
 
 typedef struct {
@@ -71,10 +71,10 @@ FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 * The format currently is <field> <weight>, <field> <weight> ...
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc);
+                                    RedisModuleString **argv, int argc, char **err);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc);
+IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 

@@ -1,4 +1,5 @@
 #include "rmutil/strings.h"
+#include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
 #include <math.h>
@@ -24,53 +25,124 @@ FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
 * Returns REDISMODULE_ERR if there's a parsing error.
 * The command only receives the relvant part of argv.
 *
-* The format currently is <field> <NUMERIC|weight>, <field> <NUMERIC|weight> ...
+* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc) {
-  if (argc % 2) {
-    return NULL;
-  }
+                                    RedisModuleString **argv, int argc, char **err) {
 
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc);
+  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, err);
 }
 
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc) {
+int __findOffset(const char *arg, const char **argv, int argc) {
+  for (int i = 0; i < argc; i++) {
+    if (!strcasecmp(arg, argv[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
 
-  IndexSpec *spec = NewIndexSpec(name, argc / 2);
+int __argExists(const char *arg, const char **argv, int argc, int maxIdx) {
+  int idx = __findOffset(arg, argv, argc);
+  // printf("pos for %s: %d\n", arg, idx);
+  return idx >= 0 && idx < maxIdx;
+}
 
-  int id = 1;
-  int n = 0;
-  for (int i = 0; i < argc; i += 2, id *= 2) {
-    // size_t sz;
-    spec->fields[n].name = strdup(argv[i]);
-    double d = 0;
-    FieldType t = F_FULLTEXT;
-    // printf("%s %s\n", argv[i], argv[i+1])
-    if (!strncasecmp(argv[i + 1], NUMERIC_STR, strlen(NUMERIC_STR))) {
-      t = F_NUMERIC;
-    } else {
-      d = strtod(argv[i + 1], NULL);
-      if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL) {
-        goto failure;
+/* Parse a field definition from argv, at *offset. We advance offset as we progress.
+*  Returns 1 on successful parse, 0 otherwise */
+int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
+
+  // if we're at the end - fail
+  if (*offset >= argc) return 0;
+
+  // the field name comes here
+  sp->name = strdup(argv[*offset]);
+
+  // we can't be at the end
+  if (++*offset == argc) return 0;
+
+  // this is a text field
+  if (!strcasecmp(argv[*offset], "TEXT")) {
+
+    // init default weight and type
+    sp->type = F_FULLTEXT;
+    sp->weight = 1.0;
+    // it's legit to be at the end now
+    if (++*offset == argc) return 1;
+
+    // if we have weight - try and parse it
+    if (!strcasecmp(argv[*offset], "WEIGHT")) {
+      // weight with no wait is invalid
+      if (++*offset == argc) return 0;
+
+      // try and parse the weight
+      double d = strtod(argv[*offset], NULL);
+      if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
+        return 0;
       }
+      sp->weight = d;
+      ++*offset;
     }
 
-    // spec->fields[n].name[sz] = '\0';
+  } else if (!strcasecmp(argv[*offset], "NUMERIC")) {
+    sp->type = F_NUMERIC;
+    sp->weight = 0.0;
+    ++*offset;
 
-    spec->fields[n].weight = d;
-    spec->fields[n].type = t;
-    spec->fields[n].id = id;
-    spec->numFields++;
-    // printf("loaded field %s id %d\n", argv[i], id);
-    n++;
+  } else {  // not numeric and not text - nothing more supported currently
+    return 0;
   }
 
+  return 1;
+}
+
+/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
+  */
+IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
+
+  int schemaOffset = __findOffset("SCHEMA", argv, argc);
+  // no schema or schema towrards the end
+  if (schemaOffset == -1) {
+    *err = "schema not found";
+    return NULL;
+  }
+  IndexSpec *spec = NewIndexSpec(name, 0);
+
+  if (__argExists("NOOFFSETS", argv, argc, schemaOffset)) {
+    spec->flags &= ~Index_StoreTermOffsets;
+  }
+
+  if (__argExists("NOFIELDS", argv, argc, schemaOffset)) {
+    spec->flags &= ~Index_StoreFieldFlags;
+  }
+
+  if (__argExists("NOSCOREIDX", argv, argc, schemaOffset)) {
+    spec->flags &= ~Index_StoreScoreIndexes;
+  }
+
+  int id = 1;
+
+  int i = schemaOffset + 1;
+  while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
+
+    if (!__parseFieldSpec(argv, &i, argc, &spec->fields[spec->numFields])) {
+      *err = "Could not parse field spec";
+      goto failure;
+    }
+
+    if (spec->fields[spec->numFields].type == F_FULLTEXT) {
+      spec->fields[spec->numFields].id = id;
+      id *= 2;
+    }
+    spec->numFields++;
+  }
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -158,7 +230,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   IndexSpec *sp = malloc(sizeof(IndexSpec));
   sp->fields = calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
   sp->numFields = 0;
-  sp->flags = Index_DefaultFlags;
+  sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = strdup(name);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;

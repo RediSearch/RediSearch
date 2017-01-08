@@ -14,29 +14,30 @@
   } else                                                       \
     printf("Test %s PASSED\n", __STRING(f));
 
-#define ASSERTM(expr, ...)                                                       \
-  if (!(expr)) {                                                                 \
-    fprintf(stderr, "Assertion '%s' Failed: " __VA_ARGS__ "\n", __STRING(expr)); \
-    return -1;                                                                   \
+#define ASSERTM(expr, ...)                                                                 \
+  if (!(expr)) {                                                                           \
+    fprintf(stderr, "%s:%d: Assertion '%s' Failed: " __VA_ARGS__ "\n", __FILE__, __LINE__, \
+            __STRING(expr));                                                               \
+    return -1;                                                                             \
   }
-#define ASSERT(expr)                                            \
-  if (!(expr)) {                                                \
-    fprintf(stderr, "Assertion '%s' Failed\n", __STRING(expr)); \
-    return -1;                                                  \
+#define ASSERT(expr)                                                                       \
+  if (!(expr)) {                                                                           \
+    fprintf(stderr, "%s:%d: Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr)); \
+    return -1;                                                                             \
   }
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
-#define ASSERT_EQUAL_INT(x, y, ...)                       \
-  if (x != y) {                                           \
-    fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", x, y); \
-    return -1;                                            \
+#define ASSERT_EQUAL_INT(x, y, ...)                                                  \
+  if (x != y) {                                                                      \
+    fprintf(stderr, "%s:%s: %d != %d: " __VA_ARGS__ "\n", __FILE__, __LINE__, x, y); \
+    return -1;                                                                       \
   }
 
-#define FAIL(fmt, ...)                                 \
-  {                                                    \
-    fprintf(stderr, "FAIL: " fmt "\n", ##__VA_ARGS__); \
-    return -1;                                         \
+#define FAIL(fmt, ...)                                                            \
+  {                                                                               \
+    fprintf(stderr, "%s:%d: FAIL: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
+    return -1;                                                                    \
   }
 
 #define RETURN_TEST_SUCCESS return 0;

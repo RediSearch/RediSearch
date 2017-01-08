@@ -582,7 +582,8 @@ end:
 }
 
 /*
-## FT.CREATE <index> <field> <weight>, ...
+## FT.CREATE <index> [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC] ...
 
 Creates an index with the given spec. The index name will be used in all the
 key
@@ -594,24 +595,37 @@ so keep it short!
     - index: the index name to create. If it exists the old spec will be
 overwritten
 
-    - field / weight pairs: pairs of field name and relative weight in
-scoring.
-    The weight is a double, but does not need to be normalized.
+    - NOOFFSETS: If set, we do not store term offsets for documents (saves memory, does not allow
+      exact searches)
+
+    - NOFIELDS: If set, we do not store field bits for each term. Saves memory, does not allow
+      filtering by specific fields.
+
+    - NOSCOREIDX: If set, we avoid saving the top results for single words. Saves a lot of memory,
+      slows down searches for common single word queries
+
+    - SCHEMA: After the SCHEMA keyword we define the index fields. They can be either numeric or
+      textual.
+      For textual fields we optionally specify a weight. The default weight is 1.0
+      The weight is a double, but does not need to be normalized.
 
 ### Returns:
 
     OK or an error
 */
 int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // at least one field, and number of field/text args must be even
-  if (argc < 4 || argc % 2 == 1) {
+  // at least one field, the SCHEMA keyword, and number of field/text args must be even
+  if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2);
+  char *err;
+
+
+  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, &err);
   if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Could not parse field specs");
+    return RedisModule_ReplyWithError(ctx, err ? err : "Could not parse index spec");
   }
 
   RedisModuleKey *k =
