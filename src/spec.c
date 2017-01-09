@@ -2,6 +2,7 @@
 #include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
+#include "rmutil/vector.h"
 #include <math.h>
 
 RedisModuleType *IndexSpecType;
@@ -68,7 +69,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   if (++*offset == argc) return 0;
 
   // this is a text field
-  if (!strcasecmp(argv[*offset], "TEXT")) {
+  if (!strcasecmp(argv[*offset], SPEC_TEXT_STR)) {
 
     // init default weight and type
     sp->type = F_FULLTEXT;
@@ -77,7 +78,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     if (++*offset == argc) return 1;
 
     // if we have weight - try and parse it
-    if (!strcasecmp(argv[*offset], "WEIGHT")) {
+    if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
       // weight with no wait is invalid
       if (++*offset == argc) return 0;
 
@@ -90,7 +91,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
       ++*offset;
     }
 
-  } else if (!strcasecmp(argv[*offset], "NUMERIC")) {
+  } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
     sp->type = F_NUMERIC;
     sp->weight = 0.0;
     ++*offset;
@@ -107,7 +108,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
 
-  int schemaOffset = __findOffset("SCHEMA", argv, argc);
+  int schemaOffset = __findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
     *err = "schema not found";
@@ -115,15 +116,15 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   }
   IndexSpec *spec = NewIndexSpec(name, 0);
 
-  if (__argExists("NOOFFSETS", argv, argc, schemaOffset)) {
+  if (__argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreTermOffsets;
   }
 
-  if (__argExists("NOFIELDS", argv, argc, schemaOffset)) {
+  if (__argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFieldFlags;
   }
 
-  if (__argExists("NOSCOREIDX", argv, argc, schemaOffset)) {
+  if (__argExists(SPEC_NOSCOREIDX_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreScoreIndexes;
   }
 
@@ -284,6 +285,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  printf("FLAGS: %x\n", sp->flags);
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = RedisModule_Calloc(sp->numFields, sizeof(FieldSpec));
   for (int i = 0; i < sp->numFields; i++) {
@@ -310,7 +312,53 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
+#define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
+;
+
 void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+
+  IndexSpec *sp = value;
+  Vector *args = NewVector(RedisModuleString *, 4 + 4 * sp->numFields);
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
+
+  printf("sp->fags:%x\n", sp->flags);
+  // serialize flags
+  if (!(sp->flags & Index_StoreTermOffsets)) {
+    __vpushStr(args, ctx, SPEC_NOOFFSETS_STR);
+  }
+  if (!(sp->flags & Index_StoreFieldFlags)) {
+    __vpushStr(args, ctx, SPEC_NOFIELDS_STR);
+  }
+  if (!(sp->flags & Index_StoreScoreIndexes)) {
+    __vpushStr(args, ctx, SPEC_NOSCOREIDX_STR);
+  }
+
+  // write SCHEMA keyword
+  __vpushStr(args, ctx, SPEC_SCHEMA_STR);
+
+  // serialize schema
+  for (int i = 0; i < sp->numFields; i++) {
+
+    switch (sp->fields[i].type) {
+      case F_FULLTEXT:
+        __vpushStr(args, ctx, sp->fields[i].name);
+        __vpushStr(args, ctx, SPEC_TEXT_STR);
+        if (sp->fields[i].weight != 1.0) {
+          __vpushStr(args, ctx, SPEC_WEIGHT_STR);
+          Vector_Push(args, RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].weight));
+        }
+        break;
+      case F_NUMERIC:
+        __vpushStr(args, ctx, sp->fields[i].name);
+        __vpushStr(args, ctx, NUMERIC_STR);
+        break;
+    }
+  }
+
+  RedisModule_EmitAOF(aof, "FT.CREATE", "sv", key, (RedisModuleString *)args->data,
+                      Vector_Size(args));
+
+  Vector_Free(args);
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
