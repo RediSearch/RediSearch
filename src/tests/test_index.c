@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
+#include "../rmutil/alloc.h"
 
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
@@ -478,7 +479,7 @@ typedef union {
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
-
+  RMUTil_InitAlloc();
   TESTFUNC(testVarint);
   TESTFUNC(testDistance);
   TESTFUNC(testIndexReadWrite);

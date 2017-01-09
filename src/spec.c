@@ -62,7 +62,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   if (*offset >= argc) return 0;
 
   // the field name comes here
-  sp->name = strdup(argv[*offset]);
+  sp->name = RedisModule_Strdup(argv[*offset]);
 
   // we can't be at the end
   if (++*offset == argc) return 0;
@@ -155,12 +155,12 @@ void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
   if (spec->fields != NULL) {
     for (int i = 0; i < spec->numFields; i++) {
-      free(spec->fields[i].name);
+      RedisModule_Free(spec->fields[i].name);
     }
-    free(spec->fields);
+    RedisModule_Free(spec->fields);
   }
-  free(spec->name);
-  free(spec);
+  RedisModule_Free(spec->name);
+  RedisModule_Free(spec);
 }
 
 /* Saves the spec as a LIST, containing basically the arguments needed to recreate the spec */
@@ -227,11 +227,11 @@ u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int arg
 }
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
-  IndexSpec *sp = malloc(sizeof(IndexSpec));
-  sp->fields = calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
+  IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
+  sp->fields = RedisModule_Calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = strdup(name);
+  sp->name = RedisModule_Strdup(name);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -281,11 +281,11 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver != INDEX_CURRENT_VERSION) {
     return NULL;
   }
-  IndexSpec *sp = malloc(sizeof(IndexSpec));
+  IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   sp->numFields = RedisModule_LoadUnsigned(rdb);
-  sp->fields = calloc(sp->numFields, sizeof(FieldSpec));
+  sp->fields = RedisModule_Calloc(sp->numFields, sizeof(FieldSpec));
   for (int i = 0; i < sp->numFields; i++) {
     __fieldSpec_rdbLoad(rdb, &sp->fields[i]);
   }
