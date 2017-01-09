@@ -103,7 +103,7 @@ int IR_Read(void *ctx, IndexResult *e) {
     IndexResult_PutRecord(e, &rec);
   }
 
-  // LG_DEBUG("Read docId %d, rc %d", e->docId, rc);
+  // printf("IR %s Read docId %d, rc %d\n", ir->term->str, e->docId, rc);
   return rc;
 }
 
@@ -454,14 +454,13 @@ int UI_Read(void *ctx, IndexResult *hit) {
     // take the minimum entry and yield it
     if (minIdx != -1) {
       if (hit) {
-        if (hit) {
-          hit->numRecords = 0;
-          IndexResult_Add(hit, &ui->currentHits[minIdx]);
-        }
+        hit->numRecords = 0;
+        IndexResult_Add(hit, &ui->currentHits[minIdx]);
       }
 
       ui->minDocId = ui->currentHits[minIdx].docId;
       ui->len++;
+      // printf("UI %p read docId %d OK\n", ui, ui->minDocId);
       return INDEXREAD_OK;
     }
 
@@ -503,9 +502,11 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     return UI_Read(ctx, hit);
   }
   UnionContext *ui = ctx;
+  // printf("UI %p skipto %d\n", ui, docId);
 
   int n = 0;
   int rc = INDEXREAD_EOF;
+  t_docId minDocId = __UINT32_MAX__;
   // skip all iterators to docId
   for (int i = 0; i < ui->num; i++) {
     // this happens for non existent words
@@ -519,16 +520,12 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
       }
 
     } else {
-      if (hit) {
-        hit->numRecords = 0;
-        hit->docId = ui->currentHits[i].docId;
-      }
+
       rc = ui->currentHits[i].docId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
 
-    // advance the minimal docId for reads
-    if (ui->minDocId < ui->currentHits[i].docId || rc == INDEXREAD_EOF) {
-      ui->minDocId = ui->currentHits[i].docId;
+    if (ui->currentHits[i].docId && rc != INDEXREAD_EOF) {
+      minDocId = MIN(ui->currentHits[i].docId, minDocId);
     }
 
     // we found a hit - no need to continue
@@ -537,6 +534,8 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
         hit->numRecords = 0;
         IndexResult_Add(hit, &ui->currentHits[i]);
       }
+      ui->minDocId = hit->docId;
+      // printf("UI %p skipped to docId %d OK!!!\n", ui, docId);
       return rc;
     }
     n++;
@@ -546,6 +545,11 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   if (n == 0) {
     return INDEXREAD_EOF;
   }
+
+  ui->minDocId = minDocId;
+  hit->numRecords = 0;
+  hit->docId = minDocId;
+  // printf("UI %p skipped to docId %d NOT FOUND, minDocId now %d\n", ui, docId, ui->minDocId);
   return INDEXREAD_NOTFOUND;
 }
 
@@ -707,6 +711,9 @@ int II_Read(void *ctx, IndexResult *hit) {
         }
       }
 
+      // printf("II %p, iter %p read %d(%d), rc %d\n", ic, ic->its[i],
+      //        ic->its[i]->LastDocId(ic->its[i]->ctx), h->docId, rc);
+
       if (h->docId > ic->lastDocId) {
         ic->lastDocId = h->docId;
         break;
@@ -719,6 +726,7 @@ int II_Read(void *ctx, IndexResult *hit) {
     }
 
     if (nh == ic->num) {
+      // printf("II %p HIT @ %d\n", ic, ic->currentHits[0].docId);
       // sum up all hits
       if (hit != NULL) {
         hit->numRecords = 0;

@@ -6,7 +6,6 @@
 
 typedef VarintVector OffsetVector;
 
-#define MAX_INTERSECT_WORDS 8
 #define DEFAULT_RECORDLIST_SIZE 4
 
 typedef struct {

@@ -148,8 +148,16 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  int n = 0;
   for (int i = 0; i < node->numChildren; i++) {
-    iters[i] = Query_EvalNode(q, node->children[i]);
+    IndexIterator *it = Query_EvalNode(q, node->children[i]);
+    if (it) {
+      iters[n++] = it;
+    }
+  }
+  if (n == 0) {
+    free(iters);
+    return NULL;
   }
 
   IndexIterator *ret = NewUnionIterator(iters, node->numChildren, q->docTable);
