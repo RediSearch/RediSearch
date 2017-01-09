@@ -5,7 +5,7 @@ import random
 import time
 
 
-class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
+class SearchTestCase(ModuleTestCase('../module.so')):
 
     _tokens = {}
     _docs = {}
@@ -33,29 +33,28 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         return self._docId - 1, tokens
 
-    def setUp(self):
+    def createIndex(self, r):
 
-        with self.redis() as r:
-            r.flushdb()
-            self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'txt', 'text'))
+        r.flushdb()
+        self.assertOk(r.execute_command(
+            'ft.create', 'idx', 'schema', 'txt', 'text'))
 
-            for i in xrange(1000):
-                did, tokens = self.generate_random_doc()
+        for i in xrange(1000):
+            did, tokens = self.generate_random_doc()
 
-                r.execute_command('ft.add', 'idx', did,
-                                  1.0, 'fields', 'txt', ' '.join(tokens))
+            r.execute_command('ft.add', 'idx', did,
+                              1.0, 'fields', 'txt', ' '.join(tokens))
 
-            # print r.execute_command('ft.info', 'idx')
+        # print r.execute_command('ft.info', 'idx')
 
-    def compareResults(self, num_unions=2, toks_per_union=7):
+    def compareResults(self, r, num_unions=2, toks_per_union=7):
 
         # generate N unions  of M tokens
         unions = [[self._random_token() for _ in range(toks_per_union)]
                   for _ in range(num_unions)]
 
         # get the documents for each union
-        union_docs = [reduce(lambda x, y: x.union(y), [self._tokens.get(t) for t in u], set())
+        union_docs = [reduce(lambda x, y: x.union(y), [self._tokens.get(t, set()) for t in u], set())
                       for u in unions]
         # intersect the result to get the actual search result for an
         # intersection of all unions
@@ -63,22 +62,24 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
         # format the equivalent search query for the same tokens
         q = ''.join(('(%s)' % '|'.join(toks) for toks in unions))
+        args = ['ft.search', 'idx', q, 'nocontent', 'limit', 0, 100]
+        print args
 
-        with self.redis() as r:
-            qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
-                                                        q, 'nocontent', 'limit', 0, 100)[1:]))
+        qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
+                                                    q, 'nocontent', 'limit', 0, 100)[1:]))
 
         print sorted(result), '<=>', sorted(qr)
-        self.assertFalse(result.difference(qr))
+        return result.difference(qr)
 
     def testFuzzy(self):
 
         # print self._tokens
+        with self.redis() as r:
+            self.createIndex(r)
+            self.assertTrue(True)
 
-        self.assertTrue(True)
-
-        for x in range(100):
-            self.compareResults(5, 40)
+            for x in range(100):
+                self.assertFalse(self.compareResults(r, 5, 40))
 
 
 if __name__ == '__main__':
