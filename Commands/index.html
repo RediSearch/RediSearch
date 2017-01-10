@@ -209,6 +209,12 @@
             </li>
           
             <li class="anchor">
+              <a title="FT.INFO" href="#ftinfo">
+                FT.INFO
+              </a>
+            </li>
+          
+            <li class="anchor">
               <a title="FT.SEARCH" href="#ftsearch">
                 FT.SEARCH
               </a>
@@ -288,7 +294,8 @@
 <h2 id="ftcreate">FT.CREATE</h2>
 <h3 id="format">Format:</h3>
 <pre><code>  FT.CREATE {index} 
-    {field} {weight}|NUMERIC [{field} {weight}|NUMERIC ...]
+    [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC] ...
 </code></pre>
 
 <h3 id="description">Description:</h3>
@@ -300,10 +307,18 @@ so keep it short!</p>
 <p><strong>index</strong>: the index name to create. If it exists the old spec will be overwritten</p>
 </li>
 <li>
-<p><strong>field weight|NUMERIC</strong>:  pairs of field name and relative weight in scoring. The weight is a double, but does not need to be normalized.</p>
+<p><strong>NOOFFSETS</strong>: If set, we do not store term offsets for documents (saves memory, does not allow exact searches)</p>
+</li>
+<li>
+<p><strong>NOFIELDS</strong>: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.</p>
+</li>
+<li>
+<p><strong>NOSCOREIDX</strong>: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.</p>
+</li>
+<li>
+<p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. They can be either numeric or textual. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
 </li>
 </ul>
-<p>If NUMRERIC is set instead of a weight, the index will expect numeric values in this field.</p>
 <h3 id="complexity">Complexity</h3>
 <p>O(1)</p>
 <h3 id="returns">Returns:</h3>
@@ -392,8 +407,73 @@ so keep it short!</p>
 <h3 id="returns_2">Returns</h3>
 <p>OK on success, or an error if something went wrong.</p>
 <hr />
-<h2 id="ftsearch">FT.SEARCH</h2>
+<h2 id="ftinfo">FT.INFO</h2>
 <h3 id="format_3">Format</h3>
+<pre><code>FT.INFO {index} 
+</code></pre>
+
+<h3 id="description_3">Description</h3>
+<p>Return information and statistics on the index. Returned values include:</p>
+<ul>
+<li>Number of documents.</li>
+<li>Number of distinct terms.</li>
+<li>Average bytes per record.</li>
+<li>Size and capacity of the index buffers.</li>
+</ul>
+<p>Example:</p>
+<pre><code>127.0.0.1:6379&gt; ft.info wik{0}
+ 1) index_name
+ 2) wikipedia
+ 3) fields
+ 4) 1) 1) title
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) &quot;1&quot;
+    2) 1) body
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) &quot;1&quot;
+ 5) num_docs
+ 6) &quot;502694&quot;
+ 7) num_terms
+ 8) &quot;439158&quot;
+ 9) num_records
+10) &quot;8098583&quot;
+11) inverted_sz_mb
+12) &quot;45.58
+13) inverted_cap_mb
+14) &quot;56.61
+15) inverted_cap_ovh
+16) &quot;0.19
+17) offset_vectors_sz_mb
+18) &quot;9.27
+19) skip_index_size_mb
+20) &quot;7.35
+21) score_index_size_mb
+22) &quot;30.8
+23) records_per_doc_avg
+24) &quot;16.1
+25) bytes_per_record_avg
+26) &quot;5.90
+27) offsets_per_term_avg
+28) &quot;1.20
+29) offset_bits_per_record_avg
+30) &quot;8.00
+</code></pre>
+
+<h3 id="parameters_3">Parameters</h3>
+<ul>
+<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+</ul>
+<h3 id="complexity_3">Complexity</h3>
+<p>O(1)</p>
+<h3 id="returns_3">Returns</h3>
+<p>Array Response. A nested array of keys and values.</p>
+<hr />
+<h2 id="ftsearch">FT.SEARCH</h2>
+<h3 id="format_4">Format</h3>
 <pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
     [FILTER numeric_field min max]
     [LANGUAGE language]
@@ -402,9 +482,9 @@ so keep it short!</p>
     [LIMIT offset num]
 </code></pre>
 
-<h3 id="description_3">Description</h3>
+<h3 id="description_4">Description</h3>
 <p>Search the index with a textual query, returning either documents or just ids.</p>
-<h3 id="parameters_3">Parameters</h3>
+<h3 id="parameters_4">Parameters</h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 <li><strong>query</strong>: the text query to search. If it's more than a single word, put it in quotes.
@@ -426,27 +506,27 @@ so keep it short!</p>
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.</li>
 <li><strong>EXPANDER expander</strong>: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.</li>
 </ul>
-<h3 id="complexity_3">Complexity</h3>
+<h3 id="complexity_4">Complexity</h3>
 <p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>
 <p>Complexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.</p>
-<h3 id="returns_3">Returns</h3>
+<h3 id="returns_4">Returns</h3>
 <p><strong>Array reply,</strong> where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. </p>
 <p>If <strong>NOCONTENT</strong> was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.</p>
 <hr />
 <h2 id="ftdrop">FT.DROP</h2>
-<h3 id="format_4">Format</h3>
+<h3 id="format_5">Format</h3>
 <pre><code>FT.DROP {index}
 </code></pre>
 
-<h3 id="description_4">Description</h3>
+<h3 id="description_5">Description</h3>
 <p>Deletes all the keys associated with the index. </p>
 <p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.</p>
-<h3 id="parameters_4">Parameters</h3>
+<h3 id="parameters_5">Parameters</h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_4">Returns</h3>
+<h3 id="returns_5">Returns</h3>
 <p>Status Reply: OK on success.</p>
 <hr />
 <h2 id="ftoptimize">FT.OPTIMIZE</h2>
@@ -459,39 +539,39 @@ that the index specification is not deleted.</p>
 we can optimize memory consumption by trimming all index buffers to their actual size.</p>
 <p><strong>Warning 1</strong>: Do not run it if you intend to update your index afterward.</p>
 <p><strong>Warning 2</strong>: This blocks redis for a long time. Do not run it on production instances</p>
-<h3 id="parameters_5">Parameters</h3>
+<h3 id="parameters_6">Parameters</h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_5">Returns:</h3>
+<h3 id="returns_6">Returns:</h3>
 <p>Integer Reply - the number of index entries optimized.</p>
 <hr />
 <h2 id="ftsuggadd">FT.SUGGADD</h2>
-<h3 id="format_5">Format</h3>
+<h3 id="format_6">Format</h3>
 <pre><code>FT.SUGADD {key} {string} {score} [INCR]
 </code></pre>
 
-<h3 id="description_5">Description</h3>
+<h3 id="description_6">Description</h3>
 <p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestino dictionaries to the user.</p>
-<h3 id="parameters_6">Parameters</h3>
+<h3 id="parameters_7">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the suggestion string we index</li>
 <li><strong>score</strong>: a floating point number of the suggestion string's weight</li>
 <li><strong>INCR</strong>: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time</li>
 </ul>
-<h3 id="returns_6">Returns:</h3>
+<h3 id="returns_7">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
 <h2 id="ftsugget">FT.SUGGET</h2>
-<h3 id="format_6">Format</h3>
+<h3 id="format_7">Format</h3>
 <pre><code>FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
 </code></pre>
 
-<h3 id="description_6">Description</h3>
+<h3 id="description_7">Description</h3>
 <p>Get completion suggestions for a prefix</p>
-<h3 id="parameters_7">Parameters:</h3>
+<h3 id="parameters_8">Parameters:</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>prefix</strong>: the prefix to complete on</li>
@@ -500,22 +580,22 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be
   used to merge results from multiple instances</li>
 </ul>
-<h3 id="returns_7">Returns:</h3>
+<h3 id="returns_8">Returns:</h3>
 <p>Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry</p>
 <hr />
 <h2 id="ftsugdel">FT.SUGDEL</h2>
-<h3 id="format_7">Format</h3>
+<h3 id="format_8">Format</h3>
 <pre><code>FT.SUGDEL {key} {string}
 </code></pre>
 
-<h3 id="description_7">Description</h3>
+<h3 id="description_8">Description</h3>
 <p>Delete a string from a suggestion index. </p>
-<h3 id="parameters_8">Parameters</h3>
+<h3 id="parameters_9">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the string to delete</li>
 </ul>
-<h3 id="returns_8">Returns:</h3>
+<h3 id="returns_9">Returns:</h3>
 <p>Integer Reply: 1 if the string was found and deleted, 0 otherwise.</p>
 <hr />
 <h2 id="ftsuglen">FT.SUGLEN</h2>
@@ -523,13 +603,13 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <pre><code>FT.SUGLEN {key}
 </code></pre>
 
-<h3 id="description_8">Description</h3>
+<h3 id="description_9">Description</h3>
 <p>Get the size of an autoc-complete suggestion dictionary</p>
-<h3 id="parameters_9">Parameters</h3>
+<h3 id="parameters_10">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 </ul>
-<h3 id="returns_9">Returns:</h3>
+<h3 id="returns_10">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
           <aside class="copyright" role="note">
             

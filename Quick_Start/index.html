@@ -188,8 +188,8 @@
             </li>
           
             <li class="anchor">
-              <a title="Creating an index with fields and weights:" href="#creating-an-index-with-fields-and-weights">
-                Creating an index with fields and weights:
+              <a title="Creating an index with fields and weights (default weight is 1.0):" href="#creating-an-index-with-fields-and-weights-default-weight-is-10">
+                Creating an index with fields and weights (default weight is 1.0):
               </a>
             </li>
           
@@ -270,14 +270,14 @@ make all
 /path/to/redis-server --loadmodule ./module.so
 </code></pre>
 
-<h2 id="creating-an-index-with-fields-and-weights">Creating an index with fields and weights:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx title 5.0 body 1.0 url 1.0
+<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):</h2>
+<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 OK 
 
 </code></pre>
 
 <h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 fields title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
+<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
 OK
 </code></pre>
 
