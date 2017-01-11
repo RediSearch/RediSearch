@@ -293,7 +293,10 @@
 <p><code>redisearch-py</code> is a python search engine library that utilizes the RediSearch Redis Module API.</p>
 <p>It is the "official" client of redisearch, and should be regarded as its canonical client implementation.</p>
 <h3 id="example-using-the-python-client">Example: Using the Python Client</h3>
-<pre><code class="py"># Creating a client with a given index name
+<pre><code class="py">
+from redisearch import Client, TextField, NumericField
+
+# Creating a client with a given index name
 client = Client('myIndex')
 
 # Creating the index definition and schema
