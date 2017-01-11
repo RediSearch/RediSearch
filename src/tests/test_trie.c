@@ -167,7 +167,7 @@ int testDFAFilter() {
   unsigned long long totalns = 0;
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = __strToRunes(terms[i], &rlen);
+    runes = __strToFoldedRunes(terms[i], &rlen);
     DFAFilter fc = NewDFAFilter(runes, rlen, 2, 0);
 
     TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, &fc);
