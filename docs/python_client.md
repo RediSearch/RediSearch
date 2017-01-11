@@ -8,6 +8,8 @@
 
 It is the "official" client of redisearch, and should be regarded as its canonical client implementation.
 
+The source code can be found at [http://github.com/RedisLabs/redisearch-py](http://github.com/RedisLabs/redisearch-py)
+
 ### Example: Using the Python Client
 
 ```py
@@ -36,7 +38,7 @@ print res.docs[0].title
 
 1. Install redis 4.0 RC2 or above
 
-2. [Install and RediSearch] (http://redisearch.io/Quick_Start/#building-and-running)
+2. [Install RediSearch](http://redisearch.io/Quick_Start/#building-and-running)
 
 3. Install the python client
 
