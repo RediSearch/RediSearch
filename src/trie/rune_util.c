@@ -10,7 +10,7 @@ rune *__strToRunes(char *str, size_t *len) {
 
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
-    ret[i] = (rune)decoded[i] & 0x0000FFFF;
+    ret[i] = (rune)decoded[i] & TRIE_RUNE_MASK;
   }
   if (len)
     *len = rlen;
@@ -22,7 +22,7 @@ char *__runesToStr(rune *in, size_t len, size_t *utflen) {
 
   uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
-    unicode[i] = (uint32_t)in[i] & 0x0000ffff;
+    unicode[i] = (uint32_t)in[i] & TRIE_RUNE_MASK;
   }
   unicode[len] = 0;
 
@@ -56,7 +56,7 @@ rune *__strToFoldedRunes(char *str, size_t *len) {
 
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
-    rune r = (rune)decoded[i] & 0x0000FFFF;
+    rune r = (rune)decoded[i] & TRIE_RUNE_MASK;
     ret[i] = __runeToFold(r);
   }
   if (len)
