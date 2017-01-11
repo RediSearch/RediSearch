@@ -4,11 +4,12 @@ canonical_url: http://redisearch.io
 repo_url: https://github.com/RedisLabsModules/RediSearch
 theme: material
 pages:
-    - 'Overview': 'index.md'
+    - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
-    - 'Commands': 'Commands.md'
-    - 'Query Syntax': 'Query_Syntax.md'
-    - 'Stemming Support': Stemming.md
-    - 'Python Client API': python_client.md
+    - 'Commands': 'Commands.md'    
+    - 'Reference':
+        - 'Query Syntax': 'Query_Syntax.md'
+        - 'Stemming Support': Stemming.md
+        - 'Python API': python_client.md
 
 google_analytics: ['UA-89573912-1', 'redisearch']
