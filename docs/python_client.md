@@ -11,6 +11,9 @@ It is the "official" client of redisearch, and should be regarded as its canonic
 ### Example: Using the Python Client
 
 ```py
+
+from redisearch import Client, TextField, NumericField
+
 # Creating a client with a given index name
 client = Client('myIndex')
 
