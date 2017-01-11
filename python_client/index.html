@@ -9,17 +9,17 @@
     <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
     
       
-        <title>Query Syntax - RediSearch Documentation</title>
+        <title>Python Client API - RediSearch Documentation</title>
       
       
       
-        <link rel="canonical" href="http://redisearch.io/Query_Syntax/">
+        <link rel="canonical" href="http://redisearch.io/python_client/">
       
       
     
-    <meta property="og:url" content="http://redisearch.io/Query_Syntax/">
+    <meta property="og:url" content="http://redisearch.io/python_client/">
     <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="http://redisearch.io/Query_Syntax//../">
+    <meta property="og:image" content="http://redisearch.io/python_client//../">
     <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -92,7 +92,7 @@
             
           </span>
         
-        Query Syntax
+        Python Client API
       </div>
     </div>
     
@@ -189,24 +189,9 @@
           
             
   <li>
-    <a class="current" title="Query Syntax" href="./">
+    <a class="" title="Query Syntax" href="../Query_Syntax/">
       Query Syntax
     </a>
-    
-      
-        
-      
-      
-        <ul>
-          
-            <li class="anchor">
-              <a title="A few examples" href="#a-few-examples">
-                A few examples
-              </a>
-            </li>
-          
-        </ul>
-      
     
   </li>
 
@@ -222,9 +207,60 @@
           
             
   <li>
-    <a class="" title="Python Client API" href="../python_client/">
+    <a class="current" title="Python Client API" href="./">
       Python Client API
     </a>
+    
+      
+        
+      
+      
+        <ul>
+          
+            <li class="anchor">
+              <a title="Overview" href="#overview">
+                Overview
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class Client" href="#class-client">
+                Class Client
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class BatchIndexer" href="#class-batchindexer">
+                Class BatchIndexer
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class Document" href="#class-document">
+                Class Document
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class NumericField" href="#class-numericfield">
+                Class NumericField
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class Result" href="#class-result">
+                Class Result
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class TextField" href="#class-textfield">
+                Class TextField
+              </a>
+            </li>
+          
+        </ul>
+      
     
   </li>
 
@@ -239,45 +275,202 @@
       <article class="article">
         <div class="wrapper">
           
-          <h1 id="search-query-syntax">Search Query Syntax:</h1>
-<p>We support a simple syntax for complex queries with the following rules:</p>
+          <h1 id="package-redisearch-documentation">Package redisearch Documentation</h1>
+<h2 id="overview">Overview</h2>
+<p><code>redisearch-py</code> is a python search engine library that utilizes the RediSearch Redis Module API.</p>
+<p>It is the "official" client of redisearch, and should be regarded as its canonical client implementation.</p>
+<h3 id="example-using-the-python-client">Example: Using the Python Client</h3>
+<pre><code class="py"># Creating a client with a given index name
+client = Client('myIndex')
+
+# Creating the index definition and schema
+client.create_index(TextField('title', weight=5.0), TextField('body'))
+
+# Indexing a document
+client.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')
+
+# Searching
+res = client.search(&quot;search engine&quot;)
+
+# the result has the total number of results, and a list of documents
+print res.total # &quot;1&quot;
+print res.docs[0].title 
+
+</code></pre>
+
+<h3 id="installing">Installing</h3>
+<ol>
+<li>
+<p>Install redis 4.0 RC2 or above</p>
+</li>
+<li>
+<p>[Install and RediSearch] (http://redisearch.io/Quick_Start/#building-and-running)</p>
+</li>
+<li>
+<p>Install the python client</p>
+</li>
+</ol>
+<pre><code class="sh">$ pip install redisearch
+</code></pre>
+
+<h2 id="class-client">Class Client</h2>
+<p>A client for the RediSearch module. 
+It abstracts the API of the module and lets you just use the engine </p>
+<h3 id="9595init9595">__init__</h3>
+<pre><code class="py">
+def __init__(self, index_name, host='localhost', port=6379, conn=None)
+
+</code></pre>
+
+<p>Create a new Client for the given index_name, and optional host and port</p>
+<p>If conn is not None, we employ an already existing redis connection</p>
+<h3 id="add95document">add_document</h3>
+<pre><code class="py">
+def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+
+</code></pre>
+
+<p>Add a single document to the index.</p>
+<h3 id="parameters">Parameters</h3>
 <ul>
-<li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
-<li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
-<li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
-<li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
-<li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
+<li><strong>doc_id</strong>: the id of the saved document.</li>
+<li><strong>nosave</strong>: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.</li>
+<li><strong>score</strong>: the document ranking, between 0.0 and 1.0 </li>
+<li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed</li>
 </ul>
-<h2 id="a-few-examples">A few examples</h2>
+<h3 id="batch95indexer">batch_indexer</h3>
+<pre><code class="py">
+def batch_indexer(self, chunk_size=100)
+
+</code></pre>
+
+<p>Create a new batch indexer from the client with a given chunk size</p>
+<h3 id="create95index">create_index</h3>
+<pre><code class="py">
+def create_index(self, *fields)
+
+</code></pre>
+
+<p>Create the search index. Creating an existing index juts updates its properties</p>
+<h3 id="parameters_1">Parameters:</h3>
 <ul>
-<li>
-<p>Simple phrase query - hello AND world</p>
-<pre><code>hello world
-</code></pre>
-</li>
-<li>
-<p>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong></p>
-<pre><code>"hello world"
-</code></pre>
-</li>
-<li>
-<p>Union: documents containing either <strong>hello</strong> OR <strong>world</strong></p>
-<pre><code>hello|world
-</code></pre>
-</li>
-<li>
-<p>Intersection of unions</p>
-<pre><code>(hello|halo) (world|werld)
-</code></pre>
-</li>
-<li>
-<p>Union inside phrase</p>
-<pre><code>(barack|barrack) obama
-</code></pre>
-</li>
+<li><strong>fields</strong>: a list of TextField or NumericField objects</li>
 </ul>
-<h3 id="technical-note">Technical Note</h3>
-<p>The query parser is built using the Lemon Parser Generator. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
+<h3 id="drop95index">drop_index</h3>
+<pre><code class="py">
+def drop_index(self)
+
+</code></pre>
+
+<p>Drop the index if it exists</p>
+<h3 id="info">info</h3>
+<pre><code class="py">
+def info(self)
+
+</code></pre>
+
+<p>Get info an stats about the the current index, including the number of documents, memory consumption, etc</p>
+<h3 id="load95document">load_document</h3>
+<pre><code class="py">
+def load_document(self, id)
+
+</code></pre>
+
+<p>Load a single document by id</p>
+<h3 id="search">search</h3>
+<pre><code class="py">
+def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)
+
+</code></pre>
+
+<p>Search the index for a given query, and return a result of documents</p>
+<h3 id="parameters_2">Parameters</h3>
+<ul>
+<li><strong>query</strong>: the search query, see RediSearch's documentation on query format</li>
+<li><strong>offset</strong>: Paging offset for the results. Defaults to 0</li>
+<li><strong>num</strong>: How many results do we want</li>
+<li><strong>verbatim</strong>: If True, we do not attempt stemming on the query</li>
+<li><strong>no_content</strong>: If True, we only return ids and not the document content</li>
+<li><strong>no_stopwords</strong>: If True, we do not match the query against stopwords</li>
+<li><strong>fields</strong>: An optional list/tuple of field names to focus the search in</li>
+<li><strong>snippet_size</strong>: the size of the text snippet we attempt to extract from the document</li>
+<li><strong>filters</strong>: optional numeric filters, in the format of <code>field = (min,max)</code></li>
+</ul>
+<h2 id="class-batchindexer">Class BatchIndexer</h2>
+<p>A batch indexer allows you to automatically batch 
+document indexeing in pipelines, flushing it every N documents. </p>
+<h3 id="9595init9595_1">__init__</h3>
+<pre><code class="py">
+def __init__(self, client, chunk_size=1000)
+
+</code></pre>
+
+<h3 id="add95document_1">add_document</h3>
+<pre><code class="py">
+def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+
+</code></pre>
+
+<p>Add a document to the batch query</p>
+<h3 id="commit">commit</h3>
+<pre><code class="py">
+def commit(self)
+
+</code></pre>
+
+<p>Manually commit and flush the batch indexing query</p>
+<h2 id="class-document">Class Document</h2>
+<p>Represents a single document in a result set </p>
+<h3 id="9595init9595_2">__init__</h3>
+<pre><code class="py">
+def __init__(self, id, **fields)
+
+</code></pre>
+
+<h3 id="snippetize">snippetize</h3>
+<pre><code class="py">
+def snippetize(self, field, size=500, bold_tokens=())
+
+</code></pre>
+
+<p>Create a shortened snippet from the document's content 
+:param size: the szie of the snippet in characters. It might be a bit longer or shorter
+:param boldTokens: a list of tokens we want to make bold (basically the query terms)</p>
+<h2 id="class-numericfield">Class NumericField</h2>
+<p>NumericField is used to define a numeric field in a schema defintion</p>
+<h3 id="9595init9595_3">__init__</h3>
+<pre><code class="py">
+def __init__(self, name)
+
+</code></pre>
+
+<h3 id="redis95args">redis_args</h3>
+<pre><code class="py">
+def redis_args(self)
+
+</code></pre>
+
+<h2 id="class-result">Class Result</h2>
+<p>Represents the result of a search query, and has an array of Document objects</p>
+<h3 id="9595init9595_4">__init__</h3>
+<pre><code class="py">
+def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)
+
+</code></pre>
+
+<h2 id="class-textfield">Class TextField</h2>
+<p>TextField is used to define a text field in a schema definition</p>
+<h3 id="9595init9595_5">__init__</h3>
+<pre><code class="py">
+def __init__(self, name, weight=1.0)
+
+</code></pre>
+
+<h3 id="redis95args_1">redis_args</h3>
+<pre><code class="py">
+def redis_args(self)
+
+</code></pre>
           <aside class="copyright" role="note">
             
             Documentation built with
@@ -294,7 +487,7 @@
   <nav class="pagination" aria-label="Footer">
     <div class="previous">
       
-        <a href="../Commands/" title="Commands">
+        <a href="../Stemming/" title="Stemming Support">
           <span class="direction">
             Previous
           </span>
@@ -304,7 +497,7 @@
             </div>
             <div class="stretch">
               <div class="title">
-                Commands
+                Stemming Support
               </div>
             </div>
           </div>
@@ -312,22 +505,6 @@
       
     </div>
     <div class="next">
-      
-        <a href="../Stemming/" title="Stemming Support">
-          <span class="direction">
-            Next
-          </span>
-          <div class="page">
-            <div class="stretch">
-              <div class="title">
-                Stemming Support
-              </div>
-            </div>
-            <div class="button button-next" role="button" aria-label="Next">
-              <i class="icon icon-forward"></i>
-            </div>
-          </div>
-        </a>
       
     </div>
   </nav>

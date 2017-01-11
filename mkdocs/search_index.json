@@ -389,6 +389,166 @@
             "location": "/Stemming/#supported-languages", 
             "text": "The following languages are supported, and can be passed to the engine \nwhen indexing or querying, with lowercase letters:   arabic  danish  dutch  english  finnish  french  german  hungarian  italian  norwegian  portuguese  romanian  russian  spanish  swedish  tamil  turkish", 
             "title": "Supported languages:"
+        }, 
+        {
+            "location": "/python_client/", 
+            "text": "Package redisearch Documentation\n\n\nOverview\n\n\nredisearch-py\n is a python search engine library that utilizes the RediSearch Redis Module API.\n\n\nIt is the \"official\" client of redisearch, and should be regarded as its canonical client implementation.\n\n\nExample: Using the Python Client\n\n\n# Creating a client with a given index name\nclient = Client('myIndex')\n\n# Creating the index definition and schema\nclient.create_index(TextField('title', weight=5.0), TextField('body'))\n\n# Indexing a document\nclient.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')\n\n# Searching\nres = client.search(\nsearch engine\n)\n\n# the result has the total number of results, and a list of documents\nprint res.total # \n1\n\nprint res.docs[0].title \n\n\n\n\n\nInstalling\n\n\n\n\n\n\nInstall redis 4.0 RC2 or above\n\n\n\n\n\n\n[Install and RediSearch] (http://redisearch.io/Quick_Start/#building-and-running)\n\n\n\n\n\n\nInstall the python client\n\n\n\n\n\n\n$ pip install redisearch\n\n\n\n\nClass Client\n\n\nA client for the RediSearch module. \nIt abstracts the API of the module and lets you just use the engine \n\n\n__init__\n\n\n\ndef __init__(self, index_name, host='localhost', port=6379, conn=None)\n\n\n\n\n\nCreate a new Client for the given index_name, and optional host and port\n\n\nIf conn is not None, we employ an already existing redis connection\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a single document to the index.\n\n\nParameters\n\n\n\n\ndoc_id\n: the id of the saved document.\n\n\nnosave\n: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.\n\n\nscore\n: the document ranking, between 0.0 and 1.0 \n\n\nfields\n kwargs dictionary of the document fields to be saved and/or indexed\n\n\n\n\nbatch_indexer\n\n\n\ndef batch_indexer(self, chunk_size=100)\n\n\n\n\n\nCreate a new batch indexer from the client with a given chunk size\n\n\ncreate_index\n\n\n\ndef create_index(self, *fields)\n\n\n\n\n\nCreate the search index. Creating an existing index juts updates its properties\n\n\nParameters:\n\n\n\n\nfields\n: a list of TextField or NumericField objects\n\n\n\n\ndrop_index\n\n\n\ndef drop_index(self)\n\n\n\n\n\nDrop the index if it exists\n\n\ninfo\n\n\n\ndef info(self)\n\n\n\n\n\nGet info an stats about the the current index, including the number of documents, memory consumption, etc\n\n\nload_document\n\n\n\ndef load_document(self, id)\n\n\n\n\n\nLoad a single document by id\n\n\nsearch\n\n\n\ndef search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)\n\n\n\n\n\nSearch the index for a given query, and return a result of documents\n\n\nParameters\n\n\n\n\nquery\n: the search query, see RediSearch's documentation on query format\n\n\noffset\n: Paging offset for the results. Defaults to 0\n\n\nnum\n: How many results do we want\n\n\nverbatim\n: If True, we do not attempt stemming on the query\n\n\nno_content\n: If True, we only return ids and not the document content\n\n\nno_stopwords\n: If True, we do not match the query against stopwords\n\n\nfields\n: An optional list/tuple of field names to focus the search in\n\n\nsnippet_size\n: the size of the text snippet we attempt to extract from the document\n\n\nfilters\n: optional numeric filters, in the format of \nfield = (min,max)\n\n\n\n\nClass BatchIndexer\n\n\nA batch indexer allows you to automatically batch \ndocument indexeing in pipelines, flushing it every N documents. \n\n\n__init__\n\n\n\ndef __init__(self, client, chunk_size=1000)\n\n\n\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a document to the batch query\n\n\ncommit\n\n\n\ndef commit(self)\n\n\n\n\n\nManually commit and flush the batch indexing query\n\n\nClass Document\n\n\nRepresents a single document in a result set \n\n\n__init__\n\n\n\ndef __init__(self, id, **fields)\n\n\n\n\n\nsnippetize\n\n\n\ndef snippetize(self, field, size=500, bold_tokens=())\n\n\n\n\n\nCreate a shortened snippet from the document's content \n:param size: the szie of the snippet in characters. It might be a bit longer or shorter\n:param boldTokens: a list of tokens we want to make bold (basically the query terms)\n\n\nClass NumericField\n\n\nNumericField is used to define a numeric field in a schema defintion\n\n\n__init__\n\n\n\ndef __init__(self, name)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)\n\n\n\n\n\nClass Result\n\n\nRepresents the result of a search query, and has an array of Document objects\n\n\n__init__\n\n\n\ndef __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)\n\n\n\n\n\nClass TextField\n\n\nTextField is used to define a text field in a schema definition\n\n\n__init__\n\n\n\ndef __init__(self, name, weight=1.0)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)", 
+            "title": "Python Client API"
+        }, 
+        {
+            "location": "/python_client/#package-redisearch-documentation", 
+            "text": "", 
+            "title": "Package redisearch Documentation"
+        }, 
+        {
+            "location": "/python_client/#overview", 
+            "text": "redisearch-py  is a python search engine library that utilizes the RediSearch Redis Module API.  It is the \"official\" client of redisearch, and should be regarded as its canonical client implementation.", 
+            "title": "Overview"
+        }, 
+        {
+            "location": "/python_client/#example-using-the-python-client", 
+            "text": "# Creating a client with a given index name\nclient = Client('myIndex')\n\n# Creating the index definition and schema\nclient.create_index(TextField('title', weight=5.0), TextField('body'))\n\n# Indexing a document\nclient.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')\n\n# Searching\nres = client.search( search engine )\n\n# the result has the total number of results, and a list of documents\nprint res.total #  1 \nprint res.docs[0].title", 
+            "title": "Example: Using the Python Client"
+        }, 
+        {
+            "location": "/python_client/#installing", 
+            "text": "Install redis 4.0 RC2 or above    [Install and RediSearch] (http://redisearch.io/Quick_Start/#building-and-running)    Install the python client    $ pip install redisearch", 
+            "title": "Installing"
+        }, 
+        {
+            "location": "/python_client/#class-client", 
+            "text": "A client for the RediSearch module. \nIt abstracts the API of the module and lets you just use the engine", 
+            "title": "Class Client"
+        }, 
+        {
+            "location": "/python_client/#9595init9595", 
+            "text": "def __init__(self, index_name, host='localhost', port=6379, conn=None)  Create a new Client for the given index_name, and optional host and port  If conn is not None, we employ an already existing redis connection", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#add95document", 
+            "text": "def add_document(self, doc_id, nosave=False, score=1.0, **fields)  Add a single document to the index.", 
+            "title": "add_document"
+        }, 
+        {
+            "location": "/python_client/#parameters", 
+            "text": "doc_id : the id of the saved document.  nosave : if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.  score : the document ranking, between 0.0 and 1.0   fields  kwargs dictionary of the document fields to be saved and/or indexed", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/python_client/#batch95indexer", 
+            "text": "def batch_indexer(self, chunk_size=100)  Create a new batch indexer from the client with a given chunk size", 
+            "title": "batch_indexer"
+        }, 
+        {
+            "location": "/python_client/#create95index", 
+            "text": "def create_index(self, *fields)  Create the search index. Creating an existing index juts updates its properties", 
+            "title": "create_index"
+        }, 
+        {
+            "location": "/python_client/#parameters_1", 
+            "text": "fields : a list of TextField or NumericField objects", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/python_client/#drop95index", 
+            "text": "def drop_index(self)  Drop the index if it exists", 
+            "title": "drop_index"
+        }, 
+        {
+            "location": "/python_client/#info", 
+            "text": "def info(self)  Get info an stats about the the current index, including the number of documents, memory consumption, etc", 
+            "title": "info"
+        }, 
+        {
+            "location": "/python_client/#load95document", 
+            "text": "def load_document(self, id)  Load a single document by id", 
+            "title": "load_document"
+        }, 
+        {
+            "location": "/python_client/#search", 
+            "text": "def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)  Search the index for a given query, and return a result of documents", 
+            "title": "search"
+        }, 
+        {
+            "location": "/python_client/#parameters_2", 
+            "text": "query : the search query, see RediSearch's documentation on query format  offset : Paging offset for the results. Defaults to 0  num : How many results do we want  verbatim : If True, we do not attempt stemming on the query  no_content : If True, we only return ids and not the document content  no_stopwords : If True, we do not match the query against stopwords  fields : An optional list/tuple of field names to focus the search in  snippet_size : the size of the text snippet we attempt to extract from the document  filters : optional numeric filters, in the format of  field = (min,max)", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/python_client/#class-batchindexer", 
+            "text": "A batch indexer allows you to automatically batch \ndocument indexeing in pipelines, flushing it every N documents.", 
+            "title": "Class BatchIndexer"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_1", 
+            "text": "def __init__(self, client, chunk_size=1000)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#add95document_1", 
+            "text": "def add_document(self, doc_id, nosave=False, score=1.0, **fields)  Add a document to the batch query", 
+            "title": "add_document"
+        }, 
+        {
+            "location": "/python_client/#commit", 
+            "text": "def commit(self)  Manually commit and flush the batch indexing query", 
+            "title": "commit"
+        }, 
+        {
+            "location": "/python_client/#class-document", 
+            "text": "Represents a single document in a result set", 
+            "title": "Class Document"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_2", 
+            "text": "def __init__(self, id, **fields)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#snippetize", 
+            "text": "def snippetize(self, field, size=500, bold_tokens=())  Create a shortened snippet from the document's content \n:param size: the szie of the snippet in characters. It might be a bit longer or shorter\n:param boldTokens: a list of tokens we want to make bold (basically the query terms)", 
+            "title": "snippetize"
+        }, 
+        {
+            "location": "/python_client/#class-numericfield", 
+            "text": "NumericField is used to define a numeric field in a schema defintion", 
+            "title": "Class NumericField"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_3", 
+            "text": "def __init__(self, name)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#redis95args", 
+            "text": "def redis_args(self)", 
+            "title": "redis_args"
+        }, 
+        {
+            "location": "/python_client/#class-result", 
+            "text": "Represents the result of a search query, and has an array of Document objects", 
+            "title": "Class Result"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_4", 
+            "text": "def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#class-textfield", 
+            "text": "TextField is used to define a text field in a schema definition", 
+            "title": "Class TextField"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_5", 
+            "text": "def __init__(self, name, weight=1.0)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#redis95args_1", 
+            "text": "def redis_args(self)", 
+            "title": "redis_args"
         }
     ]
 }
