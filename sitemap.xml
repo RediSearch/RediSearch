@@ -26,27 +26,25 @@
     
 
     
+        
     <url>
      <loc>http://redisearch.io/Query_Syntax/</loc>
      <lastmod>2017-01-11</lastmod>
      <changefreq>daily</changefreq>
     </url>
-    
-
-    
+        
     <url>
      <loc>http://redisearch.io/Stemming/</loc>
      <lastmod>2017-01-11</lastmod>
      <changefreq>daily</changefreq>
     </url>
-    
-
-    
+        
     <url>
      <loc>http://redisearch.io/python_client/</loc>
      <lastmod>2017-01-11</lastmod>
      <changefreq>daily</changefreq>
     </url>
+        
     
 
 </urlset>
