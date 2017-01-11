@@ -1,7 +1,7 @@
 #include "../dep/libnu/libnu.h"
 #include "rune_util.h"
 
-rune *__strToRunes(char *str, size_t *len) {
+rune *strToRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
@@ -18,7 +18,7 @@ rune *__strToRunes(char *str, size_t *len) {
   return ret;
 }
 
-char *__runesToStr(rune *in, size_t len, size_t *utflen) {
+char *runesToStr(rune *in, size_t len, size_t *utflen) {
 
   uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
@@ -34,7 +34,7 @@ char *__runesToStr(rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-rune __runeToFold(rune r) {
+rune runeFold(rune r) {
   uint32_t loweredRune = 0;
   const char *map = 0;
   map = nu_tofold(r);
@@ -46,8 +46,8 @@ rune __runeToFold(rune r) {
 }
 
 // implementation is identical to that of
-// __strToRunes except for line where __runeToFold is called
-rune *__strToFoldedRunes(char *str, size_t *len) {
+// __strToRunes except for line where __runeFold is called
+rune *strToFoldedRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
@@ -57,7 +57,7 @@ rune *__strToFoldedRunes(char *str, size_t *len) {
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
     rune r = (rune)decoded[i] & TRIE_RUNE_MASK;
-    ret[i] = __runeToFold(r);
+    ret[i] = runeFold(r);
   }
   if (len)
     *len = rlen;

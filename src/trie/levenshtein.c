@@ -245,7 +245,7 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
         }
     }
 
-    rune *foldedRune = __runeToFold(b);
+    rune *foldedRune = runeFold(b);
 
     // get the next state change
     dfaNode *next = __dfn_getEdge(dn, foldedRune);

@@ -10,7 +10,7 @@
 
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
-  rune *rs = __strToRunes("", 0);
+  rune *rs = strToRunes("", 0);
   tree->root = __newTrieNode(rs, 0, 0, 0, 0, 0);
   tree->size = 0;
   free(rs);
@@ -24,14 +24,14 @@ void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
 }
 void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
 
-  rune *runes = __strToRunes(s, &len);
+  rune *runes = strToRunes(s, &len);
   t->size += TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
   free(runes);
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
 
-  rune *runes = __strToRunes(s, &len);
+  rune *runes = strToRunes(s, &len);
   int rc = TrieNode_Delete(t->root, runes, len);
   t->size -= rc;
   free(runes);
@@ -63,7 +63,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
   heap_init(pq, cmpEntries, NULL, num);
 
   size_t rlen;
-  rune *runes = __strToFoldedRunes(s, &rlen);
+  rune *runes = strToFoldedRunes(s, &rlen);
   DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
@@ -92,7 +92,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     }
 
     if (heap_count(pq) < heap_size(pq)) {
-      ent->str = __runesToStr(rstr, slen, &ent->len);
+      ent->str = runesToStr(rstr, slen, &ent->len);
       // strndup(str, slen);
       heap_offerx(pq, ent);
       pooledEntry = NULL;
@@ -107,7 +107,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         pooledEntry = heap_poll(pq);
         free(pooledEntry->str);
         pooledEntry->str = NULL;
-        ent->str = __runesToStr(rstr, slen, &ent->len);
+        ent->str = runesToStr(rstr, slen, &ent->len);
         heap_offerx(pq, ent);
 
         // get the new minimal score
@@ -210,7 +210,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
 
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
       size_t slen;
-      char *s = __runesToStr(rstr, len, &slen);
+      char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen);
       RedisModule_SaveDouble(rdb, (double)score);
       free(s);
@@ -232,7 +232,7 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
 
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
       size_t slen;
-      char *s = __runesToStr(rstr, len, &slen);
+      char *s = runesToStr(rstr, len, &slen);
       RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, slen, (double)score);
       free(s);
     }
