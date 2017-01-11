@@ -1,8 +1,10 @@
 #include "forward_index.h"
 #include "index.h"
 #include "varint.h"
+#include "spec.h"
 #include <math.h>
 #include <sys/param.h>
+
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
   // LG_DEBUG("ir %p size %d, offset %d. has next? %d\n", ir, ir->header.size,
@@ -18,8 +20,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
   }
 
   *docId = ReadVarint(ir->buf) + ir->lastId;
-  int len = ReadVarint(ir->buf);
-  size_t pos = BufferOffset(ir->buf);
 
   int quantizedScore = ReadVarint(ir->buf);
   if (freq != NULL) {
@@ -27,21 +27,25 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
     // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
   }
 
-  BufferReadByte(ir->buf, (char *)flags);
-
-  size_t offsetsLen = len - (BufferOffset(ir->buf) - pos);
-
-  // If needed - read offset vectors
-  if (offsets != NULL && !ir->singleWordMode) {
-    offsets->cap = offsetsLen;
-    offsets->data = ir->buf->pos;
-    offsets->pos = offsets->data;
-    offsets->ctx = NULL;
-    offsets->offset = 0;
-    offsets->type = BUFFER_READ;
+  if (ir->flags & Index_StoreFieldFlags) {
+    BufferReadByte(ir->buf, (char *)flags);
   }
 
-  BufferSkip(ir->buf, offsetsLen);
+  if (ir->flags & Index_StoreTermOffsets) {
+
+    size_t offsetsLen = ReadVarint(ir->buf);
+
+    // If needed - read offset vectors
+    if (offsets != NULL && !ir->singleWordMode) {
+      offsets->cap = offsetsLen;
+      offsets->data = ir->buf->pos;
+      offsets->pos = offsets->data;
+      offsets->ctx = NULL;
+      offsets->offset = 0;
+      offsets->type = BUFFER_READ;
+    }
+    BufferSkip(ir->buf, offsetsLen);
+  }
   ir->lastId = *docId;
   return INDEXREAD_OK;
 }
@@ -52,10 +56,19 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   }
 
   *docId = ReadVarint(ir->buf) + ir->lastId;
-  int len = ReadVarint(ir->buf);
+  ReadVarint(ir->buf);  // read quantized score
+  // pseudo-read flags
+  if (ir->flags & Index_StoreFieldFlags) {
+    BufferSkip(ir->buf, 1);
+  }
+
+  // pseudo read offsets
+  if (ir->flags & Index_StoreTermOffsets) {
+    size_t len = ReadVarint(ir->buf);
+    BufferSkip(ir->buf, len);
+  }
 
   ir->lastId = *docId;
-  BufferSkip(ir->buf, len);
 
   if (*docId != expectedDocId && expectedDocId != 0) {
     return INDEXREAD_NOTFOUND;
@@ -196,13 +209,13 @@ size_t IR_NumDocs(void *ctx) {
 }
 
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *dt,
-                            int singleWordMode, u_char fieldMask) {
+                            int singleWordMode, u_char fieldMask, IndexFlags flags) {
   return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt, singleWordMode, NULL,
-                           fieldMask, NULL);
+                           fieldMask, flags, NULL);
 }
 
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int singleWordMode,
-                               ScoreIndex *sci, u_char fieldMask, Term *term) {
+                               ScoreIndex *sci, u_char fieldMask, IndexFlags flags, Term *term) {
   IndexReader *ret = malloc(sizeof(IndexReader));
   ret->buf = buf;
   indexReadHeader(buf, &ret->header);
@@ -227,6 +240,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
   // LG_DEBUG("Load offsets %d, si: %p", singleWordMode, si);
   ret->skipIdx = si;
   ret->fieldMask = fieldMask;
+  ret->flags = flags;
 
   return ret;
 }
@@ -269,20 +283,22 @@ void writeIndexHeader(IndexWriter *w) {
   BufferSeek(w->bw.buf, offset);
 }
 
-IndexWriter *NewIndexWriter(size_t cap) {
+IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags) {
   return NewIndexWriterBuf(NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
                            NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
-                           NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE))));
+                           NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE))),
+                           flags);
 }
 
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter,
-                               ScoreIndexWriter siw) {
+IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter, ScoreIndexWriter siw,
+                               IndexFlags flags) {
   IndexWriter *w = malloc(sizeof(IndexWriter));
   w->bw = bw;
   w->skipIndexWriter = skipIdnexWriter;
   w->ndocs = 0;
   w->lastId = 0;
   w->scoreWriter = siw;
+  w->flags = flags;
 
   IndexHeader h = {0, 0, 0};
   if (indexReadHeader(w->bw.buf, &h)) {
@@ -337,22 +353,28 @@ size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
   int quantizedScore = floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
 
   size_t offsetsSz = offsets->offset;
-  // // calculate the overall len
-  size_t len = varintSize(quantizedScore) + 1 + offsetsSz;
+  // // // calculate the overall len
+  // size_t len = varintSize(quantizedScore) + 1 + offsetsSz;
 
   // Write docId
   ret += WriteVarint(ent->docId - w->lastId, &w->bw);
   // encode len
 
-  ret += WriteVarint(len, &w->bw);
+  // ret += WriteVarint(len, &w->bw);
   // encode freq
   ret += WriteVarint(quantizedScore, &w->bw);
-  // encode flags
-  ret += w->bw.Write(w->bw.buf, &ent->flags, 1);
-  // write offsets size
-  // ret += WriteVarint(offsetsSz, &w->bw);
-  ret += w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
 
+  if (w->flags & Index_StoreFieldFlags) {
+    // encode flags
+    ret += w->bw.Write(w->bw.buf, &ent->flags, 1);
+  }
+
+  if (w->flags & Index_StoreTermOffsets) {
+    ret += WriteVarint(offsetsSz, &w->bw);
+    // write offsets size
+    // ret += WriteVarint(offsetsSz, &w->bw);
+    ret += w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
+  }
   w->lastId = ent->docId;
   if (w->ndocs % SKIPINDEX_STEP == 0) {
     IW_WriteSkipIndexEntry(w);

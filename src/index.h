@@ -63,6 +63,7 @@ typedef struct indexReader {
   int useScoreIndex;
   u_char fieldMask;
 
+  IndexFlags flags;
   size_t len;
 
   Term *term;
@@ -79,6 +80,8 @@ typedef struct indexWriter {
   BufferWriter skipIndexWriter;
   // writer for the score index
   ScoreIndexWriter scoreWriter;
+
+  IndexFlags flags;
 } IndexWriter;
 
 #define INDEXREAD_EOF 0
@@ -126,7 +129,7 @@ void ReadIterator_Free(IndexIterator *it);
 
 // used only internally for unit testing
 IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *docTable,
-                            int singleWordMode, u_char fieldMask);
+                            int singleWordMode, u_char fieldMask, IndexFlags flags);
 
 /* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
@@ -134,7 +137,7 @@ IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable 
 * index.
 */
 IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *docTable, int singleWordMode,
-                               ScoreIndex *sci, u_char fieldMask, Term *term);
+                               ScoreIndex *sci, u_char fieldMask, IndexFlags flags, Term *term);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
@@ -188,13 +191,13 @@ size_t IW_Len(IndexWriter *w);
 void IW_Free(IndexWriter *w);
 /* Create a new index writer with a memory buffer of a given capacity.
 NOTE: this is used for testing only */
-IndexWriter *NewIndexWriter(size_t cap);
+IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags);
 
 /* Create a new index writer with the given buffers for the actual index, skip
  * index, and score
  * index */
 IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter,
-                               ScoreIndexWriter scoreWriter);
+                               ScoreIndexWriter scoreWriter, IndexFlags flags);
 
 /* UnionContext is used during the running of a union iterator */
 typedef struct {

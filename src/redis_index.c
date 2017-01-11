@@ -51,7 +51,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len)
   ScoreIndexWriter scw =
       NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len)));
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  IndexWriter *w = NewIndexWriterBuf(bw, skw, scw);
+  IndexWriter *w = NewIndexWriterBuf(bw, skw, scw, ctx->spec->flags);
   return w;
 }
 
@@ -99,7 +99,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len,
     si = LoadRedisSkipIndex(ctx, term, len);
   }
 
-  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask, NewTerm((char *)term));
+  return NewIndexReaderBuf(b, si, dt, singleWordMode, sci, fieldMask, ctx->spec->flags,
+                           NewTerm((char *)term));
 }
 
 void Redis_CloseReader(IndexReader *r) {
