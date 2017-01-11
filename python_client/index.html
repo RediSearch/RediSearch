@@ -233,6 +233,12 @@
             </li>
           
             <li class="anchor">
+              <a title="Class AutoCompleter" href="#class-autocompleter">
+                Class AutoCompleter
+              </a>
+            </li>
+          
+            <li class="anchor">
               <a title="Class Client" href="#class-client">
                 Class Client
               </a>
@@ -259,6 +265,12 @@
             <li class="anchor">
               <a title="Class Result" href="#class-result">
                 Class Result
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class Suggestion" href="#class-suggestion">
+                Class Suggestion
               </a>
             </li>
           
@@ -315,6 +327,21 @@ print res.docs[0].title
 
 </code></pre>
 
+<h3 id="example-using-the-auto-completer-client">Example: Using the Auto Completer Client:</h3>
+<pre><code class="py">
+# Using the auto-completer
+ac = AutoCompleter('ac')
+
+# Adding some terms
+ac.add_suggestions(Suggestion('foo', 5.0), Suggestion('bar', 1.0))
+
+# Getting suggestions
+suggs = ac.get_suggestions('goo') # returns nothing
+
+suggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']
+
+</code></pre>
+
 <h3 id="installing">Installing</h3>
 <ol>
 <li>
@@ -330,10 +357,61 @@ print res.docs[0].title
 <pre><code class="sh">$ pip install redisearch
 </code></pre>
 
+<h2 id="class-autocompleter">Class AutoCompleter</h2>
+<p>A client to RediSearch's AutoCompleter API</p>
+<p>It provides prefix searches with optionally fuzzy matching of prefixes    </p>
+<h3 id="9595init9595">__init__</h3>
+<pre><code class="py">
+def __init__(self, key, host='localhost', port=6379, conn=None)
+
+</code></pre>
+
+<p>Create a new AutoCompleter client for the given key, and optional host and port</p>
+<p>If conn is not None, we employ an already existing redis connection</p>
+<h3 id="add95suggestions">add_suggestions</h3>
+<pre><code class="py">
+def add_suggestions(self, *suggestions, **kwargs)
+
+</code></pre>
+
+<p>Add suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.</p>
+<p>If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores </p>
+<h3 id="delete">delete</h3>
+<pre><code class="py">
+def delete(self, string)
+
+</code></pre>
+
+<p>Delete a string from the AutoCompleter index.
+Returns 1 if the string was found and deleted, 0 otherwise</p>
+<h3 id="get95suggestions">get_suggestions</h3>
+<pre><code class="py">
+def get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)
+
+</code></pre>
+
+<p>Get a list of suggestions from the AutoCompleter, for a given prefix</p>
+<h3 id="parameters">Parameters:</h3>
+<ul>
+<li><strong>prefix</strong>: the prefix we are searching. <strong>Must be valid ascii or utf-8</strong></li>
+<li><strong>fuzzy</strong>: If set to true, the prefix search is done in fuzzy mode. 
+    <strong>NOTE</strong>: Running fuzzy searches on short (&lt;3 letters) prefixes can be very slow, and even scan the entire index.</li>
+<li><strong>with_scores</strong>: if set to true, we also return the (refactored) score of each suggestion. 
+  This is normally not needed, and is NOT the original score inserted into the index</li>
+<li><strong>num</strong>: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.</li>
+</ul>
+<p>Returns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.</p>
+<h3 id="len">len</h3>
+<pre><code class="py">
+def len(self)
+
+</code></pre>
+
+<p>Return the number of entries in the AutoCompleter index</p>
 <h2 id="class-client">Class Client</h2>
 <p>A client for the RediSearch module. 
 It abstracts the API of the module and lets you just use the engine </p>
-<h3 id="9595init9595">__init__</h3>
+<h3 id="9595init9595_1">__init__</h3>
 <pre><code class="py">
 def __init__(self, index_name, host='localhost', port=6379, conn=None)
 
@@ -348,7 +426,7 @@ def add_document(self, doc_id, nosave=False, score=1.0, **fields)
 </code></pre>
 
 <p>Add a single document to the index.</p>
-<h3 id="parameters">Parameters</h3>
+<h3 id="parameters_1">Parameters</h3>
 <ul>
 <li><strong>doc_id</strong>: the id of the saved document.</li>
 <li><strong>nosave</strong>: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.</li>
@@ -369,7 +447,7 @@ def create_index(self, *fields)
 </code></pre>
 
 <p>Create the search index. Creating an existing index juts updates its properties</p>
-<h3 id="parameters_1">Parameters:</h3>
+<h3 id="parameters_2">Parameters:</h3>
 <ul>
 <li><strong>fields</strong>: a list of TextField or NumericField objects</li>
 </ul>
@@ -401,7 +479,7 @@ def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_s
 </code></pre>
 
 <p>Search the index for a given query, and return a result of documents</p>
-<h3 id="parameters_2">Parameters</h3>
+<h3 id="parameters_3">Parameters</h3>
 <ul>
 <li><strong>query</strong>: the search query, see RediSearch's documentation on query format</li>
 <li><strong>offset</strong>: Paging offset for the results. Defaults to 0</li>
@@ -416,7 +494,7 @@ def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_s
 <h2 id="class-batchindexer">Class BatchIndexer</h2>
 <p>A batch indexer allows you to automatically batch 
 document indexeing in pipelines, flushing it every N documents. </p>
-<h3 id="9595init9595_1">__init__</h3>
+<h3 id="9595init9595_2">__init__</h3>
 <pre><code class="py">
 def __init__(self, client, chunk_size=1000)
 
@@ -438,7 +516,7 @@ def commit(self)
 <p>Manually commit and flush the batch indexing query</p>
 <h2 id="class-document">Class Document</h2>
 <p>Represents a single document in a result set </p>
-<h3 id="9595init9595_2">__init__</h3>
+<h3 id="9595init9595_3">__init__</h3>
 <pre><code class="py">
 def __init__(self, id, **fields)
 
@@ -455,7 +533,7 @@ def snippetize(self, field, size=500, bold_tokens=())
 :param boldTokens: a list of tokens we want to make bold (basically the query terms)</p>
 <h2 id="class-numericfield">Class NumericField</h2>
 <p>NumericField is used to define a numeric field in a schema defintion</p>
-<h3 id="9595init9595_3">__init__</h3>
+<h3 id="9595init9595_4">__init__</h3>
 <pre><code class="py">
 def __init__(self, name)
 
@@ -469,15 +547,23 @@ def redis_args(self)
 
 <h2 id="class-result">Class Result</h2>
 <p>Represents the result of a search query, and has an array of Document objects</p>
-<h3 id="9595init9595_4">__init__</h3>
+<h3 id="9595init9595_5">__init__</h3>
 <pre><code class="py">
 def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)
 
 </code></pre>
 
+<h2 id="class-suggestion">Class Suggestion</h2>
+<p>Represents a single suggestion being sent or returned from the auto complete server</p>
+<h3 id="9595init9595_6">__init__</h3>
+<pre><code class="py">
+def __init__(self, string, score=1.0)
+
+</code></pre>
+
 <h2 id="class-textfield">Class TextField</h2>
 <p>TextField is used to define a text field in a schema definition</p>
-<h3 id="9595init9595_5">__init__</h3>
+<h3 id="9595init9595_7">__init__</h3>
 <pre><code class="py">
 def __init__(self, name, weight=1.0)
 
