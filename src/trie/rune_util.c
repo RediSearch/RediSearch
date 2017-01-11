@@ -42,7 +42,7 @@ rune __runeToFold(rune r) {
     return r;
   }
   nu_casemap_read(map, &loweredRune);
-  return loweredRune;
+  return loweredRune & TRIE_RUNE_MASK;
 }
 
 // implementation is identical to that of
