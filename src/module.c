@@ -285,6 +285,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += 2;
 
   __reply_kvnum(n, "num_docs", sp->stats.numDocuments);
+  __reply_kvnum(n, "max_doc_id", sp->docs.maxDocId);
   __reply_kvnum(n, "num_terms", sp->stats.numTerms);
   __reply_kvnum(n, "num_records", sp->stats.numRecords);
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
@@ -296,6 +297,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
   __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
+  __reply_kvnum(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   __reply_kvnum(n, "records_per_doc_avg",
                 (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   __reply_kvnum(n, "bytes_per_record_avg",

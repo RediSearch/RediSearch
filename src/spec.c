@@ -295,6 +295,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   __indexStats_rdbLoad(rdb, &sp->stats);
+
+  DocTable_RdbLoad(&sp->docs, rdb);
   return sp;
 }
 
@@ -310,7 +312,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 
   __indexStats_rdbSave(rdb, &sp->stats);
+  DocTable_RdbSave(&sp->docs, rdb);
 }
+
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
