@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 
+/* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap) {
   return (DocTable){.size = 0,
                     .cap = cap,
@@ -12,6 +13,8 @@ DocTable NewDocTable(size_t cap) {
                     .docs = RedisModule_Calloc(cap, sizeof(DocumentMetadata))};
 }
 
+/* Get the metadata for a doc Id from the DocTable.
+*  If docId is not inside the table, we return NULL */
 inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
   if (docId > t->maxDocId) {
     return NULL;
@@ -19,6 +22,11 @@ inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
   return &t->docs[docId];
 }
 
+/* Put a new document into the table, assign it an incremental id and store the metadata in the
+* table.
+*
+* NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
+* same key. This may result in document duplication in results  */
 t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags) {
   t_docId docId = ++t->maxDocId;
   // if needed - grow the table
@@ -35,6 +43,7 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags) {
   return docId;
 }
 
+/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
 inline const char *DocTable_GetKey(DocTable *t, t_docId docId) {
   if (docId > t->maxDocId) {
     return NULL;
@@ -42,6 +51,7 @@ inline const char *DocTable_GetKey(DocTable *t, t_docId docId) {
   return t->docs[docId].key;
 }
 
+/* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 inline float DocTable_GetScore(DocTable *t, t_docId docId) {
   if (docId > t->maxDocId) {
     return 0;
@@ -83,5 +93,16 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
     t->docs[i].score = RedisModule_LoadFloat(rdb);
     t->memsize += sizeof(DocumentMetadata) + strlen(t->docs[i].key);
+  }
+}
+
+void DocTable_AOFRewrite(DocTable *t, RedisModuleString *key, RedisModuleIO *aof) {
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
+  for (int i = 1; i < t->size; i++) {
+
+    RedisModuleString *ss = RedisModule_CreateStringPrintf(ctx, "%f", t->docs[i].score);
+    RedisModule_EmitAOF(aof, "FT.DTADD", "scls", key, t->docs[i].key, (long long)t->docs[i].flags,
+                        ss);
+    RedisModule_FreeString(ctx, ss);
   }
 }

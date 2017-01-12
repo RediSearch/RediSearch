@@ -364,6 +364,7 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
   RedisModule_EmitAOF(aof, "FT.CREATE", "sv", key, (RedisModuleString *)args->data,
                       Vector_Size(args));
 
+  DocTable_AOFRewrite(&sp->docs, key, aof);
   Vector_Free(args);
 }
 

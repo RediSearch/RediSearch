@@ -311,6 +311,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /* FT.DTADD {index} {key} {flags} {score}
+*
+*  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
+*
 *  This command is used only for AOF rewrite and makes sure the document table is rebuilt in the
 *  same order as as in memory
 *
@@ -332,14 +335,10 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   t_docId d =
-      DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (u_char)flags, (float)score);
+      DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score, (u_char)flags);
 
   return RedisModule_ReplyWithLongLong(ctx, d);
 }
-
-// u_int32_t _getHitScore(void *ctx) {
-//   return ctx ? (u_int32_t)((IndexHit *)ctx)->totalFreq : 0;
-// }
 
 /* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>]
 *  Index a document that's already saved in redis as a HASH object, unrelated to

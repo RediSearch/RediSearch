@@ -6,14 +6,29 @@
 #include "redismodule.h"
 
 #pragma pack(1)
+/* DocumentMetadata describes metadata stored about a document in the index (not the document
+* itself).
+*
+* The key is the actual user defined key of the document, not the incremental id. It is used to
+* convert incremental internal ids to external string keys.
+*
+* Score is the original user score as inserted to the index
+*
+* Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
+*/
 typedef struct {
   char *key;
   float score;
   u_char flags;
-
 } DocumentMetadata;
 #pragma pack()
 
+/* The DocTable is a simple mapping between incremental ids and the original document key and
+ * metadata. It is also responsible for storing the id incrementor for the index and assigning new
+ * incremental ids to inserted keys.
+ *
+ * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
+ * same key. This may result in document duplication in results  */
 typedef struct {
   size_t size;
   t_docId maxDocId;
@@ -22,15 +37,36 @@ typedef struct {
   size_t memsize;
 } DocTable;
 
+/* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap);
+
+/* Get the metadata for a doc Id from the DocTable.
+*  If docId is not inside the table, we return NULL */
 DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
-// int DocTable_Set(DocTable *t, t_docId docId, double score, u_char flags);
+
+/* Put a new document into the table, assign it an incremental id and store the metadata in the
+* table.
+*
+* NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
+* same key. This may result in document duplication in results  */
 t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags);
+
+/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
 const char *DocTable_GetKey(DocTable *t, t_docId docId);
+
+/* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 float DocTable_GetScore(DocTable *t, t_docId docId);
 
+/* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
+
+/* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
+
+/* Load the table from RDB */
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb);
+
+/* Emit special FT.DTADD commands to recreate the table */
+void DocTable_AOFRewrite(DocTable *t, RedisModuleString *k, RedisModuleIO *aof);
 
 #endif
