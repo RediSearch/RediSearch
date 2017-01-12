@@ -19,7 +19,7 @@ int testVarint() {
   }
 
   // VVW_Write(vw, 100);
-  printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
+  // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
   BufferSeek(vw->bw.buf, 0);
   VarintVectorIterator it = VarIntVector_iter(vw->bw.buf);
@@ -28,7 +28,7 @@ int testVarint() {
   while (VV_HasNext(&it)) {
     int n = VV_Next(&it);
     ASSERTM(n == expected[x++], "Wrong number decoded");
-    printf("%d %d\n", x, n);
+    // printf("%d %d\n", x, n);
   }
 
   VVW_Free(vw);
@@ -97,7 +97,7 @@ int testIndexReadWrite() {
     VVW_Truncate(h.vw);
 
     IW_WriteEntry(w, &h);
-    printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
+    // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
   }
 
@@ -106,10 +106,10 @@ int testIndexReadWrite() {
   LG_INFO("Score writer: numEntries: %d, minscore: %f\n", w->scoreWriter.header.numEntries,
           w->scoreWriter.header.lowestScore);
   ScoreIndex *si = NewScoreIndex(w->scoreWriter.bw.buf);
-  for (int i = 0; i < si->header.numEntries; i++) {
-    printf("Entry %d, offset %d, score %f docId %d\n", i, si->entries[i].offset,
-           si->entries[i].score, si->entries[i].docId);
-  }
+  // for (int i = 0; i < si->header.numEntries; i++) {
+  //   printf("Entry %d, offset %d, score %f docId %d\n", i, si->entries[i].offset,
+  //          si->entries[i].score, si->entries[i].docId);
+  // }
   ASSERT(w->skipIndexWriter.buf->offset > 0);
   IW_Close(w);
   ScoreIndex_Free(si);
@@ -120,13 +120,13 @@ int testIndexReadWrite() {
   //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId,
   //     w->skipIdx.entries[x].offset);
   //   }
-  printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
+  // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
   int n = 0;
 
   for (int xx = 0; xx < 1; xx++) {
     SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-    printf("si: %d\n", si->len);
+    // printf("si: %d\n", si->len);
     IndexReader *ir =
         NewIndexReader(w->bw.buf->data, w->bw.buf->cap, si, NULL, 1, 0xff, INDEX_DEFAULT_FLAGS);
     IndexResult h = NewIndexResult();
@@ -566,19 +566,19 @@ int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  // TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
 
-  // TESTFUNC(testUnion);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testMemBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
+  TESTFUNC(testMemBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
 
   return 0;
