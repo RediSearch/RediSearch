@@ -76,7 +76,7 @@ int testDistance() {
 
 int testIndexReadWrite() {
 
-  IndexWriter *w = NewIndexWriter(1);
+  IndexWriter *w = NewIndexWriter(1, INDEX_DEFAULT_FLAGS);
 
   for (int i = 0; i < 100; i++) {
     // if (i % 10000 == 1) {
@@ -127,7 +127,8 @@ int testIndexReadWrite() {
   for (int xx = 0; xx < 1; xx++) {
     SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
     printf("si: %d\n", si->len);
-    IndexReader *ir = NewIndexReader(w->bw.buf->data, w->bw.buf->cap, si, NULL, 1, 0xff);
+    IndexReader *ir =
+        NewIndexReader(w->bw.buf->data, w->bw.buf->cap, si, NULL, 1, 0xff, INDEX_DEFAULT_FLAGS);
     IndexResult h = NewIndexResult();
 
     struct timespec start_time, end_time;
@@ -160,7 +161,7 @@ int testIndexReadWrite() {
 }
 
 IndexWriter *createIndex(int size, int idStep) {
-  IndexWriter *w = NewIndexWriter(1);
+  IndexWriter *w = NewIndexWriter(1, INDEX_DEFAULT_FLAGS);
 
   t_docId id = idStep;
   for (int i = 0; i < size; i++) {
@@ -213,7 +214,8 @@ int printIntersect(void *ctx, IndexResult *hits, int argc) {
 int testReadIterator() {
   IndexWriter *w = createIndex(10, 1);
 
-  IndexReader *r1 = NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0xff, NULL);
+  IndexReader *r1 =
+      NewIndexReaderBuf(w->bw.buf, NULL, NULL, 0, NULL, 0xff, INDEX_DEFAULT_FLAGS, NULL);
   IndexResult h = NewIndexResult();
 
   IndexIterator *it = NewReadIterator(r1);
@@ -240,10 +242,12 @@ int testReadIterator() {
 int testUnion() {
   IndexWriter *w = createIndex(10, 2);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0xff);
+  IndexReader *r1 =
+      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 1, 0xff, INDEX_DEFAULT_FLAGS);
   IndexWriter *w2 = createIndex(10, 3);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
-  IndexReader *r2 = NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0xff);
+  IndexReader *r2 =
+      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 1, 0xff, INDEX_DEFAULT_FLAGS);
   printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -269,10 +273,12 @@ int testUnion() {
 int testIntersection() {
   IndexWriter *w = createIndex(100000, 4);
   SkipIndex *si = NewSkipIndex(w->skipIndexWriter.buf);
-  IndexReader *r1 = NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0xff);
+  IndexReader *r1 =
+      NewIndexReader(w->bw.buf->data, IW_Len(w), si, NULL, 0, 0xff, INDEX_DEFAULT_FLAGS);
   IndexWriter *w2 = createIndex(100000, 2);
   si = NewSkipIndex(w2->skipIndexWriter.buf);
-  IndexReader *r2 = NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0xff);
+  IndexReader *r2 =
+      NewIndexReader(w2->bw.buf->data, IW_Len(w2), si, NULL, 0, 0xff, INDEX_DEFAULT_FLAGS);
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
