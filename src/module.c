@@ -178,7 +178,6 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
-
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
@@ -309,6 +308,33 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
+}
+
+/* FT.DTADD {index} {key} {flags} {score}
+*  This command is used only for AOF rewrite and makes sure the document table is rebuilt in the
+*  same order as as in memory
+*
+*  Returns the docId on success or 0 on failure
+*/
+int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+  if (argc != 5) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  long long flags;
+  double score;
+  if (RMUtil_ParseArgs(argv, argc, 3, "ld", &flags, &score) == REDISMODULE_ERR) {
+    return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
+  }
+
+  t_docId d =
+      DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (u_char)flags, (float)score);
+
+  return RedisModule_ReplyWithLongLong(ctx, d);
 }
 
 // u_int32_t _getHitScore(void *ctx) {
@@ -946,6 +972,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
 
   if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom no-cluster", 1,
                                 1, 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+  if (RedisModule_CreateCommand(ctx, "ft.dtadd", DTAddCommand, "write deny-oom no-cluster", 1, 1,
+                                1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom no-cluster", 1,
