@@ -33,8 +33,9 @@ typedef struct {
   size_t size;
   t_docId maxDocId;
   size_t cap;
-  DocumentMetadata *docs;
   size_t memsize;
+  DocumentMetadata *docs;
+
 } DocTable;
 
 /* Creates a new DocTable with a given capacity */

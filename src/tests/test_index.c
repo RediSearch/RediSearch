@@ -482,22 +482,104 @@ typedef union {
   float f;
 } u;
 
+int testIndexFlags() {
+
+  ForwardIndexEntry h;
+  h.docId = 1234;
+  h.flags = 0xff;
+  h.freq = 1;
+  h.docScore = 100;
+  h.vw = NewVarintVectorWriter(8);
+  for (int n = 0; n < 10; n++) {
+    VVW_Write(h.vw, n);
+  }
+  VVW_Truncate(h.vw);
+
+  u_char flags = INDEX_DEFAULT_FLAGS;
+  IndexWriter *w = NewIndexWriter(1, flags);
+  ASSERT(w->flags == flags);
+  size_t sz = IW_WriteEntry(w, &h);
+  // printf("written %d bytes\n", sz);
+  ASSERT_EQUAL_INT(18, sz);
+  IW_Free(w);
+
+  flags &= ~Index_StoreTermOffsets;
+  w = NewIndexWriter(1, flags);
+  ASSERT(!(w->flags & Index_StoreTermOffsets));
+  size_t sz2 = IW_WriteEntry(w, &h);
+  ASSERT_EQUAL_INT(sz2, sz - VV_Size(h.vw->bw.buf) - 1);
+  IW_Free(w);
+
+  flags &= ~Index_StoreFieldFlags;
+  w = NewIndexWriter(1, flags);
+  ASSERT(!(w->flags & Index_StoreTermOffsets));
+  ASSERT(!(w->flags & Index_StoreFieldFlags));
+  sz = IW_WriteEntry(w, &h);
+  ASSERT_EQUAL_INT(6, sz);
+  IW_Free(w);
+
+  VVW_Free(h.vw);
+
+  return 0;
+}
+
+int testDocTable() {
+
+  char buf[16];
+  DocTable dt = NewDocTable(10);
+  t_docId did = 0;
+  int N = 100;
+  for (int i = 0; i < N; i++) {
+    sprintf(buf, "doc_%d", i);
+    t_docId nd = DocTable_Put(&dt, buf, (double)i, (u_char)i);
+    ASSERT_EQUAL_INT(did + 1, nd);
+    did = nd;
+  }
+
+  ASSERT_EQUAL_INT(N + 1, dt.size);
+  ASSERT_EQUAL_INT(N, dt.maxDocId);
+  ASSERT(dt.cap > dt.size);
+  ASSERT_EQUAL_INT(1890, (int)dt.memsize);
+
+  for (int i = 0; i < N; i++) {
+    sprintf(buf, "doc_%d", i);
+
+    const char *k = DocTable_GetKey(&dt, i + 1);
+    ASSERT_STRING_EQ(k, buf);
+
+    float score = DocTable_GetScore(&dt, i + 1);
+    ASSERT_EQUAL_INT((int)score, i);
+
+    DocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
+    ASSERT(dmd != NULL);
+    ASSERT_STRING_EQ(dmd->key, buf);
+    ASSERT_EQUAL_INT((int)dmd->score, i);
+    ASSERT_EQUAL_INT((int)dmd->flags, i);
+  }
+
+  ASSERT(NULL == DocTable_Get(&dt, N + 2));
+
+  return 0;
+}
+
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  TESTFUNC(testVarint);
-  TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
+  // TESTFUNC(testVarint);
+  // TESTFUNC(testDistance);
+  // TESTFUNC(testIndexReadWrite);
 
-  TESTFUNC(testReadIterator);
-  TESTFUNC(testIntersection);
+  // TESTFUNC(testReadIterator);
+  // TESTFUNC(testIntersection);
 
-  TESTFUNC(testUnion);
+  // TESTFUNC(testUnion);
 
-  TESTFUNC(testMemBuffer);
-  TESTFUNC(testTokenize);
-  TESTFUNC(testIndexSpec);
+  // TESTFUNC(testMemBuffer);
+  // TESTFUNC(testTokenize);
+  // TESTFUNC(testIndexSpec);
+  // TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
 
   return 0;
 }
