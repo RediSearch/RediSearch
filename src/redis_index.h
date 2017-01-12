@@ -58,14 +58,4 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len)
 
 void Redis_CloseWriter(IndexWriter *w);
 
-// A key mapping docId => docKey string
-#define REDISINDEX_DOCIDS_MAP "__redis_docIds__"
-// A key mapping docKey => internal docId
-#define REDISINDEX_DOCKEY_MAP "__redis_docKeys__"
-// The counter incrementing internal docIds
-#define REDISINDEX_DOCIDCOUNTER "__redis_docIdCounter__"
-
-t_docId Redis_GetDocId(RedisSearchCtx *ctx, RedisModuleString *docKey, int *isnew);
-RedisModuleString *Redis_GetDocKey(RedisSearchCtx *ctx, t_docId docId);
-
 #endif

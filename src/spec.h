@@ -1,6 +1,7 @@
 #ifndef __SPEC_H__
 #define __SPEC_H__
 #include "redismodule.h"
+#include "doc_table.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,6 +61,8 @@ typedef struct {
 
   IndexStats stats;
   IndexFlags flags;
+
+  DocTable docs;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

@@ -46,7 +46,7 @@ typedef struct query {
 } Query;
 
 typedef struct {
-  RedisModuleString *id;
+  const char *id;
   double score;
 } ResultEntry;
 

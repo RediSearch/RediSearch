@@ -295,12 +295,13 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
-double CalculateResultScore(IndexResult *h) {
+double CalculateResultScore(DocTable *t, IndexResult *h) {
   // IndexResult_Print(h);
   if (h->numRecords == 1) {
     return h->totalTF;
   }
 
+  DocTable_GetScore(t, h->docId);
   double tfidf = 0;
   for (int i = 0; i < h->numRecords; i++) {
     tfidf += h->records[i].tf * h->records[i].term->idf;
@@ -353,7 +354,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
     // IndexResult_Print(h);
-    h->totalTF = CalculateResultScore(h);
+    h->totalTF = CalculateResultScore(&query->ctx->spec->docs, h);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
@@ -392,7 +393,8 @@ QueryResult *Query_Execute(Query *query) {
   for (int i = 0; i < n; ++i) {
     IndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    res->results[n - i - 1] = (ResultEntry){Redis_GetDocKey(query->ctx, h->docId), h->totalTF};
+    res->results[n - i - 1] =
+        (ResultEntry){DocTable_GetKey(&query->ctx->spec->docs, h->docId), h->totalTF};
     IndexResult_Free(h);
 
     free(h);
@@ -422,7 +424,7 @@ int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int wi
 
   for (int i = 0; i < r->numResults; i++) {
     ++arrlen;
-    RedisModule_ReplyWithString(ctx, r->results[i].id);
+    RedisModule_ReplyWithStringBuffer(ctx, r->results[i].id, strlen(r->results[i].id));
     if (withscores) {
       ++arrlen;
       RedisModule_ReplyWithDouble(ctx, r->results[i].score);
@@ -439,7 +441,7 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
   int ndocs;
   RedisModuleString *ids[r->numResults];
   for (int i = 0; i < r->numResults; i++) {
-    ids[i] = r->results[i].id;
+    ids[i] = RedisModule_CreateString(ctx, r->results[i].id, strlen(r->results[i].id));
   }
 
   Document *docs = Redis_LoadDocuments(sctx, ids, r->numResults, &ndocs);

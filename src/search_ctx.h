@@ -6,10 +6,9 @@
 
 /** Context passed to all redis related search handling functions. */
 typedef struct {
-    RedisModuleCtx *redisCtx;
-    IndexSpec *spec;
-    RedisModuleKey *docKeyTableKey;
-    RedisModuleKey *docIdTableKey;
+  RedisModuleCtx *redisCtx;
+  IndexSpec *spec;
+
 } RedisSearchCtx;
 
 #endif

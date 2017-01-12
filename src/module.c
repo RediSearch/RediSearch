@@ -19,17 +19,17 @@
 #include <time.h>
 
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
-  int isnew;
-  t_docId docId = Redis_GetDocId(ctx, doc.docKey, &isnew);
+  int isnew = 1;
+
+  doc.docId =
+      DocTable_Put(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL), doc.score, 0);
 
   // Make sure the document is not already in the index - it needs to be
   // incremental!
-  if (docId == 0 || !isnew) {
+  if (doc.docId == 0 || !isnew) {
     *errorString = "Document already in index";
     return REDISMODULE_ERR;
   }
-
-  doc.docId = docId;
 
   // first save the document as hash
   if (nosave == 0 && Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
@@ -37,15 +37,6 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     return REDISMODULE_ERR;
   }
 
-#ifdef __REDISEARCH_DOC_TABLES__
-  /********* CURRENTLY DISABLED Jan 3 2017 **********************/
-  DocTable dt;
-  if (InitDocTable(ctx, &dt) == REDISMODULE_ERR) return REDISMODULE_ERR;
-  if (DocTable_PutDocument(&dt, docId, doc.score, 0) == REDISMODULE_ERR) {
-    *errorString = "Could not save document metadata";
-    return REDISMODULE_ERR;
-  }
-#endif
   ForwardIndex *idx = NewForwardIndex(doc);
 
   int totalTokens = 0;
@@ -80,7 +71,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
         NumericIndex *ni = NewNumericIndex(ctx, fs);
 
-        if (NumerIndex_Add(ni, docId, score) == REDISMODULE_ERR) {
+        if (NumerIndex_Add(ni, doc.docId, score) == REDISMODULE_ERR) {
           *errorString = "Could not save numeric index value";
           goto error;
         }
@@ -542,9 +533,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
-
-  // open the documents metadata table
-  InitDocTable(&sctx, &dt);
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);

@@ -172,7 +172,7 @@ int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (k == NULL) {
     return REDISMODULE_ERR;
   }
-  
+
   // reset the list we'll be writing into
   if (RedisModule_DeleteKey(k) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
@@ -234,6 +234,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = RedisModule_Strdup(name);
+  sp->docs = NewDocTable(1000);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
