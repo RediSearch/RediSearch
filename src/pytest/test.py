@@ -15,7 +15,7 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
                                             'title', 'hello world',
                                             'body', 'lorem ist ipsum'))
 
-            for prefix in ('ft', 'si', 'ss'):
+            for prefix in ('ft', 'ss'):
                 self.assertExists(r, prefix + ':idx/hello')
                 self.assertExists(r, prefix + ':idx/world')
                 self.assertExists(r, prefix + ':idx/lorem')

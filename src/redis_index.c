@@ -32,7 +32,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len)
   RedisModule_FreeString(ctx->redisCtx, termKey);
   // Open the skip index writer
   termKey = fmtRedisSkipIndexKey(ctx, term, len);
-  Buffer *sb = NewRedisBuffer(ctx->redisCtx, termKey, BUFFER_WRITE);
+  Buffer *sb = NewRedisBuffer(ctx->redisCtx, termKey, BUFFER_WRITE | BUFFER_LAZY_ALLOC);
   BufferWriter skw = {
       sb, redisWriterWrite, redisWriterTruncate, RedisBufferFree,
   };

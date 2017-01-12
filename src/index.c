@@ -336,7 +336,7 @@ void IW_WriteSkipIndexEntry(IndexWriter *w) {
   SkipEntry se = {w->lastId, BufferOffset(w->bw.buf)};
   Buffer *b = w->skipIndexWriter.buf;
 
-  u_int32_t num = 1 + (w->ndocs / SKIPINDEX_STEP);
+  u_int32_t num = (w->ndocs / SKIPINDEX_STEP);
   size_t off = b->offset;
 
   BufferSeek(b, 0);
@@ -385,7 +385,7 @@ size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
     ret += w->bw.Write(w->bw.buf, offsets->data, offsetsSz);
   }
   w->lastId = ent->docId;
-  if (w->ndocs % SKIPINDEX_STEP == 0) {
+  if (w->ndocs && w->ndocs % SKIPINDEX_STEP == 0) {
     IW_WriteSkipIndexEntry(w);
   }
 
