@@ -124,8 +124,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         ctx->spec->stats.termsSize += entry->len;
       }
       /* Record the space saved for offset vectors */
-      ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
-      ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
+      if (ctx->spec->flags & Index_StoreTermOffsets) {
+        ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
+        ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
+      }
       Redis_CloseWriter(w);
 
       entry = ForwardIndexIterator_Next(&it);
@@ -621,7 +623,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   RedisModule_AutoMemory(ctx);
 
   char *err;
-
 
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, &err);
   if (sp == NULL) {

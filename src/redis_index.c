@@ -28,7 +28,7 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len) {
   // Open the index writer
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  BufferWriter bw = NewRedisWriter(ctx->redisCtx, termKey);
+  BufferWriter bw = NewRedisWriter(ctx->redisCtx, termKey, 0);
   RedisModule_FreeString(ctx->redisCtx, termKey);
   // Open the skip index writer
   termKey = fmtRedisSkipIndexKey(ctx, term, len);
@@ -49,7 +49,7 @@ IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len)
 
   // Open the score index writer
   ScoreIndexWriter scw =
-      NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len)));
+      NewScoreIndexWriter(NewRedisWriter(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len), 1));
   RedisModule_FreeString(ctx->redisCtx, termKey);
   IndexWriter *w = NewIndexWriterBuf(bw, skw, scw, ctx->spec->flags);
   return w;

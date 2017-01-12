@@ -29,6 +29,8 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
 
   if (ir->flags & Index_StoreFieldFlags) {
     BufferReadByte(ir->buf, (char *)flags);
+  } else {
+    *flags = 0xFF;
   }
 
   if (ir->flags & Index_StoreTermOffsets) {
@@ -234,9 +236,14 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
   ret->len = 0;
   ret->singleWordMode = singleWordMode;
   // only use score index on single words, no field filter and large entries
-  ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff &&
-                       ret->header.numDocs > SCOREINDEX_DELETE_THRESHOLD;
-  ret->scoreIndex = sci;
+  ret->useScoreIndex = 0;
+  ret->scoreIndex = NULL;
+  if (flags & Index_StoreScoreIndexes) {
+    ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff &&
+                         ret->header.numDocs > SCOREINDEX_DELETE_THRESHOLD;
+    ret->scoreIndex = sci;
+  }
+
   // LG_DEBUG("Load offsets %d, si: %p", singleWordMode, si);
   ret->skipIdx = si;
   ret->fieldMask = fieldMask;
@@ -347,7 +354,9 @@ size_t IW_WriteEntry(IndexWriter *w, ForwardIndexEntry *ent) {
   size_t ret = 0;
   VarintVector *offsets = ent->vw->bw.buf;
 
-  ScoreIndexWriter_AddEntry(&w->scoreWriter, ent->freq, BufferOffset(w->bw.buf), w->lastId);
+  if (w->flags & Index_StoreScoreIndexes) {
+    ScoreIndexWriter_AddEntry(&w->scoreWriter, ent->freq, BufferOffset(w->bw.buf), w->lastId);
+  }
   // quantize the score to compress it to max 4 bytes
   // freq is between 0 and 1
   int quantizedScore = floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);

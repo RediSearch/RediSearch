@@ -1,13 +1,14 @@
 #ifndef __BUFFER_H__
 #define __BUFFER_H__
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1
-#define BUFFER_FREEABLE 2 // if set, we free the buffer on Release
+#define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
+#define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 typedef struct {
   char *data;
   size_t cap;
@@ -19,8 +20,8 @@ typedef struct {
   void *ctx;
 } Buffer;
 
-#define BUFFER_READ_BYTE(b)                                                    \
-  *b->pos++;                                                                   \
+#define BUFFER_READ_BYTE(b) \
+  *b->pos++;                \
   ++b->offset;
 size_t BufferReadByte(Buffer *b, char *c);
 size_t BufferRead(Buffer *b, void *data, size_t len);

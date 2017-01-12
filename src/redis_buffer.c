@@ -8,10 +8,10 @@ size_t redisWriterWrite(Buffer *b, void *data, size_t len) {
   // if needed - resize the capacity using redis truncate
   if (b->offset + len > b->cap) {
     do {
-      size_t cap = b->cap ? b->cap * 5 / 4 : 1;
-      if (cap == b->cap) ++cap;
+      size_t cap = b->cap ? b->cap * 5 / 4 : REDISBUFFER_DEFAULT_CAPACITY;
+      if (cap == b->cap) cap++;
       b->cap = MIN(cap, b->cap + REDISBUFFER_MAX_REALLOC);
-    } while (b->pos + len >= b->data + b->cap);
+    } while (b->pos + len > b->data + b->cap);
 
     if (redisWriterTruncate(b, b->cap) == 0) {
       return 0;
@@ -31,7 +31,12 @@ size_t redisWriterTruncate(Buffer *b, size_t newlen) {
   if (newlen == 0) {
     newlen = b->offset;
   }
+  // no need to truncate if the buffer is empty
+  if (b->offset == 0 && b->cap == 0 && newlen == 0) {
+    return 0;
+  }
 
+  RedisBufferCtx *bctx = b->ctx;
   RedisBufferCtx *ctx = b->ctx;
 
   // resize the data of key
@@ -47,6 +52,7 @@ size_t redisWriterTruncate(Buffer *b, size_t newlen) {
 }
 
 void RedisBufferFree(Buffer *b) {
+  if (!b) return;
   RedisBufferCtx *bctx = b->ctx;
   if (bctx->key != NULL) {
     RedisModule_CloseKey(bctx->key);
@@ -72,14 +78,25 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname, int buff
     return NULL;
   }
 
-  // if we need to write to an empty buffer, allocate a new string
-  if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
-    RedisModule_StringTruncate(key, 4);
+  size_t len = 0;
+
+  char *data = NULL;
+  if (!(bufferMode & BUFFER_LAZY_ALLOC)) {
+
+    // if we need to write to an empty buffer, allocate a new string
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+      RedisModule_StringTruncate(key, REDISBUFFER_DEFAULT_CAPACITY);
+    }
+    data = RedisModule_StringDMA(key, &len, flags);
+    // printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL),
+    // len);
+  } else {
+
+    if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_EMPTY) {
+      data = RedisModule_StringDMA(key, &len, flags);
+    }
   }
-  size_t len;
-  char *data = RedisModule_StringDMA(key, &len, flags);
-  // printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL),
-  // len);
+  // printf("Opened redis buffer for %s, len %zd\n", RedisModule_StringPtrLen(keyname, NULL), len);
   Buffer *buf = NewBuffer(data, len, bufferMode);
 
   // set the redis buffer context
@@ -92,8 +109,8 @@ Buffer *NewRedisBuffer(RedisModuleCtx *ctx, RedisModuleString *keyname, int buff
   return buf;
 }
 
-BufferWriter NewRedisWriter(RedisModuleCtx *ctx, RedisModuleString *keyname) {
-  Buffer *buf = NewRedisBuffer(ctx, keyname, BUFFER_WRITE);
+BufferWriter NewRedisWriter(RedisModuleCtx *ctx, RedisModuleString *keyname, int lazy) {
+  Buffer *buf = NewRedisBuffer(ctx, keyname, BUFFER_WRITE | (lazy ? BUFFER_LAZY_ALLOC : 0));
   BufferWriter ret = {
       buf, redisWriterWrite, redisWriterTruncate, RedisBufferFree,
   };

@@ -101,5 +101,7 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     }
     dist += cd * cd;
   }
-  return dist;
+
+  // we return 1 if ditance could not be calculate, to avoid division by zero
+  return dist ? dist : r->numRecords - 1;
 }
