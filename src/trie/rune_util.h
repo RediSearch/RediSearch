@@ -3,7 +3,7 @@
 
 #include "../dep/libnu/libnu.h"
 
-/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed with unicode
+/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
  * characters. 16 bit shuold be fine for most use cases */
 #ifdef TRIE_32BIT_RUNES
     typedef u_int32_t rune;
@@ -13,14 +13,15 @@
     #define TRIE_RUNE_MASK 0x0000ffff
 #endif
 
-/* Convert a utf-8 string to constant width runes */
-rune *strToRunes(char *str, size_t *len);
+/* fold rune: assumes rune is of the correct size */
+rune runeFold(rune r);
 
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(rune *in, size_t len, size_t *utflen);
 
-rune runeFold(rune r);
-
 rune *strToFoldedRunes(char *str, size_t *len);
+
+/* Convert a utf-8 string to constant width runes */
+rune *strToRunes(char *str, size_t *len);
 
 #endif

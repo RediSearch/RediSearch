@@ -1,28 +1,33 @@
 #include "../dep/libnu/libnu.h"
 #include "rune_util.h"
 
-rune *strToRunes(char *str, size_t *len) {
-
-  ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
-
-  nu_readstr(str, decoded, nu_utf8_read);
-
-  rune *ret = calloc(rlen + 1, sizeof(rune));
-  for (int i = 0; i < rlen; i++) {
-    ret[i] = (rune)decoded[i] & TRIE_RUNE_MASK;
+static uint32_t __fold(uint32_t runelike) {
+  uint32_t lowered = 0;
+  const char *map = 0;
+  map = nu_tofold(runelike);
+  if (!map) {
+    return runelike;
   }
-  if (len)
-    *len = rlen;
+  nu_casemap_read(map, &lowered);
+  return lowered;
+}
 
-  return ret;
+/* where "runelike" is a 16 or 32-bit 
+ * unicode codepoint, depending on whether
+ TRIE_32BIT_RUNES is defined */
+static rune __toRune(uint32_t runelike) {
+  return (rune)runelike & TRIE_RUNE_MASK;
+}
+
+rune runeFold(rune r) {
+  return __fold((uint32_t) r);
 }
 
 char *runesToStr(rune *in, size_t len, size_t *utflen) {
 
   uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
-    unicode[i] = (uint32_t)in[i] & TRIE_RUNE_MASK;
+    unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;
 
@@ -34,19 +39,8 @@ char *runesToStr(rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-rune runeFold(rune r) {
-  uint32_t loweredRune = 0;
-  const char *map = 0;
-  map = nu_tofold(r);
-  if (!map) {
-    return r;
-  }
-  nu_casemap_read(map, &loweredRune);
-  return loweredRune & TRIE_RUNE_MASK;
-}
-
-// implementation is identical to that of
-// __strToRunes except for line where __runeFold is called
+/* implementation is identical to that of
+* strToRunes except for line where __fold is called */
 rune *strToFoldedRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
@@ -56,11 +50,28 @@ rune *strToFoldedRunes(char *str, size_t *len) {
 
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
-    rune r = (rune)decoded[i] & TRIE_RUNE_MASK;
-    ret[i] = runeFold(r);
+    uint32_t runelike = decoded[i];
+    ret[i] = __toRune(__fold(runelike));
   }
   if (len)
     *len = rlen;
   
+  return ret;
+}
+
+rune *strToRunes(char *str, size_t *len) {
+
+  ssize_t rlen = nu_strlen(str, nu_utf8_read);
+  uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
+
+  nu_readstr(str, decoded, nu_utf8_read);
+
+  rune *ret = calloc(rlen + 1, sizeof(rune));
+  for (int i = 0; i < rlen; i++) {
+    ret[i] = __toRune(decoded[i]);
+  }
+  if (len)
+    *len = rlen;
+
   return ret;
 }
