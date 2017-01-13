@@ -20,7 +20,7 @@ from redisearch import Client, TextField, NumericField
 client = Client('myIndex')
 
 # Creating the index definition and schema
-client.create_index(TextField('title', weight=5.0), TextField('body'))
+client.create_index([TextField('title', weight=5.0), TextField('body')])
 
 # Indexing a document
 client.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')
@@ -195,7 +195,7 @@ Create a new batch indexer from the client with a given chunk size
 ### create\_index
 ```py
 
-def create_index(self, *fields)
+def create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False)
 
 ```
 
@@ -206,6 +206,9 @@ Create the search index. Creating an existing index juts updates its properties
 ### Parameters:
 
 - **fields**: a list of TextField or NumericField objects
+- **no_term_offsets**: If true, we will not save term offsets in the index
+- **no_field_flags**: If true, we will not save field flags that allow searching in specific fields
+- **no_score_indexes**: If true, we will not save optimized top score indexes for single word queries
 
 
 ### drop\_index
