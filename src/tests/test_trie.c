@@ -49,10 +49,68 @@ int __trie_add(TrieNode **n, char *str, float sc, TrieAddOp op) {
    return rc;
 }
 
+int testRuneUtil() {
+  // convert from string to runes
+  char *str = "yY";
+  rune expectedRunes[3] = {121, 89, 3};
+  size_t len;
+  rune *runes = strToRunes(str, &len);
+  ASSERT_EQUAL_INT(len, 2);
+  ASSERT_EQUAL_INT(runes[0], expectedRunes[0]);
+  ASSERT_EQUAL_INT(runes[1], expectedRunes[1]);
+  free(runes);
+  // convert from runes back to string
+  size_t backToStrLen;
+  char *backToStr = runesToStr(expectedRunes, 2, &backToStrLen);
+  ASSERT_STRING_EQ(str, backToStr);
+  free(backToStr);
+  
+  // convert from string to runes
+  size_t unicodeLen;
+  rune expectedUnicodeRunes[5] = {216, 8719, 960, 229, 197};
+  char *expectedUnicodeStr = "Ø∏πåÅ";
+  rune *unicodeRunes = strToRunes(expectedUnicodeStr, &unicodeLen);
+  ASSERT_EQUAL_INT(unicodeLen, 5);
+  for (int i = 0; i < 5; i++) {
+    ASSERT_EQUAL_INT(unicodeRunes[i], expectedUnicodeRunes[i]);
+  }
+  free(unicodeRunes);
+  // convert from runes back to string
+  size_t backUnicodeStrUtfLen;
+  char *backUnicodeStr = runesToStr(expectedUnicodeRunes, 2, &backUnicodeStrUtfLen);
+  for (int i = 0; i < 5; i++) {
+    ASSERT_EQUAL_INT(backUnicodeStr[i], expectedUnicodeStr[i]);
+  }
+  free(backUnicodeStr);
+
+  size_t foldedLen;
+  rune *foldedRunes = strToFoldedRunes("yY", &foldedLen);
+  ASSERT_EQUAL_INT(foldedLen, 2);
+  ASSERT_EQUAL_INT(foldedRunes[0], 121);
+  ASSERT_EQUAL_INT(foldedRunes[1], 121);
+  free(foldedRunes);
+
+  // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
+  size_t foldedUnicodeLen;
+  rune *foldedUnicodeRunes = strToFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
+  ASSERT_EQUAL_INT(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]); 
+  ASSERT_EQUAL_INT(foldedUnicodeLen, 5);
+  ASSERT_EQUAL_INT(foldedUnicodeRunes[0], 248);
+  ASSERT_EQUAL_INT(foldedUnicodeRunes[1], 8719);
+  ASSERT_EQUAL_INT(foldedUnicodeRunes[2], 960);
+  ASSERT_EQUAL_INT(foldedUnicodeRunes[3], 229);
+  ASSERT_EQUAL_INT(foldedUnicodeRunes[4], 229);
+  ASSERT_EQUAL_INT(runeFold(foldedUnicodeRunes[4]), foldedUnicodeRunes[3]);
+  free(foldedUnicodeRunes);
+
+  return 0;
+}
 
 int testTrie() {
-  TrieNode *root = __newTrieNode(strToRunes("", NULL), 0, 0, 0, 1, 0);
+  rune *rootRunes = strToRunes("", NULL);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, 0, 1, 0);
   ASSERT(root != NULL)
+  free(rootRunes);
 
   int rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
   ASSERT_EQUAL_INT(1, rc);
@@ -161,7 +219,7 @@ int testDFAFilter() {
   printf("loaded %d entries\n", i);
 
   char *terms[] = {"DostOEvsky", "dostoevski", "cbs",     "cbxs", "gangsta",
-                   "geNGsta",    "jezebel",    "hezebel",  "\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d", "\xd7\xa9\xd7\x97\xd7\x95\xd7\x9d", NULL};
+                   "geNGsta",    "jezebel",    "hezebel", "\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d", "\xd7\xa9\xd7\x97\xd7\x95\xd7\x9d", NULL};
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   unsigned long long totalns = 0;
@@ -231,6 +289,7 @@ int testDFAFilter() {
 }
 
 int main(int argc, char **argv) {
+  TESTFUNC(testRuneUtil);
   TESTFUNC(testDFAFilter);
   TESTFUNC(testTrie);
   TESTFUNC(testUnicode);

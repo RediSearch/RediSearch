@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #define TESTFUNC(f)                                            \
   printf("Testing %s ...\n------------------\n", __STRING(f)); \
@@ -31,7 +32,6 @@
 #define ASSERT_EQUAL_INT(x, y, ...)                                 \
   if (x != y) {                                                     \
     fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                 \
-    fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", (int)x, (int)y); \
     return -1;                                                      \
   }
 
