@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "redismodule.h"
+#include "util/fnv.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap) {
@@ -10,7 +11,8 @@ DocTable NewDocTable(size_t cap) {
                     .cap = cap,
                     .maxDocId = 0,
                     .memsize = 0,
-                    .docs = RedisModule_Calloc(cap, sizeof(DocumentMetadata))};
+                    .docs = RedisModule_Calloc(cap, sizeof(DocumentMetadata)),
+                    .dim = NewDocIdMap()};
 }
 
 /* Get the metadata for a doc Id from the DocTable.
@@ -25,9 +27,15 @@ inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
 * table.
 *
-* NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
-* same key. This may result in document duplication in results  */
+* Return 0 if the document is already in the index  */
 t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags) {
+
+  t_docId xid = DocIdMap_Get(&t->dim, key);
+  // if the document is already in the index, return 0
+  if (xid) {
+    printf("looked for %s, got %d\n", key, xid);
+    return 0;
+  }
   t_docId docId = ++t->maxDocId;
   // if needed - grow the table
   if (t->size >= t->cap) {
@@ -41,6 +49,7 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags) {
   };
   ++t->size;
   t->memsize += sizeof(DocumentMetadata) + strlen(key);
+  DocIdMap_Put(&t->dim, key, docId);
   return docId;
 }
 
@@ -68,6 +77,16 @@ void DocTable_Free(DocTable *t) {
   if (t->docs) {
     RedisModule_Free(t->docs);
   }
+  DocIdMap_Free(&t->dim);
+}
+
+int DocTable_Delete(DocTable *t, const char *key) {
+  t_docId docId = DocIdMap_Get(&t->dim, key);
+  if (docId && docId <= t->maxDocId) {
+    t->docs[docId].flags |= Document_Deleted;
+    return 1;
+  }
+  return 0;
 }
 
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
@@ -93,6 +112,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, NULL);
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
     t->docs[i].score = RedisModule_LoadFloat(rdb);
+    DocIdMap_Put(&t->dim, t->docs[i].key, i);
     t->memsize += sizeof(DocumentMetadata) + strlen(t->docs[i].key);
   }
 }
@@ -106,4 +126,30 @@ void DocTable_AOFRewrite(DocTable *t, RedisModuleString *key, RedisModuleIO *aof
                         ss);
     RedisModule_FreeString(ctx, ss);
   }
+}
+
+DocIdMap NewDocIdMap() {
+
+  TrieMapNode *m = NewTrieMap();
+  return (DocIdMap){m};
+}
+
+t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
+
+  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
+  if (val) {
+    return *((t_docId *)val);
+  }
+  return 0;
+}
+
+void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
+
+  t_docId *pd = malloc(sizeof(t_docId));
+  *pd = docId;
+  TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, NULL);
+}
+
+void DocIdMap_Free(DocIdMap *m) {
+  TrieMapNode_Free(m->tm, NULL);
 }

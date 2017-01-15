@@ -531,7 +531,7 @@ int testDocTable() {
   int N = 100;
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    t_docId nd = DocTable_Put(&dt, buf, (double)i, (u_char)i);
+    t_docId nd = DocTable_Put(&dt, buf, (double)i, Document_DefaultFlags);
     ASSERT_EQUAL_INT(did + 1, nd);
     did = nd;
   }
@@ -554,8 +554,18 @@ int testDocTable() {
     ASSERT(dmd != NULL);
     ASSERT_STRING_EQ(dmd->key, buf);
     ASSERT_EQUAL_INT((int)dmd->score, i);
-    ASSERT_EQUAL_INT((int)dmd->flags, i);
+    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_DefaultFlags);
+
+    int rc = DocTable_Delete(&dt, dmd->key);
+    ASSERT_EQUAL_INT(1, rc);
+    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_Deleted);
+
+    t_docId xid = DocIdMap_Get(&dt.dim, buf);
+
+    ASSERT_EQUAL_INT((int)xid, i + 1);
   }
+
+  ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));
 
   ASSERT(NULL == DocTable_Get(&dt, N + 2));
 

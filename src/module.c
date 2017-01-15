@@ -289,6 +289,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "num_records", sp->stats.numRecords);
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+
   __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
                                            (float)sp->stats.invertedCap);
 
@@ -297,6 +298,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   __reply_kvnum(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+  __reply_kvnum(n, "key_table_size_mb", TrieMapNode_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   __reply_kvnum(n, "records_per_doc_avg",
                 (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   __reply_kvnum(n, "bytes_per_record_avg",
@@ -338,6 +340,21 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score, (u_char)flags);
 
   return RedisModule_ReplyWithLongLong(ctx, d);
+}
+
+/* FT.DEL {index} {doc_id} */
+int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+
+  if (argc != 3) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
+  return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
 /* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>]
@@ -974,6 +991,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   if (RedisModule_CreateCommand(ctx, "ft.dtadd", DTAddCommand, "write deny-oom no-cluster", 1, 1,
                                 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write no-cluster", 1, 1, 1) ==
+      REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom no-cluster", 1,

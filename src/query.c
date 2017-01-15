@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <assert.h>
 
 #include "expander.h"
 #include "index.h"
@@ -295,13 +296,12 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 
 /* Factor document score (and TBD - other factors) in the hit's score.
 This is done only for the root iterator */
-double CalculateResultScore(DocTable *t, IndexResult *h) {
+double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
   // IndexResult_Print(h);
   if (h->numRecords == 1) {
     return h->totalTF;
   }
 
-  DocTable_GetScore(t, h->docId);
   double tfidf = 0;
   for (int i = 0; i < h->numRecords; i++) {
     tfidf += h->records[i].tf * h->records[i].term->idf;
@@ -337,6 +337,7 @@ QueryResult *Query_Execute(Query *query) {
 
   IndexResult *pooledHit = NULL;
   double minScore = 0;
+  int numDeleted = 0;
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
@@ -353,8 +354,17 @@ QueryResult *Query_Execute(Query *query) {
     } else if (rc == INDEXREAD_NOTFOUND) {
       continue;
     }
+
+    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    assert(dmd);
+    // skip deleted documents
+    if (!dmd || dmd->flags & Document_Deleted) {
+      ++numDeleted;
+      continue;
+    }
+
     // IndexResult_Print(h);
-    h->totalTF = CalculateResultScore(&query->ctx->spec->docs, h);
+    h->totalTF = CalculateResultScore(dmd, h);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
@@ -382,7 +392,7 @@ QueryResult *Query_Execute(Query *query) {
     free(pooledHit);
     pooledHit = NULL;
   }
-  res->totalResults = it->Len(it->ctx);
+  res->totalResults = it->Len(it->ctx) - numDeleted;
   it->Free(it);
 
   // Reverse the results into the final result

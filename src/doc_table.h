@@ -4,6 +4,7 @@
 #include <string.h>
 #include "types.h"
 #include "redismodule.h"
+#include "util/triemap.h"
 
 #pragma pack(1)
 /* DocumentMetadata describes metadata stored about a document in the index (not the document
@@ -23,11 +24,27 @@ typedef struct {
 } DocumentMetadata;
 #pragma pack()
 
+/* Document flags. The only supported flag currently is deleted, but more might come later one */
+typedef enum {
+  Document_DefaultFlags = 0x00,
+  Document_Deleted = 0x01,
+} DocumentFlags;
+
+/* Map between external id an incremental id */
+typedef struct { TrieMapNode *tm; } DocIdMap;
+
+DocIdMap NewDocIdMap();
+t_docId DocIdMap_Get(DocIdMap *m, const char *key);
+void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId);
+void DocIdMap_Free(DocIdMap *m);
+
 /* The DocTable is a simple mapping between incremental ids and the original document key and
- * metadata. It is also responsible for storing the id incrementor for the index and assigning new
+ * metadata. It is also responsible for storing the id incrementor for the index and assigning
+ * new
  * incremental ids to inserted keys.
  *
- * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
+ * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
+ * the
  * same key. This may result in document duplication in results  */
 typedef struct {
   size_t size;
@@ -35,6 +52,7 @@ typedef struct {
   size_t cap;
   size_t memsize;
   DocumentMetadata *docs;
+  DocIdMap dim;
 
 } DocTable;
 
@@ -60,6 +78,8 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
+
+int DocTable_Delete(DocTable *t, const char *key);
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
