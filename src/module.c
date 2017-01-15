@@ -358,6 +358,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
+  if (rc == 1) {
+    sp->stats.numDocuments--;
+  }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 

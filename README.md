@@ -30,6 +30,7 @@ traditional redis search approaches.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids
 * Automatically index existing HASH keys as documents.
+* Document Deletion (Update can be done by deletion and then re-insertion)
 
 ### Not *yet* supported:
 
@@ -37,7 +38,6 @@ traditional redis search approaches.
 * NOT queries (foo -bar).
 * Spelling correction
 * Aggregations
-* Deletion and Updating (without full index rebuild)
 
 ### License: AGPL
 

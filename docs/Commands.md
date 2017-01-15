@@ -253,6 +253,42 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 ----
 
+## FT.DEL
+
+### Format
+
+```
+FT.DEL {index} {doc_id}
+```
+
+### Description
+
+Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. 
+
+After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
+
+**NOTE**: This does not actually delete the document from the index, just marks it as deleted. 
+Thus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.
+
+### Returns
+
+Status Reply: OK on success.
+
+### Complexity
+
+O(1)
+
+### Returns
+
+Integer Reply: 1 if the document was deleted, 0 if not.
+
+---
+
 ## FT.DROP
 
 ### Format
