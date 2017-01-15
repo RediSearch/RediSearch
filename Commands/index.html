@@ -552,11 +552,9 @@ Thus, deleting and re-inserting the same document over and over will inflate the
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 <li><strong>doc_id</strong>: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.</li>
 </ul>
-<h3 id="returns_5">Returns</h3>
-<p>Status Reply: OK on success.</p>
 <h3 id="complexity_5">Complexity</h3>
 <p>O(1)</p>
-<h3 id="returns_6">Returns</h3>
+<h3 id="returns_5">Returns</h3>
 <p>Integer Reply: 1 if the document was deleted, 0 if not.</p>
 <hr />
 <h2 id="ftdrop">FT.DROP</h2>
@@ -572,7 +570,7 @@ that the index specification is not deleted.</p>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_7">Returns</h3>
+<h3 id="returns_6">Returns</h3>
 <p>Status Reply: OK on success.</p>
 <hr />
 <h2 id="ftoptimize">FT.OPTIMIZE</h2>
@@ -589,7 +587,7 @@ we can optimize memory consumption by trimming all index buffers to their actual
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_8">Returns:</h3>
+<h3 id="returns_7">Returns:</h3>
 <p>Integer Reply - the number of index entries optimized.</p>
 <hr />
 <h2 id="ftsuggadd">FT.SUGGADD</h2>
@@ -607,7 +605,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>score</strong>: a floating point number of the suggestion string's weight</li>
 <li><strong>INCR</strong>: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time</li>
 </ul>
-<h3 id="returns_9">Returns:</h3>
+<h3 id="returns_8">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
 <h2 id="ftsugget">FT.SUGGET</h2>
@@ -626,7 +624,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be
   used to merge results from multiple instances</li>
 </ul>
-<h3 id="returns_10">Returns:</h3>
+<h3 id="returns_9">Returns:</h3>
 <p>Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry</p>
 <hr />
 <h2 id="ftsugdel">FT.SUGDEL</h2>
@@ -641,7 +639,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the string to delete</li>
 </ul>
-<h3 id="returns_11">Returns:</h3>
+<h3 id="returns_10">Returns:</h3>
 <p>Integer Reply: 1 if the string was found and deleted, 0 otherwise.</p>
 <hr />
 <h2 id="ftsuglen">FT.SUGLEN</h2>
@@ -655,7 +653,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 </ul>
-<h3 id="returns_12">Returns:</h3>
+<h3 id="returns_11">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
           <aside class="copyright" role="note">
             
