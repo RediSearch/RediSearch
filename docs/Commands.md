@@ -275,9 +275,6 @@ Thus, deleting and re-inserting the same document over and over will inflate the
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.
 
-### Returns
-
-Status Reply: OK on success.
 
 ### Complexity
 
