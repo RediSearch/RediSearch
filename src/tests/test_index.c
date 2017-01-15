@@ -556,13 +556,13 @@ int testDocTable() {
     ASSERT_EQUAL_INT((int)dmd->score, i);
     ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_DefaultFlags);
 
-    int rc = DocTable_Delete(&dt, dmd->key);
-    ASSERT_EQUAL_INT(1, rc);
-    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_Deleted);
-
     t_docId xid = DocIdMap_Get(&dt.dim, buf);
 
     ASSERT_EQUAL_INT((int)xid, i + 1);
+
+    int rc = DocTable_Delete(&dt, dmd->key);
+    ASSERT_EQUAL_INT(1, rc);
+    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_Deleted);
   }
 
   ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));

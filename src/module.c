@@ -342,7 +342,11 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithLongLong(ctx, d);
 }
 
-/* FT.DEL {index} {doc_id} */
+/* FT.DEL {index} {doc_id}
+*  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
+*
+*  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
+*/
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 

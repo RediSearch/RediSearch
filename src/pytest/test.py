@@ -3,7 +3,7 @@ import redis
 import unittest
 
 
-class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
+class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testAdd(self):
         with self.redis() as r:
@@ -133,11 +133,24 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
             for i in range(100):
                 self.assertEqual(1, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
+                # second delete should return 0
+                self.assertEqual(0, r.execute_command(
+                    'ft.del', 'idx', 'doc%d' % i))
+
                 res = r.execute_command(
                     'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
                 self.assertNotIn('doc%d' % i, res)
                 self.assertEqual(res[0], 100 - i - 1)
                 self.assertEqual(len(res), 100 - i)
+
+                # test reinsertion
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'f', 'hello world'))
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+                self.assertIn('doc%d' % i, res)
+                self.assertEqual(1, r.execute_command(
+                    'ft.del', 'idx', 'doc%d' % i))
 
     def testExact(self):
         with self.redis() as r:

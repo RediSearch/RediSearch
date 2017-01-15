@@ -82,8 +82,9 @@ void DocTable_Free(DocTable *t) {
 int DocTable_Delete(DocTable *t, const char *key) {
   t_docId docId = DocIdMap_Get(&t->dim, key);
   if (docId && docId <= t->maxDocId) {
+
     t->docs[docId].flags |= Document_Deleted;
-    return 1;
+    return DocIdMap_Delete(&t->dim, key);
   }
   return 0;
 }
@@ -152,4 +153,8 @@ void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
 void DocIdMap_Free(DocIdMap *m) {
   TrieMapNode_Free(m->tm, free);
+}
+
+int DocIdMap_Delete(DocIdMap *m, const char *key) {
+  return TrieMapNode_Delete(m->tm, (unsigned char *)key, strlen(key), NULL);
 }

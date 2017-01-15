@@ -40,6 +40,7 @@ t_docId DocIdMap_Get(DocIdMap *m, const char *key);
 /* Put a new doc id in the map if it does not already exist */
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId);
 
+int DocIdMap_Delete(DocIdMap *m, const char *key);
 /* Free the doc id map */
 void DocIdMap_Free(DocIdMap *m);
 
