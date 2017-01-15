@@ -221,6 +221,12 @@
             </li>
           
             <li class="anchor">
+              <a title="FT.DEL" href="#ftdel">
+                FT.DEL
+              </a>
+            </li>
+          
+            <li class="anchor">
               <a title="FT.DROP" href="#ftdrop">
                 FT.DROP
               </a>
@@ -531,20 +537,42 @@ so keep it short!</p>
 <p><strong>Array reply,</strong> where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. </p>
 <p>If <strong>NOCONTENT</strong> was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.</p>
 <hr />
-<h2 id="ftdrop">FT.DROP</h2>
+<h2 id="ftdel">FT.DEL</h2>
 <h3 id="format_5">Format</h3>
-<pre><code>FT.DROP {index}
+<pre><code>FT.DEL {index} {doc_id}
 </code></pre>
 
 <h3 id="description_5">Description</h3>
-<p>Deletes all the keys associated with the index. </p>
-<p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
-that the index specification is not deleted.</p>
+<p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
+<p>After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.</p>
+<p><strong>NOTE</strong>: This does not actually delete the document from the index, just marks it as deleted. 
+Thus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.</p>
 <h3 id="parameters_5">Parameters</h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>doc_id</strong>: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.</li>
 </ul>
 <h3 id="returns_5">Returns</h3>
+<p>Status Reply: OK on success.</p>
+<h3 id="complexity_5">Complexity</h3>
+<p>O(1)</p>
+<h3 id="returns_6">Returns</h3>
+<p>Integer Reply: 1 if the document was deleted, 0 if not.</p>
+<hr />
+<h2 id="ftdrop">FT.DROP</h2>
+<h3 id="format_6">Format</h3>
+<pre><code>FT.DROP {index}
+</code></pre>
+
+<h3 id="description_6">Description</h3>
+<p>Deletes all the keys associated with the index. </p>
+<p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+that the index specification is not deleted.</p>
+<h3 id="parameters_6">Parameters</h3>
+<ul>
+<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+</ul>
+<h3 id="returns_7">Returns</h3>
 <p>Status Reply: OK on success.</p>
 <hr />
 <h2 id="ftoptimize">FT.OPTIMIZE</h2>
@@ -557,39 +585,39 @@ that the index specification is not deleted.</p>
 we can optimize memory consumption by trimming all index buffers to their actual size.</p>
 <p><strong>Warning 1</strong>: Do not run it if you intend to update your index afterward.</p>
 <p><strong>Warning 2</strong>: This blocks redis for a long time. Do not run it on production instances</p>
-<h3 id="parameters_6">Parameters</h3>
+<h3 id="parameters_7">Parameters</h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_6">Returns:</h3>
+<h3 id="returns_8">Returns:</h3>
 <p>Integer Reply - the number of index entries optimized.</p>
 <hr />
 <h2 id="ftsuggadd">FT.SUGGADD</h2>
-<h3 id="format_6">Format</h3>
+<h3 id="format_7">Format</h3>
 <pre><code>FT.SUGADD {key} {string} {score} [INCR]
 </code></pre>
 
-<h3 id="description_6">Description</h3>
+<h3 id="description_7">Description</h3>
 <p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestino dictionaries to the user.</p>
-<h3 id="parameters_7">Parameters</h3>
+<h3 id="parameters_8">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the suggestion string we index</li>
 <li><strong>score</strong>: a floating point number of the suggestion string's weight</li>
 <li><strong>INCR</strong>: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time</li>
 </ul>
-<h3 id="returns_7">Returns:</h3>
+<h3 id="returns_9">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
 <h2 id="ftsugget">FT.SUGGET</h2>
-<h3 id="format_7">Format</h3>
+<h3 id="format_8">Format</h3>
 <pre><code>FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
 </code></pre>
 
-<h3 id="description_7">Description</h3>
+<h3 id="description_8">Description</h3>
 <p>Get completion suggestions for a prefix</p>
-<h3 id="parameters_8">Parameters:</h3>
+<h3 id="parameters_9">Parameters:</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>prefix</strong>: the prefix to complete on</li>
@@ -598,22 +626,22 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be
   used to merge results from multiple instances</li>
 </ul>
-<h3 id="returns_8">Returns:</h3>
+<h3 id="returns_10">Returns:</h3>
 <p>Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry</p>
 <hr />
 <h2 id="ftsugdel">FT.SUGDEL</h2>
-<h3 id="format_8">Format</h3>
+<h3 id="format_9">Format</h3>
 <pre><code>FT.SUGDEL {key} {string}
 </code></pre>
 
-<h3 id="description_8">Description</h3>
+<h3 id="description_9">Description</h3>
 <p>Delete a string from a suggestion index. </p>
-<h3 id="parameters_9">Parameters</h3>
+<h3 id="parameters_10">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the string to delete</li>
 </ul>
-<h3 id="returns_9">Returns:</h3>
+<h3 id="returns_11">Returns:</h3>
 <p>Integer Reply: 1 if the string was found and deleted, 0 otherwise.</p>
 <hr />
 <h2 id="ftsuglen">FT.SUGLEN</h2>
@@ -621,13 +649,13 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <pre><code>FT.SUGLEN {key}
 </code></pre>
 
-<h3 id="description_9">Description</h3>
+<h3 id="description_10">Description</h3>
 <p>Get the size of an autoc-complete suggestion dictionary</p>
-<h3 id="parameters_10">Parameters</h3>
+<h3 id="parameters_11">Parameters</h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 </ul>
-<h3 id="returns_10">Returns:</h3>
+<h3 id="returns_12">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
           <aside class="copyright" role="note">
             
