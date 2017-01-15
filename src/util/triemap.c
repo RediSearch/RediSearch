@@ -84,13 +84,15 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
   return merged;
 }
 
-void TrieMapNode_Print(TrieMapNode *n, int idx, int depth) {
+void TrieMapNode_Print(TrieMapNode *n, int idx, int depth, void (*printval)(void *)) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
-  printf("%d) Value %s\n", idx, n->value);
+  printf("%d) Value :", idx);
+  printval(n->value);
+  printf("\n");
   for (int i = 0; i < n->numChildren; i++) {
-    TrieMapNode_Print(__trieMapNode_children(n)[i], i, depth + 1);
+    TrieMapNode_Print(__trieMapNode_children(n)[i], i, depth + 1, printval);
   }
 }
 
@@ -325,144 +327,144 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
   free(n);
 }
 
-#define TM_ITERSTATE_SELF 0
-#define TM_ITERSTATE_CHILDREN 1
-#define TM_ITERSTATE_MATCH 2
+// #define TM_ITERSTATE_SELF 0
+// #define TM_ITERSTATE_CHILDREN 1
+// #define TM_ITERSTATE_MATCH 2
 
-/* Push a new trie node on the iterator's stack */
-inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, int skipped) {
-  if (it->stackOffset < TM_MAX_STRING_LEN - 1) {
-    __tmi_stackNode *sn = &it->stack[it->stackOffset++];
-    sn->childOffset = 0;
-    sn->stringOffset = 0;
-    sn->isSkipped = skipped;
-    sn->n = node;
-    sn->state = TM_ITERSTATE_SELF;
-  }
-}
+// /* Push a new trie node on the iterator's stack */
+// inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, int skipped) {
+//   if (it->stackOffset < TM_MAX_STRING_LEN - 1) {
+//     __tmi_stackNode *sn = &it->stack[it->stackOffset++];
+//     sn->childOffset = 0;
+//     sn->stringOffset = 0;
+//     sn->isSkipped = skipped;
+//     sn->n = node;
+//     sn->state = TM_ITERSTATE_SELF;
+//   }
+// }
 
-inline void __tmi_Pop(TrieMapIterator *it) {
-  if (it->stackOffset) {
-    __tmi_stackNode *current = __tmi_current(it);
-    // if (it->popCallback) {
-    //   it->popCallback(it->ctx, current->stringOffset);
-    // }
+// inline void __tmi_Pop(TrieMapIterator *it) {
+//   if (it->stackOffset) {
+//     __tmi_stackNode *current = __tmi_current(it);
+//     // if (it->popCallback) {
+//     //   it->popCallback(it->ctx, current->stringOffset);
+//     // }
 
-    it->bufOffset -= current->stringOffset;
-    --it->stackOffset;
-  }
-}
+//     it->bufOffset -= current->stringOffset;
+//     --it->stackOffset;
+//   }
+// }
 
-inline int __tmi_step(TrieMapIterator *it, void *matchCtx) {
-  if (it->stackOffset == 0) {
-    return __TM_STEP_STOP;
-  }
+// inline int __tmi_step(TrieMapIterator *it, void *matchCtx) {
+//   if (it->stackOffset == 0) {
+//     return __TM_STEP_STOP;
+//   }
 
-  __tmi_stackNode *current = __tmi_current(it);
+//   __tmi_stackNode *current = __tmi_current(it);
 
-  int matched = 0;
-  // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
-  // offset %d/%d\n",
-  //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
-  //        current->n->score, current->state, current->stringOffset,
-  //        current->n->len,
-  //        current->childOffset, current->n->numChildren);
-  switch (current->state) {
-    case TM_ITERSTATE_MATCH:
-      __tmi_Pop(it);
-      goto next;
+//   int matched = 0;
+//   // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
+//   // offset %d/%d\n",
+//   //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
+//   //        current->n->score, current->state, current->stringOffset,
+//   //        current->n->len,
+//   //        current->childOffset, current->n->numChildren);
+//   switch (current->state) {
+//     case TM_ITERSTATE_MATCH:
+//       __tmi_Pop(it);
+//       goto next;
 
-    case TM_ITERSTATE_SELF:
+//     case TM_ITERSTATE_SELF:
 
-      if (current->stringOffset < current->n->len) {
-        // get the current unsigned char to feed the filter
-        unsigned char b = current->n->str[current->stringOffset];
+//       if (current->stringOffset < current->n->len) {
+//         // get the current unsigned char to feed the filter
+//         unsigned char b = current->n->str[current->stringOffset];
 
-        // if (it->filter) {
-        //   // run the next character in the filter
-        //   FilterCode rc = it->filter(b, it->ctx, &matched, matchCtx);
+//         // if (it->filter) {
+//         //   // run the next character in the filter
+//         //   FilterCode rc = it->filter(b, it->ctx, &matched, matchCtx);
 
-        //   // if we should stop...
-        //   if (rc == F_STOP) {
-        //     // match stop - change the state to MATCH and return
-        //     if (matched) {
-        //       current->state = ITERSTATE_MATCH;
-        //       return __STEP_MATCH;
-        //     }
-        //     // normal stop - just pop and continue
-        //     __ti_Pop(it);
-        //     goto next;
-        //   }
-        // }
+//         //   // if we should stop...
+//         //   if (rc == F_STOP) {
+//         //     // match stop - change the state to MATCH and return
+//         //     if (matched) {
+//         //       current->state = ITERSTATE_MATCH;
+//         //       return __STEP_MATCH;
+//         //     }
+//         //     // normal stop - just pop and continue
+//         //     __ti_Pop(it);
+//         //     goto next;
+//         //   }
+//         // }
 
-        // advance the buffer offset and character offset
-        it->buf[it->bufOffset++] = b;
-        current->stringOffset++;
+//         // advance the buffer offset and character offset
+//         it->buf[it->bufOffset++] = b;
+//         current->stringOffset++;
 
-        // if we don't have a filter, a "match" is when we reach the end of the
-        // node
-        // if (!it->filter) {
-        if (current->stringOffset == current->n->len && __trieMapNode_isTerminal(current->n) &&
-            !__trieMapNode_isDeleted(current->n)) {
-          matched = 1;
-        }
-        //}
+//         // if we don't have a filter, a "match" is when we reach the end of the
+//         // node
+//         // if (!it->filter) {
+//         if (current->stringOffset == current->n->len && __trieMapNode_isTerminal(current->n) &&
+//             !__trieMapNode_isDeleted(current->n)) {
+//           matched = 1;
+//         }
+//         //}
 
-        return matched ? __TM_STEP_MATCH : __TM_STEP_CONT;
-      } else {
-        // switch to "children mode"
-        current->state = TM_ITERSTATE_CHILDREN;
-      }
+//         return matched ? __TM_STEP_MATCH : __TM_STEP_CONT;
+//       } else {
+//         // switch to "children mode"
+//         current->state = TM_ITERSTATE_CHILDREN;
+//       }
 
-    case TM_ITERSTATE_CHILDREN:
-    default:
+//     case TM_ITERSTATE_CHILDREN:
+//     default:
 
-      // push the next child
-      if (current->childOffset < current->n->numChildren) {
-        TrieMapNode *ch = __trieMapNode_children(current->n)[current->childOffset++];
-        __tmi_Push(it, ch, 0);
+//       // push the next child
+//       if (current->childOffset < current->n->numChildren) {
+//         TrieMapNode *ch = __trieMapNode_children(current->n)[current->childOffset++];
+//         __tmi_Push(it, ch, 0);
 
-      } else {
-        // at the end of the node - pop and go up
-        __tmi_Pop(it);
-      }
-  }
+//       } else {
+//         // at the end of the node - pop and go up
+//         __tmi_Pop(it);
+//       }
+//   }
 
-next:
-  return __TM_STEP_CONT;
-}
+// next:
+//   return __TM_STEP_CONT;
+// }
 
-TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, void *ctx) {
-  TrieMapIterator *it = calloc(1, sizeof(TrieMapIterator));
-  // it->filter = f;
-  // it->popCallback = pf;
+// TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, void *ctx) {
+//   TrieMapIterator *it = calloc(1, sizeof(TrieMapIterator));
+//   // it->filter = f;
+//   // it->popCallback = pf;
 
-  it->ctx = ctx;
-  __tmi_Push(it, n, 0);
+//   it->ctx = ctx;
+//   __tmi_Push(it, n, 0);
 
-  return it;
-}
+//   return it;
+// }
 
-void TrieMapIterator_Free(TrieMapIterator *it) {
-  free(it);
-}
+// void TrieMapIterator_Free(TrieMapIterator *it) {
+//   free(it);
+// }
 
-int TrieMapIterator_Next(TrieMapIterator *it, unsigned char **ptr, tm_len_t *len, void **value,
-                         void *matchCtx) {
-  int rc;
-  while ((rc = __tmi_step(it, matchCtx)) != __TM_STEP_STOP) {
-    if (rc == __TM_STEP_MATCH) {
-      __tmi_stackNode *sn = __tmi_current(it);
+// int TrieMapIterator_Next(TrieMapIterator *it, unsigned char **ptr, tm_len_t *len, void **value,
+//                          void *matchCtx) {
+//   int rc;
+//   while ((rc = __tmi_step(it, matchCtx)) != __TM_STEP_STOP) {
+//     if (rc == __TM_STEP_MATCH) {
+//       __tmi_stackNode *sn = __tmi_current(it);
 
-      if (__trieMapNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset &&
-          !__trieMapNode_isDeleted(sn->n)) {
-        *ptr = it->buf;
-        *len = it->bufOffset;
-        *value = sn->n->value;
-        return 1;
-      }
-    }
-  }
+//       if (__trieMapNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset &&
+//           !__trieMapNode_isDeleted(sn->n)) {
+//         *ptr = it->buf;
+//         *len = it->bufOffset;
+//         *value = sn->n->value;
+//         return 1;
+//       }
+//     }
+//   }
 
-  return 0;
-}
+//   return 0;
+// }

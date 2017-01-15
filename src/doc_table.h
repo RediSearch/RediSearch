@@ -34,8 +34,13 @@ typedef enum {
 typedef struct { TrieMapNode *tm; } DocIdMap;
 
 DocIdMap NewDocIdMap();
+/* Get docId from a did-map. Returns 0  if the key is not in the map */
 t_docId DocIdMap_Get(DocIdMap *m, const char *key);
+
+/* Put a new doc id in the map if it does not already exist */
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId);
+
+/* Free the doc id map */
 void DocIdMap_Free(DocIdMap *m);
 
 /* The DocTable is a simple mapping between incremental ids and the original document key and

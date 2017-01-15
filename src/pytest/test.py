@@ -120,6 +120,25 @@ class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
             self.assertEqual(res[3], "doc1")
             self.assertTrue(float(res[4]) > 0)
 
+    def testDelete(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text'))
+
+            for i in range(100):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'f', 'hello world'))
+
+            for i in range(100):
+                self.assertEqual(1, r.execute_command(
+                    'ft.del', 'idx', 'doc%d' % i))
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+                self.assertNotIn('doc%d' % i, res)
+                self.assertEqual(res[0], 100 - i - 1)
+                self.assertEqual(len(res), 100 - i)
+
     def testExact(self):
         with self.redis() as r:
             r.flushdb()

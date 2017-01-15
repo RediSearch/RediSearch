@@ -33,7 +33,6 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags) {
   t_docId xid = DocIdMap_Get(&t->dim, key);
   // if the document is already in the index, return 0
   if (xid) {
-    printf("looked for %s, got %d\n", key, xid);
     return 0;
   }
   t_docId docId = ++t->maxDocId;
@@ -145,11 +144,12 @@ t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
 
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
+  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
   t_docId *pd = malloc(sizeof(t_docId));
   *pd = docId;
   TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, NULL);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMapNode_Free(m->tm, NULL);
+  TrieMapNode_Free(m->tm, free);
 }
