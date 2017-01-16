@@ -285,9 +285,10 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
+  sp->docs = NewDocTable(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  printf("FLAGS: %x\n", sp->flags);
+
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = RedisModule_Calloc(sp->numFields, sizeof(FieldSpec));
   for (int i = 0; i < sp->numFields; i++) {
