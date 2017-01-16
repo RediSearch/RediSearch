@@ -152,6 +152,23 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertEqual(1, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
 
+    def testDrop(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text'))
+
+            for i in range(100):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'f', 'hello world'))
+
+            keys = r.keys('*')
+            self.assertEqual(107, len(keys))
+
+            self.assertOk(r.execute_command('ft.drop', 'idx'))
+            keys = r.keys('*')
+            self.assertEqual(0, len(keys))
+
     def testExact(self):
         with self.redis() as r:
             r.flushdb()

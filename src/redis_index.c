@@ -304,40 +304,40 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
-  size_t len;
-  return REDISMODULE_ERR;
-  // if (deleteDocuments) {
 
-  //   RedisModuleCallReply *r = RedisModule_Call(ctx->redisCtx, "HKEYS", "c",
-  //   REDISINDEX_DOCKEY_MAP);
-  //   if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
-  //     return REDISMODULE_ERR;
-  //   }
+  if (deleteDocuments) {
 
-  //   len = RedisModule_CallReplyLength(r);
-  //   for (size_t i = 0; i < len; i++) {
-  //     RedisModuleKey *k = RedisModule_OpenKey(
-  //         ctx->redisCtx,
-  //         RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, i)),
-  //         REDISMODULE_WRITE);
+    DocTable *dt = &ctx->spec->docs;
 
-  //     if (k != NULL) {
-  //       RedisModule_DeleteKey(k);
-  //     }
-  //     RedisModule_CloseKey(k);
-  //   }
+    for (size_t i = 1; i < dt->size; i++) {
+      RedisModuleKey *k = RedisModule_OpenKey(
+          ctx->redisCtx,
+          RedisModule_CreateString(ctx->redisCtx, dt->docs[i].key, strlen(dt->docs[i].key)),
+          REDISMODULE_WRITE);
 
-  //   RedisModuleString *dmd =
-  //       RedisModule_CreateStringPrintf(ctx->redisCtx, DOCTABLE_KEY_FMT, ctx->spec->name);
-  //   RedisModule_Call(ctx->redisCtx, "DEL", "cccs", REDISINDEX_DOCKEY_MAP,
-  //   REDISINDEX_DOCIDS_MAP,
-  //                    REDISINDEX_DOCIDCOUNTER, dmd);
-  // }
+      if (k != NULL) {
+        RedisModule_DeleteKey(k);
+        RedisModule_CloseKey(k);
+      }
+    }
+  }
 
-  // RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
-  // const char *prefix = RedisModule_StringPtrLen(pf, &len);
+  RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
+  const char *prefix = RedisModule_StringPtrLen(pf, NULL);
 
   // // Delete the actual index sub keys
-  // Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
-  // return REDISMODULE_OK;
+  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+
+  // Delete the index spec
+  RedisModuleKey *k = RedisModule_OpenKey(
+      ctx->redisCtx,
+      RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name),
+      REDISMODULE_WRITE);
+  if (k != NULL) {
+    RedisModule_DeleteKey(k);
+    RedisModule_CloseKey(k);
+    return REDISMODULE_OK;
+  }
+
+  return REDISMODULE_ERR;
 }
