@@ -7,7 +7,7 @@ VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o doc_table.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
 REDIS=redis_buffer.o redis_index.o query.o spec.o 
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o util/range_tree.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
 LIBTRIE=trie/libtrie.a
@@ -48,6 +48,13 @@ index: test_index.o
 test_index: 	
 	@(sh -c ./test_index)
 .PHONY: test_index
+
+range: test_range.o
+	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) -lc -lm
+
+test_range: range
+	@(sh -c ./test_range)
+.PHONY: test_range
 
 build: stemmer trie index
 
