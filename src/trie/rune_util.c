@@ -12,13 +12,6 @@ static uint32_t __fold(uint32_t runelike) {
   return lowered;
 }
 
-/* where "runelike" is a 16 or 32-bit 
- * unicode codepoint, depending on whether
- TRIE_32BIT_RUNES is defined */
-static rune __toRune(uint32_t runelike) {
-  return (rune)runelike & TRIE_RUNE_MASK;
-}
-
 rune runeFold(rune r) {
   return __fold((uint32_t) r);
 }
@@ -51,7 +44,7 @@ rune *strToFoldedRunes(char *str, size_t *len) {
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
     uint32_t runelike = decoded[i];
-    ret[i] = __toRune(__fold(runelike));
+    ret[i] = (rune)__fold(runelike);
   }
   if (len)
     *len = rlen;
@@ -68,7 +61,7 @@ rune *strToRunes(char *str, size_t *len) {
 
   rune *ret = calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
-    ret[i] = __toRune(decoded[i]);
+    ret[i] = (rune)decoded[i];
   }
   if (len)
     *len = rlen;

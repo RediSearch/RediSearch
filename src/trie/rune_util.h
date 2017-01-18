@@ -7,10 +7,8 @@
  * characters. 16 bit shuold be fine for most use cases */
 #ifdef TRIE_32BIT_RUNES
     typedef u_int32_t rune;
-    #define TRIE_RUNE_MASK 0xffffffff
 #else // default - 16 bit runes
     typedef u_int16_t rune;
-    #define TRIE_RUNE_MASK 0x0000ffff
 #endif
 
 /* fold rune: assumes rune is of the correct size */
