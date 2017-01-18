@@ -4,49 +4,60 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../rmutil/vector.h"
-
+#include "../types.h"
 #define RT_LEAF_CARDINALITY_MAX 500
 
 typedef struct {
-  double min;
-  double max;
+  t_docId docId;
+  double value;
+} NumericRangeEntry;
 
-  void *entries;
-} RangeTreeLeaf;
+typedef struct {
+  double minVal;
+  double maxVal;
+
+  u_int32_t size;
+  u_int32_t cap;
+  u_int16_t card;
+  NumericRangeEntry *entries;
+} NumericRange;
+
+struct rtNode;
+
+typedef struct rtBranchNode {
+  double value;
+  struct rtNode *left;
+  struct rtNode *right;
+} RangeTreeBranchNode;
 
 typedef struct rtNode {
-  double value;
   union {
-    struct {
-      struct rtNode *left;
-      struct rtNode *right;
-    };
-    RangeTreeLeaf *leaf;
+    RangeTreeBranchNode node;
+    NumericRange range;
   };
+  u_char isLeaf;
 } RangeTreeNode;
-
-typedef int (*RangeTreeValueAddFunc)(void *ctx, void *newval);
-typedef double (*RangeTreeSplitFunc)(void *ctx, void **left, void **right);
 
 typedef struct {
   RangeTreeNode *root;
-  RangeTreeValueAddFunc addFunc;
-  RangeTreeSplitFunc splitFunc;
+  size_t numRanges;
+  size_t numEntries;
 } RangeTree;
 
-RangeTreeLeaf *NewRangeTreeLeaf(void *values, double min, double max);
-void RangeTreeLeaf_Split(RangeTreeLeaf *l, RangeTreeLeaf **left, RangeTreeLeaf **right,
-                         RangeTreeSplitFunc sf);
-int RangeTreeLeaf_Add(RangeTreeLeaf *l, void *entry, double value, RangeTreeValueAddFunc f);
+int NumericRange_Add(NumericRange *r, t_docId docId, double value);
+double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **rp);
 
-RangeTreeNode *NewRangeTreeNode(RangeTreeLeaf *l);
-int RangeTreeNode_Add(RangeTreeNode *n, void *entry, double value, RangeTreeValueAddFunc f,
-                      RangeTreeSplitFunc sf);
+RangeTreeNode *NewNumericRangeNode(size_t cap, double min, double max);
+void RangeTreNode_ToBranch(RangeTreeNode *n, double value, RangeTreeNode *left,
+                           RangeTreeNode *right);
+
+int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value);
 Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max);
 void RangeTreeNode_Free(RangeTreeNode *n);
 
-RangeTree *NewRangeTree(void *root, RangeTreeValueAddFunc af, RangeTreeSplitFunc sf);
-int RangeTree_Add(RangeTree *t, void *entry, double value);
+RangeTree *NewRangeTree();
+int RangeTree_Add(RangeTree *t, t_docId docId, double value);
 Vector *RangeTree_Find(RangeTree *t, double min, double max);
+void RangeTree_Free(RangeTree *t);
 
 #endif
