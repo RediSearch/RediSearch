@@ -4,7 +4,6 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <inttypes.h>
 
 #define TESTFUNC(f)                                            \
   printf("Testing %s ...\n------------------\n", __STRING(f)); \
@@ -23,15 +22,15 @@
   }
 #define ASSERT(expr)                                                                       \
   if (!(expr)) {                                                                           \
-    fprintf(stderr, "%s:%d: Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr)); \
+    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr));  \
     return -1;                                                                             \
   }
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
-#define ASSERT_EQUAL_INT(x, y, ...)                                 \
+#define ASSERT_EQUAL(x, y, ...)                                 \
   if (x != y) {                                                     \
-    fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                 \
+    fprintf(stderr, "%s:%d: Assertion Failed " __VA_ARGS__ ": ", __FILE__, __LINE__);                 \
     return -1;                                                      \
   }
 

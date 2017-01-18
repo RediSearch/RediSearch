@@ -55,9 +55,9 @@ int testRuneUtil() {
   rune expectedRunes[3] = {121, 89, 3};
   size_t len;
   rune *runes = strToRunes(str, &len);
-  ASSERT_EQUAL_INT(len, 2);
-  ASSERT_EQUAL_INT(runes[0], expectedRunes[0]);
-  ASSERT_EQUAL_INT(runes[1], expectedRunes[1]);
+  ASSERT_EQUAL(len, 2);
+  ASSERT_EQUAL(runes[0], expectedRunes[0]);
+  ASSERT_EQUAL(runes[1], expectedRunes[1]);
   free(runes);
   // convert from runes back to string
   size_t backToStrLen;
@@ -70,37 +70,37 @@ int testRuneUtil() {
   rune expectedUnicodeRunes[5] = {216, 8719, 960, 229, 197};
   char *expectedUnicodeStr = "Ø∏πåÅ";
   rune *unicodeRunes = strToRunes(expectedUnicodeStr, &unicodeLen);
-  ASSERT_EQUAL_INT(unicodeLen, 5);
+  ASSERT_EQUAL(unicodeLen, 5);
   for (int i = 0; i < 5; i++) {
-    ASSERT_EQUAL_INT(unicodeRunes[i], expectedUnicodeRunes[i]);
+    ASSERT_EQUAL(unicodeRunes[i], expectedUnicodeRunes[i]);
   }
   free(unicodeRunes);
   // convert from runes back to string
   size_t backUnicodeStrUtfLen;
   char *backUnicodeStr = runesToStr(expectedUnicodeRunes, 2, &backUnicodeStrUtfLen);
   for (int i = 0; i < 5; i++) {
-    ASSERT_EQUAL_INT(backUnicodeStr[i], expectedUnicodeStr[i]);
+    ASSERT_EQUAL(backUnicodeStr[i], expectedUnicodeStr[i]);
   }
   free(backUnicodeStr);
 
   size_t foldedLen;
   rune *foldedRunes = strToFoldedRunes("yY", &foldedLen);
-  ASSERT_EQUAL_INT(foldedLen, 2);
-  ASSERT_EQUAL_INT(foldedRunes[0], 121);
-  ASSERT_EQUAL_INT(foldedRunes[1], 121);
+  ASSERT_EQUAL(foldedLen, 2);
+  ASSERT_EQUAL(foldedRunes[0], 121);
+  ASSERT_EQUAL(foldedRunes[1], 121);
   free(foldedRunes);
 
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
   rune *foldedUnicodeRunes = strToFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
-  ASSERT_EQUAL_INT(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]); 
-  ASSERT_EQUAL_INT(foldedUnicodeLen, 5);
-  ASSERT_EQUAL_INT(foldedUnicodeRunes[0], 248);
-  ASSERT_EQUAL_INT(foldedUnicodeRunes[1], 8719);
-  ASSERT_EQUAL_INT(foldedUnicodeRunes[2], 960);
-  ASSERT_EQUAL_INT(foldedUnicodeRunes[3], 229);
-  ASSERT_EQUAL_INT(foldedUnicodeRunes[4], 229);
-  ASSERT_EQUAL_INT(runeFold(foldedUnicodeRunes[4]), foldedUnicodeRunes[3]);
+  ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]); 
+  ASSERT_EQUAL(foldedUnicodeLen, 5);
+  ASSERT_EQUAL(foldedUnicodeRunes[0], 248);
+  ASSERT_EQUAL(foldedUnicodeRunes[1], 8719);
+  ASSERT_EQUAL(foldedUnicodeRunes[2], 960);
+  ASSERT_EQUAL(foldedUnicodeRunes[3], 229);
+  ASSERT_EQUAL(foldedUnicodeRunes[4], 229);
+  ASSERT_EQUAL(runeFold(foldedUnicodeRunes[4]), foldedUnicodeRunes[3]);
   free(foldedUnicodeRunes);
 
   return 0;
@@ -113,12 +113,12 @@ int testTrie() {
   free(rootRunes);
 
   int rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
-  ASSERT_EQUAL_INT(1, rc);
+  ASSERT_EQUAL(1, rc);
   rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
-  ASSERT_EQUAL_INT(0,
+  ASSERT_EQUAL(0,
                    rc); // the second insert of the same term should result in 0
   rc = __trie_add(&root, "help", 2, ADD_REPLACE);
-  ASSERT_EQUAL_INT(1, rc);
+  ASSERT_EQUAL(1, rc);
 
   __trie_add(&root, "helter skelter", 3, ADD_REPLACE);
   size_t rlen;
@@ -165,9 +165,9 @@ int testUnicode() {
   ASSERT(root != NULL)
 
   int rc = __trie_add(&root, str, 1, ADD_REPLACE);
-  ASSERT_EQUAL_INT(1, rc);
+  ASSERT_EQUAL(1, rc);
   rc = __trie_add(&root, str, 1, ADD_REPLACE);
-  ASSERT_EQUAL_INT(0, rc);
+  ASSERT_EQUAL(0, rc);
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
   float sc = TrieNode_Find(root, runes, rlen);
