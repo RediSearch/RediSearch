@@ -6,9 +6,9 @@
 /* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
  * characters. 16 bit shuold be fine for most use cases */
 #ifdef TRIE_32BIT_RUNES
-    typedef u_int32_t rune;
+    typedef uint32_t rune;
 #else // default - 16 bit runes
-    typedef u_int16_t rune;
+    typedef uint16_t rune;
 #endif
 
 /* fold rune: assumes rune is of the correct size */
