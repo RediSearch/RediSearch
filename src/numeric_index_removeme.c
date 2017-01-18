@@ -4,7 +4,6 @@ A numeric index allows indexing of documents by numeric ranges, and intersection
 of them with
 fulltext indexes.
 */
-
 int numericFilter_Match(NumericFilter *f, double score) {
   // match min - -inf or x >/>= score
   int matchMin = f->minNegInf || (f->inclusiveMin ? score >= f->min : score > f->min);

@@ -1,6 +1,7 @@
 #include "range_tree.h"
 #include "sys/param.h"
 #include "../rmutil/vector.h"
+#include "../index.h"
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
@@ -172,7 +173,7 @@ void RangeTreeNode_Free(RangeTreeNode *n) {
   free(n);
 }
 
-RangeTree *NewRangeTree(void *root) {
+RangeTree *NewRangeTree() {
   RangeTree *ret = malloc(sizeof(RangeTree));
 
   ret->root = NewNumericRangeNode(RT_LEAF_CARDINALITY_MAX, 0, 0);
@@ -182,10 +183,12 @@ RangeTree *NewRangeTree(void *root) {
 }
 
 int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
-  if (!value) return 0;
   int rc = RangeTreeNode_Add(t->root, docId, value);
   t->numRanges += rc;
   t->numEntries++;
+  // printf("range tree added %d, size now %zd docs %zd ranges\n", docId, t->numEntries,
+  // t->numRanges);
+
   return rc;
 }
 
@@ -196,4 +199,203 @@ Vector *RangeTree_Find(RangeTree *t, double min, double max) {
 void RangeTree_Free(RangeTree *t) {
   RangeTreeNode_Free(t->root);
   free(t);
+}
+
+/* Read the next entry from the iterator, into hit *e.
+  *  Returns INDEXREAD_EOF if at the end */
+int NR_Read(void *ctx, IndexResult *r) {
+  NumericRangeIterator *it = ctx;
+  if (it->atEOF) {
+    it->atEOF = 1;
+    return INDEXREAD_EOF;
+  }
+
+  it->lastDocId = it->rng->entries[it->offset++].docId;
+  if (it->offset == it->rng->size) {
+    it->atEOF = 1;
+  }
+  // TODO: Filter here
+  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  IndexResult_PutRecord(r, &rec);
+  return INDEXREAD_OK;
+}
+
+/* Skip to a docid, potentially reading the entry into hit, if the docId
+ * matches */
+int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
+  // printf("nr %p skipto %d\n", ctx, docId);
+  NumericRangeIterator *it = ctx;
+  if (docId > it->rng->entries[it->rng->size - 1].docId) {
+    //   / printf("nr got to eof\n");
+    it->atEOF = 1;
+    return INDEXREAD_EOF;
+  }
+
+  u_int top = it->rng->size - 1, bottom = it->offset;
+  u_int i = bottom;
+  int newi;
+
+  while (bottom < top) {
+    t_docId did = it->rng->entries[i].docId;
+    if (did == docId) {
+      break;
+    }
+    if (docId <= did) {
+      top = i;
+    } else {
+      bottom = i;
+    }
+    newi = (bottom + top) / 2;
+    if (newi == i) {
+      break;
+    }
+    i = newi;
+  }
+  it->offset = i + 1;
+  if (it->offset == it->rng->size) {
+    it->atEOF = 1;
+  }
+
+  it->lastDocId = it->rng->entries[i].docId;
+  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  IndexResult_PutRecord(r, &rec);
+  // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
+  if (it->lastDocId == docId) {
+    if (it->nf) {
+      int match = it->nf ? NumericFilter_Match(it->nf, it->rng->entries[i].value) : 1;
+      // printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
+      //     it->rng->entries[i].value, match);
+
+      if (!match) return INDEXREAD_NOTFOUND;
+    }
+    return INDEXREAD_OK;
+  }
+  return INDEXREAD_NOTFOUND;
+}
+/* the last docId read */
+t_docId NR_LastDocId(void *ctx) {
+  return ((NumericRangeIterator *)ctx)->lastDocId;
+}
+
+/* can we continue iteration? */
+int NR_HasNext(void *ctx) {
+  return !((NumericRangeIterator *)ctx)->atEOF;
+}
+
+/* release the iterator's context and free everything needed */
+void NR_Free(IndexIterator *self) {
+  free(self->ctx);
+  free(self);
+}
+
+/* Return the number of results in this iterator. Used by the query execution
+ * on the top iterator */
+size_t NR_Len(void *ctx) {
+  return ((NumericRangeIterator *)ctx)->rng->size;
+}
+
+IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
+  IndexIterator *ret = malloc(sizeof(IndexIterator));
+
+  NumericRangeIterator *it = malloc(sizeof(NumericRangeIterator));
+
+  it->nf = NULL;
+  // if this range is at either end of the filter, we need to check each record
+  if (!NumericFilter_Match(f, nr->minVal) || !NumericFilter_Match(f, nr->maxVal)) {
+
+    it->nf = f;
+  }
+  it->atEOF = 0;
+  it->lastDocId = 0;
+  it->offset = 0;
+  it->rng = nr;
+  ret->ctx = it;
+
+  ret->Free = NR_Free;
+  ret->Len = NR_Len;
+  ret->HasNext = NR_HasNext;
+  ret->LastDocId = NR_LastDocId;
+  ret->Read = NR_Read;
+  ret->SkipTo = NR_SkipTo;
+  return ret;
+}
+
+IndexIterator *NewNumericFilterIterator(RangeTree *t, NumericFilter *f) {
+
+  Vector *v = RangeTree_Find(t, f->min, f->max);
+  if (!v || Vector_Size(v) == 0) {
+    return NULL;
+  }
+
+  size_t n = Vector_Size(v);
+  // printf("Loaded %zd ranges for range filter!\n", n);
+  // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
+  IndexIterator **its = calloc(n, sizeof(IndexIterator *));
+
+  for (size_t i = 0; i < n; i++) {
+    NumericRange *rng;
+    Vector_Get(v, i, &rng);
+
+    its[i] = NewNumericRangeIterator(rng, f);
+  }
+  Vector_Free(v);
+  return NewUnionIterator(its, n, NULL);
+}
+
+RedisModuleType *NumericIndexType = NULL;
+#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
+
+RedisModuleString *fmtNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
+                                        field);
+}
+
+RangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
+
+  RedisModuleString *s = fmtNumericIndexKey(ctx, fname);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
+  int type = RedisModule_KeyType(key);
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+    return NULL;
+  }
+
+  /* Create an empty value object if the key is currently empty. */
+  RangeTree *t;
+  if (type == REDISMODULE_KEYTYPE_EMPTY) {
+    t = NewRangeTree();
+    RedisModule_ModuleTypeSetValue(key, NumericIndexType, t);
+  } else {
+    t = RedisModule_ModuleTypeGetValue(key);
+  }
+  return t;
+}
+
+int NumericIndexType_Register(RedisModuleCtx *ctx) {
+
+  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
+                               .rdb_load = NumericIndexType_RdbLoad,
+                               .rdb_save = NumericIndexType_RdbSave,
+                               .aof_rewrite = NumericIndexType_AofRewrite,
+                               .free = NumericIndexType_Free};
+
+  NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", 0, &tm);
+  if (NumericIndexType == NULL) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
+  return NULL;
+}
+void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
+}
+void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+}
+void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
+}
+
+void NumericIndexType_Free(void *value) {
+  RangeTree *t = value;
+  RangeTree_Free(t);
 }

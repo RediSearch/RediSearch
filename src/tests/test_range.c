@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "test_util.h"
 #include "time_sample.h"
+#include "../index.h"
 
 int testRangeTree() {
   RangeTree *t = NewRangeTree();
@@ -39,6 +40,37 @@ int testRangeTree() {
   return 0;
 }
 
+int testRangeIterator() {
+  RangeTree *t = NewRangeTree();
+  ASSERT(t != NULL);
+
+  srand(1337);
+  int N = 300;
+  for (int i = 0; i < N; i++) {
+
+    RangeTree_Add(t, i + 1, (double)(1 + rand() % 1000));
+  }
+  ASSERT_EQUAL_INT(t->numRanges, 1);
+  ASSERT_EQUAL_INT(t->numEntries, N);
+
+  IndexIterator *it = NewNumericRangeIterator(&t->root->range);
+  ASSERT(it->HasNext(it->ctx));
+  ASSERT(it->Len(it->ctx) == N);
+  int count = 0;
+
+  while (it->HasNext(it->ctx)) {
+    IndexResult res = NewIndexResult();
+    int rc = it->Read(it->ctx, &res);
+    ASSERT_EQUAL_INT(INDEXREAD_OK, rc);
+    ASSERT(res.docId > 0);
+    ASSERT(res.flags = 0xff);
+    ASSERT(res.numRecords == 1)
+    count++;
+  }
+  ASSERT_EQUAL_INT(N, count);
+  return 0;
+}
+
 int benchmarkRangeTree() {
   RangeTree *t = NewRangeTree();
   int count = 1;
@@ -60,6 +92,7 @@ int benchmarkRangeTree() {
 
 int main(int argc, char **argv) {
   TESTFUNC(testRangeTree);
+  TESTFUNC(testRangeIterator);
   // benchmarkRangeTree();
   return 0;
 }

@@ -2,7 +2,8 @@
 #define __QUERY_H__
 
 #include "index.h"
-#include "numeric_index.h"
+#include "numeric_filter.h"
+#include "util/range_tree.h"
 #include "query_node.h"
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"

@@ -98,6 +98,7 @@ QueryNode *NewPhraseNode(int exact) {
 QueryNode *NewNumericNode(NumericFilter *flt) {
   QueryNode *ret = __newQueryNode(QN_NUMERIC);
   ret->nn = (QueryNumericNode){.nf = flt};
+
   return ret;
 }
 
@@ -138,7 +139,20 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
 }
 
 IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
-  return NewNumericFilterIterator(node->nf);
+
+  FieldSpec *fs =
+      IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+  if (fs->type != F_NUMERIC) {
+    printf("Filed %s is not numeric\n", fs->name);
+    return NULL;
+  }
+  RangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
+  if (!t) {
+    printf("Could not open tree");
+    return NULL;
+  }
+
+  return NewNumericFilterIterator(t, node->nf);
 }
 
 IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
@@ -304,7 +318,7 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
 
   double tfidf = 0;
   for (int i = 0; i < h->numRecords; i++) {
-    tfidf += h->records[i].tf * h->records[i].term->idf;
+    tfidf += h->records[i].tf * (h->records[i].term ? h->records[i].term->idf : 0);
   }
 
   int md = IndexResult_MinOffsetDelta(h);

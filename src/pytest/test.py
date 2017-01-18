@@ -321,7 +321,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testNumericRange(self):
 
-        with self.redis() as r:
+        with self.redis(port=6379) as r:
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric'))

@@ -1,6 +1,6 @@
 #include "forward_index.h"
 #include "index.h"
-#include "numeric_index.h"
+#include "numeric_filter.h"
 #include "query.h"
 #include "query_node.h"
 #include "redis_index.h"
@@ -12,6 +12,7 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "util/range_tree.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,13 +70,9 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
           goto error;
         }
 
-        NumericIndex *ni = NewNumericIndex(ctx, fs);
+        RangeTree *rt = OpenNumericIndex(ctx, fs->name);
+        RangeTree_Add(rt, doc.docId, score);
 
-        if (NumerIndex_Add(ni, doc.docId, score) == REDISMODULE_ERR) {
-          *errorString = "Could not save numeric index value";
-          goto error;
-        }
-        NumerIndex_Free(ni);
         break;
         default:
           break;
@@ -605,7 +602,11 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Query_Expand(q);
 
   if (nf != NULL) {
-    QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
+    QueryNode *qn = q->root;
+    // if (qn->pn.numChildren == 1 && qn->pn.children[0]->type == QN_PHRASE) {
+    //   qn = qn->pn.children[0];
+    // }
+    QueryPhraseNode_AddChild(&qn->pn, NewNumericNode(nf));
   }
   q->docTable = &dt;
 
@@ -990,6 +991,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
   if (IndexSpec_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+  if (NumericIndexType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom no-cluster", 1,
                                 1, 1) == REDISMODULE_ERR)

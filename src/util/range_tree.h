@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include "../rmutil/vector.h"
 #include "../types.h"
+#include "../index_result.h"
+#include "../redismodule.h"
+#include "../search_ctx.h"
+#include "../numeric_filter.h"
+
 #define RT_LEAF_CARDINALITY_MAX 500
 
 /* A single entry in a numeric index's single range. Since entries are binned together, each needs
@@ -55,6 +60,41 @@ typedef struct {
   size_t numEntries;
 } RangeTree;
 
+typedef struct {
+  NumericRange *rng;
+  NumericFilter *nf;
+  t_docId lastDocId;
+  int offset;
+  int atEOF;
+
+} NumericRangeIterator;
+
+/* Read the next entry from the iterator, into hit *e.
+  *  Returns INDEXREAD_EOF if at the end */
+int NR_Read(void *ctx, IndexResult *e);
+
+/* Skip to a docid, potentially reading the entry into hit, if the docId
+ * matches */
+int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+
+/* the last docId read */
+t_docId NR_LastDocId(void *ctx);
+
+/* can we continue iteration? */
+int NR_HasNext(void *ctx);
+
+struct indexIterator;
+/* release the iterator's context and free everything needed */
+void NR_Free(struct indexIterator *self);
+
+/* Return the number of results in this iterator. Used by the query execution
+ * on the top iterator */
+size_t NR_Len(void *ctx);
+
+struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
+
+struct indexIterator *NewNumericFilterIterator(RangeTree *t, NumericFilter *f);
+
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
  * No deduplication is done */
@@ -94,4 +134,13 @@ Vector *RangeTree_Find(RangeTree *t, double min, double max);
 /* Free the tree and all nodes */
 void RangeTree_Free(RangeTree *t);
 
+extern RedisModuleType *NumericIndexType;
+
+RangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname);
+int NumericIndexType_Register(RedisModuleCtx *ctx);
+void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
+void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
+void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
+void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
+void NumericIndexType_Free(void *value);
 #endif
