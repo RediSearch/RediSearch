@@ -97,11 +97,10 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
     n = value < n->node.value ? n->node.left : n->node.right;
   }
 
-  // printf("Adding to RangeTreeLeaf %f..%f\n", n->RangeTreeLeaf->min, n->RangeTreeLeaf->max);
   int card = NumericRange_Add(&n->range, docId, value);
-  // printf("%f..%f card after insertion: %d\n", n->leaf->min, n->leaf->max, card);
+
   if (card >= RT_LEAF_CARDINALITY_MAX) {
-    printf("Splitting node with leaf %f..%f\n", n->range.minVal, n->range.maxVal);
+    // printf("Splitting node with leaf %f..%f\n", n->range.minVal, n->range.maxVal);
 
     RangeTreeNode *rl, *ll;
     double split = NumericRange_Split(&n->range, &ll, &rl);
@@ -177,12 +176,17 @@ RangeTree *NewRangeTree(void *root) {
   RangeTree *ret = malloc(sizeof(RangeTree));
 
   ret->root = NewNumericRangeNode(RT_LEAF_CARDINALITY_MAX, 0, 0);
+  ret->numEntries = 0;
+  ret->numRanges = 1;
   return ret;
 }
 
 int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
   if (!value) return 0;
-  return RangeTreeNode_Add(t->root, docId, value);
+  int rc = RangeTreeNode_Add(t->root, docId, value);
+  t->numRanges += rc;
+  t->numEntries++;
+  return rc;
 }
 
 Vector *RangeTree_Find(RangeTree *t, double min, double max) {

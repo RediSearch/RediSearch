@@ -6,14 +6,14 @@
 int testRangeTree() {
   RangeTree *t = NewRangeTree();
   ASSERT(t != NULL);
-  int count = 1;
+
   srand(1337);
   for (int i = 0; i < 50000; i++) {
 
-    count += RangeTree_Add(t, i, (double)(rand() % 5000));
+    RangeTree_Add(t, i + 1, (double)(1 + rand() % 5000));
   }
-  ASSERT_EQUAL_INT(count, 16);
-  printf("count: %d\n", count);
+  ASSERT_EQUAL_INT(t->numRanges, 16);
+  ASSERT_EQUAL_INT(t->numEntries, 50000);
 
   struct {
     double min;
@@ -24,12 +24,12 @@ int testRangeTree() {
 
     Vector *v = RangeTree_Find(t, rngs[r].min, rngs[r].max);
     ASSERT(Vector_Size(v) > 0);
-    printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
+    // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
     for (int i = 0; i < Vector_Size(v); i++) {
       NumericRange *l;
       Vector_Get(v, i, &l);
       ASSERT(l);
-      printf("%f...%f\n", l->minVal, l->maxVal);
+      // printf("%f...%f\n", l->minVal, l->maxVal);
       ASSERT(!(l->minVal > rngs[r].max));
       ASSERT(!(l->maxVal < rngs[r].min));
     }

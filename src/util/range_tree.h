@@ -7,11 +7,19 @@
 #include "../types.h"
 #define RT_LEAF_CARDINALITY_MAX 500
 
+/* A single entry in a numeric index's single range. Since entries are binned together, each needs
+ * to have the exact value */
 typedef struct {
   t_docId docId;
   double value;
 } NumericRangeEntry;
 
+/* A numeric range is a node in a numeric range tree, representing a range of values bunched
+ * toghether.
+ * Since we do not know the distribution of scores ahead, we use a splitting approach - we start
+ * with single value nodes, and when a node passes some cardinality we split it.
+ * We save the minimum and maximum values inside the node, and when we split we split by finding the
+ * median value */
 typedef struct {
   double minVal;
   double maxVal;
@@ -24,12 +32,14 @@ typedef struct {
 
 struct rtNode;
 
+/* A branch node is a non terminal tree node, basically a binary search tree node */
 typedef struct rtBranchNode {
   double value;
   struct rtNode *left;
   struct rtNode *right;
 } RangeTreeBranchNode;
 
+/* A union of a branch and leaf node */
 typedef struct rtNode {
   union {
     RangeTreeBranchNode node;
@@ -38,26 +48,50 @@ typedef struct rtNode {
   u_char isLeaf;
 } RangeTreeNode;
 
+/* The root tree and its metadata */
 typedef struct {
   RangeTreeNode *root;
   size_t numRanges;
   size_t numEntries;
 } RangeTree;
 
+/* Add an entry to a numeric range node. Returns the cardinality of the range after the
+ * inserstion.
+ * No deduplication is done */
 int NumericRange_Add(NumericRange *r, t_docId docId, double value);
+
+/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
 double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **rp);
 
+/* Create a new range node with the given capacity, minimum and maximum values */
 RangeTreeNode *NewNumericRangeNode(size_t cap, double min, double max);
+
+/* Convert a range node to a branch node (they are a union) and attach children to it */
 void RangeTreNode_ToBranch(RangeTreeNode *n, double value, RangeTreeNode *left,
                            RangeTreeNode *right);
 
+/* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
+ * Returns 0 if no nodes were split, 1 if we splitted nodes */
 int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value);
+
+/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
+ * vector with range node pointers.  */
 Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max);
+
+/* Recursively free a node and its children */
 void RangeTreeNode_Free(RangeTreeNode *n);
 
+/* Create a new tree */
 RangeTree *NewRangeTree();
+
+/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
 int RangeTree_Add(RangeTree *t, t_docId docId, double value);
+
+/* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
+ * Returns a vector with range node pointers. */
 Vector *RangeTree_Find(RangeTree *t, double min, double max);
+
+/* Free the tree and all nodes */
 void RangeTree_Free(RangeTree *t);
 
 #endif
