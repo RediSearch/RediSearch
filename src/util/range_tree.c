@@ -62,8 +62,8 @@ double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **r
 
   double split = qselect(scores, n->size, n->size / 2);
   // double split = (n->minVal + n->maxVal) / (double)2;
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, n->splitCard * 2);
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, n->splitCard * 2);
+  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, n->splitCard * 4);
+  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, n->splitCard * 4);
 
   for (u_int32_t i = 0; i < n->size; i++) {
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
@@ -105,14 +105,14 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
     int rc = RangeTreeNode_Add((value < n->value ? n->left : n->right), docId, value);
     if (rc) {
       n->maxDepth++;
-      printf("maxdepth: %d\n", n->maxDepth);
       if (n->maxDepth > 2 && n->range) {
-        // free(n->range->entries);
-        // free(n->range);
+        free(n->range->entries);
+        free(n->range);
         n->range = NULL;
       }
+      return 1;
     }
-    return rc;
+    return 0;
   }
 
   int card = NumericRange_Add(n->range, docId, value);
@@ -122,10 +122,9 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
     // n->range.maxVal,
     //        n->range.size, card, ratio);
 
-    RangeTreeNode *rl, *ll;
     double split = NumericRange_Split(n->range, &n->left, &n->right);
-    rl->parent = n;
-    ll->parent = n;
+    n->left->parent = n;
+    n->right->parent = n;
     n->value = split;
     printf("Splitting node with leaf %f..%f, size %d, card %d. split point: %f\n", n->range->minVal,
            n->range->maxVal, n->range->size, card, split);
@@ -173,8 +172,8 @@ Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
     if (!Vector_Pop(stack, &n)) break;
     if (!n) continue;
 
-    if (NumericRange_Within(n->range, min, max)) {
-      if (!n->parent || !NumericRange_Within(n->parent->range, min, max)) {
+    if (n->range && NumericRange_Within(n->range, min, max)) {
+      if (!n->parent || !n->parent->range || !NumericRange_Within(n->parent->range, min, max)) {
         Vector_Push(leaves, n->range);
       } else {
         Vector_Push(leaves, n->parent->range);
