@@ -2,6 +2,7 @@
 #include "sys/param.h"
 #include "../rmutil/vector.h"
 #include "../index.h"
+#include <math.h>
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
@@ -21,6 +22,11 @@ double qselect(double *v, int len, int k) {
   SWAP(len - 1, st);
 
   return k == st ? v[st] : st > k ? qselect(v, st, k) : qselect(v + st, len - st, k - st);
+}
+
+int NumericRange_Within(NumericRange *n, double min, double max) {
+
+  return (n->minVal >= min && n->maxVal < max);
 }
 
 int NumericRange_Add(NumericRange *n, t_docId docId, double value) {
@@ -55,57 +61,75 @@ double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **r
   }
 
   double split = qselect(scores, n->size, n->size / 2);
-  *lp = NewNumericRangeNode(n->size / 2, n->minVal, split);
-  *rp = NewNumericRangeNode(n->size / 2, split, n->maxVal);
+  // double split = (n->minVal + n->maxVal) / (double)2;
+  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, n->splitCard * 2);
+  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, n->splitCard * 2);
 
   for (u_int32_t i = 0; i < n->size; i++) {
-    NumericRange_Add(n->entries[i].value < split ? &(*lp)->range : &(*rp)->range,
-                     n->entries[i].docId, n->entries[i].value);
+    NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
+                     n->entries[i].value);
   }
 
   return split;
 }
 
-RangeTreeNode *NewNumericRangeNode(size_t cap, double min, double max) {
+RangeTreeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
 
   RangeTreeNode *n = malloc(sizeof(RangeTreeNode));
-  n->isLeaf = 1;
-  n->range = (NumericRange){.minVal = min,
-                            .maxVal = max,
-                            .cap = cap,
-                            .size = 0,
-                            .card = 0,
-                            .entries = calloc(cap, sizeof(NumericRangeEntry))};
+  n->left = NULL;
+  n->right = NULL;
+  n->value = 0;
+  n->parent = NULL;
+  n->maxDepth = 0;
+  n->range = malloc(sizeof(NumericRange));
+
+  *n->range = (NumericRange){.minVal = min,
+                             .maxVal = max,
+                             .cap = cap,
+                             .size = 0,
+                             .card = 0,
+                             .splitCard = splitCard,
+                             .entries = calloc(cap, sizeof(NumericRangeEntry))};
   return n;
 }
 
-void RangeTreNode_ToBranch(RangeTreeNode *n, double value, RangeTreeNode *left,
-                           RangeTreeNode *right) {
-  if (n->isLeaf) {
-    free(n->range.entries);
-  }
-  n->isLeaf = 0;
-  n->node.left = left;
-  n->node.right = right;
-  n->node.value = value;
-}
-
-#define __isLeaf(n) (n->isLeaf)
+#define __isLeaf(n) (n->left == NULL && n->right == NULL)
 
 int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
 
-  while (n && !__isLeaf(n)) {
-    n = value < n->node.value ? n->node.left : n->node.right;
+  if (!__isLeaf(n)) {
+    if (n->range) {
+      NumericRange_Add(n->range, docId, value);
+    }
+
+    int rc = RangeTreeNode_Add((value < n->value ? n->left : n->right), docId, value);
+    if (rc) {
+      n->maxDepth++;
+      printf("maxdepth: %d\n", n->maxDepth);
+      if (n->maxDepth > 2 && n->range) {
+        // free(n->range->entries);
+        // free(n->range);
+        n->range = NULL;
+      }
+    }
+    return rc;
   }
 
-  int card = NumericRange_Add(&n->range, docId, value);
+  int card = NumericRange_Add(n->range, docId, value);
 
-  if (card >= RT_LEAF_CARDINALITY_MAX) {
-    // printf("Splitting node with leaf %f..%f\n", n->range.minVal, n->range.maxVal);
+  if (card >= n->range->splitCard) {
+    // printf("node with leaf %f..%f, size %d, card %d, ratio %.02f\n", n->range.minVal,
+    // n->range.maxVal,
+    //        n->range.size, card, ratio);
 
     RangeTreeNode *rl, *ll;
-    double split = NumericRange_Split(&n->range, &ll, &rl);
-    RangeTreNode_ToBranch(n, split, ll, rl);
+    double split = NumericRange_Split(n->range, &n->left, &n->right);
+    rl->parent = n;
+    ll->parent = n;
+    n->value = split;
+    printf("Splitting node with leaf %f..%f, size %d, card %d. split point: %f\n", n->range->minVal,
+           n->range->maxVal, n->range->size, card, split);
+    n->maxDepth = 1;
     return 1;
   }
 
@@ -119,41 +143,46 @@ Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
   RangeTreeNode *vmin = n, *vmax = n;
 
   while (vmin == vmax && !__isLeaf(vmin)) {
-    vmin = min < vmin->node.value ? vmin->node.left : vmin->node.right;
-    vmax = max < vmax->node.value ? vmax->node.left : vmax->node.right;
+    vmin = min < vmin->value ? vmin->left : vmin->right;
+    vmax = max < vmax->value ? vmax->left : vmax->right;
   }
 
   Vector *stack = NewVector(RangeTreeNode *, 8);
 
   // put on the stack all right trees of our path to the minimum node
   while (!__isLeaf(vmin)) {
-    if (min < vmin->node.value) {
-      Vector_Push(stack, vmin->node.right);
+
+    if (min < vmin->value) {
+      Vector_Push(stack, vmin->right);
     }
-    vmin = min < vmin->node.value ? vmin->node.left : vmin->node.right;
+    vmin = min < vmin->value ? vmin->left : vmin->right;
   }
   // put on the stack all left trees of our path to the maximum node
   while (vmax && !__isLeaf(vmax)) {
-    if (max >= vmax->node.value) {
-      Vector_Push(stack, vmax->node.left);
+    if (max >= vmax->value) {
+      Vector_Push(stack, vmax->left);
     }
-    vmax = max < vmax->node.value ? vmax->node.left : vmax->node.right;
+    vmax = max < vmax->value ? vmax->left : vmax->right;
   }
 
-  Vector_Push(leaves, &vmin->range);
-  if (vmin != vmax) Vector_Push(leaves, &vmax->range);
+  Vector_Push(leaves, vmin->range);
+  if (vmin != vmax) Vector_Push(leaves, vmax->range);
 
   while (Vector_Size(stack)) {
     RangeTreeNode *n;
     if (!Vector_Pop(stack, &n)) break;
     if (!n) continue;
 
-    if (__isLeaf(n)) {
-      Vector_Push(leaves, &n->range);
+    if (NumericRange_Within(n->range, min, max)) {
+      if (!n->parent || !NumericRange_Within(n->parent->range, min, max)) {
+        Vector_Push(leaves, n->range);
+      } else {
+        Vector_Push(leaves, n->parent->range);
+      }
     } else {
 
-      Vector_Push(stack, n->node.left);
-      Vector_Push(stack, n->node.right);
+      Vector_Push(stack, n->left);
+      Vector_Push(stack, n->right);
     }
   }
 
@@ -165,10 +194,10 @@ Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
 
 void RangeTreeNode_Free(RangeTreeNode *n) {
   if (__isLeaf(n)) {
-    free(n->range.entries);
+    free(n->range->entries);
   } else {
-    RangeTreeNode_Free(n->node.left);
-    RangeTreeNode_Free(n->node.right);
+    RangeTreeNode_Free(n->left);
+    RangeTreeNode_Free(n->right);
   }
   free(n);
 }
@@ -176,7 +205,7 @@ void RangeTreeNode_Free(RangeTreeNode *n) {
 RangeTree *NewRangeTree() {
   RangeTree *ret = malloc(sizeof(RangeTree));
 
-  ret->root = NewNumericRangeNode(RT_LEAF_CARDINALITY_MAX, 0, 0);
+  ret->root = NewLeafNode(8, 0, 0, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
   return ret;
@@ -186,6 +215,9 @@ int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
   int rc = RangeTreeNode_Add(t->root, docId, value);
   t->numRanges += rc;
   t->numEntries++;
+  if (rc) {
+    printf("range tree size now %zd\n", t->numRanges);
+  }
   // printf("range tree added %d, size now %zd docs %zd ranges\n", docId, t->numEntries,
   // t->numRanges);
 
@@ -302,7 +334,6 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   it->nf = NULL;
   // if this range is at either end of the filter, we need to check each record
   if (!NumericFilter_Match(f, nr->minVal) || !NumericFilter_Match(f, nr->maxVal)) {
-
     it->nf = f;
   }
   it->atEOF = 0;

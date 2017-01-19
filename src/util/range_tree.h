@@ -32,25 +32,18 @@ typedef struct {
   u_int32_t size;
   u_int32_t cap;
   u_int16_t card;
+  u_int32_t splitCard;
   NumericRangeEntry *entries;
 } NumericRange;
 
-struct rtNode;
-
 /* A branch node is a non terminal tree node, basically a binary search tree node */
-typedef struct rtBranchNode {
+typedef struct rtNode {
   double value;
+  int maxDepth;
   struct rtNode *left;
   struct rtNode *right;
-} RangeTreeBranchNode;
-
-/* A union of a branch and leaf node */
-typedef struct rtNode {
-  union {
-    RangeTreeBranchNode node;
-    NumericRange range;
-  };
-  u_char isLeaf;
+  struct rtNode *parent;
+  NumericRange *range;
 } RangeTreeNode;
 
 /* The root tree and its metadata */
@@ -58,6 +51,7 @@ typedef struct {
   RangeTreeNode *root;
   size_t numRanges;
   size_t numEntries;
+  size_t card;
 } RangeTree;
 
 typedef struct {
@@ -104,11 +98,7 @@ int NumericRange_Add(NumericRange *r, t_docId docId, double value);
 double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **rp);
 
 /* Create a new range node with the given capacity, minimum and maximum values */
-RangeTreeNode *NewNumericRangeNode(size_t cap, double min, double max);
-
-/* Convert a range node to a branch node (they are a union) and attach children to it */
-void RangeTreNode_ToBranch(RangeTreeNode *n, double value, RangeTreeNode *left,
-                           RangeTreeNode *right);
+RangeTreeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard);
 
 /* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
  * Returns 0 if no nodes were split, 1 if we splitted nodes */
