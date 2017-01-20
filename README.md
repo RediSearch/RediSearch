@@ -49,3 +49,4 @@ https://github.com/lemire/MaskedVByte
 
 https://github.com/lemire/simdcomp
 
+https://github.com/lemire/SIMDCompressionAndIntersection (useful for experiments)
