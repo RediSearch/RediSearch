@@ -28,10 +28,11 @@
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
-#define ASSERT_EQUAL(x, y, ...)                                 \
-  if (x != y) {                                                     \
-    fprintf(stderr, "%s:%d: Assertion Failed " __VA_ARGS__ ": ", __FILE__, __LINE__);                 \
-    return -1;                                                      \
+#define ASSERT_EQUAL(x, y, ...)                                           \
+  if (x != y) {                                                           \
+    fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                       \
+    fprintf(stderr, "%f != %f: " __VA_ARGS__ "\n", (double)x, (double)y); \
+    return -1;                                                            \
   }
 
 #define FAIL(fmt, ...)                                                            \
