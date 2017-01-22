@@ -29,7 +29,7 @@ int NumericRange_Within(NumericRange *n, double min, double max) {
   return (n->minVal >= min && n->maxVal < max);
 }
 
-int NumericRange_Add(NumericRange *n, t_docId docId, double value) {
+int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
   if (n->size >= n->cap) {
     n->cap = n->cap ? MAX(n->cap * 2, 1024 * 1024) : 2;
@@ -37,12 +37,15 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value) {
   }
 
   int add = 1;
-  for (int i = 0; i < n->size; i++) {
-    if (n->entries[i].value == value) {
-      add = 0;
-      break;
+  if (checkCard) {
+    for (int i = 0; i < n->size; i++) {
+      if (n->entries[i].value == value) {
+        add = 0;
+        break;
+      }
     }
   }
+
   if (add) {
     if (value < n->minVal) n->minVal = value;
     if (value > n->maxVal) n->maxVal = value;
@@ -62,12 +65,12 @@ double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **r
 
   double split = qselect(scores, n->size, n->size / 2);
   // double split = (n->minVal + n->maxVal) / (double)2;
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, n->splitCard * 4);
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, n->splitCard * 4);
+  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, 1 + n->splitCard * 3 / 2);
+  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, 1 + n->splitCard * 3 / 2);
 
   for (u_int32_t i = 0; i < n->size; i++) {
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
-                     n->entries[i].value);
+                     n->entries[i].value, 1);
   }
 
   return split;
@@ -99,7 +102,7 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
 
   if (!__isLeaf(n)) {
     if (n->range) {
-      NumericRange_Add(n->range, docId, value);
+      NumericRange_Add(n->range, docId, value, 0);
     }
 
     int rc = RangeTreeNode_Add((value < n->value ? n->left : n->right), docId, value);
@@ -115,7 +118,7 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
     return 0;
   }
 
-  int card = NumericRange_Add(n->range, docId, value);
+  int card = NumericRange_Add(n->range, docId, value, 1);
 
   if (card >= n->range->splitCard) {
     // printf("node with leaf %f..%f, size %d, card %d, ratio %.02f\n", n->range.minVal,
@@ -225,6 +228,19 @@ int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
 
 Vector *RangeTree_Find(RangeTree *t, double min, double max) {
   return RangeTreeNode_FindRange(t->root, min, max);
+}
+
+void RangeTreeNode_Traverse(RangeTreeNode *n, void (*callback)(RangeTreeNode *n, void *ctx),
+                            void *ctx) {
+
+  callback(n, ctx);
+
+  if (n->left) {
+    RangeTreeNode_Traverse(n->left, callback, ctx);
+  }
+  if (n->right) {
+    RangeTreeNode_Traverse(n->right, callback, ctx);
+  }
 }
 
 void RangeTree_Free(RangeTree *t) {
@@ -415,11 +431,70 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
+
+static int __cmd_docId(const void *p1, const void *p2) {
+  NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
+  NumericRangeEntry *e2 = (NumericRangeEntry *)p2;
+
+  return (int)e1->docId - (int)e2->docId;
+}
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
-  return NULL;
+  if (encver != 0) {
+    return 0;
+  }
+
+  RangeTree *t = NewRangeTree();
+  uint64_t num = RedisModule_LoadUnsigned(rdb);
+
+  NumericRangeEntry entries[num];
+  size_t n = 0;
+  for (size_t i = 0; i < num; i++) {
+    entries[n].docId = RedisModule_LoadUnsigned(rdb);
+    entries[n].value = RedisModule_LoadDouble(rdb);
+    n++;
+  }
+
+  // sort the entries by doc id, as they were not saved in this order
+  qsort(entries, num, sizeof(NumericRangeEntry), __cmd_docId);
+  printf("loaded %zd entries\n", num);
+  for (size_t i = 0; i < num; i++) {
+    RangeTree_Add(t, entries[i].docId, entries[i].value);
+  }
+
+  return t;
+}
+
+struct __niRdbSaveCtx {
+  RedisModuleIO *rdb;
+  size_t num;
+};
+
+void __numericIndex_rdbSaveCallback(RangeTreeNode *n, void *ctx) {
+  struct __niRdbSaveCtx *rctx = ctx;
+
+  if (__isLeaf(n) && n->range) {
+    NumericRange *rng = n->range;
+
+    for (size_t n = 0; n < rng->size; n++) {
+      RedisModule_SaveUnsigned(rctx->rdb, rng->entries[n].docId);
+      RedisModule_SaveDouble(rctx->rdb, rng->entries[n].value);
+      ++rctx->num;
+    }
+  }
 }
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
+
+  RangeTree *t = value;
+
+  RedisModule_SaveUnsigned(rdb, t->numEntries);
+
+  struct __niRdbSaveCtx ctx = {rdb, 0};
+
+  RangeTreeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
+
+  printf("saved %zd/%zd entries\n", ctx.num, t->numEntries);
 }
+
 void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
 }
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {

@@ -286,6 +286,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
   sp->docs = NewDocTable(1000);
+
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
 

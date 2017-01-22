@@ -92,7 +92,7 @@ struct indexIterator *NewNumericFilterIterator(RangeTree *t, NumericFilter *f);
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
  * No deduplication is done */
-int NumericRange_Add(NumericRange *r, t_docId docId, double value);
+int NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
 
 /* Split n into two ranges, lp for left, and rp for right. We split by the median score */
 double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **rp);

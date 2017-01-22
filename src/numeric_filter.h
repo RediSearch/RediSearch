@@ -3,6 +3,9 @@
 #include "types.h"
 #include "search_ctx.h"
 
+#define NF_INFINITY (1.0 / 0.0)
+#define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
+
 typedef struct numericFilter {
   const char *fieldName;
   double min;
