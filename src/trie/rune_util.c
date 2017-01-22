@@ -1,5 +1,6 @@
 #include "../dep/libnu/libnu.h"
 #include "rune_util.h"
+#include <stdlib.h>
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
@@ -13,7 +14,7 @@ static uint32_t __fold(uint32_t runelike) {
 }
 
 rune runeFold(rune r) {
-  return __fold((uint32_t) r);
+  return __fold((uint32_t)r);
 }
 
 char *runesToStr(rune *in, size_t len, size_t *utflen) {
@@ -46,9 +47,8 @@ rune *strToFoldedRunes(char *str, size_t *len) {
     uint32_t runelike = decoded[i];
     ret[i] = (rune)__fold(runelike);
   }
-  if (len)
-    *len = rlen;
-  
+  if (len) *len = rlen;
+
   return ret;
 }
 
@@ -63,8 +63,7 @@ rune *strToRunes(char *str, size_t *len) {
   for (int i = 0; i < rlen; i++) {
     ret[i] = (rune)decoded[i];
   }
-  if (len)
-    *len = rlen;
+  if (len) *len = rlen;
 
   return ret;
 }

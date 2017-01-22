@@ -240,7 +240,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
 }
 
 void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name));
+  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   RedisModule_SaveUnsigned(rdb, f->id);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveDouble(rdb, f->weight);
@@ -304,7 +304,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
   IndexSpec *sp = value;
-  RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name));
+  // we save the name plus the null terminator
+  RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
   RedisModule_SaveUnsigned(rdb, (uint)sp->flags);
 
   RedisModule_SaveUnsigned(rdb, sp->numFields);
