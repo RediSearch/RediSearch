@@ -1,4 +1,4 @@
-CFLAGS = -g -fPIC -lc -lm -O0 -std=gnu99
+CFLAGS ?= -g -fPIC -lc -lm -O2 -std=gnu99
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
