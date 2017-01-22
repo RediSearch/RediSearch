@@ -33,7 +33,7 @@ QueryNode *Query_Parse(Query *q, char **err) {
   }
 
   if (ctx.root) {
-    QueryPhraseNode_AddChild(&q->root->pn, ctx.root);
+    q->root = ctx.root;
   }
   return ctx.root;
 }

@@ -12,7 +12,7 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
-#include "util/range_tree.h"
+#include "numeric_index.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,8 +70,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
           goto error;
         }
 
-        RangeTree *rt = OpenNumericIndex(ctx, fs->name);
-        RangeTree_Add(rt, doc.docId, score);
+        NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
+        NumericRangeTree_Add(rt, doc.docId, score);
 
         break;
         default:
@@ -602,11 +602,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Query_Expand(q);
 
   if (nf != NULL) {
-    QueryNode *qn = q->root;
-    // if (qn->pn.numChildren == 1 && qn->pn.children[0]->type == QN_PHRASE) {
-    //   qn = qn->pn.children[0];
-    // }
-    QueryPhraseNode_AddChild(&qn->pn, NewNumericNode(nf));
+    Query_SetNumericFilter(q, nf);
   }
   q->docTable = &dt;
 

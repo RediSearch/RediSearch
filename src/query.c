@@ -102,6 +102,25 @@ QueryNode *NewNumericNode(NumericFilter *flt) {
   return ret;
 }
 
+void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
+  if (q->root == NULL) return;
+
+  // for a simple phrase node we just add the numeric node
+  if (q->root->type == QN_PHRASE) {
+    QueryPhraseNode_AddChild(&q->root->pn, NULL);
+    for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
+      q->root->pn.children[i] = q->root->pn.children[i - 1];
+    }
+    q->root->pn.children[0] = NewNumericNode(nf);
+  } else {  // for other types, we need to create a new phrase node
+    QueryNode *nr = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(&nr->pn, q->root);
+    QueryPhraseNode_AddChild(&nr->pn, NewNumericNode(nf));
+
+    q->root = nr;
+  }
+}
+
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
@@ -146,7 +165,7 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
     printf("Filed %s is not numeric\n", fs->name);
     return NULL;
   }
-  RangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
+  NumericRangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
   if (!t) {
     printf("Could not open tree");
     return NULL;
@@ -215,7 +234,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);
-  ret->root = NewPhraseNode(0);
+  ret->root = NULL;
   ret->numTokens = 0;
   ret->stopwords = stopwords;
   ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
@@ -244,7 +263,7 @@ QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
 }
 
 void Query_Expand(Query *q) {
-  if (q->expander) {
+  if (q->expander && q->root) {
     q->root = __queryNode_Expand(q, q->expander, q->root);
   }
 }

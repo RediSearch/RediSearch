@@ -1,8 +1,11 @@
-#include "range_tree.h"
+#include "numeric_index.h"
 #include "sys/param.h"
-#include "../rmutil/vector.h"
-#include "../index.h"
+#include "rmutil/vector.h"
+#include "index.h"
 #include <math.h>
+
+#define NR_EXPONENT 2
+#define NR_MAX_DEPTH 3
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
@@ -56,7 +59,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   return n->card;
 }
 
-double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **rp) {
+double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
 
   double scores[n->size];
   for (size_t i = 0; i < n->size; i++) {
@@ -65,8 +68,8 @@ double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **r
 
   double split = qselect(scores, n->size, n->size / 2);
   // double split = (n->minVal + n->maxVal) / (double)2;
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, 1 + n->splitCard * 3 / 2);
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, 1 + n->splitCard * 3 / 2);
+  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, 1 + n->splitCard * NR_EXPONENT);
+  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, 1 + n->splitCard * NR_EXPONENT);
 
   for (u_int32_t i = 0; i < n->size; i++) {
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
@@ -76,9 +79,9 @@ double NumericRange_Split(NumericRange *n, RangeTreeNode **lp, RangeTreeNode **r
   return split;
 }
 
-RangeTreeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
+NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
 
-  RangeTreeNode *n = malloc(sizeof(RangeTreeNode));
+  NumericRangeNode *n = malloc(sizeof(NumericRangeNode));
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
@@ -98,17 +101,17 @@ RangeTreeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard)
 
 #define __isLeaf(n) (n->left == NULL && n->right == NULL)
 
-int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
+int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
   if (!__isLeaf(n)) {
     if (n->range) {
       NumericRange_Add(n->range, docId, value, 0);
     }
 
-    int rc = RangeTreeNode_Add((value < n->value ? n->left : n->right), docId, value);
+    int rc = NumericRangeNode_Add((value < n->value ? n->left : n->right), docId, value);
     if (rc) {
       n->maxDepth++;
-      if (n->maxDepth > 2 && n->range) {
+      if (n->maxDepth > NR_MAX_DEPTH && n->range) {
         free(n->range->entries);
         free(n->range);
         n->range = NULL;
@@ -138,18 +141,18 @@ int RangeTreeNode_Add(RangeTreeNode *n, t_docId docId, double value) {
   return 0;
 }
 
-Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
+Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
 
-  RangeTreeNode *vmin = n, *vmax = n;
+  NumericRangeNode *vmin = n, *vmax = n;
 
   while (vmin == vmax && !__isLeaf(vmin)) {
     vmin = min < vmin->value ? vmin->left : vmin->right;
     vmax = max < vmax->value ? vmax->left : vmax->right;
   }
 
-  Vector *stack = NewVector(RangeTreeNode *, 8);
+  Vector *stack = NewVector(NumericRangeNode *, 8);
 
   // put on the stack all right trees of our path to the minimum node
   while (!__isLeaf(vmin)) {
@@ -171,7 +174,7 @@ Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
   if (vmin != vmax) Vector_Push(leaves, vmax->range);
 
   while (Vector_Size(stack)) {
-    RangeTreeNode *n;
+    NumericRangeNode *n;
     if (!Vector_Pop(stack, &n)) break;
     if (!n) continue;
 
@@ -190,22 +193,22 @@ Vector *RangeTreeNode_FindRange(RangeTreeNode *n, double min, double max) {
 
   Vector_Free(stack);
 
-  // printf("found %d leaves\n", Vector_Size(leaves));
+  printf("found %d leaves\n", Vector_Size(leaves));
   return leaves;
 }
 
-void RangeTreeNode_Free(RangeTreeNode *n) {
+void NumericRangeNode_Free(NumericRangeNode *n) {
   if (__isLeaf(n)) {
     free(n->range->entries);
   } else {
-    RangeTreeNode_Free(n->left);
-    RangeTreeNode_Free(n->right);
+    NumericRangeNode_Free(n->left);
+    NumericRangeNode_Free(n->right);
   }
   free(n);
 }
 
-RangeTree *NewRangeTree() {
-  RangeTree *ret = malloc(sizeof(RangeTree));
+NumericRangeTree *NewNumericRangeTree() {
+  NumericRangeTree *ret = malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(8, 0, 0, 2);
   ret->numEntries = 0;
@@ -213,8 +216,8 @@ RangeTree *NewRangeTree() {
   return ret;
 }
 
-int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
-  int rc = RangeTreeNode_Add(t->root, docId, value);
+int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+  int rc = NumericRangeNode_Add(t->root, docId, value);
   t->numRanges += rc;
   t->numEntries++;
   if (rc) {
@@ -226,25 +229,25 @@ int RangeTree_Add(RangeTree *t, t_docId docId, double value) {
   return rc;
 }
 
-Vector *RangeTree_Find(RangeTree *t, double min, double max) {
-  return RangeTreeNode_FindRange(t->root, min, max);
+Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
+  return NumericRangeNode_FindRange(t->root, min, max);
 }
 
-void RangeTreeNode_Traverse(RangeTreeNode *n, void (*callback)(RangeTreeNode *n, void *ctx),
-                            void *ctx) {
+void NumericRangeNode_Traverse(NumericRangeNode *n,
+                               void (*callback)(NumericRangeNode *n, void *ctx), void *ctx) {
 
   callback(n, ctx);
 
   if (n->left) {
-    RangeTreeNode_Traverse(n->left, callback, ctx);
+    NumericRangeNode_Traverse(n->left, callback, ctx);
   }
   if (n->right) {
-    RangeTreeNode_Traverse(n->right, callback, ctx);
+    NumericRangeNode_Traverse(n->right, callback, ctx);
   }
 }
 
-void RangeTree_Free(RangeTree *t) {
-  RangeTreeNode_Free(t->root);
+void NumericRangeTree_Free(NumericRangeTree *t) {
+  NumericRangeNode_Free(t->root);
   free(t);
 }
 
@@ -257,13 +260,27 @@ int NR_Read(void *ctx, IndexResult *r) {
     return INDEXREAD_EOF;
   }
 
-  it->lastDocId = it->rng->entries[it->offset++].docId;
-  if (it->offset == it->rng->size) {
-    it->atEOF = 1;
+  int match = 0;
+  double lastValue = 0;
+  while (!match && !it->atEOF) {
+    it->lastDocId = it->rng->entries[it->offset].docId;
+    lastValue = it->rng->entries[it->offset].value;
+    ++it->offset;
+    if (it->offset == it->rng->size) {
+      it->atEOF = 1;
+    }
+
+    if (it->nf) {
+      match = NumericFilter_Match(it->nf, lastValue);
+    }
+  }
+  if (it->atEOF && !match) {
+    return INDEXREAD_EOF;
   }
   // TODO: Filter here
   IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   IndexResult_PutRecord(r, &rec);
+
   return INDEXREAD_OK;
 }
 
@@ -280,7 +297,7 @@ int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
 
   u_int top = it->rng->size - 1, bottom = it->offset;
   u_int i = bottom;
-  int newi;
+  u_int newi;
 
   while (bottom < top) {
     t_docId did = it->rng->entries[i].docId;
@@ -366,9 +383,9 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   return ret;
 }
 
-IndexIterator *NewNumericFilterIterator(RangeTree *t, NumericFilter *f) {
+IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 
-  Vector *v = RangeTree_Find(t, f->min, f->max);
+  Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
     return NULL;
   }
@@ -396,7 +413,7 @@ RedisModuleString *fmtNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
                                         field);
 }
 
-RangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
 
   RedisModuleString *s = fmtNumericIndexKey(ctx, fname);
   RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
@@ -406,9 +423,9 @@ RangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
   }
 
   /* Create an empty value object if the key is currently empty. */
-  RangeTree *t;
+  NumericRangeTree *t;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    t = NewRangeTree();
+    t = NewNumericRangeTree();
     RedisModule_ModuleTypeSetValue(key, NumericIndexType, t);
   } else {
     t = RedisModule_ModuleTypeGetValue(key);
@@ -443,10 +460,10 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
     return 0;
   }
 
-  RangeTree *t = NewRangeTree();
+  NumericRangeTree *t = NewNumericRangeTree();
   uint64_t num = RedisModule_LoadUnsigned(rdb);
 
-  NumericRangeEntry entries[num];
+  NumericRangeEntry *entries = calloc(num, sizeof(NumericRangeEntry));
   size_t n = 0;
   for (size_t i = 0; i < num; i++) {
     entries[n].docId = RedisModule_LoadUnsigned(rdb);
@@ -458,8 +475,9 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   qsort(entries, num, sizeof(NumericRangeEntry), __cmd_docId);
   printf("loaded %zd entries\n", num);
   for (size_t i = 0; i < num; i++) {
-    RangeTree_Add(t, entries[i].docId, entries[i].value);
+    NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
   }
+  free(entries);
 
   return t;
 }
@@ -469,7 +487,7 @@ struct __niRdbSaveCtx {
   size_t num;
 };
 
-void __numericIndex_rdbSaveCallback(RangeTreeNode *n, void *ctx) {
+void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   struct __niRdbSaveCtx *rctx = ctx;
 
   if (__isLeaf(n) && n->range) {
@@ -484,13 +502,13 @@ void __numericIndex_rdbSaveCallback(RangeTreeNode *n, void *ctx) {
 }
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
 
-  RangeTree *t = value;
+  NumericRangeTree *t = value;
 
   RedisModule_SaveUnsigned(rdb, t->numEntries);
 
   struct __niRdbSaveCtx ctx = {rdb, 0};
 
-  RangeTreeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
+  NumericRangeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
 
   printf("saved %zd/%zd entries\n", ctx.num, t->numEntries);
 }
@@ -501,6 +519,6 @@ void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 void NumericIndexType_Free(void *value) {
-  RangeTree *t = value;
-  RangeTree_Free(t);
+  NumericRangeTree *t = value;
+  NumericRangeTree_Free(t);
 }
