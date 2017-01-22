@@ -3,7 +3,8 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -fPIC -lc -lm -O3 -std=gnu99 -I$(RM_INCLUDE_DIR) -Wall -Werror -Wno-unused-function -Wno-unused-variable
+CFLAGS ?= -g -fPIC -lc -lm -O3 -std=gnu99 -Wall -Wno-unused-function -Wno-unused-variable
+CFLAGS += -I$(RM_INCLUDE_DIR)
 CC=gcc
 OBJS=levenshtein.o rune_util.o sparse_vector.o trie.o trie_type.o
 
