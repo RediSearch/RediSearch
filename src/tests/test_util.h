@@ -22,17 +22,17 @@
   }
 #define ASSERT(expr)                                                                       \
   if (!(expr)) {                                                                           \
-    fprintf(stderr, "%s:%d: Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr)); \
+    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr));  \
     return -1;                                                                             \
   }
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
-#define ASSERT_EQUAL_INT(x, y, ...)                                 \
-  if (x != y) {                                                     \
-    fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                 \
-    fprintf(stderr, "%d != %d: " __VA_ARGS__ "\n", (int)x, (int)y); \
-    return -1;                                                      \
+#define ASSERT_EQUAL(x, y, ...)                                           \
+  if (x != y) {                                                           \
+    fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                       \
+    fprintf(stderr, "%f != %f: " __VA_ARGS__ "\n", (double)x, (double)y); \
+    return -1;                                                            \
   }
 
 #define FAIL(fmt, ...)                                                            \

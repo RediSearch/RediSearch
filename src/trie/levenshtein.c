@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <string.h>
 #include "levenshtein.h"
+#include "rune_util.h"
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check
@@ -244,8 +245,10 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
         }
     }
 
+    rune *foldedRune = runeFold(b);
+
     // get the next state change
-    dfaNode *next = __dfn_getEdge(dn, b);
+    dfaNode *next = __dfn_getEdge(dn, foldedRune);
     if (!next) 
         next = dn->fallback;
 

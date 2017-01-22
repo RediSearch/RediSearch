@@ -121,10 +121,10 @@ int testQueryExpander() {
 
   if (err) FAIL("Error parsing query: %s", err);
 
-  ASSERT_EQUAL_INT(q->numTokens, 2)
+  ASSERT_EQUAL(q->numTokens, 2)
   Query_Expand(q);
   __queryNode_Print(n, 0);
-  ASSERT_EQUAL_INT(q->numTokens, 4)
+  ASSERT_EQUAL(q->numTokens, 4)
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);

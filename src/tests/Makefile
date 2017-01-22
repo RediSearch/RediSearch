@@ -56,4 +56,8 @@ test: test_index test_stemmer test_trie
 
 all: build test
 
+clean:
+	-rm -f *.o
+.PHONY: clean
+
 rebuild: clean all

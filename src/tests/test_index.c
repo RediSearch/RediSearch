@@ -60,11 +60,11 @@ int testDistance() {
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw2->bw.buf});
 
   int delta = IndexResult_MinOffsetDelta(&res);
-  ASSERT_EQUAL_INT(4, delta);
+  ASSERT_EQUAL(4, delta);
 
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
   delta = IndexResult_MinOffsetDelta(&res);
-  ASSERT_EQUAL_INT(53, delta);
+  ASSERT_EQUAL(53, delta);
 
   VVW_Free(vw);
   VVW_Free(vw2);
@@ -500,14 +500,14 @@ int testIndexFlags() {
   ASSERT(w->flags == flags);
   size_t sz = IW_WriteEntry(w, &h);
   // printf("written %d bytes\n", sz);
-  ASSERT_EQUAL_INT(18, sz);
+  ASSERT_EQUAL(18, sz);
   IW_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewIndexWriter(1, flags);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   size_t sz2 = IW_WriteEntry(w, &h);
-  ASSERT_EQUAL_INT(sz2, sz - VV_Size(h.vw->bw.buf) - 1);
+  ASSERT_EQUAL(sz2, sz - VV_Size(h.vw->bw.buf) - 1);
   IW_Free(w);
 
   flags &= ~Index_StoreFieldFlags;
@@ -515,7 +515,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   sz = IW_WriteEntry(w, &h);
-  ASSERT_EQUAL_INT(6, sz);
+  ASSERT_EQUAL(6, sz);
   IW_Free(w);
 
   VVW_Free(h.vw);
@@ -532,14 +532,14 @@ int testDocTable() {
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
     t_docId nd = DocTable_Put(&dt, buf, (double)i, Document_DefaultFlags);
-    ASSERT_EQUAL_INT(did + 1, nd);
+    ASSERT_EQUAL(did + 1, nd);
     did = nd;
   }
 
-  ASSERT_EQUAL_INT(N + 1, dt.size);
-  ASSERT_EQUAL_INT(N, dt.maxDocId);
+  ASSERT_EQUAL(N + 1, dt.size);
+  ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL_INT(1890, (int)dt.memsize);
+  ASSERT_EQUAL(1890, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -548,21 +548,21 @@ int testDocTable() {
     ASSERT_STRING_EQ(k, buf);
 
     float score = DocTable_GetScore(&dt, i + 1);
-    ASSERT_EQUAL_INT((int)score, i);
+    ASSERT_EQUAL((int)score, i);
 
     DocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT(dmd != NULL);
     ASSERT_STRING_EQ(dmd->key, buf);
-    ASSERT_EQUAL_INT((int)dmd->score, i);
-    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_DefaultFlags);
+    ASSERT_EQUAL((int)dmd->score, i);
+    ASSERT_EQUAL((int)dmd->flags, (int)Document_DefaultFlags);
 
     t_docId xid = DocIdMap_Get(&dt.dim, buf);
 
-    ASSERT_EQUAL_INT((int)xid, i + 1);
+    ASSERT_EQUAL((int)xid, i + 1);
 
     int rc = DocTable_Delete(&dt, dmd->key);
-    ASSERT_EQUAL_INT(1, rc);
-    ASSERT_EQUAL_INT((int)dmd->flags, (int)Document_Deleted);
+    ASSERT_EQUAL(1, rc);
+    ASSERT_EQUAL((int)dmd->flags, (int)Document_Deleted);
   }
 
   ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));

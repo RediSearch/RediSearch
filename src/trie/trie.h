@@ -4,18 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "rune_util.h"
 
 typedef u_int8_t t_len;
-
-/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed with unicode
- * characters. 16 bit shuold be fine for most use cases */
-#ifdef TRIE_32BIT_RUNES
-    typedef u_int32_t rune;
-    #define TRIE_RUNE_MASK 0xffffffff
-#else // default - 16 bit runes
-    typedef u_int16_t rune;
-    #define TRIE_RUNE_MASK 0x0000ffff
-#endif
 
 #define MAX_STRING_LEN 255
 
