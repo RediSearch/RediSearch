@@ -52,7 +52,8 @@ start:
       toklen = 0;
       return rc;
     }
-    *t->pos = tolower(*t->pos++);
+    *t->pos = tolower(*t->pos);
+    ++t->pos;
     ++toklen;
   }
 
