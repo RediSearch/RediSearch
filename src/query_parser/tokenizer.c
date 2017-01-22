@@ -5,8 +5,7 @@
 #include <strings.h>
 #include <ctype.h>
 
-QueryTokenizer NewQueryTokenizer(char *text, size_t len,
-                                 const char **stopwords) {
+QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords) {
   QueryTokenizer ret;
   ret.text = text;
   ret.len = len;
@@ -45,7 +44,7 @@ start:
       if (t->pos > currentTok) {
         goto word;
       }
-      int rc = ctrls[*t->pos];
+      int rc = ctrls[(int)*t->pos];
       tok->len = 1;
       tok->s = t->pos;
       tok->pos = t->pos - t->text;
@@ -70,7 +69,7 @@ word : {
   }
 }
 end:
-  return 0; //(QueryToken){NULL, 0, T_END};
+  return 0;  //(QueryToken){NULL, 0, T_END};
 }
 
 int QueryTokenizer_HasNext(QueryTokenizer *t) {

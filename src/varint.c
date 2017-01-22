@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sys/param.h>
 
-static int msb = (int)(~0ULL << 25);
+// static int msb = (int)(~0ULL << 25);
 
 inline int ReadVarint(Buffer *b) {
   u_char c = BUFFER_READ_BYTE(b);

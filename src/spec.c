@@ -360,6 +360,8 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, NUMERIC_STR);
         break;
+      default:
+        break;
     }
   }
 

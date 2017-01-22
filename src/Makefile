@@ -11,7 +11,7 @@ else
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
-CFLAGS= -fPIC -lc -lm -std=gnu99 -I./ 
+CFLAGS=  -Wall -Werror -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC -lc -lm -std=gnu99 -I./  
 RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o

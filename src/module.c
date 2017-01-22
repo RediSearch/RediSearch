@@ -77,6 +77,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         }
         NumerIndex_Free(ni);
         break;
+        default:
+          break;
       }
     }
   }

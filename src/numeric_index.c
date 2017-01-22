@@ -7,8 +7,7 @@ fulltext indexes.
 
 int numericFilter_Match(NumericFilter *f, double score) {
   // match min - -inf or x >/>= score
-  int matchMin =
-      f->minNegInf || (f->inclusiveMin ? score >= f->min : score > f->min);
+  int matchMin = f->minNegInf || (f->inclusiveMin ? score >= f->min : score > f->min);
 
   if (matchMin) {
     // match max - +inf or x </<= score
@@ -21,17 +20,16 @@ int numericFilter_Match(NumericFilter *f, double score) {
 #define NUMERIC_INDEX_KEY_FMT "num:%s/%s"
 
 RedisModuleString *fmtNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERIC_INDEX_KEY_FMT,
-                                        ctx->spec->name, field);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERIC_INDEX_KEY_FMT, ctx->spec->name,
+                                        field);
 }
 
 NumericIndex *NewNumericIndex(RedisSearchCtx *ctx, FieldSpec *sp) {
   RedisModuleString *s = fmtNumericIndexKey(ctx, sp->name);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, s,
-                                          REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
                     RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_ZSET)) {
-    k == NULL;
+    k = NULL;
   }
 
   NumericIndex *ret = malloc(sizeof(NumericIndex));
@@ -41,18 +39,15 @@ NumericIndex *NewNumericIndex(RedisSearchCtx *ctx, FieldSpec *sp) {
 }
 
 void NumerIndex_Free(NumericIndex *idx) {
-  if (idx->key)
-    RedisModule_CloseKey(idx->key);
+  if (idx->key) RedisModule_CloseKey(idx->key);
   free(idx);
 }
 
 int NumerIndex_Add(NumericIndex *idx, t_docId docId, double score) {
-  if (idx->key == NULL)
-    return REDISMODULE_ERR;
+  if (idx->key == NULL) return REDISMODULE_ERR;
 
-  return RedisModule_ZsetAdd(
-      idx->key, score,
-      RedisModule_CreateStringPrintf(idx->ctx->redisCtx, "%u", docId), NULL);
+  return RedisModule_ZsetAdd(idx->key, score,
+                             RedisModule_CreateStringPrintf(idx->ctx->redisCtx, "%u", docId), NULL);
 }
 
 int NumericFilter_Read(void *ctx, IndexResult *e) {
@@ -87,8 +82,7 @@ int NumericFilter_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     double score = 0;
     f->lastDocid = docId;
     // See if the filter
-    RedisModuleString *s =
-        RedisModule_CreateStringFromLongLong(f->idx->ctx->redisCtx, docId);
+    RedisModuleString *s = RedisModule_CreateStringFromLongLong(f->idx->ctx->redisCtx, docId);
     if (RedisModule_ZsetScore(f->idx->key, s, &score) == REDISMODULE_OK) {
       // RedisModule_FreeString(f->idx->ctx->redisCtx, s);
       if (numericFilter_Match(f, score)) {
@@ -131,8 +125,7 @@ t_docId NumericFilter_LastDocId(void *ctx) {
 inline int NumericFilter_HasNext(void *ctx) {
   NumericFilter *f = ctx;
 
-  if (!f->isRangeLoaded)
-    return 1;
+  if (!f->isRangeLoaded) return 1;
 
   return f->docIdsOffset < Vector_Size(f->docIds);
 }
@@ -147,9 +140,8 @@ void NumericFilter_Free(struct indexIterator *self) {
   free(self);
 }
 
-NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min,
-                                double max, int inclusiveMin,
-                                int inclusiveMax) {
+NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min, double max,
+                                int inclusiveMin, int inclusiveMax) {
   NumericFilter *f = malloc(sizeof(NumericFilter));
   f->idx = NewNumericIndex(ctx, fs);
   f->min = min;
@@ -162,7 +154,7 @@ NumericFilter *NewNumericFilter(RedisSearchCtx *ctx, FieldSpec *fs, double min,
 
 /* qsort docId comparison function */
 int cmp_docId(const void *a, const void *b) {
-  return *(const int *)a - *(const int *)b; // casting pointer types
+  return *(const int *)a - *(const int *)b;  // casting pointer types
 }
 
 int _numericFilter_LoadRange(NumericFilter *f) {
@@ -170,10 +162,9 @@ int _numericFilter_LoadRange(NumericFilter *f) {
 
   RedisModuleKey *key = f->idx->key;
   RedisModuleCtx *ctx = f->idx->ctx->redisCtx;
-  RedisModule_ZsetFirstInScoreRange(
-      key, f->minNegInf ? REDISMODULE_NEGATIVE_INFINITE : f->min,
-      f->maxInf ? REDISMODULE_POSITIVE_INFINITE : f->max, !f->inclusiveMin,
-      !f->inclusiveMax);
+  RedisModule_ZsetFirstInScoreRange(key, f->minNegInf ? REDISMODULE_NEGATIVE_INFINITE : f->min,
+                                    f->maxInf ? REDISMODULE_POSITIVE_INFINITE : f->max,
+                                    !f->inclusiveMin, !f->inclusiveMax);
 
   int n = 0;
   while (!RedisModule_ZsetRangeEndReached(key)) {
@@ -233,8 +224,7 @@ IndexIterator *NewNumericFilterIterator(NumericFilter *f) {
 *  Returns a numeric filter on success, NULL if there was a problem with the
 * arguments
 */
-NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
-                                  int argc) {
+NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 3) {
     return NULL;
   }
@@ -275,8 +265,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
         p++;
         nf->inclusiveMin = 0;
         // we need to create a temporary string to parse it again...
-        RedisModuleString *s =
-            RedisModule_CreateString(ctx->redisCtx, p, len - 1);
+        RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len - 1);
         if (RedisModule_StringToDouble(s, &nf->min) != REDISMODULE_OK) {
           RedisModule_FreeString(ctx->redisCtx, s);
           goto error;
@@ -285,7 +274,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
         RedisModule_FreeString(ctx->redisCtx, s);
 
       } else
-        goto error; // not a number
+        goto error;  // not a number
     }
   }
 
@@ -302,8 +291,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
         p++;
         nf->inclusiveMax = 0;
         // now parse the number part of the
-        RedisModuleString *s =
-            RedisModule_CreateString(ctx->redisCtx, p, len - 1);
+        RedisModuleString *s = RedisModule_CreateString(ctx->redisCtx, p, len - 1);
         if (RedisModule_StringToDouble(s, &nf->max) != REDISMODULE_OK) {
           RedisModule_FreeString(ctx->redisCtx, s);
           goto error;
@@ -311,7 +299,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
         RedisModule_FreeString(ctx->redisCtx, s);
 
       } else
-        goto error; // not a number
+        goto error;  // not a number
     }
   }
 
