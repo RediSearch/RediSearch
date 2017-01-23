@@ -57,7 +57,8 @@ void QueryNode_Free(QueryNode *n) {
       _queryUnionNode_Free(&n->un);
       break;
     case QN_NUMERIC:
-      break;  //_queryNumericNode_Free(&n->nn);
+      free(n->nn.nf);
+      break;  //
   }
   free(n);
 }
@@ -107,16 +108,19 @@ void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
-    QueryPhraseNode_AddChild(&q->root->pn, NULL);
+    // we usually want the numeric range as the "leader" iterator.
+    // TODO: do this in a smart manner
+    QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
     for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
       q->root->pn.children[i] = q->root->pn.children[i - 1];
     }
     q->root->pn.children[0] = NewNumericNode(nf);
+    q->numTokens++;
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(&nr->pn, q->root);
     QueryPhraseNode_AddChild(&nr->pn, NewNumericNode(nf));
-
+    QueryPhraseNode_AddChild(&nr->pn, q->root);
+    q->numTokens++;
     q->root = nr;
   }
 }
@@ -162,12 +166,10 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
   FieldSpec *fs =
       IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
   if (fs->type != F_NUMERIC) {
-    printf("Filed %s is not numeric\n", fs->name);
     return NULL;
   }
   NumericRangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
   if (!t) {
-    printf("Could not open tree");
     return NULL;
   }
 

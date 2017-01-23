@@ -208,6 +208,7 @@ typedef struct {
   t_docId minDocId;
   IndexResult *currentHits;
   DocTable *docTable;
+  int atEnd;
 } UnionContext;
 
 /* Create a new UnionIterator over a list of underlying child iterators.

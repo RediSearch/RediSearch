@@ -10,8 +10,6 @@ typedef struct numericFilter {
   const char *fieldName;
   double min;
   double max;
-  int minNegInf;
-  int maxInf;
   int inclusiveMin;
   int inclusiveMax;
 

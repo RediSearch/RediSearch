@@ -5,7 +5,7 @@
 #include <math.h>
 
 #define NR_EXPONENT 2
-#define NR_MAX_DEPTH 3
+#define NR_MAX_DEPTH 2
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
@@ -27,15 +27,22 @@ double qselect(double *v, int len, int k) {
   return k == st ? v[st] : st > k ? qselect(v, st, k) : qselect(v + st, len - st, k - st);
 }
 
+/* Returns 1 if the entire numeric range is contained between min and max */
 int NumericRange_Within(NumericRange *n, double min, double max) {
-
+  if (!n) return 0;
   return (n->minVal >= min && n->maxVal < max);
+}
+
+/* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
+int NumericRange_Contains(NumericRange *n, double min, double max) {
+  if (!n) return 0;
+  return (n->minVal <= min && n->maxVal > max);
 }
 
 int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
   if (n->size >= n->cap) {
-    n->cap = n->cap ? MAX(n->cap * 2, 1024 * 1024) : 2;
+    n->cap = n->cap ? MIN(n->cap * 3 / 2, 1024 * 1024) : 2;
     n->entries = realloc(n->entries, n->cap * sizeof(NumericRangeEntry));
   }
 
@@ -49,11 +56,12 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     }
   }
 
-  if (add) {
-    if (value < n->minVal) n->minVal = value;
-    if (value > n->maxVal) n->maxVal = value;
-    ++n->card;
-  }
+  if (add) ++n->card;
+
+  if (value < n->minVal) n->minVal = value;
+  if (value > n->maxVal) n->maxVal = value;
+
+  ;
 
   n->entries[n->size++] = (NumericRangeEntry){.docId = docId, .value = value};
   return n->card;
@@ -104,36 +112,39 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
   if (!__isLeaf(n)) {
+    // if this node has already split but retains a range, just add to the range without checking
+    // anything
     if (n->range) {
       NumericRange_Add(n->range, docId, value, 0);
     }
 
+    // recursively add to its left or right child. if the child has split we get 1 in return
     int rc = NumericRangeNode_Add((value < n->value ? n->left : n->right), docId, value);
     if (rc) {
-      n->maxDepth++;
-      if (n->maxDepth > NR_MAX_DEPTH && n->range) {
+      // if there was a split it means our max depth has increased.
+      // we we are too deep - we don't retain this node's range anymore.
+      // this keeps memory footprint in check
+      if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         free(n->range->entries);
         free(n->range);
         n->range = NULL;
       }
-      return 1;
     }
-    return 0;
+    // return 1 or 0 to our called, so this is done recursively
+    return rc;
   }
 
+  // if this node is a leaf - we add AND check the cardinlity. We only split leaf nodes
   int card = NumericRange_Add(n->range, docId, value, 1);
 
   if (card >= n->range->splitCard) {
-    // printf("node with leaf %f..%f, size %d, card %d, ratio %.02f\n", n->range.minVal,
-    // n->range.maxVal,
-    //        n->range.size, card, ratio);
 
+    // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
     n->left->parent = n;
     n->right->parent = n;
     n->value = split;
-    printf("Splitting node with leaf %f..%f, size %d, card %d. split point: %f\n", n->range->minVal,
-           n->range->maxVal, n->range->size, card, split);
+
     n->maxDepth = 1;
     return 1;
   }
@@ -141,88 +152,158 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   return 0;
 }
 
+/* push a range to the vector, checking it's not already there */
+void __pushRange(Vector *v, NumericRange *rng, const char *ctx) {
+
+  if (!rng) return;
+
+  for (size_t i = 0; i < Vector_Size(v); i++) {
+    NumericRange *vr;
+    Vector_Get(v, i, &vr);
+    if (vr == rng) {
+      return;
+    }
+  }
+  // printf("%s Pushing range %f..%f size %d, card %d, cap %d, splitCard %d\n", ctx, rng->minVal,
+  //        rng->maxVal, rng->size, rng->card, rng->cap, rng->splitCard);
+  Vector_Push(v, rng);
+}
+
+/* recrusively add a node's children to the range. */
+void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max, void *ctx) {
+  if (!n) return;
+  if (n->range && NumericRange_Within(n->range, min, max)) {
+    __pushRange(v, n->range, ctx);
+    return;
+  }
+  __recursiveAddRange(v, n->left, min, max, ctx);
+  __recursiveAddRange(v, n->right, min, max, ctx);
+}
+
+/* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
+ * nodes we'll later need to union */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
 
   NumericRangeNode *vmin = n, *vmax = n;
 
-  while (vmin == vmax && !__isLeaf(vmin)) {
-    vmin = min < vmin->value ? vmin->left : vmin->right;
-    vmax = max < vmax->value ? vmax->left : vmax->right;
-  }
+  while (vmin) {
 
-  Vector *stack = NewVector(NumericRangeNode *, 8);
+    NumericRangeNode *rn = vmin;
+    // if vmin fits the entire range - find the smallest fitting child of it and return
+    while (NumericRange_Contains(rn->range, min, max)) {
 
-  // put on the stack all right trees of our path to the minimum node
-  while (!__isLeaf(vmin)) {
-
-    if (min < vmin->value) {
-      Vector_Push(stack, vmin->right);
-    }
-    vmin = min < vmin->value ? vmin->left : vmin->right;
-  }
-  // put on the stack all left trees of our path to the maximum node
-  while (vmax && !__isLeaf(vmax)) {
-    if (max >= vmax->value) {
-      Vector_Push(stack, vmax->left);
-    }
-    vmax = max < vmax->value ? vmax->left : vmax->right;
-  }
-
-  Vector_Push(leaves, vmin->range);
-  if (vmin != vmax) Vector_Push(leaves, vmax->range);
-
-  while (Vector_Size(stack)) {
-    NumericRangeNode *n;
-    if (!Vector_Pop(stack, &n)) break;
-    if (!n) continue;
-
-    if (n->range && NumericRange_Within(n->range, min, max)) {
-      if (!n->parent || !n->parent->range || !NumericRange_Within(n->parent->range, min, max)) {
-        Vector_Push(leaves, n->range);
+      if (rn->left && NumericRange_Contains(rn->left->range, min, max)) {
+        rn = rn->left;
+      } else if (rn->right && NumericRange_Contains(rn->right->range, min, max)) {
+        rn = rn->right;
       } else {
-        Vector_Push(leaves, n->parent->range);
+        __pushRange(leaves, rn->range, "vmin contains");
+        return leaves;
       }
+    }
+
+    // if vmin is within min and max, no need to go down further
+    if (NumericRange_Within(vmin->range, min, max)) {
+      __pushRange(leaves, vmin->range, "vmin");
+      break;
+    }
+
+    // find the minimal node that fits the minimum of the query, or just the closes leaf
+    if (!__isLeaf(vmin)) {
+      // if we go left - it means that the right child fits the range as well
+      if (min < vmin->value) {
+        // try to add the right child as well
+        __recursiveAddRange(leaves, vmin->right, min, max, "vmin_other");
+        vmin = vmin->left;
+
+      } else {
+        vmin = vmin->right;  // the left child is not interesting for us
+      }
+
+    } else {
+      // we're at a leaf. either it fits the minimum or the minimum is out of range
+      if (vmin->range->maxVal > min) {
+        __pushRange(leaves, vmin->range, "vmin edge");
+      } else {  // we're out of range - no need to return anything
+        Vector_Resize(leaves, 0);
+        return leaves;
+      }
+      break;
+    }
+  }
+
+  while (vmax) {
+
+    // if vmax is fully contained within min and max - no need to go down further
+    if (NumericRange_Within(vmax->range, min, max)) {
+      __pushRange(leaves, vmax->range, "vmax");
+      break;
+    }
+
+    // try to find the rightmost node fitting our query
+    if (!__isLeaf(vmax)) {
+
+      // go one left - we don't care about right
+      if (max < vmax->value) {
+        vmax = vmax->left;
+      } else {
+        // try adding the left child of the current rightmost node
+        __recursiveAddRange(leaves, vmax->left, min, max, "vmax_other");
+        vmax = vmax->right;
+      }
+
     } else {
 
-      Vector_Push(stack, n->left);
-      Vector_Push(stack, n->right);
+      if (vmax != vmin && vmax->range && vmax->range->minVal <= max) {
+        __pushRange(leaves, vmax->range, "vmax");
+      }
+      break;
     }
   }
 
-  Vector_Free(stack);
+  // printf("Found %zd ranges\n", leaves->top);
+  // for (int i = 0; i < leaves->top; i++) {
+  //   NumericRange *rng;
+  //   Vector_Get(leaves, i, &rng);
+  //   printf("%f...%f\n", rng->minVal, rng->maxVal);
+  // }
 
-  printf("found %d leaves\n", Vector_Size(leaves));
   return leaves;
 }
 
 void NumericRangeNode_Free(NumericRangeNode *n) {
-  if (__isLeaf(n)) {
+  if (!n) return;
+  if (n->range) {
+
     free(n->range->entries);
-  } else {
-    NumericRangeNode_Free(n->left);
-    NumericRangeNode_Free(n->right);
+    free(n->range);
+    n->range = NULL;
   }
+
+  NumericRangeNode_Free(n->left);
+  NumericRangeNode_Free(n->right);
+
   free(n);
 }
 
+/* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = malloc(sizeof(NumericRangeTree));
 
-  ret->root = NewLeafNode(8, 0, 0, 2);
+  ret->root = NewLeafNode(2, 0, 0, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
   return ret;
 }
 
 int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+
   int rc = NumericRangeNode_Add(t->root, docId, value);
   t->numRanges += rc;
   t->numEntries++;
-  if (rc) {
-    printf("range tree size now %zd\n", t->numRanges);
-  }
+  //
   // printf("range tree added %d, size now %zd docs %zd ranges\n", docId, t->numEntries,
   // t->numRanges);
 
@@ -256,7 +337,6 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 int NR_Read(void *ctx, IndexResult *r) {
   NumericRangeIterator *it = ctx;
   if (it->atEOF) {
-    it->atEOF = 1;
     return INDEXREAD_EOF;
   }
 
@@ -272,6 +352,8 @@ int NR_Read(void *ctx, IndexResult *r) {
 
     if (it->nf) {
       match = NumericFilter_Match(it->nf, lastValue);
+    } else {
+      match = 1;
     }
   }
   if (it->atEOF && !match) {
@@ -287,8 +369,12 @@ int NR_Read(void *ctx, IndexResult *r) {
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
 int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
+
   // printf("nr %p skipto %d\n", ctx, docId);
   NumericRangeIterator *it = ctx;
+  if (it->atEOF) {
+    return INDEXREAD_EOF;
+  }
   if (docId > it->rng->entries[it->rng->size - 1].docId) {
     //   / printf("nr got to eof\n");
     it->atEOF = 1;
@@ -326,7 +412,7 @@ int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {
     if (it->nf) {
-      int match = it->nf ? NumericFilter_Match(it->nf, it->rng->entries[i].value) : 1;
+      int match = NumericFilter_Match(it->nf, it->rng->entries[i].value);
       // printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
       //     it->rng->entries[i].value, match);
 
@@ -368,6 +454,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   if (!NumericFilter_Match(f, nr->minVal) || !NumericFilter_Match(f, nr->maxVal)) {
     it->nf = f;
   }
+
   it->atEOF = 0;
   it->lastDocId = 0;
   it->offset = 0;
@@ -383,6 +470,8 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   return ret;
 }
 
+/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit the
+ * filter */
 IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
@@ -390,7 +479,7 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
     return NULL;
   }
 
-  size_t n = Vector_Size(v);
+  int n = Vector_Size(v);
   // printf("Loaded %zd ranges for range filter!\n", n);
   // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   IndexIterator **its = calloc(n, sizeof(IndexIterator *));
@@ -398,6 +487,9 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
     Vector_Get(v, i, &rng);
+    if (!rng) {
+      continue;
+    }
 
     its[i] = NewNumericRangeIterator(rng, f);
   }
@@ -433,13 +525,30 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
   return t;
 }
 
+void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
+  size_t *sz = ctx;
+  *sz += sizeof(NumericRangeNode);
+  if (n->range) {
+    *sz += sizeof(NumericRange);
+    *sz += n->range->cap * sizeof(NumericRangeEntry);
+  }
+}
+
+size_t NumericIndexType_MemUsage(void *value) {
+  NumericRangeTree *t = value;
+  size_t ret = sizeof(NumericRangeTree);
+  NumericRangeNode_Traverse(t->root, __numericIndex_memUsageCallback, &ret);
+  return ret;
+}
+
 int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = NumericIndexType_RdbLoad,
                                .rdb_save = NumericIndexType_RdbSave,
                                .aof_rewrite = NumericIndexType_AofRewrite,
-                               .free = NumericIndexType_Free};
+                               .free = NumericIndexType_Free,
+                               .mem_usage = NumericIndexType_MemUsage};
 
   NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", 0, &tm);
   if (NumericIndexType == NULL) {
@@ -463,6 +572,7 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   NumericRangeTree *t = NewNumericRangeTree();
   uint64_t num = RedisModule_LoadUnsigned(rdb);
 
+  // we create an array of all the entries so that we can sort them by docId
   NumericRangeEntry *entries = calloc(num, sizeof(NumericRangeEntry));
   size_t n = 0;
   for (size_t i = 0; i < num; i++) {
@@ -473,7 +583,8 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   // sort the entries by doc id, as they were not saved in this order
   qsort(entries, num, sizeof(NumericRangeEntry), __cmd_docId);
-  printf("loaded %zd entries\n", num);
+
+  // now push them in order into the tree
   for (size_t i = 0; i < num; i++) {
     NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
   }

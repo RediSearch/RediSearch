@@ -35,14 +35,12 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
   nf->inclusiveMin = 1;
   nf->min = 0;
   nf->max = 0;
-  nf->minNegInf = 0;
-  nf->maxInf = 0;
 
   // Parse the min range
 
   // -inf means anything is acceptable as a minimum
   if (RMUtil_StringEqualsC(argv[1], "-inf")) {
-    nf->minNegInf = 1;
+    nf->min = NF_NEGATIVE_INFINITY;
   } else {
     // parse the min range value - if it's OK we just set the value
     if (RedisModule_StringToDouble(argv[1], &nf->min) != REDISMODULE_OK) {
@@ -69,7 +67,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
 
   // check if the max range is +inf
   if (RMUtil_StringEqualsC(argv[2], "+inf")) {
-    nf->maxInf = 1;
+    nf->max = NF_INFINITY;
   } else {
     // parse the max range. OK means we just read it into nf->max
     if (RedisModule_StringToDouble(argv[2], &nf->max) != REDISMODULE_OK) {
@@ -118,11 +116,11 @@ fulltext indexes.
 */
 inline int NumericFilter_Match(NumericFilter *f, double score) {
   // match min - -inf or x >/>= score
-  int matchMin = f->minNegInf || (f->inclusiveMin ? score >= f->min : score > f->min);
+  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
 
   if (matchMin) {
     // match max - +inf or x </<= score
-    return f->maxInf || (f->inclusiveMax ? score <= f->max : score < f->max);
+    return (f->inclusiveMax ? score <= f->max : score < f->max);
   }
 
   return 0;

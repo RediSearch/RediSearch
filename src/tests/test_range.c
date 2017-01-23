@@ -1,20 +1,20 @@
-#include "../util/range_tree.h"
+#include "../numeric_index.h"
 #include <stdio.h>
 #include "test_util.h"
 #include "time_sample.h"
 #include "../index.h"
 
-int testRangeTree() {
-  RangeTree *t = NewRangeTree();
+int testNumericRangeTree() {
+  NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
 
   srand(1337);
   for (int i = 0; i < 50000; i++) {
 
-    RangeTree_Add(t, i + 1, (double)(1 + rand() % 5000));
+    NumericRangeTree_Add(t, i + 1, (double)(1 + rand() % 5000));
   }
-  ASSERT_EQUAL_INT(t->numRanges, 16);
-  ASSERT_EQUAL_INT(t->numEntries, 50000);
+  ASSERT_EQUAL(t->numRanges, 60);
+  ASSERT_EQUAL(t->numEntries, 50000);
 
   struct {
     double min;
@@ -23,7 +23,7 @@ int testRangeTree() {
 
   for (int r = 0; rngs[r].min || rngs[r].max; r++) {
 
-    Vector *v = RangeTree_Find(t, rngs[r].min, rngs[r].max);
+    Vector *v = NumericRangeTree_Find(t, rngs[r].min, rngs[r].max);
     ASSERT(Vector_Size(v) > 0);
     // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
     for (int i = 0; i < Vector_Size(v); i++) {
@@ -36,63 +36,76 @@ int testRangeTree() {
     }
     Vector_Free(v);
   }
-  RangeTree_Free(t);
+  NumericRangeTree_Free(t);
   return 0;
 }
 
 int testRangeIterator() {
-  RangeTree *t = NewRangeTree();
+  NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
 
   srand(1337);
-  int N = 300;
+  int N = 100;
   for (int i = 0; i < N; i++) {
 
-    RangeTree_Add(t, i + 1, (double)(1 + rand() % 1000));
+    t_docId docId = i + 1;
+    float value = (double)(1 + rand() % 1000);
+    // printf("Adding %d > %f\n", docId, value);
+    NumericRangeTree_Add(t, docId, value);
   }
-  ASSERT_EQUAL_INT(t->numRanges, 1);
-  ASSERT_EQUAL_INT(t->numEntries, N);
+  // ASSERT_EQUAL(t->numRanges, 13);
+  ASSERT_EQUAL(t->numEntries, N);
 
-  IndexIterator *it = NewNumericRangeIterator(&t->root->range);
+  NumericFilter *flt = NewNumericFilter(-1, 1002, 0, 0);
+  IndexIterator *it = NewNumericFilterIterator(t, flt);
   ASSERT(it->HasNext(it->ctx));
-  ASSERT(it->Len(it->ctx) == N);
+
+  // ASSERT_EQUAL(it->Len(it->ctx), N);
   int count = 0;
 
+  IndexResult res = NewIndexResult();
   while (it->HasNext(it->ctx)) {
-    IndexResult res = NewIndexResult();
+
     int rc = it->Read(it->ctx, &res);
-    ASSERT_EQUAL_INT(INDEXREAD_OK, rc);
+    if (rc == INDEXREAD_EOF) {
+      break;
+    }
+
     ASSERT(res.docId > 0);
     ASSERT(res.flags = 0xff);
     ASSERT(res.numRecords == 1)
     count++;
   }
-  ASSERT_EQUAL_INT(N, count);
+  it->Free(it);
+  free(flt);
+  ASSERT_EQUAL(N, count);
+  IndexResult_Free(&res);
+  NumericRangeTree_Free(t);
   return 0;
 }
 
-int benchmarkRangeTree() {
-  RangeTree *t = NewRangeTree();
+int benchmarkNumericRangeTree() {
+  NumericRangeTree *t = NewNumericRangeTree();
   int count = 1;
   for (int i = 0; i < 1000000; i++) {
 
-    count += RangeTree_Add(t, i, (double)(rand() % 100000));
+    count += NumericRangeTree_Add(t, i, (double)(rand() % 100000));
   }
   printf("created %d range leaves\n", count);
   Vector *v;
   TIME_SAMPLE_RUN_LOOP(10000, {
-    v = RangeTree_Find(t, 10000, 20000);
+    v = NumericRangeTree_Find(t, 10000, 20000);
     // printf("%d\n", v->top);
     Vector_Free(v);
   });
 
-  RangeTree_Free(t);
+  NumericRangeTree_Free(t);
   return 0;
 }
 
 int main(int argc, char **argv) {
-  TESTFUNC(testRangeTree);
+  TESTFUNC(testNumericRangeTree);
   TESTFUNC(testRangeIterator);
-  // benchmarkRangeTree();
+  // benchmarkNumericRangeTree();
   return 0;
 }

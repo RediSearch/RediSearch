@@ -62,7 +62,7 @@ typedef struct {
   NumericRange *rng;
   NumericFilter *nf;
   t_docId lastDocId;
-  int offset;
+  u_int offset;
   int atEOF;
 
 } NumericRangeIterator;
