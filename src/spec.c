@@ -154,6 +154,8 @@ failure:  // on failure free the spec fields array and return an error
 
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
+
+  DocTable_Free(&spec->docs);
   if (spec->fields != NULL) {
     for (int i = 0; i < spec->numFields; i++) {
       RedisModule_Free(spec->fields[i].name);
@@ -161,6 +163,7 @@ void IndexSpec_Free(void *ctx) {
     RedisModule_Free(spec->fields);
   }
   RedisModule_Free(spec->name);
+
   RedisModule_Free(spec);
 }
 
