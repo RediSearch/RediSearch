@@ -3,6 +3,7 @@
 #include "test_util.h"
 #include "time_sample.h"
 #include "../index.h"
+#include "../rmutil/alloc.h"
 
 int testNumericRangeTree() {
   NumericRangeTree *t = NewNumericRangeTree();
@@ -104,6 +105,7 @@ int benchmarkNumericRangeTree() {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   TESTFUNC(testNumericRangeTree);
   TESTFUNC(testRangeIterator);
   benchmarkNumericRangeTree();

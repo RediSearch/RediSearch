@@ -3,6 +3,7 @@
 #include "rmutil/vector.h"
 #include "index.h"
 #include <math.h>
+#include "redismodule.h"
 
 #define NR_EXPONENT 2
 #define NR_MAX_DEPTH 2
@@ -43,7 +44,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 
   if (n->size >= n->cap) {
     n->cap = n->cap ? MIN(n->cap * 3 / 2, 1024 * 1024) : 2;
-    n->entries = realloc(n->entries, n->cap * sizeof(NumericRangeEntry));
+    n->entries = RedisModule_Realloc(n->entries, n->cap * sizeof(NumericRangeEntry));
   }
 
   int add = 1;
@@ -89,13 +90,13 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
 NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
 
-  NumericRangeNode *n = malloc(sizeof(NumericRangeNode));
+  NumericRangeNode *n = RedisModule_Alloc(sizeof(NumericRangeNode));
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
 
   n->maxDepth = 0;
-  n->range = malloc(sizeof(NumericRange));
+  n->range = RedisModule_Alloc(sizeof(NumericRange));
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
@@ -103,7 +104,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
                              .size = 0,
                              .card = 0,
                              .splitCard = splitCard,
-                             .entries = calloc(cap, sizeof(NumericRangeEntry))};
+                             .entries = RedisModule_Calloc(cap, sizeof(NumericRangeEntry))};
   return n;
 }
 
@@ -125,8 +126,8 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // we we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        free(n->range->entries);
-        free(n->range);
+        RedisModule_Free(n->range->entries);
+        RedisModule_Free(n->range);
         n->range = NULL;
       }
     }
@@ -276,20 +277,20 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
 
-    free(n->range->entries);
-    free(n->range);
+    RedisModule_Free(n->range->entries);
+    RedisModule_Free(n->range);
     n->range = NULL;
   }
 
   NumericRangeNode_Free(n->left);
   NumericRangeNode_Free(n->right);
 
-  free(n);
+  RedisModule_Free(n);
 }
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
-  NumericRangeTree *ret = malloc(sizeof(NumericRangeTree));
+  NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, 0, 0, 2);
   ret->numEntries = 0;
@@ -328,7 +329,7 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
   NumericRangeNode_Free(t->root);
-  free(t);
+  RedisModule_Free(t);
 }
 
 /* Read the next entry from the iterator, into hit *e.
