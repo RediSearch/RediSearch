@@ -57,7 +57,8 @@ void QueryNode_Free(QueryNode *n) {
       _queryUnionNode_Free(&n->un);
       break;
     case QN_NUMERIC:
-      break;  //_queryNumericNode_Free(&n->nn);
+      free(n->nn.nf);
+      break;  //
   }
   free(n);
 }
@@ -98,7 +99,30 @@ QueryNode *NewPhraseNode(int exact) {
 QueryNode *NewNumericNode(NumericFilter *flt) {
   QueryNode *ret = __newQueryNode(QN_NUMERIC);
   ret->nn = (QueryNumericNode){.nf = flt};
+
   return ret;
+}
+
+void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
+  if (q->root == NULL) return;
+
+  // for a simple phrase node we just add the numeric node
+  if (q->root->type == QN_PHRASE) {
+    // we usually want the numeric range as the "leader" iterator.
+    // TODO: do this in a smart manner
+    QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
+    for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
+      q->root->pn.children[i] = q->root->pn.children[i - 1];
+    }
+    q->root->pn.children[0] = NewNumericNode(nf);
+    q->numTokens++;
+  } else {  // for other types, we need to create a new phrase node
+    QueryNode *nr = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(&nr->pn, NewNumericNode(nf));
+    QueryPhraseNode_AddChild(&nr->pn, q->root);
+    q->numTokens++;
+    q->root = nr;
+  }
 }
 
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
@@ -138,7 +162,18 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
 }
 
 IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
-  return NewNumericFilterIterator(node->nf);
+
+  FieldSpec *fs =
+      IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+  if (fs->type != F_NUMERIC) {
+    return NULL;
+  }
+  NumericRangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
+  if (!t) {
+    return NULL;
+  }
+
+  return NewNumericFilterIterator(t, node->nf);
 }
 
 IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
@@ -201,7 +236,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);
-  ret->root = NewPhraseNode(0);
+  ret->root = NULL;
   ret->numTokens = 0;
   ret->stopwords = stopwords;
   ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
@@ -230,7 +265,7 @@ QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
 }
 
 void Query_Expand(Query *q) {
-  if (q->expander) {
+  if (q->expander && q->root) {
     q->root = __queryNode_Expand(q, q->expander, q->root);
   }
 }
@@ -304,7 +339,7 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
 
   double tfidf = 0;
   for (int i = 0; i < h->numRecords; i++) {
-    tfidf += h->records[i].tf * h->records[i].term->idf;
+    tfidf += h->records[i].tf * (h->records[i].term ? h->records[i].term->idf : 0);
   }
 
   int md = IndexResult_MinOffsetDelta(h);

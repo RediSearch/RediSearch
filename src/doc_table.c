@@ -94,7 +94,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, t->size);
   RedisModule_SaveUnsigned(rdb, t->maxDocId);
   for (int i = 1; i < t->size; i++) {
-    RedisModule_SaveStringBuffer(rdb, t->docs[i].key, strlen(t->docs[i].key));
+    RedisModule_SaveStringBuffer(rdb, t->docs[i].key, strlen(t->docs[i].key) + 1);
     RedisModule_SaveUnsigned(rdb, t->docs[i].flags);
     RedisModule_SaveFloat(rdb, t->docs[i].score);
   }
@@ -109,11 +109,12 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
   }
   t->size = t->cap;
   for (size_t i = 1; i < sz; i++) {
-    t->docs[i].key = RedisModule_LoadStringBuffer(rdb, NULL);
+    size_t len;
+    t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
     t->docs[i].score = RedisModule_LoadFloat(rdb);
     DocIdMap_Put(&t->dim, t->docs[i].key, i);
-    t->memsize += sizeof(DocumentMetadata) + strlen(t->docs[i].key);
+    t->memsize += sizeof(DocumentMetadata) + len;
   }
 }
 

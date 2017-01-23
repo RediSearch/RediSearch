@@ -20,10 +20,10 @@
             __STRING(expr));                                                               \
     return -1;                                                                             \
   }
-#define ASSERT(expr)                                                                       \
-  if (!(expr)) {                                                                           \
-    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr));  \
-    return -1;                                                                             \
+#define ASSERT(expr)                                                                      \
+  if (!(expr)) {                                                                          \
+    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr)); \
+    return -1;                                                                            \
   }
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
@@ -31,7 +31,7 @@
 #define ASSERT_EQUAL(x, y, ...)                                           \
   if (x != y) {                                                           \
     fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                       \
-    fprintf(stderr, "%f != %f: " __VA_ARGS__ "\n", (double)x, (double)y); \
+    fprintf(stderr, "%g != %g: " __VA_ARGS__ "\n", (double)x, (double)y); \
     return -1;                                                            \
   }
 
@@ -47,10 +47,5 @@
     block;                  \
     return 0                \
   }
-
-// #define TEST_START()                                                           \
-//   printf("Testing %s... ", __FUNCTION__);                                      \
-//   fflush(stdout);
-// #define TEST_END() printf("PASS!");
 
 #endif

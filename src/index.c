@@ -424,6 +424,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->its = its;
   ctx->num = num;
   ctx->docTable = dt;
+  ctx->atEnd = 0;
   ctx->currentHits = calloc(num, sizeof(IndexResult));
   for (int i = 0; i < num; i++) {
     ctx->currentHits[i] = NewIndexResult();
@@ -444,8 +445,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
 int UI_Read(void *ctx, IndexResult *hit) {
   UnionContext *ui = ctx;
   // nothing to do
-  if (ui->num == 0) {
-    return 0;
+  if (ui->num == 0 || ui->atEnd) {
+    ui->atEnd = 1;
+    return INDEXREAD_EOF;
   }
 
   int numActive = 0;
@@ -496,6 +498,7 @@ int UI_Read(void *ctx, IndexResult *hit) {
     }
 
   } while (numActive > 0);
+  ui->atEnd = 1;
 
   return INDEXREAD_EOF;
 }
@@ -509,14 +512,15 @@ int UI_Next(void *ctx) {
 int UI_HasNext(void *ctx) {
 
   UnionContext *u = ctx;
-  for (int i = 0; i < u->num; i++) {
-    IndexIterator *it = u->its[i];
+  return !u->atEnd;
+  // for (int i = 0; i < u->num; i++) {
+  //   IndexIterator *it = u->its[i];
 
-    if (it && it->HasNext(it->ctx)) {
-      return 1;
-    }
-  }
-  return 0;
+  //   if (it && it->HasNext(it->ctx)) {
+  //     return 1;
+  //   }
+  // }
+  // return 0;
 }
 
 /**
@@ -574,6 +578,7 @@ int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
 
   // all iterators are at the end
   if (n == 0) {
+    ui->atEnd = 1;
     return INDEXREAD_EOF;
   }
 

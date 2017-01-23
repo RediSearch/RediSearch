@@ -2,9 +2,9 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -O0
+CFLAGS ?= -g -fPIC -lc -lm -std=gnu99 -I./ -I$(RM_INCLUDE_DIR) -Og
 VARINT=varint.o buffer.o
-INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o doc_table.o
+INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o doc_table.o numeric_filter.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
 REDIS=redis_buffer.o redis_index.o query.o spec.o 
 UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o
@@ -16,6 +16,7 @@ TESTS=test.o
 
 SRCDIR := $(shell pwd)
 DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) )
+
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -49,10 +50,17 @@ test_index:
 	@(sh -c ./test_index)
 .PHONY: test_index
 
-build: stemmer trie index
+range: test_range.o
+	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) -lc -lm
+
+test_range: range
+	@(sh -c ./test_range)
+.PHONY: test_range
+
+build: stemmer trie index range
 
 	
-test: test_index test_stemmer test_trie	
+test: test_index test_stemmer test_trie	 test_range
 
 all: build test
 

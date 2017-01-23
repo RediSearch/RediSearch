@@ -2,6 +2,7 @@
 #define __QUERY_H__
 
 #include "index.h"
+#include "numeric_filter.h"
 #include "numeric_index.h"
 #include "query_node.h"
 #include "query_parser/tokenizer.h"
@@ -75,6 +76,7 @@ QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metad
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);
+void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node);
 IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node);
