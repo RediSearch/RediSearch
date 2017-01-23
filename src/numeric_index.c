@@ -93,7 +93,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
-  n->parent = NULL;
+
   n->maxDepth = 0;
   n->range = malloc(sizeof(NumericRange));
 
@@ -141,8 +141,7 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
-    n->left->parent = n;
-    n->right->parent = n;
+
     n->value = split;
 
     n->maxDepth = 1;

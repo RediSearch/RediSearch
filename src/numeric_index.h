@@ -43,8 +43,7 @@ typedef struct rtNode {
   int maxDepth;
   struct rtNode *left;
   struct rtNode *right;
-  // TODO: no need for parent
-  struct rtNode *parent;
+
   NumericRange *range;
 } NumericRangeNode;
 

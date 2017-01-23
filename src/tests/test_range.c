@@ -93,8 +93,8 @@ int benchmarkNumericRangeTree() {
   }
   printf("created %d range leaves\n", count);
   Vector *v;
-  TIME_SAMPLE_RUN_LOOP(10000, {
-    v = NumericRangeTree_Find(t, 10000, 20000);
+  TIME_SAMPLE_RUN_LOOP(1000, {
+    v = NumericRangeTree_Find(t, 1000, 20000);
     // printf("%d\n", v->top);
     Vector_Free(v);
   });
@@ -106,6 +106,6 @@ int benchmarkNumericRangeTree() {
 int main(int argc, char **argv) {
   TESTFUNC(testNumericRangeTree);
   TESTFUNC(testRangeIterator);
-  // benchmarkNumericRangeTree();
+  benchmarkNumericRangeTree();
   return 0;
 }
