@@ -14,6 +14,7 @@
 #include "tokenize.h"
 #include "util/heap.h"
 #include "util/logging.h"
+#include "geo_index.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
@@ -59,6 +60,8 @@ void QueryNode_Free(QueryNode *n) {
     case QN_NUMERIC:
       free(n->nn.nf);
       break;  //
+    case QN_GEO:
+      break;
   }
   free(n);
 }
@@ -103,26 +106,42 @@ QueryNode *NewNumericNode(NumericFilter *flt) {
   return ret;
 }
 
-void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
+QueryNode *NewGeofilterNode(GeoFilter *flt) {
+  QueryNode *ret = __newQueryNode(QN_GEO);
+  ret->gn = (QueryGeofilterNode){.gf = flt};
+
+  return ret;
+}
+
+void _query_SetFilterNode(Query *q, QueryNode *n) {
   if (q->root == NULL) return;
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
     // TODO: do this in a smart manner
-    QueryPhraseNode_AddChild(&q->root->pn, NewNumericNode(nf));
+    QueryPhraseNode_AddChild(&q->root->pn, NULL);
     for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
       q->root->pn.children[i] = q->root->pn.children[i - 1];
     }
-    q->root->pn.children[0] = NewNumericNode(nf);
+    q->root->pn.children[0] = n;
     q->numTokens++;
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(&nr->pn, NewNumericNode(nf));
+    QueryPhraseNode_AddChild(&nr->pn, n);
     QueryPhraseNode_AddChild(&nr->pn, q->root);
     q->numTokens++;
     q->root = nr;
   }
+}
+
+void Query_SetGeoFilter(Query *q, GeoFilter *gf) {
+  _query_SetFilterNode(q, NewGeofilterNode(gf));
+}
+
+void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
+
+  _query_SetFilterNode(q, NewNumericNode(nf));
 }
 
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
@@ -176,6 +195,17 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
   return NewNumericFilterIterator(t, node->nf);
 }
 
+IndexIterator *query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
+
+  FieldSpec *fs = IndexSpec_GetField(q->ctx->spec, node->gf->property, strlen(node->gf->property));
+  if (fs->type != F_GEO) {
+    return NULL;
+  }
+
+  GeoIndex gi = {.ctx = q->ctx, .sp = fs};
+  return NewGeoRangeIterator(&gi, node->gf);
+}
+
 IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
@@ -210,6 +240,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return query_EvalUnionNode(q, &n->un);
     case QN_NUMERIC:
       return query_EvalNumericNode(q, &n->nn);
+    case QN_GEO:
+      return query_EvalGeofilterNode(q, &n->gn);
   }
 
   return NULL;
@@ -297,6 +329,10 @@ void __queryNode_Print(QueryNode *qs, int depth) {
         __queryNode_Print(qs->un.children[i], depth + 1);
       }
       break;
+    case QN_GEO:
+
+      printf("GEO {%f,%f --> %f %s}\n", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
+             qs->gn.gf->unit);
   }
 
   printf("}\n");
@@ -347,7 +383,7 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query->root, 0);
+  __queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

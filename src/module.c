@@ -577,6 +577,18 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  // parse geo filter if present
+  GeoFilter gf;
+  int filterGeo = 0;
+  int gfIdx = RMUtil_ArgExists("GEOFILTER", argv, argc, 3);
+  if (gfIdx > 0 && filterIdx + 6 <= argc) {
+    if (GeoFilter_Parse(&gf, &argv[gfIdx + 1], 5) == REDISMODULE_ERR) {
+      RedisModule_ReplyWithError(ctx, "Invalid geo filter");
+      goto end;
+    }
+    filterGeo = 1;
+  }
+
   // parse WISTHSCORES
   int withscores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
 
@@ -624,6 +636,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (nf != NULL) {
     Query_SetNumericFilter(q, nf);
+  }
+  if (filterGeo) {
+    Query_SetGeoFilter(q, &gf);
   }
   q->docTable = &dt;
 

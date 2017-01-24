@@ -4,6 +4,7 @@
 #include "index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
+#include "geo_index.h"
 #include "query_node.h"
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"
@@ -77,6 +78,7 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
+void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node);
 IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node);

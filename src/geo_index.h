@@ -6,7 +6,7 @@
 #include "index_result.h"
 #include "search_ctx.h"
 
-typedef struct {
+typedef struct geoIndex {
   RedisSearchCtx *ctx;
   FieldSpec *sp;
 } GeoIndex;
@@ -22,7 +22,7 @@ typedef struct {
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat);
 
-typedef struct {
+typedef struct geoFilter {
 
   const char *property;
   double lat;

@@ -5,6 +5,7 @@
 
 struct queryNode;
 struct numericFilter;
+struct geoFilter;
 
 /* The types of query nodes */
 typedef enum {
@@ -15,7 +16,10 @@ typedef enum {
   /* Single token node */
   QN_TOKEN,
   /* Numeric filter node */
-  QN_NUMERIC
+  QN_NUMERIC,
+
+  /* Geo filter node */
+  QN_GEO
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -48,6 +52,8 @@ typedef struct {
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;
 
+typedef struct { struct geoFilter *gf; } QueryGeofilterNode;
+
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it is,
  * and a union of all possible nodes  */
 typedef struct queryNode {
@@ -56,6 +62,7 @@ typedef struct queryNode {
     QueryTokenNode tn;
     QueryUnionNode un;
     QueryNumericNode nn;
+    QueryGeofilterNode gn;
   };
 
   /* The node type, for resolving the union access */

@@ -32,18 +32,21 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
 int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
-  if (argc != 4) {
+  if (argc != 5) {
+    printf("wrong argc %d\n", argc);
     return REDISMODULE_ERR;
   }
 
-  if (RMUtil_ParseArgs(argv, argc, 0, "cddc", &gf->property, &gf->lon, &gf->lat, &gf->unit) ==
-      REDISMODULE_ERR) {
+  if (RMUtil_ParseArgs(argv, argc, 0, "cdddc", &gf->property, &gf->lon, &gf->lat, &gf->radius,
+                       &gf->unit) == REDISMODULE_ERR) {
+    printf("could not parse args\n");
     return REDISMODULE_ERR;
   }
 
   // verify unit
   if (!gf->unit || (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") &&
                     strcasecmp(gf->unit, "ft") && strcasecmp(gf->unit, "mi"))) {
+    printf("wrong unit %s\n", gf->unit);
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
