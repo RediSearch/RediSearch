@@ -8,6 +8,7 @@
 typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
+#define GEO_STR "GEO"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -16,6 +17,8 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 
+static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
+                                      [F_GEO] = GEO_STR};
 #define INDEX_SPEC_KEY_FMT "idx:%s"
 
 #define SPEC_MAX_FIELDS 32

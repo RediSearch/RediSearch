@@ -4,6 +4,7 @@
 #include "query.h"
 #include "query_node.h"
 #include "redis_index.h"
+#include "geo_index.h"
 #include "redismodule.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -74,6 +75,26 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         NumericRangeTree_Add(rt, doc.docId, score);
 
         break;
+        case F_GEO: {
+
+          char *pos = strpbrk(c, " ,");
+          if (!pos) {
+            *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+            goto error;
+          }
+          *pos = '\0';
+          pos++;
+          char *slon = (char *)c, *slat = (char *)pos;
+
+          GeoIndex gi = {.ctx = ctx, .sp = fs};
+          if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
+            *errorString = "Could not index geo value";
+            goto error;
+          }
+        }
+
+        break;
+
         default:
           break;
       }
@@ -277,7 +298,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_ReplyWithArray(ctx, 5);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    __reply_kvstr(_, "type", sp->fields[i].type == F_FULLTEXT ? "FULLTEXT" : "NUMERIC");
+    __reply_kvstr(_, "type", SpecTypeNames[sp->fields[i].type]);
     __reply_kvnum(_, "weight", sp->fields[i].weight);
   }
   n += 2;

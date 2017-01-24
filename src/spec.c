@@ -96,6 +96,10 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     sp->weight = 0.0;
     ++*offset;
 
+  } else if (!strcasecmp(argv[*offset], GEO_STR)) {  // geo field
+    sp->type = F_GEO;
+    sp->weight = 0;
+    ++*offset;
   } else {  // not numeric and not text - nothing more supported currently
     return 0;
   }
@@ -364,7 +368,11 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, NUMERIC_STR);
         break;
+      case F_GEO:
+        __vpushStr(args, ctx, sp->fields[i].name);
+        __vpushStr(args, ctx, GEO_STR);
       default:
+
         break;
     }
   }
