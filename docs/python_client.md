@@ -177,7 +177,8 @@ Add a single document to the index.
 - **doc_id**: the id of the saved document.
 - **nosave**: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.
 - **score**: the document ranking, between 0.0 and 1.0 
-- **fields** kwargs dictionary of the document fields to be saved and/or indexed
+- **fields** kwargs dictionary of the document fields to be saved and/or indexed. 
+             NOTE: Geo points shoule be encoded as strings of "lon,lat"
 
 
 ### batch\_indexer
@@ -250,7 +251,7 @@ Load a single document by id
 ### search
 ```py
 
-def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)
+def search(self, query, snippet_sizes=None)
 
 ```
 
@@ -260,15 +261,9 @@ Search the index for a given query, and return a result of documents
 
 ### Parameters
 
-- **query**: the search query, see RediSearch's documentation on query format
-- **offset**: Paging offset for the results. Defaults to 0
-- **num**: How many results do we want
-- **verbatim**: If True, we do not attempt stemming on the query
-- **no_content**: If True, we only return ids and not the document content
-- **no_stopwords**: If True, we do not match the query against stopwords
-- **fields**: An optional list/tuple of field names to focus the search in
-- **snippet_size**: the size of the text snippet we attempt to extract from the document
-- **filters**: optional numeric filters, in the format of `field = (min,max)`
+- **query**: the search query. Either a text for simple queries with default parameters, or a Query object for complex queries.
+             See RediSearch's documentation on query format
+- **snippet_sizes**: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}
 
 
 ## Class BatchIndexer
@@ -338,6 +333,41 @@ Create a shortened snippet from the document's content
 
 
 
+## Class GeoField
+GeoField is used to define a geo-indexing field in a schema defintion
+### \_\_init\_\_
+```py
+
+def __init__(self, name)
+
+```
+
+
+
+### redis\_args
+```py
+
+def redis_args(self)
+
+```
+
+
+
+
+
+## Class GeoFilter
+None
+### \_\_init\_\_
+```py
+
+def __init__(self, field, lon, lat, radius, unit='km')
+
+```
+
+
+
+
+
 ## Class NumericField
 NumericField is used to define a numeric field in a schema defintion
 ### \_\_init\_\_
@@ -360,15 +390,158 @@ def redis_args(self)
 
 
 
+## Class NumericFilter
+None
+### \_\_init\_\_
+```py
+
+def __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False)
+
+```
+
+
+
+
+
+## Class Query
+Query is used to build complex queries that have more parameters than just the query string.
+The query string is set in the constructor, and other options have setter functions.
+
+The setter functions return the query object, so they can be chained, 
+i.e. `Query("foo").verbatim().filter(...)` etc.
+### \_\_init\_\_
+```py
+
+def __init__(self, query_string)
+
+```
+
+
+
+Create a new query object. 
+
+The query string is set in the constructor, and other options have setter functions.
+
+
+### add\_filter
+```py
+
+def add_filter(self, flt)
+
+```
+
+
+
+Add a numeric or geo filter to the query. 
+**Currently only one of each filter is supported by the engine**
+
+- **flt**: A NumericFilter or GeoFilter object, used on a corresponding field
+
+
+### get\_args
+```py
+
+def get_args(self)
+
+```
+
+
+
+Format the redis arguments for this query and return them
+
+
+### limit\_fields
+```py
+
+def limit_fields(self, *fields)
+
+```
+
+
+
+Limit the search to specific TEXT fields only
+
+- **fields**: A list of strings, case sensitive field names from the defined schema
+
+
+### no\_content
+```py
+
+def no_content(self)
+
+```
+
+
+
+Set the query to only return ids and not the document content
+
+
+### no\_stopwords
+```py
+
+def no_stopwords(self)
+
+```
+
+
+
+Prevent the query from being filtered for stopwords. 
+Only useful in very big queries that you are certain contain no stopwords.
+
+
+### paging
+```py
+
+def paging(self, offset, num)
+
+```
+
+
+
+Set the paging for the query (defaults to 0..10).
+
+- **offset**: Paging offset for the results. Defaults to 0
+- **num**: How many results do we want
+
+
+### query\_string
+```py
+
+def query_string(self)
+
+```
+
+
+
+Return the query string of this query only
+
+
+### verbatim
+```py
+
+def verbatim(self)
+
+```
+
+
+
+Set the query to be verbatim, i.e. use no query expansion or stemming
+
+
+
+
 ## Class Result
 Represents the result of a search query, and has an array of Document objects
 ### \_\_init\_\_
 ```py
 
-def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)
+def __init__(self, res, hascontent, query_text, duration=0, snippets=None)
 
 ```
 
+
+
+- **snippets**: An optional dictionary of the form {field: snippet_size} for snippet formatting
 
 
 
