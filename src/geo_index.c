@@ -33,13 +33,11 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
  * Returns REDISMODUEL_OK or ERR  */
 int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
   if (argc != 5) {
-    printf("wrong argc %d\n", argc);
     return REDISMODULE_ERR;
   }
 
   if (RMUtil_ParseArgs(argv, argc, 0, "cdddc", &gf->property, &gf->lon, &gf->lat, &gf->radius,
                        &gf->unit) == REDISMODULE_ERR) {
-    printf("could not parse args\n");
     return REDISMODULE_ERR;
   }
 
@@ -55,7 +53,7 @@ int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
 static int cmp_docids(const void *p1, const void *p2) {
   const t_docId *d1 = p1, *d2 = p2;
 
-  return d1 - d2;
+  return (int)(*d1 - *d2);
 }
 
 GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
@@ -69,7 +67,7 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
       RedisModule_CreateStringPrintf(ctx, "%f", gf->lat),
       RedisModule_CreateStringPrintf(ctx, "%f", gf->radius), gf->unit ? gf->unit : "km");
 
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY) {
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     return NULL;
   }
 
@@ -94,6 +92,10 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
   } else {
     ret->atEOF = 1;
   }
+  for (size_t i = 0; i < ret->size; i++) {
+    printf("loaded doc %d\n", ret->docIds[i]);
+  }
+
   return ret;
 }
 /* Read the next entry from the iterator, into hit *e.
@@ -192,6 +194,7 @@ size_t GR_Len(void *ctx) {
 
 IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf) {
   GeoRangeIterator *it = __gr_load(gi, gf);
+
   if (!it) {
     return NULL;
   }

@@ -276,6 +276,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
 
   return ret;
 }
+
 QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
   QueryNode *xn = e->Expand(e->ctx, q, n);
   if (xn) {
@@ -331,7 +332,7 @@ void __queryNode_Print(QueryNode *qs, int depth) {
       break;
     case QN_GEO:
 
-      printf("GEO {%f,%f --> %f %s}\n", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
+      printf("GEO {%f,%f --> %f %s", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
              qs->gn.gf->unit);
   }
 

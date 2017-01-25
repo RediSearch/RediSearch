@@ -206,11 +206,12 @@ Array Response. A nested array of keys and values.
 
 ```
 FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
-	[FILTER numeric_field min max]
+  [FILTER {numeric_field} {min} {max}]
+  [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
 	[LANGUAGE language]
 	[EXPANDER expander]
 	[INFIELDS num field ... ]
-    [LIMIT offset num]
+  [LIMIT offset num]
 ```
 
 ### Description
@@ -231,6 +232,8 @@ Search the index with a textual query, returning either documents or just ids.
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
+- **GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft**: If set, we filter the results to a given radius 
+  from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius) for more details. 
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances

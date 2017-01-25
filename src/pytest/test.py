@@ -1,9 +1,10 @@
 from rmtest import ModuleTestCase
 import redis
 import unittest
+from hotels import hotels
 
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
 
     def testAdd(self):
         with self.redis() as r:
@@ -192,6 +193,50 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(3, len(res))
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
+
+    def testGeo(self):
+
+        with self.redis() as r:
+
+            gsearch = lambda query, lon, lat, dist, unit='km': r.execute_command(
+                'ft.search', 'idx', query, 'geofilter', 'location', lon, lat, dist, unit)
+
+            r.flushdb()
+            self.assertOk(r.execute_command('ft.create', 'idx',
+                                            'schema', 'name', 'text', 'location', 'geo'))
+
+            for i, hotel in enumerate(hotels):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
+                                                hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])))
+            res = r.execute_command('ft.search', 'idx', 'hilton')
+            self.assertEqual(len(hotels), res[0])
+
+            res = gsearch('hilton', "-0.1757", "51.5156", '1')
+            self.assertEqual(3, res[0])
+            self.assertEqual('hotel2', res[1])
+            self.assertEqual('hotel21', res[3])
+            self.assertEqual('hotel79', res[5])
+
+            res = gsearch('hilton', "-0.1757", "51.5156", '10')
+            self.assertEqual(14, res[0])
+            self.assertEqual('hotel1', res[1])
+            self.assertEqual('hotel2', res[3])
+            self.assertEqual('hotel21', res[5])
+
+            res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
+            self.assertListEqual(res, res2)
+
+            res = gsearch('heathrow', -0.44155, 51.45865, '10', 'm')
+            self.assertEqual(1, res[0])
+            self.assertEqual('hotel94', res[1])
+
+            res = gsearch('heathrow', -0.44155, 51.45865, '10', 'km')
+            self.assertEqual(5, res[0])
+            self.assertIn('hotel94', res)
+
+            res = gsearch('heathrow', -0.44155, 51.45865, '5', 'km')
+            self.assertEqual(3, res[0])
+            self.assertIn('hotel94', res)
 
     def testAddHash(self):
 

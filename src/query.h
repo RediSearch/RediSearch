@@ -80,11 +80,6 @@ QueryNode *NewNumericNode(NumericFilter *flt);
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 
-IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node);
-IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node);
-IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node);
-IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node);
-
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1
 

@@ -473,8 +473,11 @@ cleanup:
 }
 
 /*
-## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num] [INFIELDS
-num>field ...] [LANGUAGE lang] [VERBATIM]
+## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num]
+    [INFIELDS <num> field ...]
+    [LANGUAGE lang] [VERBATIM]
+    [FILTER {property} {min} {max}]
+    [GEOFILTER {property} {lon} {lat} {radius} {unit}]
 
 Seach the index with a textual query, returning either documents or just ids.
 
@@ -493,8 +496,12 @@ and not
 document collection
 
    - LIMIT fist num: If the parameters appear after the query, we limit the
-results to
-   the offset and number of results given. The default is 0 10
+results to the offset and number of results given. The default is 0 10
+
+   - FILTER: Apply a numeric filter to a numeric field, with a minimum and maximum
+
+   - GEOFILTER: Apply a radius filter to a geo field, with a given lon, lat, radius and radius units
+(m, km, mi, or ft)
 
    - INFIELDS num field1 field2 ...: If set, filter the results to ones
 appearing only in specific
