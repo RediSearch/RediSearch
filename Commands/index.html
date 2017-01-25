@@ -319,7 +319,7 @@
 <h3 id="format">Format:</h3>
 <pre><code>  FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
-    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC] ...
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
 </code></pre>
 
 <h3 id="description">Description:</h3>
@@ -340,7 +340,8 @@ so keep it short!</p>
 <p><strong>NOSCOREIDX</strong>: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.</p>
 </li>
 <li>
-<p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. They can be either numeric or textual. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
+<p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. 
+They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
 </li>
 </ul>
 <h3 id="complexity">Complexity</h3>
@@ -499,11 +500,12 @@ so keep it short!</p>
 <h2 id="ftsearch">FT.SEARCH</h2>
 <h3 id="format_4">Format</h3>
 <pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
-    [FILTER numeric_field min max]
+  [FILTER {numeric_field} {min} {max}]
+  [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
     [LANGUAGE language]
     [EXPANDER expander]
     [INFIELDS num field ... ]
-    [LIMIT offset num]
+  [LIMIT offset num]
 </code></pre>
 
 <h3 id="description_4">Description</h3>
@@ -522,6 +524,8 @@ so keep it short!</p>
 <li><strong>FILTER numeric_field min max</strong>: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be <strong>-inf</strong>, <strong>+inf</strong> and use <code>(</code> for exclusive ranges.</li>
+<li><strong>GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft</strong>: If set, we filter the results to a given radius 
+  from lon and lat. Radius is given as a number and units. See <a href="https://redis.io/commands/georadius">GEORADIUS</a> for more details. </li>
 <li><strong>NOSTOPWORDS</strong>: If set, we do not filter stopwords from the query. </li>
 <li><strong>WITHSCORES</strong>: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances</li>
