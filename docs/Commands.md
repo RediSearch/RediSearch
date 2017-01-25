@@ -6,7 +6,7 @@
 ```
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
-    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC] ...
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
 ```
 
 ### Description:
@@ -23,7 +23,8 @@ so keep it short!
 
 * **NOSCOREIDX**: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.
 
-* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They can be either numeric or textual. For textual fields we optionally specify a weight. The default weight is 1.0.
+* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
+They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
 ### Complexity
 O(1)
