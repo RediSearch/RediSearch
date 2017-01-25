@@ -27,6 +27,7 @@ traditional redis search approaches.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
+* Geographical search utlizing redis' own GEO commands.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids
 * Automatically index existing HASH keys as documents.
@@ -34,7 +35,6 @@ traditional redis search approaches.
 
 ### Not *yet* supported:
 
-* Geo filters.
 * NOT queries (foo -bar).
 * Spelling correction
 * Aggregations
