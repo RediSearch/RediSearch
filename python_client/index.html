@@ -257,8 +257,32 @@
             </li>
           
             <li class="anchor">
+              <a title="Class GeoField" href="#class-geofield">
+                Class GeoField
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class GeoFilter" href="#class-geofilter">
+                Class GeoFilter
+              </a>
+            </li>
+          
+            <li class="anchor">
               <a title="Class NumericField" href="#class-numericfield">
                 Class NumericField
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class NumericFilter" href="#class-numericfilter">
+                Class NumericFilter
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Class Query" href="#class-query">
+                Class Query
               </a>
             </li>
           
@@ -431,7 +455,8 @@ def add_document(self, doc_id, nosave=False, score=1.0, **fields)
 <li><strong>doc_id</strong>: the id of the saved document.</li>
 <li><strong>nosave</strong>: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.</li>
 <li><strong>score</strong>: the document ranking, between 0.0 and 1.0 </li>
-<li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed</li>
+<li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed. 
+             NOTE: Geo points shoule be encoded as strings of "lon,lat"</li>
 </ul>
 <h3 id="batch95indexer">batch_indexer</h3>
 <pre><code class="py">
@@ -477,22 +502,16 @@ def load_document(self, id)
 <p>Load a single document by id</p>
 <h3 id="search">search</h3>
 <pre><code class="py">
-def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)
+def search(self, query, snippet_sizes=None)
 
 </code></pre>
 
 <p>Search the index for a given query, and return a result of documents</p>
 <h3 id="parameters_3">Parameters</h3>
 <ul>
-<li><strong>query</strong>: the search query, see RediSearch's documentation on query format</li>
-<li><strong>offset</strong>: Paging offset for the results. Defaults to 0</li>
-<li><strong>num</strong>: How many results do we want</li>
-<li><strong>verbatim</strong>: If True, we do not attempt stemming on the query</li>
-<li><strong>no_content</strong>: If True, we only return ids and not the document content</li>
-<li><strong>no_stopwords</strong>: If True, we do not match the query against stopwords</li>
-<li><strong>fields</strong>: An optional list/tuple of field names to focus the search in</li>
-<li><strong>snippet_size</strong>: the size of the text snippet we attempt to extract from the document</li>
-<li><strong>filters</strong>: optional numeric filters, in the format of <code>field = (min,max)</code></li>
+<li><strong>query</strong>: the search query. Either a text for simple queries with default parameters, or a Query object for complex queries.
+             See RediSearch's documentation on query format</li>
+<li><strong>snippet_sizes</strong>: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}</li>
 </ul>
 <h2 id="class-batchindexer">Class BatchIndexer</h2>
 <p>A batch indexer allows you to automatically batch 
@@ -534,8 +553,8 @@ def snippetize(self, field, size=500, bold_tokens=())
 <p>Create a shortened snippet from the document's content 
 :param size: the szie of the snippet in characters. It might be a bit longer or shorter
 :param boldTokens: a list of tokens we want to make bold (basically the query terms)</p>
-<h2 id="class-numericfield">Class NumericField</h2>
-<p>NumericField is used to define a numeric field in a schema defintion</p>
+<h2 id="class-geofield">Class GeoField</h2>
+<p>GeoField is used to define a geo-indexing field in a schema defintion</p>
 <h3 id="9595init9595_4">__init__</h3>
 <pre><code class="py">
 def __init__(self, name)
@@ -548,17 +567,131 @@ def redis_args(self)
 
 </code></pre>
 
-<h2 id="class-result">Class Result</h2>
-<p>Represents the result of a search query, and has an array of Document objects</p>
+<h2 id="class-geofilter">Class GeoFilter</h2>
+<p>None</p>
 <h3 id="9595init9595_5">__init__</h3>
 <pre><code class="py">
-def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)
+def __init__(self, field, lon, lat, radius, unit='km')
 
 </code></pre>
 
+<h2 id="class-numericfield">Class NumericField</h2>
+<p>NumericField is used to define a numeric field in a schema defintion</p>
+<h3 id="9595init9595_6">__init__</h3>
+<pre><code class="py">
+def __init__(self, name)
+
+</code></pre>
+
+<h3 id="redis95args_1">redis_args</h3>
+<pre><code class="py">
+def redis_args(self)
+
+</code></pre>
+
+<h2 id="class-numericfilter">Class NumericFilter</h2>
+<p>None</p>
+<h3 id="9595init9595_7">__init__</h3>
+<pre><code class="py">
+def __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False)
+
+</code></pre>
+
+<h2 id="class-query">Class Query</h2>
+<p>Query is used to build complex queries that have more parameters than just the query string.
+The query string is set in the constructor, and other options have setter functions.</p>
+<p>The setter functions return the query object, so they can be chained, 
+i.e. <code>Query("foo").verbatim().filter(...)</code> etc.</p>
+<h3 id="9595init9595_8">__init__</h3>
+<pre><code class="py">
+def __init__(self, query_string)
+
+</code></pre>
+
+<p>Create a new query object. </p>
+<p>The query string is set in the constructor, and other options have setter functions.</p>
+<h3 id="add95filter">add_filter</h3>
+<pre><code class="py">
+def add_filter(self, flt)
+
+</code></pre>
+
+<p>Add a numeric or geo filter to the query. 
+<strong>Currently only one of each filter is supported by the engine</strong></p>
+<ul>
+<li><strong>flt</strong>: A NumericFilter or GeoFilter object, used on a corresponding field</li>
+</ul>
+<h3 id="get95args">get_args</h3>
+<pre><code class="py">
+def get_args(self)
+
+</code></pre>
+
+<p>Format the redis arguments for this query and return them</p>
+<h3 id="limit95fields">limit_fields</h3>
+<pre><code class="py">
+def limit_fields(self, *fields)
+
+</code></pre>
+
+<p>Limit the search to specific TEXT fields only</p>
+<ul>
+<li><strong>fields</strong>: A list of strings, case sensitive field names from the defined schema</li>
+</ul>
+<h3 id="no95content">no_content</h3>
+<pre><code class="py">
+def no_content(self)
+
+</code></pre>
+
+<p>Set the query to only return ids and not the document content</p>
+<h3 id="no95stopwords">no_stopwords</h3>
+<pre><code class="py">
+def no_stopwords(self)
+
+</code></pre>
+
+<p>Prevent the query from being filtered for stopwords. 
+Only useful in very big queries that you are certain contain no stopwords.</p>
+<h3 id="paging">paging</h3>
+<pre><code class="py">
+def paging(self, offset, num)
+
+</code></pre>
+
+<p>Set the paging for the query (defaults to 0..10).</p>
+<ul>
+<li><strong>offset</strong>: Paging offset for the results. Defaults to 0</li>
+<li><strong>num</strong>: How many results do we want</li>
+</ul>
+<h3 id="query95string">query_string</h3>
+<pre><code class="py">
+def query_string(self)
+
+</code></pre>
+
+<p>Return the query string of this query only</p>
+<h3 id="verbatim">verbatim</h3>
+<pre><code class="py">
+def verbatim(self)
+
+</code></pre>
+
+<p>Set the query to be verbatim, i.e. use no query expansion or stemming</p>
+<h2 id="class-result">Class Result</h2>
+<p>Represents the result of a search query, and has an array of Document objects</p>
+<h3 id="9595init9595_9">__init__</h3>
+<pre><code class="py">
+def __init__(self, res, hascontent, query_text, duration=0, snippets=None)
+
+</code></pre>
+
+<ul>
+<li><strong>snippets</strong>: An optional dictionary of the form {field: snippet_size} for snippet formatting</li>
+</ul>
 <h2 id="class-suggestion">Class Suggestion</h2>
 <p>Represents a single suggestion being sent or returned from the auto complete server</p>
-<h3 id="9595init9595_6">__init__</h3>
+<h3 id="9595init9595_10">__init__</h3>
 <pre><code class="py">
 def __init__(self, string, score=1.0)
 
@@ -566,13 +699,13 @@ def __init__(self, string, score=1.0)
 
 <h2 id="class-textfield">Class TextField</h2>
 <p>TextField is used to define a text field in a schema definition</p>
-<h3 id="9595init9595_7">__init__</h3>
+<h3 id="9595init9595_11">__init__</h3>
 <pre><code class="py">
 def __init__(self, name, weight=1.0)
 
 </code></pre>
 
-<h3 id="redis95args_1">redis_args</h3>
+<h3 id="redis95args_2">redis_args</h3>
 <pre><code class="py">
 def redis_args(self)
 

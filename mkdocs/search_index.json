@@ -422,7 +422,7 @@
         }, 
         {
             "location": "/python_client/", 
-            "text": "Package redisearch Documentation\n\n\nOverview\n\n\nredisearch-py\n is a python search engine library that utilizes the RediSearch Redis Module API.\n\n\nIt is the \"official\" client of redisearch, and should be regarded as its canonical client implementation.\n\n\nThe source code can be found at \nhttp://github.com/RedisLabs/redisearch-py\n\n\nExample: Using the Python Client\n\n\n\nfrom redisearch import Client, TextField, NumericField\n\n# Creating a client with a given index name\nclient = Client('myIndex')\n\n# Creating the index definition and schema\nclient.create_index([TextField('title', weight=5.0), TextField('body')])\n\n# Indexing a document\nclient.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')\n\n# Searching\nres = client.search(\nsearch engine\n)\n\n# the result has the total number of results, and a list of documents\nprint res.total # \n1\n\nprint res.docs[0].title \n\n\n\n\n\nExample: Using the Auto Completer Client:\n\n\n\n# Using the auto-completer\nac = AutoCompleter('ac')\n\n# Adding some terms\nac.add_suggestions(Suggestion('foo', 5.0), Suggestion('bar', 1.0))\n\n# Getting suggestions\nsuggs = ac.get_suggestions('goo') # returns nothing\n\nsuggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']\n\n\n\n\n\nInstalling\n\n\n\n\n\n\nInstall redis 4.0 RC2 or above\n\n\n\n\n\n\nInstall RediSearch\n\n\n\n\n\n\nInstall the python client\n\n\n\n\n\n\n$ pip install redisearch\n\n\n\n\nClass AutoCompleter\n\n\nA client to RediSearch's AutoCompleter API\n\n\nIt provides prefix searches with optionally fuzzy matching of prefixes    \n\n\n__init__\n\n\n\ndef __init__(self, key, host='localhost', port=6379, conn=None)\n\n\n\n\n\nCreate a new AutoCompleter client for the given key, and optional host and port\n\n\nIf conn is not None, we employ an already existing redis connection\n\n\nadd_suggestions\n\n\n\ndef add_suggestions(self, *suggestions, **kwargs)\n\n\n\n\n\nAdd suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.\n\n\nIf kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores \n\n\ndelete\n\n\n\ndef delete(self, string)\n\n\n\n\n\nDelete a string from the AutoCompleter index.\nReturns 1 if the string was found and deleted, 0 otherwise\n\n\nget_suggestions\n\n\n\ndef get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)\n\n\n\n\n\nGet a list of suggestions from the AutoCompleter, for a given prefix\n\n\nParameters:\n\n\n\n\nprefix\n: the prefix we are searching. \nMust be valid ascii or utf-8\n\n\nfuzzy\n: If set to true, the prefix search is done in fuzzy mode. \n    \nNOTE\n: Running fuzzy searches on short (\n3 letters) prefixes can be very slow, and even scan the entire index.\n\n\nwith_scores\n: if set to true, we also return the (refactored) score of each suggestion. \n  This is normally not needed, and is NOT the original score inserted into the index\n\n\nnum\n: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.\n\n\n\n\nReturns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.\n\n\nlen\n\n\n\ndef len(self)\n\n\n\n\n\nReturn the number of entries in the AutoCompleter index\n\n\nClass Client\n\n\nA client for the RediSearch module. \nIt abstracts the API of the module and lets you just use the engine \n\n\n__init__\n\n\n\ndef __init__(self, index_name, host='localhost', port=6379, conn=None)\n\n\n\n\n\nCreate a new Client for the given index_name, and optional host and port\n\n\nIf conn is not None, we employ an already existing redis connection\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a single document to the index.\n\n\nParameters\n\n\n\n\ndoc_id\n: the id of the saved document.\n\n\nnosave\n: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.\n\n\nscore\n: the document ranking, between 0.0 and 1.0 \n\n\nfields\n kwargs dictionary of the document fields to be saved and/or indexed\n\n\n\n\nbatch_indexer\n\n\n\ndef batch_indexer(self, chunk_size=100)\n\n\n\n\n\nCreate a new batch indexer from the client with a given chunk size\n\n\ncreate_index\n\n\n\ndef create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False)\n\n\n\n\n\nCreate the search index. Creating an existing index juts updates its properties\n\n\nParameters:\n\n\n\n\nfields\n: a list of TextField or NumericField objects\n\n\nno_term_offsets\n: If true, we will not save term offsets in the index\n\n\nno_field_flags\n: If true, we will not save field flags that allow searching in specific fields\n\n\nno_score_indexes\n: If true, we will not save optimized top score indexes for single word queries\n\n\n\n\ndrop_index\n\n\n\ndef drop_index(self)\n\n\n\n\n\nDrop the index if it exists\n\n\ninfo\n\n\n\ndef info(self)\n\n\n\n\n\nGet info an stats about the the current index, including the number of documents, memory consumption, etc\n\n\nload_document\n\n\n\ndef load_document(self, id)\n\n\n\n\n\nLoad a single document by id\n\n\nsearch\n\n\n\ndef search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)\n\n\n\n\n\nSearch the index for a given query, and return a result of documents\n\n\nParameters\n\n\n\n\nquery\n: the search query, see RediSearch's documentation on query format\n\n\noffset\n: Paging offset for the results. Defaults to 0\n\n\nnum\n: How many results do we want\n\n\nverbatim\n: If True, we do not attempt stemming on the query\n\n\nno_content\n: If True, we only return ids and not the document content\n\n\nno_stopwords\n: If True, we do not match the query against stopwords\n\n\nfields\n: An optional list/tuple of field names to focus the search in\n\n\nsnippet_size\n: the size of the text snippet we attempt to extract from the document\n\n\nfilters\n: optional numeric filters, in the format of \nfield = (min,max)\n\n\n\n\nClass BatchIndexer\n\n\nA batch indexer allows you to automatically batch \ndocument indexeing in pipelines, flushing it every N documents. \n\n\n__init__\n\n\n\ndef __init__(self, client, chunk_size=1000)\n\n\n\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a document to the batch query\n\n\ncommit\n\n\n\ndef commit(self)\n\n\n\n\n\nManually commit and flush the batch indexing query\n\n\nClass Document\n\n\nRepresents a single document in a result set \n\n\n__init__\n\n\n\ndef __init__(self, id, **fields)\n\n\n\n\n\nsnippetize\n\n\n\ndef snippetize(self, field, size=500, bold_tokens=())\n\n\n\n\n\nCreate a shortened snippet from the document's content \n:param size: the szie of the snippet in characters. It might be a bit longer or shorter\n:param boldTokens: a list of tokens we want to make bold (basically the query terms)\n\n\nClass NumericField\n\n\nNumericField is used to define a numeric field in a schema defintion\n\n\n__init__\n\n\n\ndef __init__(self, name)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)\n\n\n\n\n\nClass Result\n\n\nRepresents the result of a search query, and has an array of Document objects\n\n\n__init__\n\n\n\ndef __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)\n\n\n\n\n\nClass Suggestion\n\n\nRepresents a single suggestion being sent or returned from the auto complete server\n\n\n__init__\n\n\n\ndef __init__(self, string, score=1.0)\n\n\n\n\n\nClass TextField\n\n\nTextField is used to define a text field in a schema definition\n\n\n__init__\n\n\n\ndef __init__(self, name, weight=1.0)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)", 
+            "text": "Package redisearch Documentation\n\n\nOverview\n\n\nredisearch-py\n is a python search engine library that utilizes the RediSearch Redis Module API.\n\n\nIt is the \"official\" client of redisearch, and should be regarded as its canonical client implementation.\n\n\nThe source code can be found at \nhttp://github.com/RedisLabs/redisearch-py\n\n\nExample: Using the Python Client\n\n\n\nfrom redisearch import Client, TextField, NumericField\n\n# Creating a client with a given index name\nclient = Client('myIndex')\n\n# Creating the index definition and schema\nclient.create_index([TextField('title', weight=5.0), TextField('body')])\n\n# Indexing a document\nclient.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')\n\n# Searching\nres = client.search(\nsearch engine\n)\n\n# the result has the total number of results, and a list of documents\nprint res.total # \n1\n\nprint res.docs[0].title \n\n\n\n\n\nExample: Using the Auto Completer Client:\n\n\n\n# Using the auto-completer\nac = AutoCompleter('ac')\n\n# Adding some terms\nac.add_suggestions(Suggestion('foo', 5.0), Suggestion('bar', 1.0))\n\n# Getting suggestions\nsuggs = ac.get_suggestions('goo') # returns nothing\n\nsuggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']\n\n\n\n\n\nInstalling\n\n\n\n\n\n\nInstall redis 4.0 RC2 or above\n\n\n\n\n\n\nInstall RediSearch\n\n\n\n\n\n\nInstall the python client\n\n\n\n\n\n\n$ pip install redisearch\n\n\n\n\nClass AutoCompleter\n\n\nA client to RediSearch's AutoCompleter API\n\n\nIt provides prefix searches with optionally fuzzy matching of prefixes    \n\n\n__init__\n\n\n\ndef __init__(self, key, host='localhost', port=6379, conn=None)\n\n\n\n\n\nCreate a new AutoCompleter client for the given key, and optional host and port\n\n\nIf conn is not None, we employ an already existing redis connection\n\n\nadd_suggestions\n\n\n\ndef add_suggestions(self, *suggestions, **kwargs)\n\n\n\n\n\nAdd suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.\n\n\nIf kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores \n\n\ndelete\n\n\n\ndef delete(self, string)\n\n\n\n\n\nDelete a string from the AutoCompleter index.\nReturns 1 if the string was found and deleted, 0 otherwise\n\n\nget_suggestions\n\n\n\ndef get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)\n\n\n\n\n\nGet a list of suggestions from the AutoCompleter, for a given prefix\n\n\nParameters:\n\n\n\n\nprefix\n: the prefix we are searching. \nMust be valid ascii or utf-8\n\n\nfuzzy\n: If set to true, the prefix search is done in fuzzy mode. \n    \nNOTE\n: Running fuzzy searches on short (\n3 letters) prefixes can be very slow, and even scan the entire index.\n\n\nwith_scores\n: if set to true, we also return the (refactored) score of each suggestion. \n  This is normally not needed, and is NOT the original score inserted into the index\n\n\nnum\n: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.\n\n\n\n\nReturns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.\n\n\nlen\n\n\n\ndef len(self)\n\n\n\n\n\nReturn the number of entries in the AutoCompleter index\n\n\nClass Client\n\n\nA client for the RediSearch module. \nIt abstracts the API of the module and lets you just use the engine \n\n\n__init__\n\n\n\ndef __init__(self, index_name, host='localhost', port=6379, conn=None)\n\n\n\n\n\nCreate a new Client for the given index_name, and optional host and port\n\n\nIf conn is not None, we employ an already existing redis connection\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a single document to the index.\n\n\nParameters\n\n\n\n\ndoc_id\n: the id of the saved document.\n\n\nnosave\n: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.\n\n\nscore\n: the document ranking, between 0.0 and 1.0 \n\n\nfields\n kwargs dictionary of the document fields to be saved and/or indexed. \n             NOTE: Geo points shoule be encoded as strings of \"lon,lat\"\n\n\n\n\nbatch_indexer\n\n\n\ndef batch_indexer(self, chunk_size=100)\n\n\n\n\n\nCreate a new batch indexer from the client with a given chunk size\n\n\ncreate_index\n\n\n\ndef create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False)\n\n\n\n\n\nCreate the search index. Creating an existing index juts updates its properties\n\n\nParameters:\n\n\n\n\nfields\n: a list of TextField or NumericField objects\n\n\nno_term_offsets\n: If true, we will not save term offsets in the index\n\n\nno_field_flags\n: If true, we will not save field flags that allow searching in specific fields\n\n\nno_score_indexes\n: If true, we will not save optimized top score indexes for single word queries\n\n\n\n\ndrop_index\n\n\n\ndef drop_index(self)\n\n\n\n\n\nDrop the index if it exists\n\n\ninfo\n\n\n\ndef info(self)\n\n\n\n\n\nGet info an stats about the the current index, including the number of documents, memory consumption, etc\n\n\nload_document\n\n\n\ndef load_document(self, id)\n\n\n\n\n\nLoad a single document by id\n\n\nsearch\n\n\n\ndef search(self, query, snippet_sizes=None)\n\n\n\n\n\nSearch the index for a given query, and return a result of documents\n\n\nParameters\n\n\n\n\nquery\n: the search query. Either a text for simple queries with default parameters, or a Query object for complex queries.\n             See RediSearch's documentation on query format\n\n\nsnippet_sizes\n: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}\n\n\n\n\nClass BatchIndexer\n\n\nA batch indexer allows you to automatically batch \ndocument indexeing in pipelines, flushing it every N documents. \n\n\n__init__\n\n\n\ndef __init__(self, client, chunk_size=1000)\n\n\n\n\n\nadd_document\n\n\n\ndef add_document(self, doc_id, nosave=False, score=1.0, **fields)\n\n\n\n\n\nAdd a document to the batch query\n\n\ncommit\n\n\n\ndef commit(self)\n\n\n\n\n\nManually commit and flush the batch indexing query\n\n\nClass Document\n\n\nRepresents a single document in a result set \n\n\n__init__\n\n\n\ndef __init__(self, id, **fields)\n\n\n\n\n\nsnippetize\n\n\n\ndef snippetize(self, field, size=500, bold_tokens=())\n\n\n\n\n\nCreate a shortened snippet from the document's content \n:param size: the szie of the snippet in characters. It might be a bit longer or shorter\n:param boldTokens: a list of tokens we want to make bold (basically the query terms)\n\n\nClass GeoField\n\n\nGeoField is used to define a geo-indexing field in a schema defintion\n\n\n__init__\n\n\n\ndef __init__(self, name)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)\n\n\n\n\n\nClass GeoFilter\n\n\nNone\n\n\n__init__\n\n\n\ndef __init__(self, field, lon, lat, radius, unit='km')\n\n\n\n\n\nClass NumericField\n\n\nNumericField is used to define a numeric field in a schema defintion\n\n\n__init__\n\n\n\ndef __init__(self, name)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)\n\n\n\n\n\nClass NumericFilter\n\n\nNone\n\n\n__init__\n\n\n\ndef __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False)\n\n\n\n\n\nClass Query\n\n\nQuery is used to build complex queries that have more parameters than just the query string.\nThe query string is set in the constructor, and other options have setter functions.\n\n\nThe setter functions return the query object, so they can be chained, \ni.e. \nQuery(\"foo\").verbatim().filter(...)\n etc.\n\n\n__init__\n\n\n\ndef __init__(self, query_string)\n\n\n\n\n\nCreate a new query object. \n\n\nThe query string is set in the constructor, and other options have setter functions.\n\n\nadd_filter\n\n\n\ndef add_filter(self, flt)\n\n\n\n\n\nAdd a numeric or geo filter to the query. \n\nCurrently only one of each filter is supported by the engine\n\n\n\n\nflt\n: A NumericFilter or GeoFilter object, used on a corresponding field\n\n\n\n\nget_args\n\n\n\ndef get_args(self)\n\n\n\n\n\nFormat the redis arguments for this query and return them\n\n\nlimit_fields\n\n\n\ndef limit_fields(self, *fields)\n\n\n\n\n\nLimit the search to specific TEXT fields only\n\n\n\n\nfields\n: A list of strings, case sensitive field names from the defined schema\n\n\n\n\nno_content\n\n\n\ndef no_content(self)\n\n\n\n\n\nSet the query to only return ids and not the document content\n\n\nno_stopwords\n\n\n\ndef no_stopwords(self)\n\n\n\n\n\nPrevent the query from being filtered for stopwords. \nOnly useful in very big queries that you are certain contain no stopwords.\n\n\npaging\n\n\n\ndef paging(self, offset, num)\n\n\n\n\n\nSet the paging for the query (defaults to 0..10).\n\n\n\n\noffset\n: Paging offset for the results. Defaults to 0\n\n\nnum\n: How many results do we want\n\n\n\n\nquery_string\n\n\n\ndef query_string(self)\n\n\n\n\n\nReturn the query string of this query only\n\n\nverbatim\n\n\n\ndef verbatim(self)\n\n\n\n\n\nSet the query to be verbatim, i.e. use no query expansion or stemming\n\n\nClass Result\n\n\nRepresents the result of a search query, and has an array of Document objects\n\n\n__init__\n\n\n\ndef __init__(self, res, hascontent, query_text, duration=0, snippets=None)\n\n\n\n\n\n\n\nsnippets\n: An optional dictionary of the form {field: snippet_size} for snippet formatting\n\n\n\n\nClass Suggestion\n\n\nRepresents a single suggestion being sent or returned from the auto complete server\n\n\n__init__\n\n\n\ndef __init__(self, string, score=1.0)\n\n\n\n\n\nClass TextField\n\n\nTextField is used to define a text field in a schema definition\n\n\n__init__\n\n\n\ndef __init__(self, name, weight=1.0)\n\n\n\n\n\nredis_args\n\n\n\ndef redis_args(self)", 
             "title": "Python API"
         }, 
         {
@@ -502,7 +502,7 @@
         }, 
         {
             "location": "/python_client/#parameters_1", 
-            "text": "doc_id : the id of the saved document.  nosave : if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.  score : the document ranking, between 0.0 and 1.0   fields  kwargs dictionary of the document fields to be saved and/or indexed", 
+            "text": "doc_id : the id of the saved document.  nosave : if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.  score : the document ranking, between 0.0 and 1.0   fields  kwargs dictionary of the document fields to be saved and/or indexed. \n             NOTE: Geo points shoule be encoded as strings of \"lon,lat\"", 
             "title": "Parameters"
         }, 
         {
@@ -537,12 +537,12 @@
         }, 
         {
             "location": "/python_client/#search", 
-            "text": "def search(self, query, offset=0, num=10, verbatim=False, no_content=False, no_stopwords=False, fields=None, snippet_size=500, **filters)  Search the index for a given query, and return a result of documents", 
+            "text": "def search(self, query, snippet_sizes=None)  Search the index for a given query, and return a result of documents", 
             "title": "search"
         }, 
         {
             "location": "/python_client/#parameters_3", 
-            "text": "query : the search query, see RediSearch's documentation on query format  offset : Paging offset for the results. Defaults to 0  num : How many results do we want  verbatim : If True, we do not attempt stemming on the query  no_content : If True, we only return ids and not the document content  no_stopwords : If True, we do not match the query against stopwords  fields : An optional list/tuple of field names to focus the search in  snippet_size : the size of the text snippet we attempt to extract from the document  filters : optional numeric filters, in the format of  field = (min,max)", 
+            "text": "query : the search query. Either a text for simple queries with default parameters, or a Query object for complex queries.\n             See RediSearch's documentation on query format  snippet_sizes : A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}", 
             "title": "Parameters"
         }, 
         {
@@ -581,9 +581,9 @@
             "title": "snippetize"
         }, 
         {
-            "location": "/python_client/#class-numericfield", 
-            "text": "NumericField is used to define a numeric field in a schema defintion", 
-            "title": "Class NumericField"
+            "location": "/python_client/#class-geofield", 
+            "text": "GeoField is used to define a geo-indexing field in a schema defintion", 
+            "title": "Class GeoField"
         }, 
         {
             "location": "/python_client/#9595init9595_4", 
@@ -596,13 +596,98 @@
             "title": "redis_args"
         }, 
         {
+            "location": "/python_client/#class-geofilter", 
+            "text": "None", 
+            "title": "Class GeoFilter"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_5", 
+            "text": "def __init__(self, field, lon, lat, radius, unit='km')", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#class-numericfield", 
+            "text": "NumericField is used to define a numeric field in a schema defintion", 
+            "title": "Class NumericField"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_6", 
+            "text": "def __init__(self, name)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#redis95args_1", 
+            "text": "def redis_args(self)", 
+            "title": "redis_args"
+        }, 
+        {
+            "location": "/python_client/#class-numericfilter", 
+            "text": "None", 
+            "title": "Class NumericFilter"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_7", 
+            "text": "def __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False)", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#class-query", 
+            "text": "Query is used to build complex queries that have more parameters than just the query string.\nThe query string is set in the constructor, and other options have setter functions.  The setter functions return the query object, so they can be chained, \ni.e.  Query(\"foo\").verbatim().filter(...)  etc.", 
+            "title": "Class Query"
+        }, 
+        {
+            "location": "/python_client/#9595init9595_8", 
+            "text": "def __init__(self, query_string)  Create a new query object.   The query string is set in the constructor, and other options have setter functions.", 
+            "title": "__init__"
+        }, 
+        {
+            "location": "/python_client/#add95filter", 
+            "text": "def add_filter(self, flt)  Add a numeric or geo filter to the query.  Currently only one of each filter is supported by the engine   flt : A NumericFilter or GeoFilter object, used on a corresponding field", 
+            "title": "add_filter"
+        }, 
+        {
+            "location": "/python_client/#get95args", 
+            "text": "def get_args(self)  Format the redis arguments for this query and return them", 
+            "title": "get_args"
+        }, 
+        {
+            "location": "/python_client/#limit95fields", 
+            "text": "def limit_fields(self, *fields)  Limit the search to specific TEXT fields only   fields : A list of strings, case sensitive field names from the defined schema", 
+            "title": "limit_fields"
+        }, 
+        {
+            "location": "/python_client/#no95content", 
+            "text": "def no_content(self)  Set the query to only return ids and not the document content", 
+            "title": "no_content"
+        }, 
+        {
+            "location": "/python_client/#no95stopwords", 
+            "text": "def no_stopwords(self)  Prevent the query from being filtered for stopwords. \nOnly useful in very big queries that you are certain contain no stopwords.", 
+            "title": "no_stopwords"
+        }, 
+        {
+            "location": "/python_client/#paging", 
+            "text": "def paging(self, offset, num)  Set the paging for the query (defaults to 0..10).   offset : Paging offset for the results. Defaults to 0  num : How many results do we want", 
+            "title": "paging"
+        }, 
+        {
+            "location": "/python_client/#query95string", 
+            "text": "def query_string(self)  Return the query string of this query only", 
+            "title": "query_string"
+        }, 
+        {
+            "location": "/python_client/#verbatim", 
+            "text": "def verbatim(self)  Set the query to be verbatim, i.e. use no query expansion or stemming", 
+            "title": "verbatim"
+        }, 
+        {
             "location": "/python_client/#class-result", 
             "text": "Represents the result of a search query, and has an array of Document objects", 
             "title": "Class Result"
         }, 
         {
-            "location": "/python_client/#9595init9595_5", 
-            "text": "def __init__(self, res, hascontent, queryText, duration=0, snippet_size=500)", 
+            "location": "/python_client/#9595init9595_9", 
+            "text": "def __init__(self, res, hascontent, query_text, duration=0, snippets=None)   snippets : An optional dictionary of the form {field: snippet_size} for snippet formatting", 
             "title": "__init__"
         }, 
         {
@@ -611,7 +696,7 @@
             "title": "Class Suggestion"
         }, 
         {
-            "location": "/python_client/#9595init9595_6", 
+            "location": "/python_client/#9595init9595_10", 
             "text": "def __init__(self, string, score=1.0)", 
             "title": "__init__"
         }, 
@@ -621,12 +706,12 @@
             "title": "Class TextField"
         }, 
         {
-            "location": "/python_client/#9595init9595_7", 
+            "location": "/python_client/#9595init9595_11", 
             "text": "def __init__(self, name, weight=1.0)", 
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#redis95args_1", 
+            "location": "/python_client/#redis95args_2", 
             "text": "def redis_args(self)", 
             "title": "redis_args"
         }
