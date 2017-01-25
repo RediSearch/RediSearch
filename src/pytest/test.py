@@ -4,7 +4,7 @@ import unittest
 from hotels import hotels
 
 
-class SearchTestCase(ModuleTestCase('../module.so', fixed_port=6379)):
+class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testAdd(self):
         with self.redis() as r:
