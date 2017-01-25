@@ -342,12 +342,19 @@ client.create_index([TextField('title', weight=5.0), TextField('body')])
 # Indexing a document
 client.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')
 
-# Searching
+# Simple search
 res = client.search(&quot;search engine&quot;)
 
 # the result has the total number of results, and a list of documents
 print res.total # &quot;1&quot;
 print res.docs[0].title 
+
+# Searching with snippets
+res = client.search(&quot;search engine&quot;, snippet_sizes = {'body': 50})
+
+# Searching with complext parameters:
+q = Query(&quot;search engine&quot;).verbatim().no_content().paging(0,5)
+res = client.search(q)
 
 </code></pre>
 
