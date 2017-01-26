@@ -27,7 +27,6 @@ def ModuleTestCase(module_path, redis_path='redis-server', fixed_port=None):
             self.assertEquals("OK", x)
 
         def assertExists(self, r, key):
-            self.assertTrue(
-                r.exists(key), 'Key %s does not exit in redis' % key)
+            self.assertTrue(r.exists(key))
 
     return _ModuleTestCase

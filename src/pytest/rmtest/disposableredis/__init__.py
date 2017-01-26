@@ -5,6 +5,7 @@ import redis
 import time
 import os
 import itertools
+from contextlib import contextmanager
 
 
 def get_random_port():
@@ -15,6 +16,19 @@ def get_random_port():
 
     return port
 
+
+class Client(redis.StrictRedis):
+
+    def __init__(self, disposable_redis, port):
+
+        redis.StrictRedis.__init__(self, port = port)
+        self.dr = disposable_redis
+
+    def retry_with_rdb_reload(self):
+
+            yield 1
+            self.dr.dump_and_reload()
+            yield 2
 
 class DisposableRedis(object):
 
@@ -34,19 +48,12 @@ class DisposableRedis(object):
             *(('--%s' % k, v) for k, v in extra_args.items())
         ))
         self.path = path
+        self.dumped = False
 
-    def __enter__(self):
-        if self._port is None:
-            self.port = get_random_port()
-        else:
-            self.port = self._port
-        args = [self.path,
-                '--port', str(self.port),
-                '--dir', tempfile.gettempdir(),
-                '--save', ''] + self.extra_args
-
+    def _startProcess(self):
+        
         self.process = subprocess.Popen(
-            args,
+            self.args,
             stdin=subprocess.PIPE,
             stdout=open(os.devnull, 'w')
         )
@@ -62,14 +69,44 @@ class DisposableRedis(object):
                         "Process has exited with code {}".format(self.process.returncode))
                 time.sleep(0.1)
 
+    def __enter__(self):
+        if self._port is None:
+            self.port = get_random_port()
+        else:
+            self.port = self._port
+
+        self.dumpfile = 'dump.%s.rdb' % self.port
+        self.args = [self.path,
+                '--port', str(self.port),
+                '--dir', tempfile.gettempdir(),
+                '--save', '',
+                '--dbfilename', self.dumpfile] + self.extra_args
+
+
+        self._startProcess()
         return self.client()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.process.terminate()
+        if self.dumped:
+            os.unlink(os.path.join(tempfile.gettempdir(), self.dumpfile))
 
+    def dump_and_reload(self):
+
+        conn = self.client()
+        conn.save()
+        self.dumped = True
+        self.process.terminate()
+        self._startProcess()
+        
+
+    
+  
+        
+    
     def client(self):
         """
         :rtype: redis.StrictRedis
         """
 
-        return redis.StrictRedis(port=self.port)
+        return Client(self, self.port)
