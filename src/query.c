@@ -384,7 +384,7 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query->root, 0);
+  //__queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
