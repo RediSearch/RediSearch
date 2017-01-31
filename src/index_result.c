@@ -68,6 +68,8 @@ void IndexResult_Free(IndexResult *r) {
     r->records = NULL;
   }
 }
+
+#define __absdelta(x, y) (x > y ? x - y : y - x)
 /**
 Find the minimal distance between members of the vectos.
 e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
@@ -90,15 +92,16 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     int p1 = VV_Next(&v1);
     int p2 = VV_Next(&v2);
 
-    int cd = abs(p2 - p1);
+    int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != -1 && p2 != -1) {
-      cd = MIN(abs(p2 - p1), cd);
+      cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
         p1 = VV_Next(&v1);
       } else {
         p2 = VV_Next(&v2);
       }
     }
+
     dist += cd * cd;
   }
 

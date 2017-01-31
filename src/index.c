@@ -104,19 +104,23 @@ int IR_Read(void *ctx, IndexResult *e) {
   if (!ir->singleWordMode) {
     offsets = &rec.offsets;
   }
+  int rc;
+  do {
 
-  int rc = IR_GenericRead(ir, &rec.docId, &rec.tf, &rec.flags, offsets);
+    rc = IR_GenericRead(ir, &rec.docId, &rec.tf, &rec.flags, offsets);
 
-  // add the record to the current result
-  if (rc == INDEXREAD_OK) {
-    if (!(rec.flags & ir->fieldMask)) {
-      return INDEXREAD_NOTFOUND;
+    // add the record to the current result
+    if (rc == INDEXREAD_OK) {
+      if (!(rec.flags & ir->fieldMask)) {
+        continue;
+      }
+
+      ++ir->len;
+
+      IndexResult_PutRecord(e, &rec);
+      return INDEXREAD_OK;
     }
-
-    ++ir->len;
-
-    IndexResult_PutRecord(e, &rec);
-  }
+  } while (rc != INDEXREAD_EOF);
 
   // printf("IR %s Read docId %d, rc %d\n", ir->term->str, e->docId, rc);
   return rc;
@@ -187,8 +191,10 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
     // rewind 1 document and re-read it...
     if (rc == INDEXREAD_OK || readId > docId) {
       IR_Seek(ir, offset, lastId);
-      IR_Read(ir, hit);
-      return rc;
+
+      int _rc = IR_Read(ir, hit);
+      // rc might be NOTFOUND and _rc EOF
+      return _rc == INDEXREAD_NOTFOUND ? INDEXREAD_NOTFOUND : rc;
     }
     lastId = readId;
     offset = ir->buf->offset;
@@ -733,22 +739,23 @@ int II_Read(void *ctx, IndexResult *hit) {
   do {
     nh = 0;
     for (i = 0; i < ic->num; i++) {
+      IndexIterator *it = ic->its[i];
+      if (!it) goto eof;
+
       IndexResult *h = &ic->currentHits[i];
       // skip to the next
 
       int rc = INDEXREAD_OK;
       if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
         h->numRecords = 0;
-        if (ic->its[i] == NULL ||
-            (rc = ic->its[i]->SkipTo(ic->its[i]->ctx, ic->lastDocId, h)) == INDEXREAD_EOF) {
-          ic->atEnd = 1;
-
-          return INDEXREAD_EOF;
+        if (i == 0) {
+          rc = it->Read(it->ctx, h);
+        } else {
+          rc = it->SkipTo(it->ctx, ic->lastDocId, h);
         }
-      }
 
-      // printf("II %p, iter %p read %d(%d), rc %d\n", ic, ic->its[i],
-      //        ic->its[i]->LastDocId(ic->its[i]->ctx), h->docId, rc);
+        if (rc == INDEXREAD_EOF) goto eof;
+      }
 
       if (h->docId > ic->lastDocId) {
         ic->lastDocId = h->docId;
@@ -771,25 +778,13 @@ int II_Read(void *ctx, IndexResult *hit) {
         }
       }
 
-      // advance to the next iterator
-      ic->currentHits[0].numRecords = 0;
-      if (ic->its[0]->Read(ic->its[0]->ctx, &ic->currentHits[0]) == INDEXREAD_EOF) {
-        // if we're at the end we don't want to return EOF right now,
-        // but advancing docId makes sure we'll read the first iterator again
-        // in the next round
-        ic->lastDocId++;
-      } else {
-        if (ic->currentHits[0].docId > ic->lastDocId) {
-          ic->lastDocId = ic->currentHits[0].docId;
-        } else {
-          ic->lastDocId++;
-        }
-      }
+      // advance the doc id so next time we'll read a new record
+      ic->lastDocId++;
 
-      if ((hit->flags & ic->fieldMask) == 0) {
-        // printf("Skipping %d\n", hit->docId);
-        continue;
-      }
+      // // make sure the flags are matching.
+      // if ((hit->flags & ic->fieldMask) == 0) {
+      //   continue;
+      // }
 
       // In exact mode, make sure the minimal distance is the number of words
       if (ic->exact && hit != NULL) {
@@ -803,8 +798,8 @@ int II_Read(void *ctx, IndexResult *hit) {
       ic->len++;
       return INDEXREAD_OK;
     }
-
   } while (1);
+eof:
   ic->atEnd = 1;
   return INDEXREAD_EOF;
 }
