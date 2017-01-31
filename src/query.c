@@ -428,7 +428,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
-    assert(dmd);
+
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
       ++numDeleted;

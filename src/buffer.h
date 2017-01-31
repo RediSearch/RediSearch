@@ -23,6 +23,7 @@ typedef struct {
 #define BUFFER_READ_BYTE(b) \
   *b->pos++;                \
   ++b->offset;
+
 size_t BufferReadByte(Buffer *b, char *c);
 size_t BufferRead(Buffer *b, void *data, size_t len);
 size_t BufferSkip(Buffer *b, int bytes);

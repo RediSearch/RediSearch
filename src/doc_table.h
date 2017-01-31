@@ -6,7 +6,7 @@
 #include "redismodule.h"
 #include "util/triemap.h"
 
-#pragma pack(1)
+#pragma pack(4)
 /* DocumentMetadata describes metadata stored about a document in the index (not the document
 * itself).
 *

@@ -66,6 +66,7 @@ typedef struct indexReader {
   IndexFlags flags;
   size_t len;
 
+  IndexRecord record;
   Term *term;
 } IndexReader;
 

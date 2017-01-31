@@ -7,9 +7,7 @@
 
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
-  // LG_DEBUG("ir %p size %d, offset %d. has next? %d\n", ir, ir->header.size,
-  // ir->buf->offset,
-  // ir->header.size > ir->buf->offset);
+
   return ir->header.size > ir->buf->offset;
 }
 
@@ -79,17 +77,10 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   return INDEXREAD_OK;
 }
 
-// inline double tfidf(float freq, u_int32_t docFreq) {
-//   double idf = logb(
-//       1.0F + TOTALDOCS_PLACEHOLDER / (docFreq ? docFreq : (double)1)); // IDF
-//   // LG_DEBUG("FREQ: %f  IDF: %.04f, TFIDF: %f",freq, idf, freq*idf);
-//   return freq * idf;
-// }
-
 int IR_Read(void *ctx, IndexResult *e) {
   float freq;
   IndexReader *ir = ctx;
-  IndexRecord rec = {.term = ir->term};
+  // IndexRecord rec = {.term = ir->term};
 
   if (ir->useScoreIndex && ir->scoreIndex) {
     ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
@@ -102,22 +93,22 @@ int IR_Read(void *ctx, IndexResult *e) {
 
   VarintVector *offsets = NULL;
   if (!ir->singleWordMode) {
-    offsets = &rec.offsets;
+    offsets = &ir->record.offsets;
   }
   int rc;
   do {
 
-    rc = IR_GenericRead(ir, &rec.docId, &rec.tf, &rec.flags, offsets);
+    rc = IR_GenericRead(ir, &ir->record.docId, &ir->record.tf, &ir->record.flags, offsets);
 
     // add the record to the current result
     if (rc == INDEXREAD_OK) {
-      if (!(rec.flags & ir->fieldMask)) {
+      if (!(ir->record.flags & ir->fieldMask)) {
         continue;
       }
 
       ++ir->len;
 
-      IndexResult_PutRecord(e, &rec);
+      IndexResult_PutRecord(e, &ir->record);
       return INDEXREAD_OK;
     }
   } while (rc != INDEXREAD_EOF);
@@ -126,28 +117,11 @@ int IR_Read(void *ctx, IndexResult *e) {
   return rc;
 }
 
-int IR_Next(void *ctx) {
-  static t_docId docId;
-  // static float freq;
-  static u_char flags;
-  return IR_GenericRead(ctx, &docId, NULL, &flags, NULL);
-}
-
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   // LG_DEBUG("Seeking to %d, lastId %d", offset, docId);
   BufferSeek(ir->buf, offset);
   ir->lastId = docId;
 }
-
-// int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt) {
-
-//   int rc = 0;
-//   if ((rc = DocTable_GetMetadata(dt, h->docId, &h->metadata)) ==
-//       REDISMODULE_OK) {
-//     h->hasMetadata = 1;
-//   }
-//   return rc;
-// }
 
 /**
 Skip to the given docId, or one place after it
@@ -235,6 +209,7 @@ IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int sin
         1.0F + TOTALDOCS_PLACEHOLDER / (ret->header.numDocs ? ret->header.numDocs : (double)1));
   }
 
+  ret->record = (IndexRecord){.term = term};
   ret->lastId = 0;
   ret->skipIdxPos = 0;
   ret->skipIdx = NULL;

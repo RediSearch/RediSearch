@@ -29,6 +29,7 @@ inline SkipEntry *SkipIndex_Find(SkipIndex *idx, t_docId docId, u_int *offset) {
   if (idx == NULL || idx->len == 0 || docId < idx->entries[0].docId) {
     return NULL;
   }
+  
   if (si_isPos(idx, *offset, docId)) {
     return &idx->entries[*offset];
   }
