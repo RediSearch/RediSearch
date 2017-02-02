@@ -164,12 +164,12 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'f', 'text'))
 
-            for i in range(100):
+            for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'f', 'hello world'))
 
             keys = r.keys('*')
-            self.assertEqual(107, len(keys))
+            self.assertEqual(207, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')

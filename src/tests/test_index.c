@@ -78,7 +78,7 @@ int testIndexReadWrite() {
 
   IndexWriter *w = NewIndexWriter(1, INDEX_DEFAULT_FLAGS);
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
     //     w->ndocs);
@@ -539,7 +539,7 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL(1890, (int)dt.memsize);
+  ASSERT_EQUAL(2190, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
