@@ -164,11 +164,8 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int
   int n = 0;
 
   for (int i = 0; i < numKeys; i++) {
-    if (Redis_LoadDocument(ctx, keys[i], &docs[n]) == REDISMODULE_OK) {
-      docs[n].docKey = keys[i];
-
-      n++;
-    }
+    Redis_LoadDocument(ctx, keys[i], &docs[n]);
+    docs[n++].docKey = keys[i];
   }
 
   *nump = n;

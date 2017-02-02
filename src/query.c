@@ -528,20 +528,24 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
 
   Document *docs = Redis_LoadDocuments(sctx, ids, r->numResults, &ndocs);
   // format response
-  RedisModule_ReplyWithArray(ctx, (withscores ? 3 : 2) * ndocs + 1);
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
 
+  int len = 1;
   for (int i = 0; i < ndocs; i++) {
     Document doc = docs[i];
     // send the id
     RedisModule_ReplyWithString(ctx, doc.docKey);
+    ++len;
     // if needed - send the score as well
     if (withscores) {
+      ++len;
       RedisModule_ReplyWithDouble(ctx, r->results[i].score);
     }
 
     // serialize the fields
+    ++len;
     RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
     for (int f = 0; f < doc.numFields; f++) {
       RedisModule_ReplyWithString(ctx, doc.fields[f].name);
@@ -550,6 +554,7 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
 
     Document_Free(doc);
   }
+  RedisModule_ReplySetArrayLength(ctx, len);
 
   free(docs);
   return REDISMODULE_OK;
