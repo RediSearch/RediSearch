@@ -592,11 +592,11 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Parse numeric filter. currently only one supported
   RedisSearchCtx sctx = {ctx, sp};
-  NumericFilter *nf = NULL;
+  Vector *numericFilters = NULL;
   int filterIdx = RMUtil_ArgExists("FILTER", argv, argc, 3);
-  if (filterIdx > 0 && filterIdx + 4 <= argc) {
-    nf = ParseNumericFilter(&sctx, &argv[filterIdx + 1], 3);
-    if (nf == NULL) {
+  if (filterIdx > 0) {
+    numericFilters = ParseMultipleFilters(&sctx, &argv[filterIdx], argc - filterIdx);
+    if (numericFilters == NULL) {
       RedisModule_ReplyWithError(ctx, "Invalid numeric filter");
       goto end;
     }
@@ -662,9 +662,20 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   Query_Expand(q);
 
-  if (nf != NULL) {
-    Query_SetNumericFilter(q, nf);
+  // set numeric filters if possible
+  if (numericFilters) {
+    for (int i = 0; i < Vector_Size(numericFilters); i++) {
+      NumericFilter *nf;
+      Vector_Get(numericFilters, i, &nf);
+      if (nf) {
+        printf("Adding numericFilter %s => %f..%f\n", nf->fieldName, nf->min, nf->max);
+        Query_SetNumericFilter(q, nf);
+      }
+    }
+
+    Vector_Free(numericFilters);
   }
+
   if (filterGeo) {
     Query_SetGeoFilter(q, &gf);
   }

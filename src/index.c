@@ -18,7 +18,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *
   }
 
   *docId = ReadVarint(ir->buf) + ir->lastId;
-
   int quantizedScore = ReadVarint(ir->buf);
   if (freq != NULL) {
     *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;

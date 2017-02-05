@@ -1,6 +1,7 @@
 #include "numeric_filter.h"
 #include "rmutil/strings.h"
-
+#include "rmutil/util.h"
+#include "rmutil/vector.h"
 /*
 *  Parse numeric filter arguments, in the form of:
 *  <fieldname> min max
@@ -18,7 +19,7 @@
 * arguments
 */
 NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 3) {
+  if (argc < 3) {
     return NULL;
   }
   // make sure we have an index spec for this filter and it's indeed numeric
@@ -98,6 +99,37 @@ error:
   return NULL;
 }
 
+/* Parse multiple filters from an argument list. Returns a vector of filters parse, or NULL if no
+ * filter could be parsed */
+Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
+
+  int offset = RMUtil_ArgIndex("FILTER", argv, argc);
+  if (offset == -1) {
+    return NULL;
+  }
+
+  // the base offset from the original argv
+  int base = 0;
+  Vector *vec = NewVector(NumericFilter *, 2);
+  while (offset >= 0) {
+
+    base++;
+    NumericFilter *flt = ParseNumericFilter(ctx, &argv[base + offset], argc - (offset + base));
+    if (flt) {
+      Vector_Push(vec, flt);
+
+      base += 3;
+      offset = RMUtil_ArgIndex("FILTER", &argv[base + offset], argc - (offset + base));
+    } else {
+      // we got a FILTER keyword but invalid filter - return NULL
+      Vector_Free(vec);
+      return NULL;
+    }
+  }
+
+  return vec;
+}
+
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
   NumericFilter *f = malloc(sizeof(NumericFilter));
 
@@ -115,13 +147,15 @@ of them with
 fulltext indexes.
 */
 inline int NumericFilter_Match(NumericFilter *f, double score) {
+  int rc = 0;
   // match min - -inf or x >/>= score
   int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
 
   if (matchMin) {
     // match max - +inf or x </<= score
-    return (f->inclusiveMax ? score <= f->max : score < f->max);
+    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
   }
 
-  return 0;
+  printf("numeric filter %s=>%f..%f. match %f?  %d\n", f->fieldName, f->min, f->max, score, rc);
+  return rc;
 }

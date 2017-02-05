@@ -413,8 +413,8 @@ int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
   if (it->lastDocId == docId) {
     if (it->nf) {
       int match = NumericFilter_Match(it->nf, it->rng->entries[i].value);
-      // printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
-      //     it->rng->entries[i].value, match);
+      printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
+             it->rng->entries[i].value, match);
 
       if (!match) return INDEXREAD_NOTFOUND;
     }

@@ -376,10 +376,10 @@ class SearchTestCase(ModuleTestCase('../module.so')):
         with self.redis(port=6379) as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric'))
+                'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
             for i in xrange(100):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
-                                                'title', 'hello kitty', 'score', i))
+                                                'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
 
             for _ in r.retry_with_rdb_reload():
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
@@ -398,6 +398,22 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                         "filter", "score", "-inf", "+inf")
                 self.assertEqual(100, res[0])
+
+                # test multi filters
+                res = r.execute_command('ft.search', 'idx', 'hello kitty',
+                                        "filter", "score", "19", "90",
+                                        "filter", "price", "120", "185")
+                print res
+                # print res
+                for doc in res[2::2]:
+
+                    sc = int(doc[doc.index('score') + 1])
+                    pr = int(doc[doc.index('price') + 1])
+                    print sc, pr
+                    self.assertTrue(sc >= 19 and sc <= 90)
+                    self.assertTrue(120 <= pr <= 185)
+
+                self.assertEqual(6, res[0])
 
     def testSuggestions(self):
 
