@@ -475,8 +475,10 @@ QueryResult *Query_Execute(Query *query) {
   for (int i = 0; i < n; ++i) {
     IndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    res->results[n - i - 1] =
-        (ResultEntry){DocTable_GetKey(&query->ctx->spec->docs, h->docId), h->totalTF};
+    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    if (dmd) {
+      res->results[n - i - 1] = (ResultEntry){dmd->key, h->totalTF, dmd->payload};
+    }
     IndexResult_Free(h);
 
     free(h);
@@ -517,7 +519,8 @@ int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int wi
   return REDISMODULE_OK;
 }
 
-int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int withscores) {
+int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int withscores,
+                                       int withpayloads) {
   // With content mode - return and load the documents
   RedisModuleCtx *ctx = sctx->redisCtx;
   int ndocs;
@@ -544,6 +547,17 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
       RedisModule_ReplyWithDouble(ctx, r->results[i].score);
     }
 
+    // serialize payloads if neede
+    if (withpayloads) {
+      ++len;
+      if (r->results[i].payload) {
+        RedisModule_ReplyWithStringBuffer(ctx, r->results[i].payload->data,
+                                          r->results[i].payload->len);
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
     // serialize the fields
     ++len;
     RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
@@ -560,7 +574,8 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
   return REDISMODULE_OK;
 }
 
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, int withscores) {
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, int withscores,
+                          int withpayloads) {
   RedisModuleCtx *ctx = sctx->redisCtx;
 
   if (r->errorString != NULL) {
@@ -572,5 +587,5 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, i
     return __queryResult_serializeNoContent(r, ctx, withscores);
   }
 
-  return __queryResult_serializeFullResults(r, sctx, withscores);
+  return __queryResult_serializeFullResults(r, sctx, withscores, withpayloads);
 }

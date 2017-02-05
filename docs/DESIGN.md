@@ -141,9 +141,9 @@ FT.SEARCH products "hd tv" FILTER price 100 (300
 
 The filter syntax follows the ZRANGEBYSCORE semantics of redis, meaning `-inf` and `+inf` are supported, and prepending `(` to a number means an exclusive range. 
 
-The current implementation is very naive - it stores the numeric values of the field as a redis Sorted Set of `docId ==> value`, and simply checks each result for the value at query time. While the complexity of this check is O(1), it is a relatively slow operation (on the order of magnitude 100 nanoseconds per call), and filtering results in a significant performance overhead. 
-
-This works well when the range is big, but when the range is small it is wasteful. As a future optimization, we might select different methods for different cases, or use a more efficient lookup than a sorted set for this. 
+As of release 0.6, the implementation uses a multi-level range tree, saving ranges at multiple resolutions, to allow efficient range scanning. 
+Adding numeric filters can accelerate slow queries if the numeric range is small relative to the entire span of the filtered field.
+For example, a filter on dates focusing on a few days out of years of data, can speed a heavy query by an order of magnitude.
 
 ## Auto-Complete and Fuzzy Suggestions
 
@@ -159,4 +159,5 @@ To support unicode fuzzy matching, we use 16-bit "runes" inside the trie, and no
 2. We convert the input strings to 32-bit unicode, optionally normalizing, case-folding and removing accents on the way. If the conversion fails it's because the input is not valid utf-8.
 3. We trim the 32-bit runes to 16-bit runes using the lower 16 bits. These can be used for insertion, deletion and search.
 4. We convert the output of searches back to utf-8.
+
 

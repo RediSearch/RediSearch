@@ -7,6 +7,10 @@
 #include "util/triemap.h"
 
 #pragma pack(4)
+typedef struct {
+  char *data;
+  size_t len;
+} DocumentPayload;
 /* DocumentMetadata describes metadata stored about a document in the index (not the document
 * itself).
 *
@@ -21,6 +25,7 @@ typedef struct {
   char *key;
   float score;
   u_char flags;
+  DocumentPayload *payload;
 } DocumentMetadata;
 #pragma pack()
 
@@ -28,6 +33,7 @@ typedef struct {
 typedef enum {
   Document_DefaultFlags = 0x00,
   Document_Deleted = 0x01,
+  Document_HasPayload = 0x02
 } DocumentFlags;
 
 /* Map between external id an incremental id */
@@ -74,13 +80,18 @@ DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
 *
 * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
 * same key. This may result in document duplication in results  */
-t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags);
+t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags, const char *payload,
+                     size_t payloadSize);
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
 const char *DocTable_GetKey(DocTable *t, t_docId docId);
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 float DocTable_GetScore(DocTable *t, t_docId docId);
+
+/* Get the payload for a document, if any was set. If no payload has been set or the document id is
+ * not found, we return NULL */
+DocumentPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);

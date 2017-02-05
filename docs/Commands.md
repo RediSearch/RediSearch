@@ -43,6 +43,7 @@ OK or an error
 FT.ADD {index} {docId} {score} 
 	[NOSAVE]
 	[LANGUAGE {language}] 
+  [PAYLOAD {payload}]
 	FIELDS {field} {value} [{field} {value}...]
 ```
 
@@ -66,6 +67,9 @@ Add a documet to the index.
 
   Each field will be scored based on the index spec given in FT.CREATE. 
   Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set 
+
+- **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
+  that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 - **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
@@ -206,7 +210,7 @@ Array Response. A nested array of keys and values.
 ### Format
 
 ```
-FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
+FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}]
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
 	[LANGUAGE language]
@@ -242,7 +246,9 @@ Search the index with a textual query, returning either documents or just ids.
 - **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
 - **EXPANDER expander**: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.
-
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
+  the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
+  
 ### Complexity
 
 O(n) for single word queries (though for popular words we save a cache of the top 50 results).

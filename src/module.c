@@ -23,8 +23,8 @@
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
   int isnew = 1;
 
-  doc.docId =
-      DocTable_Put(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL), doc.score, 0);
+  doc.docId = DocTable_Put(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL), doc.score,
+                           0, doc.payload, doc.payloadSize);
 
   // Make sure the document is not already in the index - it needs to be
   // incremental!
@@ -156,7 +156,7 @@ error:
 }
 
 /*
-## FT.ADD <index> <docId> <score> [NOSAVE] [LANGUAGE <lang>] FIELDS <field>
+## FT.ADD <index> <docId> <score> [NOSAVE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS <field>
 <text> ....]
 Add a documet to the index.
 
@@ -239,7 +239,13 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     goto cleanup;
   }
 
-  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE);
+  // Parse the optional payload field
+  const char *payload = NULL;
+  size_t payloadSize = 0;
+  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
+
+  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE,
+                             payload, payloadSize);
 
   size_t len;
   int n = 0;
@@ -332,7 +338,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-/* FT.DTADD {index} {key} {flags} {score}
+/* FT.DTADD {index} {key} {flags} {score} [{payload}]
 *
 *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
 *
@@ -343,7 +349,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 */
 int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc != 5) return RedisModule_WrongArity(ctx);
+  if (argc < 5 || argc > 6) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -356,8 +362,14 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
   }
 
-  t_docId d =
-      DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score, (u_char)flags);
+  const char *payload = NULL;
+  size_t payloadSize = 0;
+  // optionally take the payload
+  if (argc == 6) {
+    payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
+  }
+  t_docId d = DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score,
+                           (u_char)flags, payload, payloadSize);
 
   return RedisModule_ReplyWithLongLong(ctx, d);
 }
@@ -456,6 +468,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc.docKey = argv[2];
   doc.score = ds;
   doc.language = lang ? lang : DEFAULT_LANGUAGE;
+  doc.payload = NULL;
+  doc.payloadSize = 0;
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
@@ -516,6 +530,10 @@ will yield less
    - WITHSCORES: If set, we also return the relative internal score of each
 document. this can be
    used to merge results from multiple instances
+
+   - WITHPAYLOADS: If set, we return document payloads as they were inserted, or nil if no payload
+exists.
+
 
    - NOSTOPWORDS: If set, we do not check the query for stopwords
 
@@ -599,6 +617,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // parse WISTHSCORES
   int withscores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
 
+  // parse WITHPAYLOADS
+  int withpaylaods = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
+
   // Parse VERBATIM and LANGUAGE argumens
   int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
 
@@ -656,7 +677,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto end;
   }
 
-  QueryResult_Serialize(r, &sctx, nocontent, withscores);
+  QueryResult_Serialize(r, &sctx, nocontent, withscores, withpaylaods);
 
   QueryResult_Free(r);
   Query_Free(q);

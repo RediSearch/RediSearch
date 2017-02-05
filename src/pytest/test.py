@@ -452,6 +452,32 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             rc = r.execute_command("ft.SUGGET", "ac", "hello")
             self.assertEqual(['hello werld'], rc)
 
+    def testPayload(self):
+
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text'))
+            for i in range(10):
+
+                self.assertOk(r.execute_command('ft.add', 'idx', '%d' % i, 1.0,
+                                                'payload', 'payload %d' % i,
+                                                'fields', 'f', 'hello world'))
+
+            for x in r.retry_with_rdb_reload():
+
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello world')
+                self.assertEqual(21, len(res))
+
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello world', 'withpayloads')
+
+                self.assertEqual(31, len(res))
+                self.assertEqual(10, res[0])
+                for i in range(1, 30, 3):
+                    self.assertEqual(res[i + 1], 'payload %s' % res[i])
+
 
 if __name__ == '__main__':
 

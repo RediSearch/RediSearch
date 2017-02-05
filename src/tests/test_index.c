@@ -531,7 +531,7 @@ int testDocTable() {
   int N = 100;
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    t_docId nd = DocTable_Put(&dt, buf, (double)i, Document_DefaultFlags);
+    t_docId nd = DocTable_Put(&dt, buf, (double)i, Document_DefaultFlags, buf, strlen(buf));
     ASSERT_EQUAL(did + 1, nd);
     did = nd;
   }
@@ -539,7 +539,7 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL(2190, (int)dt.memsize);
+  ASSERT_EQUAL(5180, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -552,9 +552,13 @@ int testDocTable() {
 
     DocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT(dmd != NULL);
-    ASSERT_STRING_EQ(dmd->key, buf);
+    ASSERT(dmd->flags & Document_HasPayload);
+    ASSERT_STRING_EQ((char *)dmd->key, (char *)buf);
+    char *pl = dmd->payload->data;
+    ASSERT(!(strncmp(pl, (char *)buf, dmd->payload->len)));
+
     ASSERT_EQUAL((int)dmd->score, i);
-    ASSERT_EQUAL((int)dmd->flags, (int)Document_DefaultFlags);
+    ASSERT_EQUAL((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
     t_docId xid = DocIdMap_Get(&dt.dim, buf);
 
@@ -562,7 +566,7 @@ int testDocTable() {
 
     int rc = DocTable_Delete(&dt, dmd->key);
     ASSERT_EQUAL(1, rc);
-    ASSERT_EQUAL((int)dmd->flags, (int)Document_Deleted);
+    ASSERT((int)(dmd->flags & Document_Deleted));
   }
 
   ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));

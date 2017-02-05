@@ -16,9 +16,13 @@ typedef struct {
   float score;
   const char *language;
   t_docId docId;
+
+  const char *payload;
+  size_t payloadSize;
 } Document;
 
-Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang);
+Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang,
+                     const char *payload, size_t payloadSize);
 
 void Document_Free(Document doc);
 

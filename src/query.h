@@ -50,6 +50,7 @@ typedef struct query {
 typedef struct {
   const char *id;
   double score;
+  DocumentPayload *payload;
 } ResultEntry;
 
 /* QueryResult represents the final processed result of a query execution */
@@ -62,7 +63,8 @@ typedef struct queryResult {
 } QueryResult;
 
 /* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores);
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores,
+                          int withpayloads);
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy
 this doesn't
