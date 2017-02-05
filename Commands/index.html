@@ -300,6 +300,15 @@
   </li>
 
       
+        
+  <li>
+    <a class="" title="Document Payloads" href="../payloads/">
+      Document Payloads
+    </a>
+    
+  </li>
+
+      
     </ul>
   </li>
 
@@ -352,9 +361,10 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <h2 id="ftadd">FT.ADD</h2>
 <h3 id="format_1">Format:</h3>
 <pre><code>FT.ADD {index} {docId} {score} 
-    [NOSAVE]
-    [LANGUAGE {language}] 
-    FIELDS {field} {value} [{field} {value}...]
+  [NOSAVE]
+  [LANGUAGE {language}] 
+  [PAYLOAD {payload}]
+  FIELDS {field} {value} [{field} {value}...]
 </code></pre>
 
 <h3 id="description_1">Description</h3>
@@ -382,9 +392,15 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <p>Each field will be scored based on the index spec given in FT.CREATE. 
   Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set </p>
 <ul>
-<li><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+<li>
+<p><strong>PAYLOAD {payload}</strong>: Optionally set a binary safe payload string to the document, 
+  that can be evaluated at query time by a custom scoring function, or retrieved to the client.</p>
+</li>
+<li>
+<p><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
-  The supported languages are:</li>
+  The supported languages are:</p>
+</li>
 </ul>
 <blockquote>
 <p>"arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
@@ -499,7 +515,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftsearch">FT.SEARCH</h2>
 <h3 id="format_4">Format</h3>
-<pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES]
+<pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}]
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
     [LANGUAGE language]
@@ -533,6 +549,8 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <li><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during search for query expansion. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.</li>
 <li><strong>EXPANDER expander</strong>: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.</li>
+<li><strong>WITHPAYLOADS</strong>: If set, we retrieve optional document payloads (see FT.ADD). 
+  the payloads follow the document id, and if <code>WITHSCORES</code> was set, follow the scores.</li>
 </ul>
 <h3 id="complexity_4">Complexity</h3>
 <p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>

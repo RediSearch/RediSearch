@@ -9,17 +9,17 @@
     <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
     
       
-        <title>Quick Start - RediSearch Documentation</title>
+        <title>Document Payloads - RediSearch Documentation</title>
       
       
       
-        <link rel="canonical" href="http://redisearch.io/Quick_Start/">
+        <link rel="canonical" href="http://redisearch.io/payloads/">
       
       
     
-    <meta property="og:url" content="http://redisearch.io/Quick_Start/">
+    <meta property="og:url" content="http://redisearch.io/payloads/">
     <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="http://redisearch.io/Quick_Start//../">
+    <meta property="og:image" content="http://redisearch.io/payloads//../">
     <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -90,9 +90,13 @@
         
           <span class="path">
             
+              
+                Reference <i class="icon icon-link"></i>
+              
+            
           </span>
         
-        Quick Start
+        Document Payloads
       </div>
     </div>
     
@@ -171,54 +175,9 @@
           
             
   <li>
-    <a class="current" title="Quick Start" href="./">
+    <a class="" title="Quick Start" href="../Quick_Start/">
       Quick Start
     </a>
-    
-      
-        
-      
-      
-        <ul>
-          
-            <li class="anchor">
-              <a title="Building and running:" href="#building-and-running">
-                Building and running:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Creating an index with fields and weights (default weight is 1.0):" href="#creating-an-index-with-fields-and-weights-default-weight-is-10">
-                Creating an index with fields and weights (default weight is 1.0):
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Adding documents to the index:" href="#adding-documents-to-the-index">
-                Adding documents to the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Searching the index:" href="#searching-the-index">
-                Searching the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Dropping the index:" href="#dropping-the-index">
-                Dropping the index:
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Adding and getting Auto-complete suggestions:" href="#adding-and-getting-auto-complete-suggestions">
-                Adding and getting Auto-complete suggestions:
-              </a>
-            </li>
-          
-        </ul>
-      
     
   </li>
 
@@ -266,9 +225,36 @@
       
         
   <li>
-    <a class="" title="Document Payloads" href="../payloads/">
+    <a class="current" title="Document Payloads" href="./">
       Document Payloads
     </a>
+    
+      
+        
+      
+      
+        <ul>
+          
+            <li class="anchor">
+              <a title="Adding payloads for documents:" href="#adding-payloads-for-documents">
+                Adding payloads for documents:
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Evaluating Payloads in Query Time" href="#evaluating-payloads-in-query-time">
+                Evaluating Payloads in Query Time
+              </a>
+            </li>
+          
+            <li class="anchor">
+              <a title="Retrieving payloads from documents" href="#retrieving-payloads-from-documents">
+                Retrieving payloads from documents
+              </a>
+            </li>
+          
+        </ul>
+      
     
   </li>
 
@@ -287,54 +273,55 @@
       <article class="article">
         <div class="wrapper">
           
-          <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:</h1>
-<h2 id="building-and-running">Building and running:</h2>
-<pre><code class="sh">git clone https://github.com/RedisLabsModules/RediSearch.git
-cd RediSearch/src
-make all
-
-# Assuming you have a redis build from the unstable branch:
-/path/to/redis-server --loadmodule ./module.so
+          <h1 id="document-payloads">Document Payloads</h1>
+<p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
+aggregation or scoring functions, we might want to store that data as an inline payload. 
+This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
+<p>Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,
+We can add custom payloads that can be evaluated in run-time.</p>
+<p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
+of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
+if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
+<h2 id="adding-payloads-for-documents">Adding payloads for documents:</h2>
+<p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
+This is done with the PAYLOAD keyword:</p>
+<pre><code>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
 </code></pre>
 
-<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):</h2>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
-OK 
-
-</code></pre>
-
-<h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
-OK
-</code></pre>
-
-<h2 id="searching-the-index">Searching the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
-1) (integer) 1
-2) &quot;doc1&quot;
-3) 1) &quot;title&quot;
-   2) &quot;hello world&quot;
-   3) &quot;body&quot;
-   4) &quot;lorem ipsum&quot;
-   5) &quot;url&quot;
-   6) &quot;http://redis.io&quot;
+<h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time</h2>
+<p>When imlplementing a scoring function, the signature of the function exposed is:</p>
+<pre><code class="c">double (*ScoringFunction)(DocumentMetadata *dmd, IndexResult *h);
 </code></pre>
 
 <blockquote>
-<p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
+<p>NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.</p>
 </blockquote>
-<h2 id="dropping-the-index">Dropping the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.DROP myIdx
-OK
+<p>DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with
+arbitrary length:</p>
+<pre><code class="c">typedef struct  {
+    char *data,
+    uint32_t len;
+} DocumentPayload;
 </code></pre>
 
-<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
+<p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
+It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
+<h2 id="retrieving-payloads-from-documents">Retrieving payloads from documents</h2>
+<p>When searching, it is possible to request the document payloads from the engine. </p>
+<p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>
+<p>If <code>WITHPAYLOADS</code> is set, the payloads follow the document id in the returned result. 
+If <code>WITHSCORES</code> is set as well, the payloads follow the scores. e.g.:</p>
+<pre><code>127.0.0.1:6379&gt; FT.CREATE foo SCHEMA bar TEXT
 OK
-
-127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
-1) &quot;hello world&quot;
-
+127.0.0.1:6379&gt; FT.ADD foo doc2 1.0 PAYLOAD &quot;hi there!&quot; FIELDS bar &quot;hello&quot;
+OK
+127.0.0.1:6379&gt; FT.SEARCH foo &quot;hello&quot; WITHPAYLOADS WITHSCORES
+1) (integer) 1
+2) &quot;doc2&quot;           # id
+3) &quot;1&quot;              # score
+4) &quot;hi there!&quot;      # payload
+5) 1) &quot;bar&quot;         # fields
+   2) &quot;hello&quot;
 </code></pre>
           <aside class="copyright" role="note">
             
@@ -352,7 +339,7 @@ OK
   <nav class="pagination" aria-label="Footer">
     <div class="previous">
       
-        <a href=".." title="Home">
+        <a href="../python_client/" title="Python API">
           <span class="direction">
             Previous
           </span>
@@ -362,7 +349,7 @@ OK
             </div>
             <div class="stretch">
               <div class="title">
-                Home
+                Python API
               </div>
             </div>
           </div>
@@ -370,22 +357,6 @@ OK
       
     </div>
     <div class="next">
-      
-        <a href="../Commands/" title="Commands">
-          <span class="direction">
-            Next
-          </span>
-          <div class="page">
-            <div class="stretch">
-              <div class="title">
-                Commands
-              </div>
-            </div>
-            <div class="button button-next" role="button" aria-label="Next">
-              <i class="icon icon-forward"></i>
-            </div>
-          </div>
-        </a>
       
     </div>
   </nav>
