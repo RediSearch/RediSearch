@@ -400,20 +400,29 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertEqual(100, res[0])
 
                 # test multi filters
+                scrange = (19, 90)
+                prrange = (290, 385)
                 res = r.execute_command('ft.search', 'idx', 'hello kitty',
-                                        "filter", "score", "19", "90",
-                                        "filter", "price", "120", "185")
-                print res
+                                        "filter", "score", scrange[
+                                            0], scrange[1],
+                                        "filter", "price", prrange[0], prrange[1])
+
                 # print res
                 for doc in res[2::2]:
 
                     sc = int(doc[doc.index('score') + 1])
                     pr = int(doc[doc.index('price') + 1])
-                    print sc, pr
-                    self.assertTrue(sc >= 19 and sc <= 90)
-                    self.assertTrue(120 <= pr <= 185)
 
-                self.assertEqual(6, res[0])
+                    self.assertTrue(sc >= scrange[0] and sc <= scrange[1])
+                    self.assertGreaterEqual(pr, prrange[0])
+                    self.assertLessEqual(pr, prrange[1])
+
+                self.assertEqual(10, res[0])
+
+                res = r.execute_command('ft.search', 'idx', 'hello kitty',
+                                        "filter", "score", "19", "90",
+                                        "filter", "price", "90", "185")
+                self.assertEqual(0, res[0])
 
     def testSuggestions(self):
 

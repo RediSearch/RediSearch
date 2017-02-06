@@ -722,11 +722,13 @@ int II_Read(void *ctx, IndexResult *hit) {
       int rc = INDEXREAD_OK;
       if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
         h->numRecords = 0;
-        if (i == 0) {
+        if (i == 0 && h->docId >= ic->lastDocId) {
           rc = it->Read(it->ctx, h);
         } else {
           rc = it->SkipTo(it->ctx, ic->lastDocId, h);
         }
+        // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, ic->lastDocId, i,
+        //        h->docId, it->LastDocId(it->ctx), rc);
 
         if (rc == INDEXREAD_EOF) goto eof;
       }

@@ -359,6 +359,7 @@ int NR_Read(void *ctx, IndexResult *r) {
   if (it->atEOF && !match) {
     return INDEXREAD_EOF;
   }
+  /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
   IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   IndexResult_PutRecord(r, &rec);
@@ -401,26 +402,30 @@ int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
     }
     i = newi;
   }
-  it->offset = i + 1;
-  if (it->offset == it->rng->size) {
-    it->atEOF = 1;
-  }
 
-  it->lastDocId = it->rng->entries[i].docId;
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
-  IndexResult_PutRecord(r, &rec);
-  // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
-  if (it->lastDocId == docId) {
-    if (it->nf) {
-      int match = NumericFilter_Match(it->nf, it->rng->entries[i].value);
-      printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
-             it->rng->entries[i].value, match);
+  it->offset = i;
+  // it->lastDocId = it->rng->entries[i].docId;
+  return NR_Read(it, r);
+  // it->offset = i + 1;
+  // if (it->offset == it->rng->size) {
+  //   it->atEOF = 1;
+  // }
 
-      if (!match) return INDEXREAD_NOTFOUND;
-    }
-    return INDEXREAD_OK;
-  }
-  return INDEXREAD_NOTFOUND;
+  // it->lastDocId = it->rng->entries[i].docId;
+  // IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  // IndexResult_PutRecord(r, &rec);
+  // // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
+  // if (it->lastDocId == docId) {
+  //   if (it->nf) {
+  //     int match = NumericFilter_Match(it->nf, it->rng->entries[i].value);
+  //     // printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
+  //     //     it->rng->entries[i].value, match);
+
+  //     if (!match) return INDEXREAD_NOTFOUND;
+  //   }
+  //   return INDEXREAD_OK;
+  // }
+  // return INDEXREAD_NOTFOUND;
 }
 /* the last docId read */
 t_docId NR_LastDocId(void *ctx) {
@@ -620,8 +625,6 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
   struct __niRdbSaveCtx ctx = {rdb, 0};
 
   NumericRangeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
-
-  printf("saved %zd/%zd entries\n", ctx.num, t->numEntries);
 }
 
 void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {

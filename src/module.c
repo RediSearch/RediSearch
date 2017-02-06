@@ -668,7 +668,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       NumericFilter *nf;
       Vector_Get(numericFilters, i, &nf);
       if (nf) {
-        printf("Adding numericFilter %s => %f..%f\n", nf->fieldName, nf->min, nf->max);
         Query_SetNumericFilter(q, nf);
       }
     }

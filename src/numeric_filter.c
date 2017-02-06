@@ -156,6 +156,6 @@ inline int NumericFilter_Match(NumericFilter *f, double score) {
     rc = (f->inclusiveMax ? score <= f->max : score < f->max);
   }
 
-  printf("numeric filter %s=>%f..%f. match %f?  %d\n", f->fieldName, f->min, f->max, score, rc);
+  // printf("numeric filter %s=>%f..%f. match %f?  %d\n", f->fieldName, f->min, f->max, score, rc);
   return rc;
 }
