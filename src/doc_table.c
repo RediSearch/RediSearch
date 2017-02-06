@@ -18,7 +18,7 @@ DocTable NewDocTable(size_t cap) {
 /* Get the metadata for a doc Id from the DocTable.
 *  If docId is not inside the table, we return NULL */
 inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
-  if (docId > t->maxDocId) {
+  if (docId == 0 || docId > t->maxDocId) {
     return NULL;
   }
   return &t->docs[docId];

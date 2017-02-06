@@ -77,7 +77,6 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
 }
 
 int IR_Read(void *ctx, IndexResult *e) {
-  float freq;
   IndexReader *ir = ctx;
   // IndexRecord rec = {.term = ir->term};
 
@@ -758,9 +757,9 @@ int II_Read(void *ctx, IndexResult *hit) {
       ic->lastDocId++;
 
       // // make sure the flags are matching.
-      // if ((hit->flags & ic->fieldMask) == 0) {
-      //   continue;
-      // }
+      if ((hit->flags & ic->fieldMask) == 0) {
+        continue;
+      }
 
       // In exact mode, make sure the minimal distance is the number of words
       if (ic->exact && hit != NULL) {

@@ -275,7 +275,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
 
             res = r.execute_command(
-                'ft.search', 'idx', "hello werld", "filter", "nocontent")
+                'ft.search', 'idx', "hello werld", "nocontent")
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
             self.assertEqual("doc2", res[1])
