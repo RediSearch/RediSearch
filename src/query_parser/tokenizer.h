@@ -33,14 +33,13 @@ typedef struct {
   // QueryTokenType ;
 } QueryToken;
 
-#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-_=+<>?";
+#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-=+<>?";
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 
 /* Create a new query tokenizer. There is no need to free anything in the object
  */
-QueryTokenizer NewQueryTokenizer(char *text, size_t len,
-                                 const char **stopwords);
+QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords);
 
 /* Read the next token from the tokenizer. If tit has reached the end of the
 query text, it will return a token with type T_END and null content.

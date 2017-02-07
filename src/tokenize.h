@@ -43,7 +43,7 @@ typedef int (*TokenFunc)(void *ctx, Token t);
 typedef char *(*NormalizeFunc)(char *, size_t *);
 
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
-#define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-_=+|'`\"<>?";
+#define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-=+|'`\"<>?";
 
 #define STEM_TOKEN_FACTOR 0.2
 
