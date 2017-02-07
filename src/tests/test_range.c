@@ -41,20 +41,26 @@ int testNumericRangeTree() {
   return 0;
 }
 
+u_int prng_seed = 1337;
+#define PRNG_MOD 30980347
+u_int prng() {
+  prng_seed = (prng_seed * prng_seed) % PRNG_MOD;
+  return prng_seed;
+}
+
 int testRangeIterator() {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
 
-  srand(1337);
   int N = 100;
   for (int i = 0; i < N; i++) {
 
     t_docId docId = i + 1;
-    float value = (double)(1 + rand() % 1000);
+    float value = (double)(1 + prng() % 1000);
     // printf("Adding %d > %f\n", docId, value);
     NumericRangeTree_Add(t, docId, value);
   }
-  // ASSERT_EQUAL(t->numRanges, 13);
+  ASSERT_EQUAL(t->numRanges, 8);
   ASSERT_EQUAL(t->numEntries, N);
 
   NumericFilter *flt = NewNumericFilter(-1, 1002, 0, 0);
