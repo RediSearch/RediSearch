@@ -56,9 +56,11 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
 
   *docId = ReadVarint(ir->buf) + ir->lastId;
   ReadVarint(ir->buf);  // read quantized score
+  u_char flags = 0xff;
+
   // pseudo-read flags
   if (ir->flags & Index_StoreFieldFlags) {
-    BufferSkip(ir->buf, 1);
+    BufferReadByte(ir->buf, (char *)&flags);
   }
 
   // pseudo read offsets
@@ -69,7 +71,7 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
 
   ir->lastId = *docId;
 
-  if (*docId != expectedDocId && expectedDocId != 0) {
+  if ((*docId != expectedDocId && expectedDocId != 0) || !(flags & ir->fieldMask)) {
     return INDEXREAD_NOTFOUND;
   }
 
