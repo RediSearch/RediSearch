@@ -20,8 +20,16 @@
 #include <string.h>
 #include <time.h>
 
-int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave) {
+/* Add a parsed document to the index. If replace is set, we will add it be deleting an older
+ * version of it first */
+int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave,
+                int replace) {
   int isnew = 1;
+
+  // if we're in replace mode, first we need to try and delete the older version of the document
+  if (replace) {
+    DocTable_Delete(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL));
+  }
 
   doc.docId = DocTable_Put(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL), doc.score,
                            0, doc.payload, doc.payloadSize);
@@ -156,7 +164,8 @@ error:
 }
 
 /*
-## FT.ADD <index> <docId> <score> [NOSAVE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS <field>
+## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS
+<field>
 <text> ....]
 Add a documet to the index.
 
@@ -176,6 +185,8 @@ between 0.0 and 1.0.
 
     - NOSAVE: If set to true, we will not save the actual document in the index
 and only index it.
+
+    - REPLACE: If set, we will do an update and delete an older version of the document if it exists
 
     - FIELDS: Following the FIELDS specifier, we are looking for pairs of
 <field> <text> to be
@@ -199,8 +210,9 @@ English.
 Returns OK on success, or an error if something went wrong.
 */
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  int nosave = RMUtil_ArgExists("nosave", argv, argc, 1);
-  int fieldsIdx = RMUtil_ArgExists("fields", argv, argc, 1);
+  int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
+  int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
+  int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
 
   // printf("argc: %d, fieldsIdx: %d, argc - fieldsIdx: %d, nosave: %d\n", argc,
   // fieldsIdx,
@@ -260,7 +272,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
   const char *msg = NULL;
-  int rc = AddDocument(&sctx, doc, &msg, nosave);
+  int rc = AddDocument(&sctx, doc, &msg, nosave, replace);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
   } else {
@@ -396,7 +408,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
-/* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>]
+/* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>] [REPLACE]
 *  Index a document that's already saved in redis as a HASH object, unrelated to
 * the module.
 *  This will not modify the document, just add it to the index if it is not
@@ -413,6 +425,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         between 0.0 and 1.0.
         If you don't have a score just set it to 1
 
+      - REPLACE: If set, we will do an update and delete an older version of the document if it
+exists
+
       - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
       indexing. Defaults to
       English.
@@ -428,7 +443,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Returns OK on success, or an error if something went wrong.
 */
 int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4 || argc > 6) {
+  if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -439,6 +454,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
     goto cleanup;
   }
+
+  int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
 
   RedisSearchCtx sctx = {ctx, sp};
 
@@ -474,7 +491,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
   const char *msg = NULL;
-  int rc = AddDocument(&sctx, doc, &msg, 1);
+  int rc = AddDocument(&sctx, doc, &msg, 1, replace);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
   } else {

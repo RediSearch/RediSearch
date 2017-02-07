@@ -42,6 +42,7 @@ OK or an error
 ```
 FT.ADD {index} {docId} {score} 
   [NOSAVE]
+  [REPLACE]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   FIELDS {field} {value} [{field} {value}...]
@@ -62,6 +63,8 @@ Add a documet to the index.
   If you don't have a score just set it to 1
 
 - **NOSAVE**: If set to true, we will not save the actual document in the index and only index it.
+
+- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be indexed.
 
@@ -94,7 +97,7 @@ OK on success, or an error if something went wrong.
 ### Format
 
 ```
- FT.ADDHASH {index} {docId} {score} [LANGUAGE language]
+ FT.ADDHASH {index} {docId} {score} [LANGUAGE language] [REPLACE]
 ```
 
 ### Description
@@ -110,6 +113,8 @@ Add a documet to the index from an existing HASH key in Redis.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1
+
+- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
 
 - **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 

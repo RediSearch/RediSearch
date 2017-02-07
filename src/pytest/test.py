@@ -158,6 +158,45 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertEqual(1, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
 
+    def testReplace(self):
+
+        with self.redis() as r:
+            r.flushdb()
+
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text'))
+
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                            'f', 'hello world'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                            'f', 'hello world'))
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello world')
+            self.assertEqual(2, res[0])
+
+            with self.assertResponseError():
+                # make sure we can't insert a doc twice
+                res = r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                        'f', 'hello world')
+
+            # now replace doc1 with a different content
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'replace', 'fields',
+                                            'f', 'goodbye universe'))
+
+            for _ in r.retry_with_rdb_reload():
+                # make sure the query for hello world does not return the replaced
+                # document
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello world', 'nocontent')
+                self.assertEqual(1, res[0])
+                self.assertEqual('doc2', res[1])
+
+                # search for the doc's new content
+                res = r.execute_command(
+                    'ft.search', 'idx', 'goodbye universe', 'nocontent')
+                self.assertEqual(1, res[0])
+                self.assertEqual('doc1', res[1])
+
     def testDrop(self):
         with self.redis() as r:
             r.flushdb()
@@ -373,7 +412,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testNumericRange(self):
 
-        with self.redis(port=6379) as r:
+        with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))

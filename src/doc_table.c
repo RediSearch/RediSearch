@@ -91,6 +91,7 @@ void dmd_free(DocumentMetadata *md) {
   if (md->payload) {
     RedisModule_Free(md->payload->data);
     RedisModule_Free(md->payload);
+    md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
   RedisModule_Free(md->key);
@@ -116,6 +117,7 @@ int DocTable_Delete(DocTable *t, const char *key) {
       RedisModule_Free(md->payload);
       md->payload = NULL;
     }
+
     md->flags |= Document_Deleted;
     return DocIdMap_Delete(&t->dim, key);
   }
