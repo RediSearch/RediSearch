@@ -362,6 +362,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <h3 id="format_1">Format:</h3>
 <pre><code>FT.ADD {index} {docId} {score} 
   [NOSAVE]
+  [REPLACE]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   FIELDS {field} {value} [{field} {value}...]
@@ -384,6 +385,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 </li>
 <li>
 <p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the index and only index it.</p>
+</li>
+<li>
+<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.</p>
 </li>
 <li>
 <p><strong>FIELDS</strong>: Following the FIELDS specifier, we are looking for pairs of  <code>{field} {value}</code> to be indexed.</p>
@@ -414,7 +418,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftaddhash">FT.ADDHASH</h2>
 <h3 id="format_2">Format</h3>
-<pre><code> FT.ADDHASH {index} {docId} {score} [LANGUAGE language]
+<pre><code> FT.ADDHASH {index} {docId} {score} [LANGUAGE language] [REPLACE]
 </code></pre>
 
 <h3 id="description_2">Description</h3>
@@ -431,6 +435,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <li>
 <p><strong>score</strong>: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1</p>
+</li>
+<li>
+<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.</p>
 </li>
 <li>
 <p><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
@@ -516,7 +523,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <h2 id="ftsearch">FT.SEARCH</h2>
 <h3 id="format_4">Format</h3>
 <pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
-  [FILTER {numeric_field} {min} {max}]
+  [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
     [LANGUAGE language]
     [EXPANDER expander]
@@ -539,7 +546,8 @@ They can be numeric, textual or geographical. For textual fields we optionally s
   fields of the document, like title or url. num is the number of specified field arguments</li>
 <li><strong>FILTER numeric_field min max</strong>: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
-  min and max follow ZRANGE syntax, and can be <strong>-inf</strong>, <strong>+inf</strong> and use <code>(</code> for exclusive ranges.</li>
+  min and max follow ZRANGE syntax, and can be <strong>-inf</strong>, <strong>+inf</strong> and use <code>(</code> for exclusive ranges. 
+  Multiple numeric filters for different fields are supported in one query.</li>
 <li><strong>GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft</strong>: If set, we filter the results to a given radius 
   from lon and lat. Radius is given as a number and units. See <a href="https://redis.io/commands/georadius">GEORADIUS</a> for more details. </li>
 <li><strong>NOSTOPWORDS</strong>: If set, we do not filter stopwords from the query. </li>
