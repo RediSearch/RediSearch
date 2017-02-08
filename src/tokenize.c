@@ -1,4 +1,5 @@
 #include "forward_index.h"
+#include "stopwords.h"
 #include "tokenize.h"
 #include <ctype.h>
 #include <stdlib.h>
