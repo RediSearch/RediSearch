@@ -45,7 +45,7 @@ int tokenFunc(void *ctx, Token t) {
 
 int testTokenize() {
 
-  char *txt = strdup("Hello? world... worlds going ? __WAZZ@UP? שלום");
+  char *txt = strdup("Hello? world... worlds going ? -WAZZ@UP? שלום");
   tokenContext ctx = {0};
   const char *expected[] = {"hello", "world", "worlds", "world", "going",
                             "go",    "wazz",  "up",     "שלום"};

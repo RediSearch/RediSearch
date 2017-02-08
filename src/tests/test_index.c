@@ -383,7 +383,7 @@ int tokenFunc(void *ctx, Token t) {
 }
 
 int testTokenize() {
-  char *txt = strdup("Hello? world...   ? __WAZZ@UP? שלום");
+  char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
   tokenContext ctx = {0};
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
