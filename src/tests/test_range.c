@@ -5,16 +5,24 @@
 #include "../index.h"
 #include "../rmutil/alloc.h"
 
+// Helper so we get the same pseudo-random numbers
+// in tests across environments
+u_int prng_seed = 1337;
+#define PRNG_MOD 30980347
+u_int prng() {
+  prng_seed = (prng_seed * prng_seed) % PRNG_MOD;
+  return prng_seed;
+}
+
 int testNumericRangeTree() {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
 
-  srand(1337);
   for (int i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + rand() % 5000));
+    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQUAL(t->numRanges, 60);
+  ASSERT_EQUAL(t->numRanges, 44);
   ASSERT_EQUAL(t->numEntries, 50000);
 
   struct {
@@ -39,13 +47,6 @@ int testNumericRangeTree() {
   }
   NumericRangeTree_Free(t);
   return 0;
-}
-
-u_int prng_seed = 1337;
-#define PRNG_MOD 30980347
-u_int prng() {
-  prng_seed = (prng_seed * prng_seed) % PRNG_MOD;
-  return prng_seed;
 }
 
 int testRangeIterator() {

@@ -3,7 +3,6 @@
 #define __TOKENIZE_H__
 
 #include "stemmer.h"
-#include "stopwords.h"
 #include "types.h"
 #include "util/khash.h"
 #include "varint.h"

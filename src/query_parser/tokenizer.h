@@ -2,12 +2,7 @@
 #define __QUERY_TOKENIZER_H__
 
 #include <stdlib.h>
-
-#include "../stopwords.h"
-
-// A NormalizeFunc converts a raw token to the normalized form in which it will
-// be stored
-typedef char *(*NormalizeFunc)(char *, size_t *);
+#include "../tokenize.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {

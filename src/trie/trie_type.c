@@ -88,7 +88,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     }
     // in prefix mode we also factor in the total length of the suffix
     if (prefixMode) {
-      ent->score /= sqrt(1 + fabs(slen - len));
+      ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
     if (heap_count(pq) < heap_size(pq)) {
