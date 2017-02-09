@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <assert.h>
 
 // static int msb = (int)(~0ULL << 25);
 
@@ -31,12 +32,11 @@ int WriteVarint(int value, BufferWriter *w) {
 }
 
 size_t varintSize(int value) {
-  size_t outputSize = 1;
-  while (value > 127) {
-    value >>= 7;
-    outputSize++;
-  }
-
+  assert(value > 0);
+  size_t outputSize = 0;
+  do {
+    ++outputSize;
+  } while (value >>= 7);
   return outputSize;
 }
 
