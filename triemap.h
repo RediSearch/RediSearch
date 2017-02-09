@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 
-typedef u_int16_t tm_len_t;
+typedef u_int32_t tm_len_t;
 
 #define TM_MAX_STRING_LEN 0xFFFF
 
@@ -88,61 +88,40 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
 size_t TrieMapNode_MemUsage(TrieMapNode *n);
 
 /**************  Iterator API  - not ported from the textual trie yet ***********/
-// /* trie iterator stack node. for internal use only */
-// typedef struct {
-//   int state;
-//   TrieMapNode *n;
-//   tm_len_t stringOffset;
-//   tm_len_t childOffset;
-//   int isSkipped;
-// } __tmi_stackNode;
+/* trie iterator stack node. for internal use only */
+typedef struct {
+  int state;
+  TrieMapNode *n;
+  tm_len_t stringOffset;
+  tm_len_t childOffset;
+  int isSkipped;
+} __tmi_stackNode;
 
-// /* Opaque trie iterator type */
-// // typedef struct TrieIterator TrieIterator;
-// typedef struct {
-//   unsigned char buf[TM_MAX_STRING_LEN];
-//   tm_len_t bufOffset;
-//   __tmi_stackNode stack[TM_MAX_STRING_LEN];
-//   tm_len_t stackOffset;
-//   void *ctx;
-// } TrieMapIterator;
 
-// /* push a new trie iterator stack node  */
-// void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, int skipped);
+typedef struct {
+  unsigned char buf[TM_MAX_STRING_LEN];
+  tm_len_t bufOffset;
+  __tmi_stackNode stack[TM_MAX_STRING_LEN];
+  tm_len_t stackOffset;
+  const char *prefix;
+  tm_len_t prefixLen;
+  int inSuffix;
+} TrieMapIterator;
 
-// /* the current top of the iterator stack */
-// #define __tmi_current(it) &it->stack[it->stackOffset - 1]
 
-// /* pop a node from the iterator's stcak */
-// void __tmi_Pop(TrieMapIterator *it);
+/* Iterate the tree with a step filter, which tells the iterator whether to
+ * continue down the trie
+ * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
+ * filter means just
+ * continue iterating the entire trie. ctx is the filter's context */
+TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n,  const char *prefix, tm_len_t prefixLen);
 
-// /* Step itearator return codes below: */
+/* Free a trie iterator */
+void TrieMapIterator_Free(TrieMapIterator *it);
 
-// /* Stop the iteration */
-// #define __TM_STEP_STOP 0
-// /* Continue to next node  */
-// #define __TM_STEP_CONT 1
-// /* We found a match, return the state to the user but continue afterwards */
-// #define __TM_STEP_MATCH 3
-
-// /* Single step iteration, feeding the given filter/automaton with the next
-//  * character */
-// int __tmi_step(TrieMapIterator *it, void *matchCtx);
-
-// /* Iterate the tree with a step filter, which tells the iterator whether to
-//  * continue down the trie
-//  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
-//  * filter means just
-//  * continue iterating the entire trie. ctx is the filter's context */
-// TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, void *ctx);
-
-// /* Free a trie iterator */
-// void TrieMapIterator_Free(TrieMapIterator *it);
-
-// /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
-//  * or 0 if we're done
-//  * and should exit */
-// int TrieMapIterator_Next(TrieMapIterator *it, unsigned char **ptr, tm_len_t *len, void **value,
-//                          void *matchCtx);
+/* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
+ * or 0 if we're done
+ * and should exit */
+int TrieMapIterator_Next(TrieMapIterator *it, unsigned char **ptr, tm_len_t *len, void **value);
 
 #endif
