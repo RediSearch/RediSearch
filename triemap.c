@@ -491,7 +491,7 @@ TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, const char *prefix, tm_len_
 
   it->bufLen = 1 + prefixLen * 2;
   it->buf = calloc(1, it->bufLen);
-  it->stackCap = 1;
+  it->stackCap = 8;
   it->stack = calloc(it->stackCap, sizeof(__tmi_stackNode));
   it->bufOffset = 0;
   it->inSuffix = 0;
