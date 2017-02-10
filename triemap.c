@@ -368,14 +368,17 @@ int __tmi_step(TrieMapIterator *it);
 
 /* Push a new trie node on the iterator's stack */
 inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, int skipped) {
-  if (it->stackOffset < TM_MAX_STRING_LEN - 1) {
-    __tmi_stackNode *sn = &it->stack[it->stackOffset++];
-    sn->childOffset = 0;
-    sn->stringOffset = 0;
-    sn->isSkipped = skipped;
-    sn->n = node;
-    sn->state = TM_ITERSTATE_SELF;
+  if (it->stackOffset == it->stackCap) {
+    it->stackCap = MIN(it->stackCap * 2, 1024);
+    it->stack = realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
+  __tmi_stackNode *sn = &it->stack[it->stackOffset++];
+  sn->childOffset = 0;
+  sn->stringOffset = 0;
+  sn->isSkipped = skipped;
+  sn->n = node;
+  sn->state = TM_ITERSTATE_SELF;
+  
 }
 
 inline void __tmi_Pop(TrieMapIterator *it) {
@@ -427,7 +430,14 @@ inline int __tmi_step(TrieMapIterator *it) {
           // advance the buffer offset and character offset
           it->buf[it->bufOffset++] = b;
           current->stringOffset++;
-          
+
+          if (it->bufOffset == it->bufLen) {
+            
+            it->bufLen *= 2;
+            printf("increasing buflen to %d\n", it->bufLen);
+            it->buf = realloc(it->buf, it->bufLen);
+          }
+
           if (it->bufOffset == it->prefixLen) {
             it->inSuffix = 1;
           }
@@ -477,6 +487,12 @@ nomatch:
 
 TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, const char *prefix, tm_len_t prefixLen) {
   TrieMapIterator *it = calloc(1, sizeof(TrieMapIterator));
+  
+
+  it->bufLen = 1 + prefixLen * 2;
+  it->buf = calloc(1, it->bufLen);
+  it->stackCap = 1;
+  it->stack = calloc(it->stackCap, sizeof(__tmi_stackNode));
   it->bufOffset = 0;
   it->inSuffix = 0;
   it->prefix = prefix;
@@ -491,6 +507,8 @@ TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, const char *prefix, tm_len_
 }
 
 void TrieMapIterator_Free(TrieMapIterator *it) {
+  free(it->buf);
+  free(it->stack);
   free(it);
 }
 

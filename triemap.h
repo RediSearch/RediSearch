@@ -99,10 +99,12 @@ typedef struct {
 
 
 typedef struct {
-  unsigned char buf[TM_MAX_STRING_LEN];
+  unsigned char *buf;
+  tm_len_t bufLen;
   tm_len_t bufOffset;
-  __tmi_stackNode stack[TM_MAX_STRING_LEN];
+  __tmi_stackNode *stack;
   tm_len_t stackOffset;
+  tm_len_t stackCap;
   const char *prefix;
   tm_len_t prefixLen;
   int inSuffix;
