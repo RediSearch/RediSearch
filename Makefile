@@ -2,7 +2,7 @@
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # Compile flags for linux / osx
-CFLAGS ?= -W -fno-common -g -ggdb -fPIC -std=c99 -O3
+CFLAGS ?= -W -fno-common -g -ggdb -fPIC -std=gnu99 -O3
 
 SOURCEDIR = .
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c)

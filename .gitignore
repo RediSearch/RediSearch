@@ -31,3 +31,7 @@
 # Debug files
 *.dSYM/
 *.su
+
+.vscode
+test/test
+benchmark
