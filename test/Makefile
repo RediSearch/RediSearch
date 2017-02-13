@@ -10,12 +10,15 @@ CC_OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES))
 
 .SUFFIXES: .c .cc .o
 
+
 benchmark: $(CC_SOURCES) benchmark.c
 	$(CC) $(CFLAGS) -o benchmark $^ $(LDFLAGS)
+.PHONY = benchmark
+
 test: $(CC_SOURCES) test.c
 	$(CC) $(CFLAGS) -o test $^ $(LDFLAGS)
 
 
 
 clean:
-	rm -rf *.o *.a
+	rm -rf *.o *.a benchmark test

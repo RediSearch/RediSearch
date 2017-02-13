@@ -34,6 +34,7 @@ typedef struct {
 
   // the string of the current node
   char str[];
+  // ... here come the first letters of each child childChars[]
   // ... now come the children, to be accessed with __trieMapNode_children
 } TrieMapNode;
 #pragma pack()
@@ -59,9 +60,12 @@ TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len,
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
  * memory saving reasons */
-#define __trieMapNode_children(n) \
-  ((TrieMapNode **)((void *)n + sizeof(TrieMapNode) + (n->len + 1)))
+#define __trieMapNode_children(n)                                              \
+  ((TrieMapNode **)((void *)n + sizeof(TrieMapNode) + (n->len + 1) +           \
+                    n->numChildren))
 
+#define __trieMapNode_childKey(n, c)                                           \
+  (char *)((void *)n + sizeof(TrieMapNode) + (n->len + 1) + c)
 #define __trieMapNode_isTerminal(n) (n->flags & TM_NODE_TERMINAL)
 
 #define __trieMapNode_isDeleted(n) (n->flags & TM_NODE_DELETED)
