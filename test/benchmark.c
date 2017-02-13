@@ -45,8 +45,9 @@ void populate(int N) {
   int L = 1000000;
 
   TimeSampler_Reset(&ts);
+  formatKey((char *)buf, rand() % N);
   for (int i = 0; i < L; i++) {
-    formatKey((char *)buf, rand() % N);
+
     TIME_SAMPLE_BLOCK(ts, TrieMapNode_Find(tm, buf, strlen((char *)buf)))
   }
 
@@ -84,6 +85,6 @@ void populate(int N) {
 }
 
 int main(int argc, char **argv) {
-  populate(2000000);
+  populate(500000);
   return 0;
 }

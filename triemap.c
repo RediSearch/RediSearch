@@ -85,7 +85,8 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
   TrieMapNode **children = __trieMapNode_children(ch);
   TrieMapNode **newChildren = __trieMapNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieMapNode *) * merged->numChildren);
-
+  memcpy(__trieMapNode_childKey(merged, 0), __trieMapNode_childKey(ch, 0),
+         merged->numChildren);
   free(n);
   free(ch);
 
@@ -168,27 +169,30 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   tm_len_t offset = 0;
   while (n && offset < len) {
     tm_len_t localOffset = 0;
-    for (; offset < len && localOffset < n->len; offset++, localOffset++) {
-      if (str[offset] != n->str[localOffset]) {
+    tm_len_t nlen = n->len;
+    while (offset < len && localOffset < nlen) {
+      if (str[offset++] != n->str[localOffset++]) {
         break;
       }
     }
 
     if (offset == len) {
       // we're at the end of both strings!
-      if (localOffset == n->len)
+      if (localOffset == nlen)
         return __trieMapNode_isDeleted(n) ? NULL : n->value;
-    } else if (localOffset == n->len) {
+    } else if (localOffset == nlen) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-      for (; i < n->numChildren; i++) {
-        if (str[offset] == *__trieMapNode_childKey(n, i)) {
+      char *childKeys = __trieMapNode_childKey(n, 0);
+      tm_len_t nch = n->numChildren;
+      while (i < nch) {
+        if (str[offset] == childKeys[i]) {
           nextChild = __trieMapNode_children(n)[i];
-
           break;
         }
+        ++i;
       }
 
       // we couldn't find a matching child
@@ -215,13 +219,20 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
       TrieMapNode_Free(nodes[i], freeCB);
 
       nodes[i] = NULL;
+      char *nk = __trieMapNode_childKey(n, i);
       // just "fill" the hole with the next node up
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
+        *nk = *(nk + 1);
         i++;
+        nk++;
       }
       // reduce child count
+
       n->numChildren--;
+      memmove(((char *)nodes) + 1, (char *)nodes,
+              sizeof(TrieMapNode *) * n->numChildren);
+
     } else {
       // this node is ok!
       // if needed - merge this node with it its single child

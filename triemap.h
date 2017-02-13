@@ -13,7 +13,7 @@ typedef u_int16_t tm_len_t;
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
 
-#pragma pack(1)
+//#pragma pack(1)
 /* TrieMapNode represents a single node in a trie. The actual size of it is
  * bigger,
  * as the children are
@@ -37,7 +37,7 @@ typedef struct {
   // ... here come the first letters of each child childChars[]
   // ... now come the children, to be accessed with __trieMapNode_children
 } TrieMapNode;
-#pragma pack()
+//#pragma pack()
 
 typedef TrieMapNode TrieMap;
 TrieMap *NewTrieMap();
