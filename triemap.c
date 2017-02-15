@@ -1,4 +1,5 @@
 #include "triemap.h"
+#include <math.h>
 #include <sys/param.h>
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
@@ -579,4 +580,66 @@ void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
   } else {
     free(t);
   }
+}
+
+TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str,
+                                    tm_len_t *len) {
+  size_t stackCap = minSteps;
+  size_t stackSz = 1;
+  TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
+  stack[0] = n;
+
+  tm_len_t bufCap = 1 + MAX(minSteps, n->len);
+  char *buf = malloc(bufCap);
+  memcpy(buf, n->str, n->len);
+  size_t bufOffset = n->len;
+
+  int steps = 0;
+
+  while (steps < minSteps || !__trieMapNode_isTerminal(stack[stackSz - 1])) {
+    TrieMapNode *n = stack[stackSz - 1];
+
+    int rnd = rand() % (n->numChildren + 1) - 1;
+    if (rnd == -1) {
+      if (stackSz > 1) {
+        steps++;
+        stackSz--;
+        bufOffset -= n->len;
+        // printf("reducing stack to %zd, offset %d\n", stackSz, bufOffset);
+      }
+      continue;
+    }
+
+    /* Push a child on the stack */
+    stack[stackSz++] = n = __trieMapNode_children(n)[rnd];
+    steps++;
+    if (stackSz == stackCap) {
+      stackCap += minSteps;
+      stack = realloc(stack, stackCap);
+    }
+
+    /* Copy the string of the current node on the buffer */
+    if (bufOffset + n->len >= bufCap) {
+      bufCap *= 2;
+      buf = realloc(buf, bufCap);
+    }
+    memcpy(buf + bufOffset, n->str, n->len);
+    bufOffset += n->len;
+  }
+  n = stack[stackSz - 1];
+  *str = buf;
+  *len = bufOffset;
+  free(stack);
+  return n;
+}
+
+int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr) {
+  if (t->cardinality == 0) {
+    return 0;
+  }
+  // TODO: deduce steps from cardinality properly
+  TrieMapNode *n = TrieMapNode_RandomWalk(
+      t->root, (int)round(log2(1 + t->cardinality)), str, len);
+  *ptr = n->value;
+  return 1;
 }

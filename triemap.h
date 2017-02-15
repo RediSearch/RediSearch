@@ -70,6 +70,14 @@ int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
  * individual payload values. If not, free() is used instead. */
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
 
+/* Get a random key from the trie by doing a random walk down and up the tree
+ * for a minimum number of steps. Returns 0 if the tree is empty and we couldn't
+ * find a random node.
+ * Assign's the key to str and saves its len (the key is NOT null terminated).
+ * NOTE: It is the caller's responsibility to free the key string
+  */
+int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr);
+
 size_t TrieMap_MemUsage(TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet

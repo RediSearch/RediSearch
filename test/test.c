@@ -78,9 +78,38 @@ void testTrieIterator() {
   TrieMap_Free(tm, NULL);
 }
 
+void testRandomWalk() {
+  TrieMap *tm = NewTrieMap();
+
+  char buf[32];
+  int N = 1000;
+
+  for (int i = 0; i < N; i++) {
+    sprintf(buf, "key%d", i);
+    int *pi = malloc(sizeof(int));
+    *pi = i;
+    TrieMap_Add(tm, buf, strlen(buf), pi, NULL);
+  }
+  char *sbuf;
+  tm_len_t len;
+  void *ptr;
+  for (int i = 0; i < 100; i++) {
+    int rc = TrieMap_RandomKey(tm, &sbuf, &len, &ptr);
+    mu_check(rc);
+    mu_check(ptr);
+
+    printf("%.*s\n", len, sbuf);
+    free(sbuf);
+  }
+
+  TrieMap_Free(tm, NULL);
+}
+
 int main(int argc, char **argv) {
-  MU_RUN_TEST(testTrie);
-  MU_RUN_TEST(testTrieIterator);
+  //  MU_RUN_TEST(testTrie);
+  //  MU_RUN_TEST(testTrieIterator);
+  MU_RUN_TEST(testRandomWalk);
+
   MU_REPORT();
   return minunit_status;
 }
