@@ -58,7 +58,6 @@ TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len,
 TrieMap *NewTrieMap() {
   TrieMap *tm = malloc(sizeof(TrieMap));
   tm->cardinality = 0;
-  tm->nodes = 0;
   tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
   return tm;
 }
