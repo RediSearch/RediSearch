@@ -584,28 +584,27 @@ void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
 
 TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str,
                                     tm_len_t *len) {
+  // create an iteration stack we walk up and down
   size_t stackCap = minSteps;
   size_t stackSz = 1;
   TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
   stack[0] = n;
 
-  tm_len_t bufCap = 1 + MAX(minSteps, n->len);
-  char *buf = malloc(bufCap);
-  memcpy(buf, n->str, n->len);
-  size_t bufOffset = n->len;
+  size_t bufCap = n->len;
 
   int steps = 0;
 
   while (steps < minSteps || !__trieMapNode_isTerminal(stack[stackSz - 1])) {
     TrieMapNode *n = stack[stackSz - 1];
 
+    /* select the next step - -1 means walk back up one level */
     int rnd = rand() % (n->numChildren + 1) - 1;
     if (rnd == -1) {
+      /* we can't walk up the top level */
       if (stackSz > 1) {
         steps++;
         stackSz--;
-        bufOffset -= n->len;
-        // printf("reducing stack to %zd, offset %d\n", stackSz, bufOffset);
+        bufCap -= n->len;
       }
       continue;
     }
@@ -618,17 +617,22 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str,
       stack = realloc(stack, stackCap);
     }
 
-    /* Copy the string of the current node on the buffer */
-    if (bufOffset + n->len >= bufCap) {
-      bufCap *= 2;
-      buf = realloc(buf, bufCap);
-    }
-    memcpy(buf + bufOffset, n->str, n->len);
-    bufOffset += n->len;
+    bufCap += n->len;
   }
+
+  /* Return the node at the top of the stack */
   n = stack[stackSz - 1];
+
+  /* build the string by walking the stack and copying all node strings */
+  char *buf = malloc(bufCap + 1);
+  buf[bufCap] = 0;
+  tm_len_t bufSize = 0;
+  for (int i = 0; i < stackSz; i++) {
+    memcpy(buf + bufSize, stack[i]->str, stack[i]->len);
+    bufSize += stack[i]->len;
+  }
   *str = buf;
-  *len = bufOffset;
+  *len = bufSize;
   free(stack);
   return n;
 }
