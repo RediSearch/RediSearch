@@ -6,18 +6,10 @@
 
 uint16_t crc16(const char *buf, int len);
 
-int letterDist[] = {['E'] = 445, ['T'] = 330, ['A'] = 286, ['O'] = 272,
-                    ['I'] = 269, ['N'] = 257, ['S'] = 232, ['R'] = 223,
-                    ['H'] = 180, ['L'] = 145, ['D'] = 136, ['C'] = 119,
-                    ['U'] = 97,  ['M'] = 89,  ['F'] = 85,  ['P'] = 76,
-                    ['G'] = 66,  ['W'] = 59,  ['Y'] = 59,  ['B'] = 52,
-                    ['V'] = 37,  ['K'] = 19,  ['X'] = 8,   ['J'] = 5,
-                    ['Q'] = 4,   ['Z'] = 3};
-
 #define MB(x) x / (float)(1024 * 1024)
 
 const char alphabet[] =
-    "  eeeeeeeeeeeetttttttttaaaaaaaaooooooooiiiiiiinnnnnnnsssss"
+    "  eeeeeeeeeeeeettttttttttaaaaaaaaaooooooooiiiiiiinnnnnnnsssss"
     "srrrrrrhhhhhllllddddcccuuummmffppggwwybbvkxjqz\0\0\0\0\0\0\0\0";
 size_t formatRandomKey(char *buf, int i) {
   char *p = buf;
@@ -54,37 +46,64 @@ void populate(int N) {
 
   TimeSample ts;
   TimeSampler_Reset(&ts);
-  int n = 0;
-  srand(1337);
-  for (int i = 0; n < N; i += 1 + rand() % 15) {
-
-    size_t sz = formatKey((char *)buf, i);
-    // if (!sz || buf[0] == 0)
-    //   continue;
+  for (int i = 0; i < N; i++) {
+    size_t sz = formatRandomKey((char *)buf, 12);
+    if (!sz || buf[0] == 0)
+      continue;
     // printf("%s\n", buf);
     dataSize += sz;
     TimeSampler_StartSection(&ts);
-    n += TrieMapNode_Add(&tm, buf, sz, NULL, NULL);
+    TrieMapNode_Add(&tm, buf, sz, NULL, NULL);
     TimeSampler_EndSection(&ts);
     TimeSampler_Tick(&ts);
-    if (i % 100000 == 99999) {
+    if (i % 1000000 == 999999) {
 
-      printf(
-          "Insertion after %d/%d items: %.03fsec (%.02fns/iteration), %.02fMB "
-          "(%.02fMB raw data)\n",
-          n, N, TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts),
-          MB(TrieMapNode_MemUsage(tm)), MB(dataSize));
+      printf("Insertion after %d items: %.03fsec (%.02fns/iteration), %.02fMB "
+             "(%.02fMB raw data)\n",
+             i + 1, TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts),
+             MB(TrieMapNode_MemUsage(tm)), MB(dataSize));
       // TimeSampler_Reset(&ts);
     }
   }
+
+  // memset(childrenHist, 0, sizeof(childrenHist));
+  // size_t x = TrieMapNode_MemUsage(tm);
+  // for (int i = 0; i < 256; i++) {
+  //   if (childrenHist[i])
+  //     printf("%d -> %d\n", i, childrenHist[i]);
+  // }
 
   int L = N;
 
   TimeSampler_Reset(&ts);
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
+    size_t sz = formatKey((char *)buf, i);
+    TrieMapNode_Find(tm, buf, sz);
+    TimeSampler_Tick(&ts);
+  }
+  TimeSampler_End(&ts);
+  printf("Lookup of %d SEQUENTIAL items: %.03fsec (%.02fns/iteration)\n", L,
+         TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
+  TimeSampler_Reset(&ts);
+  TimeSampler_Start(&ts);
+  for (int i = 0; i < L; i++) {
 
-    size_t sz = formatKey((char *)buf, rand() % N);
+    size_t sz =
+        formatRandomKey((char *)buf, 12); // formatKey((char *)buf, rand() % N);
+    TrieMapNode_Find(tm, buf, sz);
+    TimeSampler_Tick(&ts);
+  }
+  TimeSampler_End(&ts);
+
+  printf("Lookup of %d RANDOM items: %.03fsec (%.02fns/iteration)\n", L,
+         TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
+  TimeSampler_Reset(&ts);
+  TimeSampler_Start(&ts);
+  for (int i = 0; i < L; i++) {
+
+    size_t sz =
+        formatRandomKey((char *)buf, 12); // formatKey((char *)buf, rand() % N);
     TrieMapNode_Find(tm, buf, sz);
     TimeSampler_Tick(&ts);
   }
@@ -94,21 +113,6 @@ void populate(int N) {
          TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
 
   TimeSampler_Reset(&ts);
-  TimeSampler_Start(&ts);
-  n = 0;
-  srand(1337);
-  for (int i = 0; n < N; i += 1 + rand() % 15) {
-    size_t sz = formatKey((char *)buf, i);
-    TrieMapNode_Find(tm, buf, sz);
-    ++n;
-    TimeSampler_Tick(&ts);
-  }
-  TimeSampler_End(&ts);
-  printf("Lookup of %d SEQUENTIAL items: %.03fsec (%.02fns/iteration)\n", n,
-         TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
-
-  TimeSampler_Reset(&ts);
-  TimeSampler_Start(&ts);
   for (int i = 0; i < N; i++) {
 
     formatKey((char *)buf, i);

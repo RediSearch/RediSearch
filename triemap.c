@@ -64,7 +64,7 @@ TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset,
   *__trieMapNode_childKey(n, n->numChildren - 1) = str[offset];
 
   __trieMapNode_children(n)[n->numChildren - 1] = child;
-
+  n->flags &= ~TM_NODE_SORTED;
   return n;
 }
 
@@ -85,7 +85,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   n->len = offset;
   n->value = NULL;
   // the parent node is now non terminal and non sorted
-  n->flags &= ~(TM_NODE_TERMINAL | TM_NODE_DELETED);
+  n->flags = 0; //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
 
   n = realloc(n, __trieMapNode_Sizeof(n->numChildren, n->len));
   __trieMapNode_children(n)[0] = newChild;
@@ -145,6 +145,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
     n->flags |= TM_NODE_TERMINAL;
     // if it was deleted, make sure it's not now
     n->flags &= ~TM_NODE_DELETED;
+    n->flags &= ~TM_NODE_SORTED;
     *np = n;
     // if the node existed - we return 0, otherwise return 1 as it's a new
     // node
@@ -158,13 +159,33 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
     if (str[offset] == child->str[0]) {
       int rc = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
       __trieMapNode_children(n)[i] = child;
-      *__trieMapNode_childKey(n, i) = child->str[0];
+      //      *__trieMapNode_childKey(n, i) = child->str[0];
+
       return rc;
     }
   }
 
   *np = __trieMapNode_AddChild(n, str, offset, len, value);
   return 1;
+}
+
+// comparator for node sorting by child max score
+static int __cmp_nodes(const void *p1, const void *p2) {
+  return (*(TrieMapNode **)p1)->str[0] - (*(TrieMapNode **)p2)->str[0];
+}
+
+static int __cmp_chars(const void *p1, const void *p2) {
+  return *(char *)p1 - *(char *)p2;
+}
+
+/* Sort the children of a node by their first letter to allow binary search */
+static inline void __trieNode_sortChildren(TrieMapNode *n) {
+  if ((0 == (n->flags & TM_NODE_SORTED)) && n->numChildren > 3) {
+    qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *),
+          __cmp_nodes);
+    qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
+    n->flags |= TM_NODE_SORTED;
+  }
 }
 
 void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
@@ -189,14 +210,48 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
+      // if (!(n->flags & TM_NODE_SORTED) && n->numChildren > 10) {
+      //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode
+      //   *),
+      //         __cmp_nodes);
+      //   // printf("%.*s ... ", n->numChildren, __trieMapNode_childKey(n, 0));
+      //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
+      //   //  printf("%.*s\n", n->numChildren, __trieMapNode_childKey(n, 0));
+      //   n->flags |= TM_NODE_SORTED;
+      // }
       char *childKeys = __trieMapNode_childKey(n, 0);
+      char c = str[offset];
+      if (n->flags & TM_NODE_SORTED) {
 
-      while (i < n->numChildren) {
-        if (str[offset] == childKeys[i]) {
-          nextChild = __trieMapNode_children(n)[i];
-          break;
+        int bottom = 0, top = n->numChildren - 1;
+
+        while (bottom <= top) {
+          int mid = (bottom + top) / 2;
+
+          char cc = *__trieMapNode_childKey(n, mid);
+          if (c < cc) {
+            top = mid - 1;
+          } else if (c > cc) {
+            bottom = mid + 1;
+          } else {
+
+            nextChild = __trieMapNode_children(n)[mid];
+            break;
+          }
         }
-        ++i;
+        // if (!nextChild) {
+        //   printf("NOT FOUND %c in %.*s!\n", c, n->numChildren,
+        //          __trieMapNode_childKey(n, 0));
+        // }
+      } else {
+
+        while (i < n->numChildren) {
+          if (str[offset] == childKeys[i]) {
+            nextChild = __trieMapNode_children(n)[i];
+            break;
+          }
+          ++i;
+        }
       }
 
       // we couldn't find a matching child
