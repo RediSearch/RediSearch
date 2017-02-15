@@ -38,41 +38,40 @@ typedef struct {
 } TrieMapNode;
 #pragma pack()
 
-typedef TrieMapNode TrieMap;
-TrieMap *NewTrieMap();
+typedef struct {
+  TrieMapNode *root;
+  size_t cardinality;
+  size_t nodes;
+} TrieMap;
 
-/* Print a trie node recursively. printval is a callback that prints the
- * non-null values */
-void TrieMapNode_Print(TrieMapNode *n, int idx, int depth,
-                       void (*printval)(void *));
+TrieMap *NewTrieMap();
 
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieMapNode_Add(TrieMapNode **n, char *str, tm_len_t len, void *value,
-                    TrieMapReplaceFunc cb);
+int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value,
+                TrieMapReplaceFunc cb);
 
 /* Find the entry with a given string and length, and return its score. Returns
 * 0 if the entry was
 * not found.
 * Note that you cannot put entries with zero score */
-void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len);
+void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
 * anything,
 * but the node will not be persisted to disk, thus deleted after reload.
 * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len,
-                       void (*freeCB)(void *));
+int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free
  * individual payload values. If not, free() is used instead. */
-void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
+void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
 
-size_t TrieMapNode_MemUsage(TrieMapNode *n);
+size_t TrieMap_MemUsage(TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet
  * ***********/
@@ -106,8 +105,8 @@ void __tmi_Pop(TrieMapIterator *it);
  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
  * filter means just
  * continue iterating the entire trie. ctx is the filter's context */
-TrieMapIterator *TrieMapNode_Iterate(TrieMapNode *n, const char *prefix,
-                                     tm_len_t prefixLen);
+TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix,
+                                 tm_len_t prefixLen);
 
 /* Free a trie iterator */
 void TrieMapIterator_Free(TrieMapIterator *it);

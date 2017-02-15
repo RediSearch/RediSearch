@@ -12,7 +12,7 @@ CC_OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES))
 
 
 benchmark: $(CC_SOURCES) benchmark.c ../triemap.c
-	$(CC) $(CFLAGS) -o benchmark $^ -lprofiler
+	$(CC) $(CFLAGS) -o benchmark $^ 
 .PHONY = benchmark
 
 test: $(CC_SOURCES) test.c
