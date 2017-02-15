@@ -1,11 +1,43 @@
 #include "triemap.h"
 #include <sys/param.h>
 
-size_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
-  return sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) +
-         (slen + 1) + numChildren;
+void *TRIEMAP_NOTFOUND = "NOT FOUND";
+/* Get a pointer to the children array of a node. This is not an actual member
+ * of the node for
+ * memory saving reasons */
+#define __trieMapNode_children(n)                                              \
+  ((TrieMapNode **)((void *)n + sizeof(TrieMapNode) + (n->len + 1) +           \
+                    n->numChildren))
+
+#define __trieMapNode_childKey(n, c)                                           \
+  (char *)((char *)n + sizeof(TrieMapNode) + n->len + 1 + c)
+
+#define __trieMapNode_isTerminal(n) (n->flags & TM_NODE_TERMINAL)
+
+#define __trieMapNode_isDeleted(n) (n->flags & TM_NODE_DELETED)
+
+/* The byte size of a node, based on its internal string length and number of
+ * children */
+tm_len_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
+  return (sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) +
+          (slen + 1) + numChildren);
 }
 
+TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
+  n = realloc(n, __trieMapNode_Sizeof(n->numChildren + offset, n->len));
+  TrieMapNode **children = __trieMapNode_children(n);
+
+  // stretch or shrink the child key cache array
+  memmove(((char *)children) + offset, (char *)children,
+          sizeof(TrieMapNode *) * n->numChildren);
+  n->numChildren += offset;
+  return n;
+}
+
+/* Create a new trie node. str is a string to be copied into the node,
+ * starting
+ * from offset up until
+ * len. numChildren is the initial number of allocated child nodes */
 TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len,
                               tm_len_t numChildren, void *value, int terminal) {
   tm_len_t nlen = len - offset;
@@ -24,11 +56,8 @@ TrieMap *NewTrieMap() { return __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0); }
 
 TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset,
                                     tm_len_t len, void *value) {
-  n = realloc((void *)n, __trieMapNode_Sizeof(n->numChildren + 1, n->len));
-  TrieMapNode **children = __trieMapNode_children(n);
-  memmove(((char *)children) + 1, (char *)children,
-          sizeof(TrieMapNode *) * n->numChildren);
-  n->numChildren++;
+  // make room for another child
+  n = __trieMapNode_resizeChildren(n, 1);
 
   // a newly added child must be a terminal node
   TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1);
@@ -64,35 +93,6 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   return n;
 }
 
-/* If a node has a single child after delete, we can merged them. This deletes
- * the node and returns a newly allocated node */
-TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
-  if (__trieMapNode_isTerminal(n) || n->numChildren != 1) {
-    return n;
-  }
-  TrieMapNode *ch = *__trieMapNode_children(n);
-
-  // Copy the current node's data and children to a new child node
-  char nstr[n->len + ch->len + 1];
-  memcpy(nstr, n->str, sizeof(char) * n->len);
-  memcpy(&nstr[n->len], ch->str, sizeof(char) * ch->len);
-  TrieMapNode *merged =
-      __newTrieMapNode(nstr, 0, n->len + ch->len, ch->numChildren, ch->value,
-                       __trieMapNode_isTerminal(ch));
-
-  merged->numChildren = ch->numChildren;
-  merged->flags = ch->flags;
-  TrieMapNode **children = __trieMapNode_children(ch);
-  TrieMapNode **newChildren = __trieMapNode_children(merged);
-  memcpy(newChildren, children, sizeof(TrieMapNode *) * merged->numChildren);
-  memcpy(__trieMapNode_childKey(merged, 0), __trieMapNode_childKey(ch, 0),
-         merged->numChildren);
-  free(n);
-  free(ch);
-
-  return merged;
-}
-
 int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
                     TrieMapReplaceFunc cb) {
   if (len == 0) {
@@ -116,7 +116,8 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
     n = __trieMapNode_Split(n, offset);
 
     // the new string matches the split node exactly!
-    // we simply turn the split node, which is now non terminal, into a terminal
+    // we simply turn the split node, which is now non terminal, into a
+    // terminal
     // node
     if (offset == len) {
       n->value = value;
@@ -145,7 +146,8 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
     // if it was deleted, make sure it's not now
     n->flags &= ~TM_NODE_DELETED;
     *np = n;
-    // if the node existed - we return 0, otherwise return 1 as it's a new node
+    // if the node existed - we return 0, otherwise return 1 as it's a new
+    // node
     return (term && !deleted) ? 0 : 1;
   }
 
@@ -168,6 +170,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
 void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   tm_len_t offset = 0;
   while (n && offset < len) {
+
     tm_len_t localOffset = 0;
     tm_len_t nlen = n->len;
     while (offset < len && localOffset < nlen) {
@@ -176,18 +179,19 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       }
     }
 
-    if (offset == len) {
+    // we've reached the end of the node's string
+    if (localOffset == nlen) {
       // we're at the end of both strings!
-      if (localOffset == nlen)
+      if (offset == len) {
         return __trieMapNode_isDeleted(n) ? NULL : n->value;
-    } else if (localOffset == nlen) {
+      }
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
       char *childKeys = __trieMapNode_childKey(n, 0);
-      tm_len_t nch = n->numChildren;
-      while (i < nch) {
+
+      while (i < n->numChildren) {
         if (str[offset] == childKeys[i]) {
           nextChild = __trieMapNode_children(n)[i];
           break;
@@ -198,11 +202,42 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       // we couldn't find a matching child
       n = nextChild;
     } else {
-      return NULL;
+      return TRIEMAP_NOTFOUND;
     }
   }
 
-  return NULL;
+  return TRIEMAP_NOTFOUND;
+}
+
+/* If a node has a single child after delete, we can merged them. This deletes
+ * the node and returns a newly allocated node */
+TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
+  // we do not merge terminal nodes
+  if (__trieMapNode_isTerminal(n) || n->numChildren != 1) {
+    return n;
+  }
+
+  TrieMapNode *ch = *__trieMapNode_children(n);
+
+  // Copy the current node's data and children to a new child node
+  char nstr[n->len + ch->len + 1];
+  memcpy(nstr, n->str, sizeof(char) * n->len);
+  memcpy(&nstr[n->len], ch->str, sizeof(char) * ch->len);
+  TrieMapNode *merged =
+      __newTrieMapNode(nstr, 0, n->len + ch->len, ch->numChildren, ch->value,
+                       __trieMapNode_isTerminal(ch));
+
+  merged->numChildren = ch->numChildren;
+  merged->flags = ch->flags;
+
+  memcpy(__trieMapNode_children(merged), __trieMapNode_children(ch),
+         sizeof(TrieMapNode *) * merged->numChildren);
+  memcpy(__trieMapNode_childKey(merged, 0), __trieMapNode_childKey(ch, 0),
+         merged->numChildren);
+  free(n);
+  free(ch);
+
+  return merged;
 }
 
 /* Optimize the node and its children:
@@ -230,7 +265,7 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
       // reduce child count
 
       n->numChildren--;
-      memmove(((char *)nodes) + 1, (char *)nodes,
+      memmove(((char *)nodes) - 1, (char *)nodes,
               sizeof(TrieMapNode *) * n->numChildren);
 
     } else {
@@ -247,7 +282,7 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
 int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len,
                        void (*freeCB)(void *)) {
   tm_len_t offset = 0;
-  static TrieMapNode *stack[TM_MAX_STRING_LEN];
+  static TrieMapNode *stack[65535];
   int stackPos = 0;
   int rc = 0;
   while (n && offset < len) {
@@ -277,10 +312,9 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len,
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
       for (; i < n->numChildren; i++) {
-        TrieMapNode *child = __trieMapNode_children(n)[i];
 
-        if (str[offset] == child->str[0]) {
-          nextChild = child;
+        if (str[offset] == *__trieMapNode_childKey(n, i)) {
+          nextChild = __trieMapNode_children(n)[i];
           break;
         }
       }
