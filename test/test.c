@@ -2,58 +2,85 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../triemap.h"
+#include "minunit.h"
 #include "time_sample.h"
 
-uint16_t crc16(const char *buf, int len);
+void testTrie() {
+  TrieMap *tm = NewTrieMap();
 
-#define MB(x) x / (float)(1024 * 1024)
+  char buf[32];
 
-void formatKey(char *buf, int i) {
-  sprintf(buf, "00key:%d", i);
-  //*(uint16_t *)buf = crc16(&buf[2], strlen(buf) - 2);
-  // printf("%s\n", buf);
-  // sprintf((char *)buf, "%04x", crc16(&buf[5], strlen(buf) - 5));
-  // buf[4] = ':';
+  for (int i = 0; i < 100; i++) {
+    sprintf(buf, "key%d", i);
+    int *pi = malloc(sizeof(int));
+    *pi = i;
+    int rc = TrieMap_Add(tm, buf, strlen(buf), NULL, NULL);
+    mu_check(rc);
+    rc = TrieMap_Add(tm, buf, strlen(buf), pi, NULL);
+    mu_check(rc == 0);
+  }
+  mu_assert_int_eq(100, tm->cardinality);
+
+  for (int i = 0; i < 100; i++) {
+    sprintf(buf, "key%d", i);
+
+    void *p = TrieMap_Find(tm, buf, strlen(buf));
+    mu_check(p != NULL);
+    mu_check(p != TRIEMAP_NOTFOUND);
+    mu_check(*(int *)p == i);
+  }
+
+  for (int i = 0; i < 100; i++) {
+    sprintf(buf, "key%d", i);
+
+    int rc = TrieMap_Delete(tm, buf, strlen(buf), NULL);
+    mu_check(rc);
+    rc = TrieMap_Delete(tm, buf, strlen(buf), NULL);
+    mu_check(rc == 0);
+    mu_check(tm->cardinality == 100 - i - 1);
+  }
+
+  TrieMap_Free(tm, NULL);
 }
 
-void testTrie(int N) {
+void testTrieIterator() {
   TrieMap *tm = NewTrieMap();
-  int k = 32;
 
-  unsigned char buf[k + 1];
-  buf[k] = 0;
+  char buf[32];
 
-  TimeSample ts;
-  TimeSampler_Reset(&ts);
-  for (int i = 0; i < N; i++) {
-    formatKey((char *)buf, i);
-    TrieMapNode_Add(&tm, buf, strlen((char *)buf), NULL, NULL);
+  for (int i = 0; i < 100; i++) {
+    sprintf(buf, "key%d", i);
+    int *pi = malloc(sizeof(int));
+    *pi = i;
+    TrieMap_Add(tm, buf, strlen(buf), pi, NULL);
   }
-  printf("created %d entries, memory size now %f\n", N,
-         MB(TrieMapNode_MemUsage(tm)));
-  formatKey((char *)buf, 35410);
-  // buf[6] = 0;
-  printf("searching for %.*s\n", 2, buf);
-  TrieMapIterator *it = TrieMapNode_Iterate(tm, buf, 2);
-  char *s;
-  tm_len_t l;
-  void *val;
+  mu_assert_int_eq(100, tm->cardinality);
 
-  int matches = 0;
-  TimeSampler_Reset(&ts);
-  int rc;
-  do {
-    TIME_SAMPLE_BLOCK(ts, (rc = TrieMapIterator_Next(it, &s, &l, &val)));
-    if (!rc) break;
-    matches++;
+  TrieMapIterator *it = TrieMap_Iterate(tm, "key1", 4);
+  mu_check(it);
+  int count = 0;
 
-    // printf("found %.*s\n", l, s);
-  } while (1);
-  printf("%d matches in %.03fsec (%.02fns/iter)\n", matches,
-         TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
+  char *str = NULL;
+  tm_len_t len = 0;
+  void *ptr = NULL;
+
+  while (0 != TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    mu_check(!strncmp("key1", str, 4));
+    mu_check(str);
+    mu_check(len > 0);
+    mu_check(ptr);
+    mu_check(*(int *)ptr > 0);
+    count++;
+  }
+  mu_assert_int_eq(11, count);
+
+  TrieMapIterator_Free(it);
+  TrieMap_Free(tm, NULL);
 }
 
 int main(int argc, char **argv) {
-  testTrie(5000000);
-  return 0;
+  MU_RUN_TEST(testTrie);
+  MU_RUN_TEST(testTrieIterator);
+  MU_REPORT();
+  return minunit_status;
 }

@@ -10,15 +10,27 @@ CC_OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES))
 
 .SUFFIXES: .c .cc .o
 
+all: test test_valgrind
 
 benchmark: $(CC_SOURCES) benchmark.c ../triemap.c
 	$(CC) $(CFLAGS) -o benchmark $^ 
 .PHONY = benchmark
 
-test: $(CC_SOURCES) test.c
-	$(CC) $(CFLAGS) -o test $^ $(LDFLAGS)
+build_test: $(CC_SOURCES) test.c ../triemap.c
+	$(CC) $(CFLAGS) -o test $^ 
+
+.PHONY: test
+test: build_test
+	$(sh) ./test
+
+test_valgrind: build_test
+
+	valgrind --error-exitcode=1 --leak-resolution=low --quiet \
+            --leak-check=full --show-possibly-lost=no ./test
 
 
 
 clean:
 	rm -rf *.o *.a benchmark test
+
+

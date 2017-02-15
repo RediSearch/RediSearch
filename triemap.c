@@ -147,6 +147,9 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
     if (cb) {
       n->value = cb(n->value, value);
     } else {
+      if (n->value) {
+        free(n->value);
+      }
       n->value = value;
     }
 
@@ -375,7 +378,16 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len,
         if (!(n->flags & TM_NODE_DELETED)) {
           n->flags |= TM_NODE_DELETED;
           n->flags &= ~TM_NODE_TERMINAL;
-          n->value = NULL;
+
+          if (n->value) {
+            if (freeCB) {
+              freeCB(n->value);
+            } else {
+              free(n->value);
+            }
+            n->value = NULL;
+          }
+
           rc = 1;
         }
         goto end;
