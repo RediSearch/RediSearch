@@ -9,11 +9,11 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
  * memory saving reasons */
-#define __trieMapNode_children(n)                                    \
-  ((TrieMapNode **)((void *)n + sizeof(TrieMapNode) + (n->len + 1) + \
+#define __trieMapNode_children(n)                                              \
+  ((TrieMapNode **)((void *)n + sizeof(TrieMapNode) + (n->len + 1) +           \
                     n->numChildren))
 
-#define __trieMapNode_childKey(n, c) \
+#define __trieMapNode_childKey(n, c)                                           \
   (char *)((char *)n + sizeof(TrieMapNode) + n->len + 1 + c)
 
 #define __trieMapNode_isTerminal(n) (n->flags & TM_NODE_TERMINAL)
@@ -94,7 +94,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   n->len = offset;
   n->value = NULL;
   // the parent node is now non terminal and non sorted
-  n->flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
+  n->flags = 0; //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
 
   n = realloc(n, __trieMapNode_Sizeof(n->numChildren, n->len));
   __trieMapNode_children(n)[0] = newChild;
@@ -104,9 +104,6 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
 
 int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
                     TrieMapReplaceFunc cb) {
-  if (len == 0) {
-    return 0;
-  }
 
   TrieMapNode *n = *np;
 
@@ -209,7 +206,7 @@ static inline void __trieNode_sortChildren(TrieMapNode *n) {
 
 void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   tm_len_t offset = 0;
-  while (n && offset < len) {
+  while (n && (offset < len || len == 0)) {
     tm_len_t localOffset = 0;
     tm_len_t nlen = n->len;
     while (offset < len && localOffset < nlen) {
@@ -257,10 +254,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
             break;
           }
         }
-        // if (!nextChild) {
-        //   printf("NOT FOUND %c in %.*s!\n", c, n->numChildren,
-        //          __trieMapNode_childKey(n, 0));
-        // }
+
       } else {
         while (i < n->numChildren) {
           if (str[offset] == childKeys[i]) {
@@ -359,11 +353,16 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
 int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len,
                        void (*freeCB)(void *)) {
   tm_len_t offset = 0;
-  static TrieMapNode *stack[65535];
+  int stackCap = 8;
+  TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
   int stackPos = 0;
   int rc = 0;
-  while (n && offset < len) {
+  while (n && (offset < len || len == 0)) {
     stack[stackPos++] = n;
+    if (stackPos == stackCap) {
+      stackCap *= 2;
+      stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
+    }
     tm_len_t localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
       if (str[offset] != n->str[localOffset]) {
@@ -416,6 +415,7 @@ end:
   while (stackPos--) {
     __trieMapNode_optimizeChildren(stack[stackPos], freeCB);
   }
+  free(stack);
   return rc;
 }
 
@@ -536,6 +536,10 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len,
         }
       }
 
+      // this is required for an empty node to switch to suffix mode
+      if (it->bufOffset == it->prefixLen) {
+        it->inSuffix = 1;
+      }
       // switch to "children mode"
       current->state = TM_ITERSTATE_CHILDREN;
 
@@ -558,7 +562,8 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len,
 
           // unless in suffix mode, no need to go back here after popping the
           // child, so we just set the child offset at the end
-          if (!it->inSuffix) current->childOffset = nch;
+          if (!it->inSuffix)
+            current->childOffset = nch;
           goto next;
         }
       }
