@@ -13,7 +13,7 @@ CC_OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES))
 all: test test_valgrind
 
 benchmark: $(CC_SOURCES) benchmark.c ../triemap.c
-	$(CC) $(CFLAGS) -o benchmark $^ 
+	$(CC) $(CFLAGS) -o benchmark $^  $(LDFLAGS)
 .PHONY = benchmark
 
 build_test: $(CC_SOURCES) test.c ../triemap.c

@@ -1,9 +1,9 @@
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include "../triemap.h"
 #include "minunit.h"
 #include "time_sample.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 void testTrie() {
   TrieMap *tm = NewTrieMap();
@@ -106,8 +106,8 @@ void testRandomWalk() {
 }
 
 int main(int argc, char **argv) {
-  //  MU_RUN_TEST(testTrie);
-  //  MU_RUN_TEST(testTrieIterator);
+  MU_RUN_TEST(testTrie);
+  MU_RUN_TEST(testTrieIterator);
   MU_RUN_TEST(testRandomWalk);
 
   MU_REPORT();

@@ -1,8 +1,8 @@
+#include "../triemap.h"
+#include "time_sample.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../triemap.h"
-#include "time_sample.h"
 
 uint16_t crc16(const char *buf, int len);
 
@@ -11,6 +11,7 @@ uint16_t crc16(const char *buf, int len);
 const char alphabet[] =
     "  eeeeeeeeeeeeettttttttttaaaaaaaaaooooooooiiiiiiinnnnnnnsssss"
     "srrrrrrhhhhhllllddddcccuuummmffppggwwybbvkxjqz\0\0\0\0\0\0\0\0";
+
 size_t formatRandomKey(char *buf, int i) {
   char *p = buf;
   size_t sz = 0;
@@ -23,11 +24,9 @@ size_t formatRandomKey(char *buf, int i) {
     }
     p++;
   }
-  // c return sprintf(buf, "key:%d", i);
-
-  //  sprintf((char *)buf, "%04x", crc16(&buf[5], strlen(buf) - 5));
-  //  buf[4] = ':';
+  return sz;
 }
+
 size_t formatKey(char *buf, int i) {
   return sprintf(buf, "key:%d", i);
   //  sprintf((char *)buf, "%04x", crc16(&buf[5], strlen(buf) - 5));
@@ -46,7 +45,8 @@ void populate(int N) {
   TimeSampler_Reset(&ts);
   for (int i = 0; i < N; i++) {
     size_t sz = formatRandomKey((char *)buf, 12);
-    if (!sz || buf[0] == 0) continue;
+    if (!sz || buf[0] == 0)
+      continue;
     // printf("%s\n", buf);
     dataSize += sz;
     TimeSampler_StartSection(&ts);
@@ -54,11 +54,10 @@ void populate(int N) {
     TimeSampler_EndSection(&ts);
     TimeSampler_Tick(&ts);
     if (i % 1000000 == 999999) {
-      printf(
-          "Insertion after %d items: %.03fsec (%.02fns/iteration), %.02fMB "
-          "(%.02fMB raw data)\n",
-          i + 1, TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts),
-          MB(TrieMap_MemUsage(tm)), MB(dataSize));
+      printf("Insertion after %d items: %.03fsec (%.02fns/iteration), %.02fMB "
+             "(%.02fMB raw data)\n",
+             i + 1, TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts),
+             MB(TrieMap_MemUsage(tm)), MB(dataSize));
       // TimeSampler_Reset(&ts);
     }
   }
@@ -86,7 +85,7 @@ void populate(int N) {
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
     size_t sz = formatRandomKey((char *)buf,
-                                12);  // formatKey((char *)buf, rand() % N);
+                                12); // formatKey((char *)buf, rand() % N);
     TrieMap_Find(tm, buf, sz);
     TimeSampler_Tick(&ts);
   }
@@ -98,7 +97,7 @@ void populate(int N) {
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
     size_t sz = formatRandomKey((char *)buf,
-                                12);  // formatKey((char *)buf, rand() % N);
+                                12); // formatKey((char *)buf, rand() % N);
     TrieMap_Find(tm, buf, sz);
     TimeSampler_Tick(&ts);
   }

@@ -19,8 +19,9 @@ extern void *TRIEMAP_NOTFOUND;
 
 /* TrieMapNode represents a single node in a trie. The actual size of it is
  * bigger, as the children are allocated after str[].
- * Non terminal nodes always have a score of 0, meaning you can't insert nodes
- * with score 0 to the trie. */
+ * The value pointer is optional, and NULL can be used if you are just
+ * interested in the triemap as a set for strings
+ */
 typedef struct {
   // the string length of this node. can be 0
   tm_len_t len;
@@ -46,28 +47,38 @@ typedef struct {
 TrieMap *NewTrieMap();
 
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-/* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
- * if we just replaced
- * the score. We pass a pointer to the node because it may actually change when
- * splitting */
+
+/* Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
+* it already existed.
+*
+* If value is given, it is saved as a pyaload inside the trie node.
+* If the key already exists, we replace the old value with the new value, using
+* free() to free the old value.
+*
+* If cb is given, instead of replacing and freeing, we call the callback with
+* the old and new value, and the function should return the value to set in the
+* node, and take care of freeing any unwanted pointers. The returned value
+* can be NULL and doesn't have to be either the old or new value.
+ */
 int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value,
                 TrieMapReplaceFunc cb);
 
-/* Find the entry with a given string and length, and return its score. Returns
-* 0 if the entry was
-* not found.
-* Note that you cannot put entries with zero score */
+/* Find the entry with a given string and length, and return its value, even if
+ * that was NULL.
+ *
+ * NOTE: If the key does not exist in the trie, we return the special
+ * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
+ * comparing to it, becase NULL can be a valid result.
+*/
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
 
-/* Mark a node as deleted. For simplicity for now we don't actually delete
-* anything,
-* but the node will not be persisted to disk, thus deleted after reload.
-* Returns 1 if the node was indeed deleted, 0 otherwise */
+/* Mark a node as deleted. It also optimizes the trie by merging nodes if
+ * needed. If freeCB is given, it will be used to free the value of the deleted
+ * node. If it doesn't, we simply call free() */
 int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
- * call it to free
- * individual payload values. If not, free() is used instead. */
+ * call it to free individual payload values. If not, free() is used instead. */
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
 
 /* Get a random key from the trie by doing a random walk down and up the tree
@@ -107,11 +118,10 @@ typedef struct {
 void __tmi_Push(TrieMapIterator *it, TrieMapNode *node);
 void __tmi_Pop(TrieMapIterator *it);
 
-/* Iterate the tree with a step filter, which tells the iterator whether to
- * continue down the trie
- * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
- * filter means just
- * continue iterating the entire trie. ctx is the filter's context */
+/* Iterate the trie for all the suffixes of a given prefix. This returns an
+ * iterator object even if the prefix was not found, and subsequent calls to
+ * TrieMapIterator_Next are needed to get the results from the iteration. If the
+ * prefix is not found, the first call to next will return 0 */
 TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix,
                                  tm_len_t prefixLen);
 
@@ -119,8 +129,7 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix,
 void TrieMapIterator_Free(TrieMapIterator *it);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done
- * and should exit */
+ * or 0 if we're done and should exit */
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len,
                          void **value);
 
