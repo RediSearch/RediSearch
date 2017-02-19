@@ -93,9 +93,6 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
   } else {
     ret->atEOF = 1;
   }
-  for (size_t i = 0; i < ret->size; i++) {
-    printf("loaded doc %d\n", ret->docIds[i]);
-  }
 
   return ret;
 }
