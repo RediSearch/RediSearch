@@ -28,7 +28,7 @@ typedef struct {
   // the number of child nodes
   tm_len_t numChildren : 9;
 
-  u_char flags : 7;
+  uint8_t flags : 7;
 
   void *value;
 

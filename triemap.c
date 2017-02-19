@@ -39,9 +39,8 @@ TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
 }
 
 /* Create a new trie node. str is a string to be copied into the node,
- * starting
- * from offset up until
- * len. numChildren is the initial number of allocated child nodes */
+ * starting from offset up until len. numChildren is the initial number of
+ * allocated child nodes */
 TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len,
                               tm_len_t numChildren, void *value, int terminal) {
   tm_len_t nlen = len - offset;
@@ -632,7 +631,7 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str,
   char *buf = malloc(bufCap + 1);
   buf[bufCap] = 0;
   tm_len_t bufSize = 0;
-  for (int i = 0; i < stackSz; i++) {
+  for (size_t i = 0; i < stackSz; i++) {
     memcpy(buf + bufSize, stack[i]->str, stack[i]->len);
     bufSize += stack[i]->len;
   }

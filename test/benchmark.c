@@ -36,7 +36,7 @@ void populate(int N) {
   TrieMap *tm = NewTrieMap();
   int k = 32;
 
-  unsigned char buf[k + 1];
+  char buf[k + 1];
 
   buf[k] = 0;
   size_t dataSize = 0;
@@ -44,7 +44,7 @@ void populate(int N) {
   TimeSample ts;
   TimeSampler_Reset(&ts);
   for (int i = 0; i < N; i++) {
-    size_t sz = formatRandomKey((char *)buf, 12);
+    size_t sz = formatKey(buf, i); // formatRandomKey((char *)buf, 12);
     if (!sz || buf[0] == 0)
       continue;
     // printf("%s\n", buf);
@@ -84,20 +84,7 @@ void populate(int N) {
   TimeSampler_Reset(&ts);
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
-    size_t sz = formatRandomKey((char *)buf,
-                                12); // formatKey((char *)buf, rand() % N);
-    TrieMap_Find(tm, buf, sz);
-    TimeSampler_Tick(&ts);
-  }
-  TimeSampler_End(&ts);
-
-  printf("Lookup of %d RANDOM items: %.03fsec (%.02fns/iteration)\n", L,
-         TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
-  TimeSampler_Reset(&ts);
-  TimeSampler_Start(&ts);
-  for (int i = 0; i < L; i++) {
-    size_t sz = formatRandomKey((char *)buf,
-                                12); // formatKey((char *)buf, rand() % N);
+    size_t sz = formatKey((char *)buf, rand() % N);
     TrieMap_Find(tm, buf, sz);
     TimeSampler_Tick(&ts);
   }
@@ -107,6 +94,7 @@ void populate(int N) {
          TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts));
 
   TimeSampler_Reset(&ts);
+
   for (int i = 0; i < N; i++) {
     formatKey((char *)buf, i);
 
