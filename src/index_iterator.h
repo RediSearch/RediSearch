@@ -1,0 +1,39 @@
+#ifndef __INDEX_ITERATOR_H__
+#define __INDEX_ITERATOR_H__
+
+#include <stdint.h>
+#include "types.h"
+#include "index_result.h"
+
+#define INDEXREAD_EOF 0
+#define INDEXREAD_OK 1
+#define INDEXREAD_NOTFOUND 2
+
+/* An abstract interface used by readers / intersectors / unioners etc.
+Basically query execution creates a tree of iterators that activate each other
+recursively */
+typedef struct indexIterator {
+  void *ctx;
+  /* Read the next entry from the iterator, into hit *e.
+  *  Returns INDEXREAD_EOF if at the end */
+  int (*Read)(void *ctx, IndexResult *e);
+
+  /* Skip to a docid, potentially reading the entry into hit, if the docId
+   * matches */
+  int (*SkipTo)(void *ctx, u_int32_t docId, IndexResult *hit);
+
+  /* the last docId read */
+  t_docId (*LastDocId)(void *ctx);
+
+  /* can we continue iteration? */
+  int (*HasNext)(void *ctx);
+
+  /* release the iterator's context and free everything needed */
+  void (*Free)(struct indexIterator *self);
+
+  /* Return the number of results in this iterator. Used by the query execution
+   * on the top iterator */
+  size_t (*Len)(void *ctx);
+} IndexIterator;
+
+#endif
