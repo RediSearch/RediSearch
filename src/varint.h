@@ -9,7 +9,7 @@ int decodeVarint(u_char **bufp);
 int encodeVarint(int value, unsigned char *buf);
 size_t varintSize(int value);
 
-int ReadVarint(Buffer *b);
+int ReadVarint(BufferReader *b);
 int WriteVarint(int value, BufferWriter *w);
 
 typedef Buffer VarintVector;

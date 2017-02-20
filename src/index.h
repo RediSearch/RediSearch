@@ -36,6 +36,7 @@ Currently has no effect due to performance issues */
 int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt);
 
 #pragma pack(4)
+
 /** The header of an inverted index record */
 typedef struct indexHeader {
   t_offset size;
@@ -44,17 +45,30 @@ typedef struct indexHeader {
 } IndexHeader;
 #pragma pack()
 
+typedef struct {
+  IndexHeader header;
+  t_docId firstId;
+  char *data;
+} IndexBlock;
+
+typedef struct {
+  IndexBlock *blocks;
+  uint32_t size;
+  uint32_t cap;
+} InvertedIndex;
+
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReader {
   // the underlying data buffer
   Buffer *buf;
-  // the header - we read into it from the buffer
-  IndexHeader header;
+
+  InvertedIndex *idx;
   // last docId, used for delta encoding/decoding
   t_docId lastId;
-  // skip index. If not null and is needed, will be used for intersects
-  SkipIndex *skipIdx;
-  u_int skipIdxPos;
+  uint32_t currentBlock;
+  // // skip index. If not null and is needed, will be used for intersects
+  // SkipIndex *skipIdx;
+  // u_int skipIdxPos;
   DocTable *docTable;
   // in single word mode, we use the score index to get the top docs directly,
   // and do not load the skip index.
@@ -72,7 +86,8 @@ typedef struct indexReader {
 
 /* An IndexWriter writes forward index entries to an index buffer */
 typedef struct indexWriter {
-  BufferWriter bw;
+  Buffer *buf;
+  InvertedIndex *idx;
   // last id for delta encoding
   t_docId lastId;
   // the number of documents encoded
@@ -84,40 +99,6 @@ typedef struct indexWriter {
 
   IndexFlags flags;
 } IndexWriter;
-
-#define INDEXREAD_EOF 0
-#define INDEXREAD_OK 1
-#define INDEXREAD_NOTFOUND 2
-
-#define TOTALDOCS_PLACEHOLDER (double)10000000
-double tfidf(float freq, u_int32_t docFreq);
-
-/* An abstract interface used by readers / intersectors / unioners etc.
-Basically query execution creates a tree of iterators that activate each other
-recursively */
-typedef struct indexIterator {
-  void *ctx;
-  /* Read the next entry from the iterator, into hit *e.
-  *  Returns INDEXREAD_EOF if at the end */
-  int (*Read)(void *ctx, IndexResult *e);
-
-  /* Skip to a docid, potentially reading the entry into hit, if the docId
-   * matches */
-  int (*SkipTo)(void *ctx, u_int32_t docId, IndexResult *hit);
-
-  /* the last docId read */
-  t_docId (*LastDocId)(void *ctx);
-
-  /* can we continue iteration? */
-  int (*HasNext)(void *ctx);
-
-  /* release the iterator's context and free everything needed */
-  void (*Free)(struct indexIterator *self);
-
-  /* Return the number of results in this iterator. Used by the query execution
-   * on the top iterator */
-  size_t (*Len)(void *ctx);
-} IndexIterator;
 
 /* Free a union iterator */
 void UnionIterator_Free(IndexIterator *it);
@@ -190,15 +171,16 @@ size_t IW_Len(IndexWriter *w);
 
 /** Free the index writer and underlying data structures */
 void IW_Free(IndexWriter *w);
-/* Create a new index writer with a memory buffer of a given capacity.
-NOTE: this is used for testing only */
-IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags);
+
+// /* Create a new index writer with a memory buffer of a given capacity.
+// NOTE: this is used for testing only */
+// IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags);
 
 /* Create a new index writer with the given buffers for the actual index, skip
  * index, and score
  * index */
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIndexWriter,
-                               ScoreIndexWriter scoreWriter, IndexFlags flags);
+IndexWriter *NewIndexWriter(InvertedIndex *idx, BufferWriter skipIndexWriter,
+                            ScoreIndexWriter scoreWriter, IndexFlags flags);
 
 /* UnionContext is used during the running of a union iterator */
 typedef struct {

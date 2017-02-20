@@ -9,46 +9,43 @@
 #define BUFFER_WRITE 1
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
+
 typedef struct {
   char *data;
   size_t cap;
-  char *pos;
-  int type;
   size_t offset;
-
-  // opaque context, e.g. redis context and key name for redis buffers
-  void *ctx;
 } Buffer;
-
-#define BUFFER_READ_BYTE(b) \
-  *b->pos++;                \
-  ++b->offset;
-
-size_t BufferReadByte(Buffer *b, char *c);
-size_t BufferRead(Buffer *b, void *data, size_t len);
-size_t BufferSkip(Buffer *b, int bytes);
-size_t BufferSeek(Buffer *b, size_t offset);
-
-size_t BufferLen(Buffer *ctx);
-
-size_t BufferOffset(Buffer *ctx);
-
-int BufferAtEnd(Buffer *ctx);
 
 typedef struct {
   Buffer *buf;
-  size_t (*Write)(Buffer *ctx, void *data, size_t len);
-  size_t (*Truncate)(Buffer *ctx, size_t newlen);
-  void (*Release)(Buffer *ctx);
+  char *pos;
+} BufferReader;
+
+#define BUFFER_READ_BYTE(b) \
+  *b->pos++;                \
+  ++b->buf->offset;
+
+void Buffer_Init(Buffer *b, size_t cap);
+size_t Buffer_ReadByte(BufferReader *b, char *c);
+size_t Buffer_Read(BufferReader *b, void *data, size_t len);
+size_t Buffer_Skip(BufferReader *b, int bytes);
+size_t Buffer_Seek(BufferReader *b, size_t offset);
+size_t Buffer_Offset(Buffer *ctx);
+size_t Buffer_Capacity(Buffer *ctx);
+int Buffer_AtEnd(Buffer *ctx);
+
+typedef struct {
+  Buffer *buf;
+  char *pos;
+
 } BufferWriter;
 
-size_t memwriterWrite(Buffer *b, void *data, size_t len);
-size_t memwriterTruncate(Buffer *b, size_t newlen);
-void membufferRelease(Buffer *b);
+size_t Buffer_Write(BufferWriter *b, void *data, size_t len);
+size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
-Buffer *NewBuffer(char *data, size_t len, int bufferMode);
 BufferWriter NewBufferWriter(Buffer *b);
+BufferReader NewBufferReader(Buffer *b);
 
-Buffer *NewMemoryBuffer(size_t cap, int type);
+Buffer *NewBuffer(char *data, size_t len);
 
 #endif

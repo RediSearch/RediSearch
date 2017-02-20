@@ -5,256 +5,6 @@
 #include <math.h>
 #include <sys/param.h>
 
-inline int IR_HasNext(void *ctx) {
-  IndexReader *ir = ctx;
-
-  return ir->header.size > ir->buf->offset;
-}
-
-inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags,
-                          VarintVector *offsets) {
-  if (!IR_HasNext(ir)) {
-    return INDEXREAD_EOF;
-  }
-
-  *docId = ReadVarint(ir->buf) + ir->lastId;
-  int quantizedScore = ReadVarint(ir->buf);
-  if (freq != NULL) {
-    *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
-    // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
-  }
-
-  if (ir->flags & Index_StoreFieldFlags) {
-    BufferReadByte(ir->buf, (char *)flags);
-  } else {
-    *flags = 0xFF;
-  }
-
-  if (ir->flags & Index_StoreTermOffsets) {
-
-    size_t offsetsLen = ReadVarint(ir->buf);
-
-    // If needed - read offset vectors
-    if (offsets != NULL && !ir->singleWordMode) {
-      offsets->cap = offsetsLen;
-      offsets->data = ir->buf->pos;
-      offsets->pos = offsets->data;
-      offsets->ctx = NULL;
-      offsets->offset = 0;
-      offsets->type = BUFFER_READ;
-    }
-    BufferSkip(ir->buf, offsetsLen);
-  }
-  ir->lastId = *docId;
-  return INDEXREAD_OK;
-}
-
-inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
-  if (!IR_HasNext(ir)) {
-    return INDEXREAD_EOF;
-  }
-
-  *docId = ReadVarint(ir->buf) + ir->lastId;
-  ReadVarint(ir->buf);  // read quantized score
-  u_char flags = 0xff;
-
-  // pseudo-read flags
-  if (ir->flags & Index_StoreFieldFlags) {
-    BufferReadByte(ir->buf, (char *)&flags);
-  }
-
-  // pseudo read offsets
-  if (ir->flags & Index_StoreTermOffsets) {
-    size_t len = ReadVarint(ir->buf);
-    BufferSkip(ir->buf, len);
-  }
-
-  ir->lastId = *docId;
-
-  if ((*docId != expectedDocId && expectedDocId != 0) || !(flags & ir->fieldMask)) {
-    return INDEXREAD_NOTFOUND;
-  }
-
-  return INDEXREAD_OK;
-}
-
-int IR_Read(void *ctx, IndexResult *e) {
-  IndexReader *ir = ctx;
-  // IndexRecord rec = {.term = ir->term};
-
-  if (ir->useScoreIndex && ir->scoreIndex) {
-    ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
-    if (ent == NULL) {
-      return INDEXREAD_EOF;
-    }
-
-    IR_Seek(ir, ent->offset, ent->docId);
-  }
-
-  VarintVector *offsets = NULL;
-  if (!ir->singleWordMode) {
-    offsets = &ir->record.offsets;
-  }
-  int rc;
-  do {
-
-    rc = IR_GenericRead(ir, &ir->record.docId, &ir->record.tf, &ir->record.flags, offsets);
-
-    // add the record to the current result
-    if (rc == INDEXREAD_OK) {
-      if (!(ir->record.flags & ir->fieldMask)) {
-        continue;
-      }
-
-      ++ir->len;
-
-      IndexResult_PutRecord(e, &ir->record);
-      return INDEXREAD_OK;
-    }
-  } while (rc != INDEXREAD_EOF);
-
-  // printf("IR %s Read docId %d, rc %d\n", ir->term->str, e->docId, rc);
-  return rc;
-}
-
-inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
-  // LG_DEBUG("Seeking to %d, lastId %d", offset, docId);
-  BufferSeek(ir->buf, offset);
-  ir->lastId = docId;
-}
-
-/**
-Skip to the given docId, or one place after it
-@param ctx IndexReader context
-@param docId docId to seek to
-@param hit an index hit we put our reads into
-@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF
-if
-at EOF
-*/
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
-
-  /* If we are skipping to 0, it's just like a normal read */
-  if (docId == 0) {
-    return IR_Read(ctx, hit);
-  }
-
-  IndexReader *ir = ctx;
-  /* check if the id is out of range */
-  if (docId > ir->header.lastId) {
-    return INDEXREAD_EOF;
-  }
-
-  /* try to find an entry in the skip index if possible */
-  SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
-  /* Seek to the correct location if we found a skip index entry */
-  if (ent != NULL && ent->offset > BufferOffset(ir->buf)) {
-    IR_Seek(ir, ent->offset, ent->docId);
-  }
-
-  int rc;
-  t_docId lastId = ir->lastId, readId = 0;
-  t_offset offset = ir->buf->offset;
-
-  do {
-
-    // do a quick-read until we hit or pass the desired document
-    if ((rc = IR_TryRead(ir, &readId, docId)) == INDEXREAD_EOF) {
-      return rc;
-    }
-    // rewind 1 document and re-read it...
-    if (rc == INDEXREAD_OK || readId > docId) {
-      IR_Seek(ir, offset, lastId);
-
-      int _rc = IR_Read(ir, hit);
-      // rc might be NOTFOUND and _rc EOF
-      return _rc == INDEXREAD_NOTFOUND ? INDEXREAD_NOTFOUND : rc;
-    }
-    lastId = readId;
-    offset = ir->buf->offset;
-  } while (rc != INDEXREAD_EOF);
-
-  return INDEXREAD_EOF;
-}
-
-size_t IR_NumDocs(void *ctx) {
-  IndexReader *ir = ctx;
-
-  // in single word optimized mode we only know the size of the record from
-  // the header.
-  if (ir->singleWordMode) {
-    return ir->header.numDocs;
-  }
-
-  // otherwise we use our counter
-  return ir->len;
-}
-
-IndexReader *NewIndexReader(void *data, size_t datalen, SkipIndex *si, DocTable *dt,
-                            int singleWordMode, u_char fieldMask, IndexFlags flags) {
-  return NewIndexReaderBuf(NewBuffer(data, datalen, BUFFER_READ), si, dt, singleWordMode, NULL,
-                           fieldMask, flags, NULL);
-}
-
-IndexReader *NewIndexReaderBuf(Buffer *buf, SkipIndex *si, DocTable *dt, int singleWordMode,
-                               ScoreIndex *sci, u_char fieldMask, IndexFlags flags, Term *term) {
-  IndexReader *ret = malloc(sizeof(IndexReader));
-  ret->buf = buf;
-  indexReadHeader(buf, &ret->header);
-  ret->term = term;
-
-  if (term) {
-    // compute IDF based on num of docs in the header
-    ret->term->idf = logb(
-        1.0F + TOTALDOCS_PLACEHOLDER / (ret->header.numDocs ? ret->header.numDocs : (double)1));
-  }
-
-  ret->record = (IndexRecord){.term = term};
-  ret->lastId = 0;
-  ret->skipIdxPos = 0;
-  ret->skipIdx = NULL;
-  ret->docTable = dt;
-  ret->len = 0;
-  ret->singleWordMode = singleWordMode;
-  // only use score index on single words, no field filter and large entries
-  ret->useScoreIndex = 0;
-  ret->scoreIndex = NULL;
-  if (flags & Index_StoreScoreIndexes) {
-    ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff &&
-                         ret->header.numDocs > SCOREINDEX_DELETE_THRESHOLD;
-    ret->scoreIndex = sci;
-  }
-
-  // LG_DEBUG("Load offsets %d, si: %p", singleWordMode, si);
-  ret->skipIdx = si;
-  ret->fieldMask = fieldMask;
-  ret->flags = flags;
-
-  return ret;
-}
-
-void IR_Free(IndexReader *ir) {
-  membufferRelease(ir->buf);
-  if (ir->scoreIndex) {
-    ScoreIndex_Free(ir->scoreIndex);
-  }
-  SkipIndex_Free(ir->skipIdx);
-  Term_Free(ir->term);
-  free(ir);
-}
-
-IndexIterator *NewReadIterator(IndexReader *ir) {
-  IndexIterator *ri = malloc(sizeof(IndexIterator));
-  ri->ctx = ir;
-  ri->Read = IR_Read;
-  ri->SkipTo = IR_SkipTo;
-  ri->LastDocId = IR_LastDocId;
-  ri->HasNext = IR_HasNext;
-  ri->Free = ReadIterator_Free;
-  ri->Len = IR_NumDocs;
-  return ri;
-}
-
 size_t IW_Len(IndexWriter *w) {
   return BufferLen(w->bw.buf);
 }
@@ -271,15 +21,16 @@ void writeIndexHeader(IndexWriter *w) {
   BufferSeek(w->bw.buf, offset);
 }
 
-IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags) {
-  return NewIndexWriterBuf(NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
-                           NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
-                           NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2, BUFFER_WRITE))),
-                           flags);
-}
+// IndexWriter *NewIndexWriter(size_t cap, IndexFlags flags) {
+//   return NewIndexWriterBuf(NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
+//                            NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE)),
+//                            NewScoreIndexWriter(NewBufferWriter(NewMemoryBuffer(2,
+//                            BUFFER_WRITE))),
+//                            flags);
+// }
 
-IndexWriter *NewIndexWriterBuf(BufferWriter bw, BufferWriter skipIdnexWriter, ScoreIndexWriter siw,
-                               IndexFlags flags) {
+IndexWriter *NewIndexWriter(InvertedIndex *idx, BufferWriter skipIdnexWriter, ScoreIndexWriter siw,
+                            IndexFlags flags) {
   IndexWriter *w = malloc(sizeof(IndexWriter));
   w->bw = bw;
   w->skipIndexWriter = skipIdnexWriter;
@@ -589,15 +340,6 @@ void UnionIterator_Free(IndexIterator *it) {
 
 size_t UI_Len(void *ctx) {
   return ((UnionContext *)ctx)->len;
-}
-
-void ReadIterator_Free(IndexIterator *it) {
-  if (it == NULL) {
-    return;
-  }
-
-  IR_Free(it->ctx);
-  free(it);
 }
 
 void IntersectIterator_Free(IndexIterator *it) {

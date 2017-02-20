@@ -5,11 +5,13 @@
 #include <string.h>
 #include <sys/param.h>
 #include <assert.h>
+#include <stdint.h>
 
 // static int msb = (int)(~0ULL << 25);
 
-inline int ReadVarint(Buffer *b) {
-  u_char c = BUFFER_READ_BYTE(b);
+inline int ReadVarint(BufferReader *b) {
+
+  uint8_t c = BUFFER_READ_BYTE(b);
 
   int val = c & 127;
 
@@ -28,7 +30,7 @@ int WriteVarint(int value, BufferWriter *w) {
   varint[pos] = value & 127;
   while (value >>= 7) varint[--pos] = 128 | (--value & 127);
 
-  return w->Write(w->buf, varint + pos, 16 - pos);
+  return Buffer_Write(w, varint + pos, 16 - pos);
 }
 
 size_t varintSize(int value) {
