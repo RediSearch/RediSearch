@@ -46,6 +46,7 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen);
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);
 
-Buffer *NewBuffer(char *data, size_t len);
+Buffer *NewBuffer(size_t len);
+void Buffer_Free(Buffer *buf);
 
 #endif

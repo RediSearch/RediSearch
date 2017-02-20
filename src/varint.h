@@ -15,7 +15,7 @@ int WriteVarint(int value, BufferWriter *w);
 typedef Buffer VarintVector;
 
 typedef struct {
-  Buffer *buf;
+  BufferReader br;
   u_char index;
   int lastValue;
 } VarintVectorIterator;

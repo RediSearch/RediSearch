@@ -3,27 +3,59 @@
 #include "varint.h"
 
 #define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_INITIAL_CAP 4
+
+#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+#define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .numDocs = 0};
-  Buffer_Init(&idx->blocks[idx->size - 1].data, 8);
+  Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
+}
+
+InvertedIndex *NewInvertedIndex(IndexFlags flags) {
+  InvertedIndex *idx = malloc(sizeof(InvertedIndex));
+  idx->blocks = calloc(1, sizeof(IndexBlock));
+  idx->size = 1;
+  idx->lastId = 0;
+  idx->flags = flags;
+  idx->numDocs = 0;
+  Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
+
+  return idx;
+}
+
+void indexBlock_Free(IndexBlock *blk) {
+  Buffer_Free(&blk->data);
+}
+
+void InvertedIndex_Free(void *ctx) {
+  InvertedIndex *idx = ctx;
+  for (uint32_t i = 0; i < idx->size; i++) {
+    indexBlock_Free(&idx->blocks[i]);
+  }
+  free(idx->blocks);
+  free(idx);
 }
 
 /* Write a forward-index entry to an index writer */
 size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
                                 ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
 
-  IndexBlock *blk = &idx->blocks[idx->size - 1];
+  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // see if we need to grow the current block
   if (blk->numDocs >= INDEX_BLOCK_SIZE) {
     InvertedIndex_AddBlock(idx, ent->docId);
     blk = &idx->blocks[idx->size - 1];
   }
-
+  // this is needed on the first block
+  if (blk->firstId == 0) {
+    blk->firstId = ent->docId;
+  }
   size_t ret = 0;
   VarintVector *offsets = ent->vw->bw.buf;
 
@@ -64,9 +96,6 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
 
   return ret;
 }
-
-#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
-#define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
@@ -380,6 +409,10 @@ void ReadIterator_Free(IndexIterator *it) {
 
   IR_Free(it->ctx);
   free(it);
+}
+
+inline t_docId IR_LastDocId(void *ctx) {
+  return ((IndexReader *)ctx)->lastId;
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {

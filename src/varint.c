@@ -44,42 +44,45 @@ size_t varintSize(int value) {
 
 VarintVectorIterator VarIntVector_iter(VarintVector *v) {
   VarintVectorIterator ret;
-  ret.buf = v;
+  ret.br = NewBufferReader(v);
+  Buffer_Seek(&ret.br, 0);
   ret.index = 0;
   ret.lastValue = 0;
   return ret;
 }
 
 inline int VV_HasNext(VarintVectorIterator *vi) {
-  return !BufferAtEnd(vi->buf);
+  return !Buffer_AtEnd(vi->br.buf);
 }
 
 inline int VV_Next(VarintVectorIterator *vi) {
   if (VV_HasNext(vi)) {
     ++vi->index;
-    vi->lastValue = ReadVarint(vi->buf) + vi->lastValue;
+    vi->lastValue = ReadVarint(&vi->br) + vi->lastValue;
     return vi->lastValue;
   }
 
   return -1;
 }
 
-size_t VV_Size(VarintVector *vv) {
-  if (vv->type & BUFFER_WRITE) {
-    return BufferLen(vv);
-  }
-  // for readonly buffers the size is the capacity
-  return vv->cap;
-}
+// size_t VV_Size(VarintVector *vv) {
+//   return vv->cap;
+//   // if (vv->type & BUFFER_WRITE) {
+//   //   return BufferLen(vv);
+//   // }
+//   // // for readonly buffers the size is the capacity
+//   // return vv->cap;
+// }
 
 void VVW_Free(VarintVectorWriter *w) {
-  w->bw.Release(w->bw.buf);
+  Buffer_Free(w->bw.buf);
+  free(w->bw.buf);
   free(w);
 }
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
   VarintVectorWriter *w = malloc(sizeof(VarintVectorWriter));
-  w->bw = NewBufferWriter(NewMemoryBuffer(cap, BUFFER_WRITE));
+  w->bw = NewBufferWriter(NewBuffer(cap));
   w->lastValue = 0;
   w->nmemb = 0;
 
@@ -103,5 +106,5 @@ size_t VVW_Write(VarintVectorWriter *w, int i) {
 
 // Truncate the vector
 size_t VVW_Truncate(VarintVectorWriter *w) {
-  return w->bw.Truncate(w->bw.buf, 0);
+  return Buffer_Truncate(w->bw.buf, 0);
 }

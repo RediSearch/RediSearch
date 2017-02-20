@@ -119,21 +119,23 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
       LG_DEBUG("doc %d entry: %.*s freq %f\n", idx->docId, (int)entry->len, entry->term,
                entry->freq);
       ForwardIndex_NormalizeFreq(idx, entry);
-      IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
-      int isNew = w->bw.buf->offset == sizeof(IndexHeader);
-      size_t cap = isNew ? 0 : w->bw.buf->cap;
-      size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
-      size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
-      size_t sz = IW_WriteEntry(w, entry);
+      InvertedIndex *idx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
+      // IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
+      int isNew = idx->lastId == 0;
+
+      // size_t cap = isNew ? 0 : w->bw.buf->cap;
+      // size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
+      // size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
+      size_t sz = InvertedIndex_WriteEntry(idx, entry);
 
       /*******************************************
       * update stats for the index
       ********************************************/
 
       /* record the change in capacity of the buffer */
-      ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
-      ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
-      ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
+      // ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
+      // ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
+      // ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
       /* record the actual size consumption change */
       ctx->spec->stats.invertedSize += sz;
 
@@ -148,7 +150,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
         ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
       }
-      Redis_CloseWriter(w);
+      // Redis_CloseWriter(w);
 
       entry = ForwardIndexIterator_Next(&it);
     }
@@ -1079,6 +1081,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
   if (IndexSpec_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+  if (InvertedIndex_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
   if (NumericIndexType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 

@@ -26,6 +26,9 @@ typedef struct {
   uint32_t numDocs;
 } InvertedIndex;
 
+InvertedIndex *NewInvertedIndex(IndexFlags flags);
+void InvertedIndex_Free(void *idx);
+
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReadCtx {
   // the underlying data buffer

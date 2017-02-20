@@ -48,16 +48,16 @@ void Buffer_Init(Buffer *b, size_t cap) {
 }
 
 /**
-Allocate a new buffer around data. If type is BUFFER_WRITE, freeing this buffer
-will also free the underlying data
+Allocate a new buffer around data.
 */
-Buffer *NewBuffer(char *data, size_t len) {
+Buffer *NewBuffer(size_t cap) {
   Buffer *buf = malloc(sizeof(Buffer));
-  buf->cap = len;
-  buf->data = data;
-  buf->offset = 0;
-
+  Buffer_Init(buf, cap);
   return buf;
+}
+
+void Buffer_Free(Buffer *buf) {
+  free(buf->data);
 }
 
 /**
@@ -123,7 +123,7 @@ inline size_t Buffer_Seek(BufferReader *br, size_t where) {
   return where;
 }
 
-inline size_t BufferOffset(Buffer *ctx) {
+inline size_t Buffer_Offset(Buffer *ctx) {
   return ctx->offset;
 }
 

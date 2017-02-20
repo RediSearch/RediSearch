@@ -1,25 +1,20 @@
 #ifndef __REDIS_INDEX__
 #define __REDIS_INDEX__
 
-#include "redis_buffer.h"
 #include "index.h"
+#include "inverted_index.h"
 #include "spec.h"
 #include "search_ctx.h"
 #include "document.h"
-
-/* Open an index writer on a redis DMA string, for a specific term */
-IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len);
-/* Close the redis index writer */
-void Redis_CloseWriter(IndexWriter *w);
 
 /* Open an inverted index reader on a redis DMA string, for a specific term.
 If singleWordMode is set to 1, we do not load the skip index, only the score index */
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len, DocTable *dt,
                               int singleWordMode, u_char fieldMask);
-void Redis_CloseReader(IndexReader *r);
 
-/* Load the skip index entry of a redis term */
-SkipIndex *Redis_LoadSkipIndex(RedisSearchCtx *ctx, const char *term, size_t len);
+InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
+                                       int write);
+void Redis_CloseReader(IndexReader *r);
 
 #define TERM_KEY_FORMAT "ft:%s/%.*s"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
@@ -51,11 +46,14 @@ int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opa
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len);
-/**
-* Open a redis index writer on a redis key
-*/
-IndexWriter *Redis_OpenWriter(RedisSearchCtx *ctx, const char *term, size_t len);
 
-void Redis_CloseWriter(IndexWriter *w);
+extern RedisModuleType *InvertedIndexType;
+
+void InvertedIndex_Free(void *idx);
+void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver);
+void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value);
+void InvertedIndex_Digest(RedisModuleDigest *digest, void *value);
+void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
+int InvertedIndex_RegisterType(RedisModuleCtx *ctx);
 
 #endif

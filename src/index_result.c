@@ -85,8 +85,7 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
   int num = r->numRecords;
 
   for (int i = 1; i < num; i++) {
-    BufferSeek(&r->records[i - 1].offsets, 0);
-    BufferSeek(&r->records[i].offsets, 0);
+
     VarintVectorIterator v1 = VarIntVector_iter(&r->records[i - 1].offsets);
     VarintVectorIterator v2 = VarIntVector_iter(&r->records[i].offsets);
     int p1 = VV_Next(&v1);
