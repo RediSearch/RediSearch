@@ -329,8 +329,8 @@ int II_Read(void *ctx, IndexResult *hit) {
         } else {
           rc = it->SkipTo(it->ctx, ic->lastDocId, h);
         }
-        printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, ic->lastDocId, i,
-               h->docId, it->LastDocId(it->ctx), rc);
+        // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, ic->lastDocId, i,
+        //        h->docId, it->LastDocId(it->ctx), rc);
 
         if (rc == INDEXREAD_EOF) goto eof;
       }

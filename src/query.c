@@ -1,12 +1,13 @@
+#include <assert.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
-#include <assert.h>
 
 #include "expander.h"
+#include "geo_index.h"
 #include "index.h"
 #include "query.h"
 #include "query_parser/parser.h"
@@ -14,7 +15,6 @@
 #include "tokenize.h"
 #include "util/heap.h"
 #include "util/logging.h"
-#include "geo_index.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
@@ -384,7 +384,7 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query->root, 0);
+  //__queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

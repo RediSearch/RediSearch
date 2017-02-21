@@ -1,11 +1,11 @@
 #include "varint.h"
+#include <assert.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
-#include <assert.h>
-#include <stdint.h>
 
 // static int msb = (int)(~0ULL << 25);
 
@@ -28,7 +28,6 @@ inline int ReadVarint(BufferReader *b) {
 }
 
 int WriteVarint(int value, BufferWriter *w) {
-  printf("writing %d\n", value);
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
   varint[pos] = value & 127;
