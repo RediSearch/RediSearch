@@ -2,7 +2,7 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
-#define INDEX_BLOCK_SIZE 10
+#define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
 
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
@@ -116,6 +116,38 @@ void indexReader_advanceBlock(IndexReader *ir) {
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
 }
 
+inline int __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId, t_docId *docId,
+                       float *freq, uint8_t *flags, VarintVector *offsets, int singleWordMode) {
+
+  *docId = ReadVarint(br) + lastId;
+  // printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId, ir->lastId);
+  int quantizedScore = ReadVarint(br);
+  if (freq != NULL) {
+    *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
+    // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
+  }
+
+  if (idxflags & Index_StoreFieldFlags) {
+    Buffer_ReadByte(br, (char *)flags);
+  } else {
+    *flags = 0xFF;
+  }
+
+  if (idxflags & Index_StoreTermOffsets) {
+
+    size_t offsetsLen = ReadVarint(br);
+
+    // If needed - read offset vectors
+    if (offsets != NULL && !singleWordMode) {
+      offsets->cap = offsetsLen;
+      offsets->data = br->pos;
+      offsets->offset = offsetsLen;
+    }
+    Buffer_Skip(br, offsetsLen);
+  }
+  return INDEXREAD_OK;
+}
+
 inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t *flags,
                           VarintVector *offsets) {
   if (!IR_HasNext(ir)) {
@@ -126,35 +158,9 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t 
     indexReader_advanceBlock(ir);
   }
   BufferReader *br = &ir->br;
-
-  *docId = ReadVarint(br) + ir->lastId;
-  // printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId, ir->lastId);
-  int quantizedScore = ReadVarint(br);
-  if (freq != NULL) {
-    *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
-    // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
-  }
-
-  if (ir->flags & Index_StoreFieldFlags) {
-    Buffer_ReadByte(br, (char *)flags);
-  } else {
-    *flags = 0xFF;
-  }
-
-  if (ir->flags & Index_StoreTermOffsets) {
-
-    size_t offsetsLen = ReadVarint(br);
-
-    // If needed - read offset vectors
-    if (offsets != NULL && !ir->singleWordMode) {
-      offsets->cap = offsetsLen;
-      offsets->data = br->pos;
-      offsets->offset = offsetsLen;
-    }
-    Buffer_Skip(br, offsetsLen);
-  }
+  int rc = __readEntry(br, ir->flags, ir->lastId, docId, freq, flags, offsets, ir->singleWordMode);
   ir->lastId = *docId;
-  return INDEXREAD_OK;
+  return rc;
 }
 
 inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
@@ -432,4 +438,19 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
   return ri;
+}
+
+typedef struct {
+  InvertedIndex *idx;
+  uint32_t currentBlock;
+  DocTable *docs;
+  int numRepaired;
+
+} RepairContext;
+
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt) {
+  t_docId lastId = 0;
+
+  // IndexReader *ir = NewIndexReader()
+  return 0;
 }
