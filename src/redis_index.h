@@ -1,20 +1,27 @@
 #ifndef __REDIS_INDEX__
 #define __REDIS_INDEX__
 
+#include "document.h"
 #include "index.h"
 #include "inverted_index.h"
-#include "spec.h"
 #include "search_ctx.h"
-#include "document.h"
+#include "spec.h"
 
 /* Open an inverted index reader on a redis DMA string, for a specific term.
-If singleWordMode is set to 1, we do not load the skip index, only the score index */
+ * If singleWordMode is set to 1, we do not load the skip index, only the score index
+ */
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len, DocTable *dt,
                               int singleWordMode, u_char fieldMask);
 
 InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
                                        int write);
 void Redis_CloseReader(IndexReader *r);
+
+/*
+ * Select a random term from the index that matches the index prefix and inveted key format.
+ * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
+ */
+const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 
 #define TERM_KEY_FORMAT "ft:%s/%.*s"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"

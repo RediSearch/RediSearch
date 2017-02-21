@@ -85,6 +85,28 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
+const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
+
+  RedisModuleString *pf = fmtRedisTermKey(ctx, "", 0);
+  size_t pflen;
+  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+
+  for (int i = 0; i < 10; i++) {
+    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
+    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
+      break;
+    }
+    size_t len;
+    const char *kstr = RedisModule_CallReplyStringPtr(rep, &len);
+    if (!strncmp(kstr, prefix, pflen)) {
+      *tlen = len - pflen;
+      return kstr + pflen;
+    }
+  }
+  *tlen = 0;
+  return NULL;
+}
+
 // ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
 //   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len), BUFFER_READ);
 //   if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {

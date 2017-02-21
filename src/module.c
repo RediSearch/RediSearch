@@ -289,9 +289,20 @@ cleanup:
   return REDISMODULE_OK;
 }
 
+/* FT.REPAIR {index} {term} {offset}
+ * Repair a key or select a random key for repair.
+ *
+ * If term is set, we repair the key for the given term. If not, we select a random term key.
+ * If offset is set, we start repairing at the given block offset.
+ * The returned values are the term repaired, and the block offset we stopped at.
+ * In order not to block redis for too long, we work at 10 blocks at most.
+ * If we did not finish covering the entire block range, we return the block we stopped at, a-la
+ * SCAN. If we finished all the term's blocks, we return 0, which means we can go on to the next
+ * term
+ */
 int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
+  if (argc < 2 || argc > 4) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -306,13 +317,26 @@ int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
   size_t len = 0;
-  const char *term = RedisModule_StringPtrLen(argv[2], &len);
+  const char *term = NULL;
+  if (argc > 2) {
+    term = RedisModule_StringPtrLen(argv[2], &len);
+  } else {
+    term = Redis_SelectRandomTerm(&sctx, &len);
+  }
+  printf("Selected term %.*s\n", (int)len, term);
+  if (!term) {
+    return RedisModule_ReplyWithError(ctx, "Could not find a term");
+  }
+  RedisModule_Log(ctx, "debug", "Repairing term %.*s", (int)len, term);
+
   InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, term, len, 1);
   if (idx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Could not open term index");
   }
 
   int rc = InvertedIndex_Repair(idx, &sp->docs, startBlock, 10);
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithStringBuffer(ctx, term, len);
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
