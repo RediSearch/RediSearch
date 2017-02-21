@@ -316,13 +316,13 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   if (docId > ir->idx->lastId) {
     return INDEXREAD_EOF;
   }
-  printf("before skip - block %d\n", ir->currentBlock);
+  // printf("before skip - block %d\n", ir->currentBlock);
   // try to skip to the current block
   if (!indexReader_skipToBlock(ir, docId)) {
-    printf("skip to %d - not found!\n", docId);
+    //    printf("skip to %d - not found!\n", docId);
     return INDEXREAD_EOF;
   }
-  printf("skipped to %d - block now %d\n", docId, ir->currentBlock);
+  //  printf("skipped to %d - block now %d\n", docId, ir->currentBlock);
   /* try to find an entry in the skip index if possible */
   //   SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
   //   /* Seek to the correct location if we found a skip index entry */
