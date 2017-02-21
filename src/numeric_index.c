@@ -6,7 +6,7 @@
 #include "redismodule.h"
 
 #define NR_EXPONENT 2
-#define NR_MAX_DEPTH 1
+#define NR_MAX_DEPTH 2
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
