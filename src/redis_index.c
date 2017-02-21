@@ -85,6 +85,10 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
+/*
+ * Select a random term from the index that matches the index prefix and inveted key format.
+ * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
+ */
 const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
   RedisModuleString *pf = fmtRedisTermKey(ctx, "", 0);
@@ -96,6 +100,8 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
       break;
     }
+
+    // get the key and see if it matches the prefix
     size_t len;
     const char *kstr = RedisModule_CallReplyStringPtr(rep, &len);
     if (!strncmp(kstr, prefix, pflen)) {
