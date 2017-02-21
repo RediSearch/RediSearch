@@ -2,7 +2,7 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
-#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE 10
 #define INDEX_BLOCK_INITIAL_CAP 2
 
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
@@ -12,20 +12,18 @@ void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = realloc(idx->blocks, idx->size * sizeof(IndexBlock));
-  idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .numDocs = 0};
+  idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = 0, .numDocs = 0};
   Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags) {
   InvertedIndex *idx = malloc(sizeof(InvertedIndex));
-  idx->blocks = calloc(1, sizeof(IndexBlock));
-  idx->size = 1;
+  idx->blocks = NULL;
+  idx->size = 0;
   idx->lastId = 0;
   idx->flags = flags;
   idx->numDocs = 0;
-
-  Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
-
+  InvertedIndex_AddBlock(idx, 0);
   return idx;
 }
 
@@ -54,7 +52,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     InvertedIndex_AddBlock(idx, ent->docId);
     blk = &INDEX_LAST_BLOCK(idx);
   }
-  // this is needed on the first block
+  // // this is needed on the first block
   if (blk->firstId == 0) {
     blk->firstId = ent->docId;
   }
@@ -74,7 +72,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
   // size_t len = varintSize(quantizedScore) + 1 + offsetsSz;
 
   // Write docId
-  ret += WriteVarint(ent->docId - idx->lastId, &bw);
+  ret += WriteVarint(ent->docId - blk->lastId, &bw);
   // encode len
 
   // ret += WriteVarint(len, &w->bw);
@@ -93,6 +91,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     ret += Buffer_Write(&bw, offsets->data, offsetsSz);
   }
   idx->lastId = ent->docId;
+  blk->lastId = ent->docId;
   ++blk->numDocs;
   ++idx->numDocs;
 
@@ -112,6 +111,7 @@ inline int IR_HasNext(void *ctx) {
 void indexReader_advanceBlock(IndexReader *ir) {
   ir->currentBlock++;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).data);
+  ir->lastId = 0;//IR_CURRENT_BLOCK(ir).firstId;
 }
 
 inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t *flags,
@@ -125,9 +125,9 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t 
   }
   BufferReader *br = &ir->br;
 
-  int _docId = ReadVarint(br);
-
-  *docId = _docId + ir->lastId;
+ 
+  *docId =ReadVarint(br) + ir->lastId;
+  //printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId, ir->lastId);
   int quantizedScore = ReadVarint(br);
   if (freq != NULL) {
     *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
@@ -148,8 +148,6 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t 
     if (offsets != NULL && !ir->singleWordMode) {
       offsets->cap = offsetsLen;
       offsets->data = br->pos;
-      //   offsets->pos = offsets->data;
-      //   offsets->ctx = NULL;
       offsets->offset = 0;
     }
     Buffer_Skip(br, offsetsLen);
@@ -164,11 +162,16 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   }
   // if we're at the end of the block
   if (BufferReader_AtEnd(&ir->br)) {
-    indexReader_advanceBlock(ir);
+    printf("Tryread expected %d, at end, last id %d\n", expectedDocId, ir->lastId);
+
+    *docId = ir->lastId;
+    return INDEXREAD_NOTFOUND;
   }
 
   BufferReader *br = &ir->br;
   *docId = ReadVarint(br) + ir->lastId;
+  printf("IR %s TRYread docId %d, last id %d\n", ir->term->str, *docId, ir->lastId);
+
   ReadVarint(br);  // read quantized score
   uint8_t flags = 0xff;
 
@@ -227,17 +230,19 @@ int IR_Read(void *ctx, IndexResult *e) {
       ir->lastId = ir->record.docId;
       IndexResult_PutRecord(e, &ir->record);
 
-      // printf("IR %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId, ir->lastId, rc);
+      printf("IR LOOP OK %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId, ir->lastId, rc);
       return INDEXREAD_OK;
+    } else {
+      printf("loop rc %d\n", rc);
     }
   } while (rc != INDEXREAD_EOF);
 
-  // printf("IR %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId, ir->lastId, rc);
+  printf("IR %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId, ir->lastId, rc);
   return rc;
 }
 
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
-  // LG_DEBUG("Seeking to %d, lastId %d", offset, docId);
+  printf("IR %s Seeking to %d (offset %d block %d), lastId %d\n", ir->term->str, docId, offset, ir->currentBlock, ir->lastId);
   Buffer_Seek(&ir->br, offset);
   ir->lastId = docId;
 }
@@ -254,7 +259,8 @@ int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
 
   InvertedIndex *idx = ir->idx;
   if (idx->size == 0 || docId < idx->blocks[0].firstId) {
-    return 1;
+    printf("idx size %d first docId %d, can't find %d\n", idx->size, idx->blocks[0].firstId, docId);
+    return 0;
   }
   // if we don't need to move beyond the current block
   if (_isPos(idx, ir->currentBlock, docId)) {
@@ -291,6 +297,7 @@ int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
   ir->currentBlock = i;
 
 found:
+  ir->lastId = 0;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).data);
   return 1;
 }
@@ -305,24 +312,27 @@ if
 at EOF
 */
 int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
+    IndexReader *ir = ctx;
 
+  printf("IR %s skipTo %d\n", ir->term->str, docId);
   /* If we are skipping to 0, it's just like a normal read */
   if (docId == 0) {
     return IR_Read(ctx, hit);
   }
 
-  IndexReader *ir = ctx;
   /* check if the id is out of range */
-  if (docId > ir->idx->lastId) {
+  if (docId >  ir->idx->lastId) {
+    printf("%d is beyond %d for %s", docId, ir->idx->lastId, ir->term->str);
     return INDEXREAD_EOF;
   }
-  // printf("before skip - block %d\n", ir->currentBlock);
+   printf("before skip - block %d last Id %d\n", ir->currentBlock, ir->lastId);
   // try to skip to the current block
   if (!indexReader_skipToBlock(ir, docId)) {
-    //    printf("skip to %d - not found!\n", docId);
-    return INDEXREAD_EOF;
+        printf("skip to %d - not found!\n", docId);
+        hit->docId = 0;
+    return INDEXREAD_NOTFOUND;
   }
-  //  printf("skipped to %d - block now %d\n", docId, ir->currentBlock);
+    printf("skipped to %d - block now %d, last id now %d\n", docId, ir->currentBlock, ir->lastId);
   /* try to find an entry in the skip index if possible */
   //   SkipEntry *ent = SkipIndex_Find(ir->skipIdx, docId, &ir->skipIdxPos);
   //   /* Seek to the correct location if we found a skip index entry */
@@ -333,15 +343,17 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   int rc;
   t_docId lastId = ir->lastId, readId = 0;
   t_offset offset = BufferReader_Offset(&ir->br);
-
   do {
-
+    
     // do a quick-read until we hit or pass the desired document
-    if ((rc = IR_TryRead(ir, &readId, docId)) == INDEXREAD_EOF) {
+    rc = IR_TryRead(ir, &readId, docId);
+    printf("IR %s tryread %d, rc %d\n", ir->term->str, docId, readId);
+    if(rc == INDEXREAD_EOF) {
       return rc;
     }
     // rewind 1 document and re-read it...
     if (rc == INDEXREAD_OK || readId > docId) {
+      
       IR_Seek(ir, offset, lastId);
 
       int _rc = IR_Read(ir, hit);
@@ -382,8 +394,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fiel
   }
 
   ret->record = (IndexRecord){.term = term};
-  ret->lastId = 0;
-
+ret->lastId = 0;
   ret->docTable = docTable;
   ret->len = 0;
   ret->singleWordMode = singleWordMode;

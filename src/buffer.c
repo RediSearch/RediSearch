@@ -1,6 +1,7 @@
 #include "buffer.h"
 #include <sys/param.h>
 #include <assert.h>
+
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
 
   Buffer *buf = bw->buf;
@@ -12,7 +13,7 @@ size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
     buf->data = realloc(buf->data, buf->cap);
     bw->pos = buf->data + buf->offset;
   }
-  memmove(bw->pos, data, len);
+  memcpy(bw->pos, data, len);
   bw->pos += len;
   buf->offset += len;
   return len;
@@ -100,7 +101,7 @@ position if where is outside bounds
 inline size_t Buffer_Skip(BufferReader *br, int bytes) {
   // if overflow - just skip to the end
   Buffer *b = br->buf;
-  if (b->offset + bytes > b->cap) {
+  if (br->pos + bytes > b->data + b->cap) {
     br->pos = b->data + b->cap;
     // b->offset = b->cap;
     return b->cap;

@@ -13,6 +13,7 @@
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
   t_docId firstId;
+  t_docId lastId;
   uint16_t numDocs;
 
   Buffer data;

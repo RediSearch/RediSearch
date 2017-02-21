@@ -90,15 +90,16 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
     VarintVectorIterator v2 = VarIntVector_iter(&r->records[i].offsets);
     int p1 = VV_Next(&v1);
     int p2 = VV_Next(&v2);
-
     int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != -1 && p2 != -1) {
+          printf("p1 %d, p2 %d, cd %d\n", p1, p2, cd);
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
         p1 = VV_Next(&v1);
       } else {
         p2 = VV_Next(&v2);
       }
+
     }
 
     dist += cd * cd;

@@ -14,18 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// /* An IndexResult is the data structure used when reading indexes.
-// Each hit representsa single document entry in an inverted index */
-// typedef struct {
-//   t_docId docId;
-//   double totalFreq;
-//   u_char flags;
-//   VarintVector offsetVecs[MAX_INTERSECT_WORDS];
-//   int numOffsetVecs;
-//   int hasMetadata;
-//   DocumentMetadata metadata;
-//   HitType type;
-// } IndexResult;
+
 
 /* Free the internal data of an index hit. Since index hits are usually on the
 stack,

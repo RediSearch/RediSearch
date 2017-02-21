@@ -28,6 +28,7 @@ inline int ReadVarint(BufferReader *b) {
 }
 
 int WriteVarint(int value, BufferWriter *w) {
+  printf("writing %d\n", value);
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
   varint[pos] = value & 127;
@@ -48,7 +49,6 @@ size_t varintSize(int value) {
 VarintVectorIterator VarIntVector_iter(VarintVector *v) {
   VarintVectorIterator ret;
   ret.br = NewBufferReader(v);
-  Buffer_Seek(&ret.br, 0);
   ret.index = 0;
   ret.lastValue = 0;
   return ret;
