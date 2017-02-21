@@ -1,13 +1,13 @@
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
 
-#include "types.h"
 #include "buffer.h"
 #include "doc_table.h"
-#include "spec.h"
-#include "index_result.h"
 #include "forward_index.h"
 #include "index_iterator.h"
+#include "index_result.h"
+#include "spec.h"
+#include "types.h"
 #include <stdint.h>
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
@@ -27,7 +27,7 @@ typedef struct {
   uint32_t numDocs;
 } InvertedIndex;
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags);
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */

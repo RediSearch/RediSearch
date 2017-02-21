@@ -16,14 +16,16 @@ void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags) {
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   InvertedIndex *idx = malloc(sizeof(InvertedIndex));
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
   idx->flags = flags;
   idx->numDocs = 0;
-  InvertedIndex_AddBlock(idx, 0);
+  if (initBlock) {
+    InvertedIndex_AddBlock(idx, 0);
+  }
   return idx;
 }
 

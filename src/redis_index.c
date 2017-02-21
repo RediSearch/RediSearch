@@ -1,5 +1,5 @@
-#include "doc_table.h"
 #include "redis_index.h"
+#include "doc_table.h"
 #include "inverted_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -9,13 +9,46 @@
 RedisModuleType *InvertedIndexType;
 
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
-  return NULL;
+  if (encver != 0) {
+    return NULL;
+  }
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+  idx->lastId = RedisModule_LoadUnsigned(rdb);
+  idx->numDocs = RedisModule_LoadUnsigned(rdb);
+  idx->size = RedisModule_LoadUnsigned(rdb);
+  idx->blocks = calloc(idx->size, sizeof(IndexBlock));
+
+  for (uint32_t i = 0; i < idx->size; i++) {
+    IndexBlock *blk = &idx->blocks[i];
+    blk->firstId = RedisModule_LoadUnsigned(rdb);
+    blk->lastId = RedisModule_LoadUnsigned(rdb);
+    blk->numDocs = RedisModule_LoadUnsigned(rdb);
+    size_t len;
+    blk->data.data = RedisModule_LoadStringBuffer(rdb, &blk->data.cap);
+    blk->data.offset = blk->data.cap;
+  }
+  return idx;
 }
 void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
+
+  InvertedIndex *idx = value;
+  RedisModule_SaveUnsigned(rdb, idx->flags);
+  RedisModule_SaveUnsigned(rdb, idx->lastId);
+  RedisModule_SaveUnsigned(rdb, idx->numDocs);
+  RedisModule_SaveUnsigned(rdb, idx->size);
+
+  for (uint32_t i = 0; i < idx->size; i++) {
+    IndexBlock *blk = &idx->blocks[i];
+    RedisModule_SaveUnsigned(rdb, blk->firstId);
+    RedisModule_SaveUnsigned(rdb, blk->lastId);
+    RedisModule_SaveUnsigned(rdb, blk->numDocs);
+    RedisModule_SaveStringBuffer(rdb, blk->data.data, blk->data.offset);
+  }
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
 void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+  // NOT IMPLEMENTED YET
 }
 
 int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
@@ -25,7 +58,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
                                .aof_rewrite = InvertedIndex_AofRewrite,
                                .free = InvertedIndex_Free};
 
-  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INDEX_CURRENT_VERSION, &tm);
+  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", 0, &tm);
   if (InvertedIndexType == NULL) {
     RedisModule_Log(ctx, "error", "Could not create inverted index type");
     return REDISMODULE_ERR;
@@ -78,7 +111,7 @@ InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, si
   if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
 
     if (write) {
-      InvertedIndex *idx = NewInvertedIndex(ctx->spec->flags);
+      InvertedIndex *idx = NewInvertedIndex(ctx->spec->flags, 1);
       RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
       return idx;
     } else {
