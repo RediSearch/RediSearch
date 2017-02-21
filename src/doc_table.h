@@ -6,7 +6,6 @@
 #include "redismodule.h"
 #include "util/triemap.h"
 
-#pragma pack(4)
 typedef struct {
   char *data;
   size_t len;
@@ -27,7 +26,7 @@ typedef struct {
   u_char flags;
   DocumentPayload *payload;
 } DocumentMetadata;
-#pragma pack()
+//#pragma pack()
 
 /* Document flags. The only supported flag currently is deleted, but more might come later one */
 typedef enum {

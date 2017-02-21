@@ -43,7 +43,7 @@ int NumericRange_Contains(NumericRange *n, double min, double max) {
 int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
   if (n->size >= n->cap) {
-    n->cap = n->cap ? MIN(n->cap * 3 / 2, 1024 * 1024) : 2;
+    n->cap += n->cap ? MIN(n->cap / 2, 1024 * 1024) : 2;
     n->entries = RedisModule_Realloc(n->entries, n->cap * sizeof(NumericRangeEntry));
   }
 
