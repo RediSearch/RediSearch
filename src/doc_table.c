@@ -38,7 +38,7 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags, c
   }
   t_docId docId = ++t->maxDocId;
   // if needed - grow the table
-  if (t->size >= t->cap) {
+  if (t->maxDocId + 1 >= t->cap) {
 
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
     t->docs = RedisModule_Realloc(t->docs, t->cap * sizeof(DocumentMetadata));

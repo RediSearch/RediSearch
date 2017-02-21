@@ -6,7 +6,7 @@
 #include "redismodule.h"
 
 #define NR_EXPONENT 2
-#define NR_MAX_DEPTH 2
+#define NR_MAX_DEPTH 1
 
 double qselect(double *v, int len, int k) {
 #define SWAP(a, b) \
@@ -61,8 +61,6 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 
   if (value < n->minVal) n->minVal = value;
   if (value > n->maxVal) n->maxVal = value;
-
-  ;
 
   n->entries[n->size++] = (NumericRangeEntry){.docId = docId, .value = value};
   return n->card;

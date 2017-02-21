@@ -7,7 +7,7 @@ size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
   Buffer *buf = bw->buf;
   if (buf->offset + len > buf->cap) {
     do {
-      buf->cap = MIN(1 + buf->cap * 5 / 4, 1024 * 1024);
+      buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
     } while (buf->offset + len > buf->cap);
 
     buf->data = realloc(buf->data, buf->cap);
