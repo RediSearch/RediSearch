@@ -11,25 +11,28 @@
 
 inline int ReadVarint(BufferReader *b) {
 
-  uint8_t c = BUFFER_READ_BYTE(b);
+  // printf("%p Reading from buffer, offset %zd, pos %zd, cap %zd\n", b->buf, b->buf->offset,
+  //        b->pos - b->buf->data, b->buf->cap);
+  unsigned char c = BUFFER_READ_BYTE(b);
 
   int val = c & 127;
-
+  int x = 1;
   while (c >> 7) {
     ++val;
+    x++;
     c = BUFFER_READ_BYTE(b);
     val = (val << 7) | (c & 127);
   }
+
   return val;
 }
 
 int WriteVarint(int value, BufferWriter *w) {
-  // printf("Writing %d @ %zd\n", value, w->buf->offset);
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
   varint[pos] = value & 127;
   while (value >>= 7) varint[--pos] = 128 | (--value & 127);
-
+  // printf("writing %d bytes\n", 16 - pos);
   return Buffer_Write(w, varint + pos, 16 - pos);
 }
 

@@ -1,17 +1,18 @@
 #include "buffer.h"
 #include <sys/param.h>
-
+#include <assert.h>
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
+
   Buffer *buf = bw->buf;
   if (buf->offset + len > buf->cap) {
     do {
-      buf->cap = MAX(buf->cap * 4 / 5, 1024 * 1024);
+      buf->cap = MIN(1 + buf->cap * 5 / 4, 1024 * 1024);
     } while (buf->offset + len > buf->cap);
 
     buf->data = realloc(buf->data, buf->cap);
     bw->pos = buf->data + buf->offset;
   }
-  memcpy(bw->pos, data, len);
+  memmove(bw->pos, data, len);
   bw->pos += len;
   buf->offset += len;
   return len;
@@ -31,7 +32,7 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen) {
 }
 
 BufferWriter NewBufferWriter(Buffer *b) {
-  BufferWriter ret = {.buf = b, .pos = b->data};
+  BufferWriter ret = {.buf = b, .pos = b->data + b->offset};
   return ret;
 }
 
@@ -68,13 +69,13 @@ Read len bytes from the buffer into data. If offset + len are over capacity
 inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
   // no capacity - return 0
   Buffer *b = br->buf;
-  if (b->offset + len > b->cap) {
+  if (br->pos + len > b->data + b->cap) {
     return 0;
   }
 
   data = memcpy(data, br->pos, len);
   br->pos += len;
-  b->offset += len;
+  // b->offset += len;
 
   return len;
 }
@@ -88,7 +89,7 @@ inline size_t Buffer_ReadByte(BufferReader *b, char *c) {
   //     return 0;
   // }
   *c = *b->pos++;
-  ++b->buf->offset;
+  //++b->buf->offset;
   return 1;
 }
 
@@ -101,12 +102,12 @@ inline size_t Buffer_Skip(BufferReader *br, int bytes) {
   Buffer *b = br->buf;
   if (b->offset + bytes > b->cap) {
     br->pos = b->data + b->cap;
-    b->offset = b->cap;
+    // b->offset = b->cap;
     return b->cap;
   }
 
   br->pos += bytes;
-  b->offset += bytes;
+  // b->offset += bytes;
   return b->offset;
 }
 
@@ -119,12 +120,16 @@ inline size_t Buffer_Seek(BufferReader *br, size_t where) {
 
   where = MIN(where, b->cap);
   br->pos = b->data + where;
-  b->offset = where;
+  // b->offset = where;
   return where;
 }
 
 inline size_t Buffer_Offset(Buffer *ctx) {
   return ctx->offset;
+}
+
+inline size_t BufferReader_Offset(BufferReader *r) {
+  return r->pos - r->buf->data;
 }
 
 inline size_t Buffer_Capacity(Buffer *ctx) {
@@ -133,4 +138,8 @@ inline size_t Buffer_Capacity(Buffer *ctx) {
 
 inline int Buffer_AtEnd(Buffer *ctx) {
   return ctx->offset >= ctx->cap;
+}
+
+inline int BufferReader_AtEnd(BufferReader *br) {
+  return br->pos >= br->buf->data + br->buf->offset;
 }

@@ -584,8 +584,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Detect "NOCONTENT"
   int nocontent = RMUtil_ArgExists("nocontent", argv, argc, 3);
 
-  DocTable dt;
-
   // Parse LIMIT argument
   long long first = 0, limit = 10;
   RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &first, &limit);
@@ -698,7 +696,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (filterGeo) {
     Query_SetGeoFilter(q, &gf);
   }
-  q->docTable = &dt;
+  q->docTable = &sp->docs;
 
   // Execute the query
   QueryResult *r = Query_Execute(q);

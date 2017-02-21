@@ -17,27 +17,28 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                             'body', 'lorem ist ipsum'))
 
             for _ in r.retry_with_rdb_reload():
-                for prefix in ('ft', 'ss'):
-                    self.assertExists(r, prefix + ':idx/hello')
-                    self.assertExists(r, prefix + ':idx/world')
-                    self.assertExists(r, prefix + ':idx/lorem')
+                prefix = 'ft'
+                self.assertExists(r, prefix + ':idx/hello')
+                self.assertExists(r, prefix + ':idx/world')
+                self.assertExists(r, prefix + ':idx/lorem')
 
     def testUnion(self):
 
         with self.redis() as r:
             r.flushdb()
+            N = 100
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'f', 'text'))
-            for i in range(100):
+            for i in range(N):
 
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'f', 'hello world' if i % 2 == 0 else 'hallo werld'))
 
             for _ in r.retry_with_rdb_reload():
                 res = r.execute_command(
-                    'ft.search', 'idx', 'hello|hallo|world|werld', 'nocontent', 'limit', '0', '100')
-                self.assertEqual(101, len(res))
-                self.assertEqual(100, res[0])
+                    'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
+                self.assertEqual(N+1, len(res))
+                self.assertEqual(N, res[0])
 
                 res = r.execute_command(
                     'ft.search', 'idx', 'hello|world', 'nocontent', 'limit', '0', '100')

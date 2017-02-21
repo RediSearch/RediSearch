@@ -21,9 +21,8 @@ typedef struct {
   char *pos;
 } BufferReader;
 
-#define BUFFER_READ_BYTE(b) \
-  *b->pos++;                \
-  ++b->buf->offset;
+#define BUFFER_READ_BYTE(b) *b->pos++
+//++b->buf->offset;
 
 void Buffer_Init(Buffer *b, size_t cap);
 size_t Buffer_ReadByte(BufferReader *b, char *c);
@@ -31,6 +30,8 @@ size_t Buffer_Read(BufferReader *b, void *data, size_t len);
 size_t Buffer_Skip(BufferReader *b, int bytes);
 size_t Buffer_Seek(BufferReader *b, size_t offset);
 size_t Buffer_Offset(Buffer *ctx);
+size_t BufferReader_Offset(BufferReader *r);
+int BufferReader_AtEnd(BufferReader *br);
 size_t Buffer_Capacity(Buffer *ctx);
 int Buffer_AtEnd(Buffer *ctx);
 

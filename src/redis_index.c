@@ -25,8 +25,8 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
                                .aof_rewrite = InvertedIndex_AofRewrite,
                                .free = InvertedIndex_Free};
 
-  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_invidx", INDEX_CURRENT_VERSION, &tm);
-  if (IndexSpecType == NULL) {
+  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INDEX_CURRENT_VERSION, &tm);
+  if (InvertedIndexType == NULL) {
     RedisModule_Log(ctx, "error", "Could not create inverted index type");
     return REDISMODULE_ERR;
   }
@@ -75,11 +75,15 @@ InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, si
   }
 
   // on write mode, for an empty key we simply create a new index key
-  if (write && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
+  if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
 
-    InvertedIndex *idx = NewInvertedIndex(ctx->spec->flags);
-    RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
-    return idx;
+    if (write) {
+      InvertedIndex *idx = NewInvertedIndex(ctx->spec->flags);
+      RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
+      return idx;
+    } else {
+      return NULL;
+    }
   }
 
   return RedisModule_ModuleTypeGetValue(k);
