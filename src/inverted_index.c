@@ -148,7 +148,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t 
     if (offsets != NULL && !ir->singleWordMode) {
       offsets->cap = offsetsLen;
       offsets->data = br->pos;
-      offsets->offset = 0;
+      offsets->offset = offsetsLen;
     }
     Buffer_Skip(br, offsetsLen);
   }
@@ -164,7 +164,7 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   if (BufferReader_AtEnd(&ir->br)) {
     printf("Tryread expected %d, at end, last id %d\n", expectedDocId, ir->lastId);
 
-    *docId = ir->lastId;
+    *docId = expectedDocId+1;
     return INDEXREAD_NOTFOUND;
   }
 
@@ -329,7 +329,7 @@ int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
   // try to skip to the current block
   if (!indexReader_skipToBlock(ir, docId)) {
         printf("skip to %d - not found!\n", docId);
-        hit->docId = 0;
+       IR_Read(ir, hit);
     return INDEXREAD_NOTFOUND;
   }
     printf("skipped to %d - block now %d, last id now %d\n", docId, ir->currentBlock, ir->lastId);

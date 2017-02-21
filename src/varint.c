@@ -55,7 +55,7 @@ VarintVectorIterator VarIntVector_iter(VarintVector *v) {
 }
 
 inline int VV_HasNext(VarintVectorIterator *vi) {
-  return !Buffer_AtEnd(vi->br.buf);
+  return !BufferReader_AtEnd(&vi->br);
 }
 
 inline int VV_Next(VarintVectorIterator *vi) {

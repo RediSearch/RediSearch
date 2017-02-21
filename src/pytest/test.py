@@ -209,7 +209,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                                 'f', 'hello world'))
 
             keys = r.keys('*')
-            self.assertEqual(207, len(keys))
+            self.assertEqual(203, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
