@@ -1,6 +1,6 @@
 #include "buffer.h"
-#include <sys/param.h>
 #include <assert.h>
+#include <sys/param.h>
 
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
 
@@ -131,10 +131,6 @@ inline size_t Buffer_Offset(Buffer *ctx) {
 
 inline size_t BufferReader_Offset(BufferReader *r) {
   return r->pos - r->buf->data;
-}
-
-inline size_t Buffer_Capacity(Buffer *ctx) {
-  return ctx->cap;
 }
 
 inline int Buffer_AtEnd(Buffer *ctx) {

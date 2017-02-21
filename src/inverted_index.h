@@ -29,6 +29,7 @@ typedef struct {
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReadCtx {

@@ -1,10 +1,12 @@
+
 #include "forward_index.h"
+#include "geo_index.h"
 #include "index.h"
 #include "numeric_filter.h"
+#include "numeric_index.h"
 #include "query.h"
 #include "query_node.h"
 #include "redis_index.h"
-#include "geo_index.h"
 #include "redismodule.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -14,7 +16,6 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
-#include "numeric_index.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -288,6 +289,33 @@ cleanup:
   return REDISMODULE_OK;
 }
 
+int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+  RedisSearchCtx sctx = {ctx, sp};
+
+  long long startBlock = 0;
+  if (argc == 4) {
+    if (RedisModule_StringToLongLong(argv[3], &startBlock) == REDISMODULE_ERR || startBlock < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid start offset");
+    }
+  }
+  size_t len = 0;
+  const char *term = RedisModule_StringPtrLen(argv[2], &len);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, term, len, 1);
+  if (idx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Could not open term index");
+  }
+
+  int rc = InvertedIndex_Repair(idx, &sp->docs, startBlock, 10);
+  return RedisModule_ReplyWithLongLong(ctx, rc);
+}
+
 #define __reply_kvnum(n, k, v)                 \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
@@ -534,7 +562,8 @@ results to the offset and number of results given. The default is 0 10
 
    - FILTER: Apply a numeric filter to a numeric field, with a minimum and maximum
 
-   - GEOFILTER: Apply a radius filter to a geo field, with a given lon, lat, radius and radius units
+   - GEOFILTER: Apply a radius filter to a geo field, with a given lon, lat, radius and radius
+units
 (m, km, mi, or ft)
 
    - INFIELDS num field1 field2 ...: If set, filter the results to ones
@@ -1096,6 +1125,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write no-cluster", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write no-cluster", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
