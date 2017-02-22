@@ -139,6 +139,7 @@ int testIndexReadWrite() {
     // printf("Time elapsed: %ldnano\n", diffInNanos);
     // //IR_Free(ir);
     // }
+    IndexResult_Free(&h);
     IR_Free(ir);
   }
 
@@ -281,6 +282,7 @@ int testIntersection() {
   ASSERT(topFreq == 475000.0625);
 
   ii->Free(ii);
+  IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
 
@@ -328,6 +330,7 @@ int testBuffer() {
   ASSERT(n == 1337654);
 
   Buffer_Free(w.buf);
+  free(w.buf);
 
   return 0;
 }
@@ -440,6 +443,7 @@ int testIndexSpec() {
   ASSERT(!(s->flags & Index_StoreScoreIndexes));
   ASSERT(!(s->flags & Index_StoreFieldFlags));
   ASSERT(!(s->flags & Index_StoreTermOffsets));
+  IndexSpec_Free(s);
 
   return 0;
 }
@@ -540,7 +544,7 @@ int testDocTable() {
   ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));
 
   ASSERT(NULL == DocTable_Get(&dt, N + 2));
-
+  DocTable_Free(&dt);
   return 0;
 }
 
