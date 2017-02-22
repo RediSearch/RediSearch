@@ -212,6 +212,7 @@ int testReadIterator() {
 
   it->Free(it);
 
+  IndexResult_Free(&h);
   InvertedIndex_Free(idx);
   return 0;
 }
@@ -238,6 +239,7 @@ int testUnion() {
   }
 
   ui->Free(ui);
+  IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
   return 0;
