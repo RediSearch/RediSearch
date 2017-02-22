@@ -2,7 +2,7 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-CFLAGS= -Wall -Werror -Wno-misleading-indentation -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I./
+CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I./
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
