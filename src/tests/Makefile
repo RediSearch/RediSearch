@@ -2,12 +2,12 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS ?= -g -fPIC -lc -lm -std=gnu99 -I./ -Og
+CFLAGS ?= -g -fPIC -lc -lm -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
-INDEX=index.o forward_index.o score_index.o skip_index.o numeric_index.o index_result.o doc_table.o numeric_filter.o geo_index.o
+INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o numeric_filter.o geo_index.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
-REDIS=redis_buffer.o redis_index.o query.o spec.o 
+REDIS=redis_index.o query.o spec.o 
 UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o

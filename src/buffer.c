@@ -137,6 +137,9 @@ inline int Buffer_AtEnd(Buffer *ctx) {
   return ctx->offset >= ctx->cap;
 }
 
+size_t Buffer_Capacity(Buffer *ctx) {
+  return ctx->cap;
+}
 inline int BufferReader_AtEnd(BufferReader *br) {
   return br->pos >= br->buf->data + br->buf->offset;
 }
