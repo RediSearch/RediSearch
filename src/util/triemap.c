@@ -1,5 +1,5 @@
-#include <sys/param.h>
 #include "triemap.h"
+#include <sys/param.h>
 
 size_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
   return sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) + (slen + 1);
@@ -265,6 +265,14 @@ int TrieMapNode_Delete(TrieMapNode *n, unsigned char *str, tm_len_t len, void (*
 
           n->flags |= TM_NODE_DELETED;
           n->flags &= ~TM_NODE_TERMINAL;
+
+          if (n->value) {
+            if (freeCB) {
+              freeCB(n->value);
+            } else {
+              free(n->value);
+            }
+          }
           n->value = NULL;
           rc = 1;
         }
