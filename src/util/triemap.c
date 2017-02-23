@@ -1,5 +1,6 @@
 #include "triemap.h"
 #include <sys/param.h>
+#include "../rmutil/alloc.h"
 
 size_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
   return sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) + (slen + 1);

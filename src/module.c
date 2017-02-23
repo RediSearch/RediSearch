@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "rmutil/alloc.h"
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
  * version of it first */

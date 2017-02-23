@@ -4,11 +4,12 @@
 #include <sys/param.h>
 #include "dep/snowball/include/libstemmer.h"
 #include "expander.h"
+#include "rmutil/alloc.h"
 
-const char *__supportedLanguages[] = {
-    "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    "russian", "spanish",   "swedish", "tamil",     "turkish",    NULL};
+const char *__supportedLanguages[] = {"arabic",     "danish",   "dutch",     "english", "finnish",
+                                      "french",     "german",   "hungarian", "italian", "norwegian",
+                                      "portuguese", "romanian", "russian",   "spanish", "swedish",
+                                      "tamil",      "turkish",  NULL};
 
 int IsSupportedLanguage(const char *language, size_t len) {
   for (int i = 0; __supportedLanguages[i] != NULL; i++) {
@@ -32,8 +33,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
     }
 
     const sb_symbol *b = (const sb_symbol *)n->tn.str;
-    const sb_symbol *stemmed =
-        sb_stemmer_stem(sb, (const sb_symbol *)n->tn.str, n->tn.len);
+    const sb_symbol *stemmed = sb_stemmer_stem(sb, (const sb_symbol *)n->tn.str, n->tn.len);
 
     QueryNode *ret = NULL;
     if (stemmed) {
@@ -47,8 +47,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
         int sl = sb_stemmer_length(sb);
         // Add the token and the ste as the union's children
         QueryUnionNode_AddChild(&ret->un, n);
-        QueryUnionNode_AddChild(&ret->un,
-                                NewTokenNode(q, strndup(stemmed, sl), sl));
+        QueryUnionNode_AddChild(&ret->un, NewTokenNode(q, strndup(stemmed, sl), sl));
       }
     }
     sb_stemmer_delete(sb);
@@ -60,14 +59,12 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
 
 void RegisterStemmerExpander() {
 
-  QueryExpander qx =
-      (QueryExpander){.Expand = StemmerExpand, .Free = NULL, .ctx = NULL};
+  QueryExpander qx = (QueryExpander){.Expand = StemmerExpand, .Free = NULL, .ctx = NULL};
 
   RegisterQueryExpander(STEMMER_EXPANDER_NAME, qx);
 }
 
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len,
-                             size_t *outlen) {
+const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
   const sb_symbol *b = (const sb_symbol *)word;
   struct sb_stemmer *sb = ctx;
 
@@ -100,9 +97,9 @@ Stemmer *__newSnowballStemmer(const char *language) {
 
 Stemmer *NewStemmer(StemmerType type, const char *language) {
   switch (type) {
-  case SnowballStemmer:
+    case SnowballStemmer:
 
-    return __newSnowballStemmer(language);
+      return __newSnowballStemmer(language);
   }
 
   fprintf(stderr, "Invalid stemmer type");

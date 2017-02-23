@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
+#include "rmutil/alloc.h"
 
 ForwardIndex *NewForwardIndex(Document doc) {
   ForwardIndex *idx = malloc(sizeof(ForwardIndex));

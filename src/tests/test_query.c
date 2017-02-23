@@ -1,10 +1,11 @@
 #include "../expander.h"
 #include "../query.h"
 #include "../query_parser/tokenizer.h"
-#include "stopwords.h"
+#include "../stopwords.h"
 #include "test_util.h"
 #include "time_sample.h"
 #include <stdio.h>
+#include "../rmutil/alloc.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
@@ -154,6 +155,8 @@ void benchmarkQueryParser() {
 int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
+  RMUTil_InitAlloc();
+
   TESTFUNC(testQueryParser);
   TESTFUNC(testQueryExpander);
 

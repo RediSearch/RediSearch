@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include "rmutil/vector.h"
 #include <math.h>
+#include "rmutil/alloc.h"
 
 RedisModuleType *IndexSpecType;
 

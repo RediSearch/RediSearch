@@ -2,6 +2,8 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
+#include "rmutil/alloc.h"
+
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
 

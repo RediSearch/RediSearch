@@ -2,6 +2,7 @@
 #include "../tokenize.h"
 #include "test_util.h"
 #include <string.h>
+#include "../rmutil/alloc.h"
 
 int testStemmer() {
 
@@ -63,7 +64,7 @@ int testTokenize() {
 }
 
 int main(int argc, char **argv) {
-
+  RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
   TESTFUNC(testTokenize);
 }
