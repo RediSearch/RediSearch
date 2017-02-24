@@ -1,7 +1,7 @@
 #include "buffer.h"
 #include <assert.h>
 #include <sys/param.h>
-
+//#include "rmutil/alloc.h"
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
 
   Buffer *buf = bw->buf;

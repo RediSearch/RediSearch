@@ -23,8 +23,12 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
     blk->numDocs = RedisModule_LoadUnsigned(rdb);
-    size_t len;
-    blk->data.data = RedisModule_LoadStringBuffer(rdb, &blk->data.cap);
+
+    char *data = RedisModule_LoadStringBuffer(rdb, &blk->data.cap);
+
+    blk->data.data = malloc(blk->data.cap);
+    memcpy(blk->data.data, data, blk->data.cap);
+    RedisModule_Free(data);
     blk->data.offset = blk->data.cap;
   }
   return idx;
