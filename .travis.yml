@@ -1,14 +1,14 @@
 language: c
 compiler: gcc
 dist: trusty
-sudo: required
 install: make clean && make
 before_script:
   - git clone --depth 1 https://github.com/antirez/redis.git
   - cd redis
-  - make && sudo make install
+  - make
   - pip install redis
   - cd ..
+  
 env:
   - REDIS_MODULE_PATH=./src/module.so
 script: make test
