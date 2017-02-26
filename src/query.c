@@ -149,8 +149,7 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
 
-  int isSingleWord =
-      q->numTokens == 1 && q->fieldMask == 0xff && q->offset + q->limit <= MAX_SCOREINDEX_SIZE;
+  int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
 
   IndexReader *ir =
       Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);

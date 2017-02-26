@@ -4,9 +4,10 @@
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
+#include "rmalloc.h"
 
 ForwardIndex *NewForwardIndex(Document doc) {
-  ForwardIndex *idx = malloc(sizeof(ForwardIndex));
+  ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
   idx->hits = kh_init(32);
   idx->docScore = doc.score;
@@ -24,15 +25,15 @@ void ForwardIndexFree(ForwardIndex *idx) {
   for (k = kh_begin(idx->hits); k != kh_end(idx->hits); ++k) {
     if (kh_exist(idx->hits, k)) {
       ForwardIndexEntry *ent = kh_value(idx->hits, k);
-      // free((void *)ent->term);
+      // rm_free((void *)ent->term);
 
       kh_del(32, idx->hits, k);
       VVW_Free(ent->vw);
 
       if (ent->stringFreeable) {
-        free((char *)ent->term);
+        rm_free((char *)ent->term);
       }
-      free(ent);
+      rm_free(ent);
     }
   }
   kh_destroy(32, idx->hits);
@@ -40,8 +41,8 @@ void ForwardIndexFree(ForwardIndex *idx) {
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
   }
-  free(idx);
-  // TODO: check if we need to free each entry separately
+  rm_free(idx);
+  // TODO: check if we need to rm_free each entry separately
 }
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
@@ -58,7 +59,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
   khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
   if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
     /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
-    h = calloc(1, sizeof(ForwardIndexEntry));
+    h = rm_calloc(1, sizeof(ForwardIndexEntry));
     h->docId = idx->docId;
     h->flags = 0;
     h->term = t.s;

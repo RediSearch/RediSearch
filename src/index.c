@@ -4,6 +4,7 @@
 #include "spec.h"
 #include <math.h>
 #include <sys/param.h>
+#include "rmalloc.h"
 
 inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionContext *)ctx)->minDocId;

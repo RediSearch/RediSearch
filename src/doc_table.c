@@ -5,13 +5,15 @@
 #include "redismodule.h"
 #include "util/fnv.h"
 
+#include "rmalloc.h"
+
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap) {
   return (DocTable){.size = 1,
                     .cap = cap,
                     .maxDocId = 0,
                     .memsize = 0,
-                    .docs = RedisModule_Calloc(cap, sizeof(DocumentMetadata)),
+                    .docs = rm_calloc(cap, sizeof(DocumentMetadata)),
                     .dim = NewDocIdMap()};
 }
 
@@ -41,23 +43,23 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags, c
   if (t->maxDocId + 1 >= t->cap) {
 
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
-    t->docs = RedisModule_Realloc(t->docs, t->cap * sizeof(DocumentMetadata));
+    t->docs = rm_realloc(t->docs, t->cap * sizeof(DocumentMetadata));
   }
 
   /* Copy the payload since it's probably an input string not retained */
   DocumentPayload *dpl = NULL;
   if (payload && payloadSize) {
 
-    dpl = RedisModule_Alloc(sizeof(DocumentPayload));
-    dpl->data = RedisModule_Calloc(1, payloadSize + 1);
+    dpl = rm_malloc(sizeof(DocumentPayload));
+    dpl->data = rm_calloc(1, payloadSize + 1);
     memcpy(dpl->data, payload, payloadSize);
     dpl->len = payloadSize;
     flags |= Document_HasPayload;
     t->memsize += payloadSize + sizeof(DocumentPayload);
   }
 
-  t->docs[docId] = (DocumentMetadata){
-      .key = RedisModule_Strdup(key), .score = score, .flags = flags, .payload = dpl};
+  t->docs[docId] =
+      (DocumentMetadata){.key = rm_strdup(key), .score = score, .flags = flags, .payload = dpl};
   ++t->size;
   t->memsize += sizeof(DocumentMetadata) + strlen(key);
   DocIdMap_Put(&t->dim, key, docId);
@@ -89,12 +91,12 @@ inline float DocTable_GetScore(DocTable *t, t_docId docId) {
 
 void dmd_free(DocumentMetadata *md) {
   if (md->payload) {
-    RedisModule_Free(md->payload->data);
-    RedisModule_Free(md->payload);
+    rm_free(md->payload->data);
+    rm_free(md->payload);
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
-  RedisModule_Free(md->key);
+  rm_free(md->key);
 }
 void DocTable_Free(DocTable *t) {
   // we start at docId 1, not 0
@@ -102,7 +104,7 @@ void DocTable_Free(DocTable *t) {
     dmd_free(&t->docs[i]);
   }
   if (t->docs) {
-    RedisModule_Free(t->docs);
+    rm_free(t->docs);
   }
   DocIdMap_Free(&t->dim);
 }
@@ -113,8 +115,8 @@ int DocTable_Delete(DocTable *t, const char *key) {
 
     DocumentMetadata *md = &t->docs[docId];
     if (md->payload) {
-      RedisModule_Free(md->payload->data);
-      RedisModule_Free(md->payload);
+      rm_free(md->payload->data);
+      rm_free(md->payload);
       md->payload = NULL;
     }
 
@@ -144,7 +146,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
 
   if (sz > t->cap) {
     t->cap = sz;
-    t->docs = RedisModule_Realloc(t->docs, t->cap * sizeof(DocumentMetadata));
+    t->docs = rm_realloc(t->docs, t->cap * sizeof(DocumentMetadata));
   }
   t->size = t->cap;
   for (size_t i = 1; i < sz; i++) {
@@ -199,18 +201,25 @@ t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
   return 0;
 }
 
+void *_docIdMap_replace(void *oldval, void *newval) {
+  if (oldval) {
+    rm_free(oldval);
+  }
+  return newval;
+}
+
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
   void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
-  t_docId *pd = malloc(sizeof(t_docId));
+  t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, NULL);
+  TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMapNode_Free(m->tm, free);
+  TrieMapNode_Free(m->tm, RedisModule_Free);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *key) {
-  return TrieMapNode_Delete(m->tm, (unsigned char *)key, strlen(key), NULL);
+  return TrieMapNode_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
 }

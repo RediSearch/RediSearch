@@ -1,4 +1,4 @@
-#include "stopwords.h"
+#include "../stopwords.h"
 #include "tokenizer.h"
 #include "parser.h"
 #include "../tokenize.h"

@@ -1,5 +1,6 @@
 #include "index_result.h"
 #include "varint.h"
+#include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
 
@@ -7,7 +8,7 @@ inline void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
   if (r->numRecords == r->recordsCap) {
     // printf("expanding record cap from %d\n", r->recordsCap);
     r->recordsCap = r->recordsCap ? r->recordsCap * 2 : DEFAULT_RECORDLIST_SIZE;
-    r->records = realloc(r->records, r->recordsCap * sizeof(IndexRecord));
+    r->records = rm_realloc(r->records, r->recordsCap * sizeof(IndexRecord));
   }
   r->records[r->numRecords++] = *record;
   r->docId = record->docId;
@@ -33,7 +34,7 @@ void IndexResult_Print(IndexResult *r) {
 }
 
 Term *NewTerm(char *str) {
-  Term *ret = malloc(sizeof(Term));
+  Term *ret = rm_malloc(sizeof(Term));
   ret->idf = 1;
   ret->metadata = NULL;
   ret->str = str;
@@ -42,7 +43,7 @@ Term *NewTerm(char *str) {
 
 void Term_Free(Term *t) {
 
-  free(t);
+  rm_free(t);
 }
 
 void IndexResult_Init(IndexResult *h) {
@@ -57,14 +58,14 @@ void IndexResult_Init(IndexResult *h) {
 IndexResult NewIndexResult() {
   IndexResult h;
   h.recordsCap = DEFAULT_RECORDLIST_SIZE;
-  h.records = calloc(h.recordsCap, sizeof(IndexRecord));
+  h.records = rm_calloc(h.recordsCap, sizeof(IndexRecord));
   IndexResult_Init(&h);
   return h;
 }
 
 void IndexResult_Free(IndexResult *r) {
   if (r->records) {
-    free(r->records);
+    rm_free(r->records);
     r->records = NULL;
   }
 }

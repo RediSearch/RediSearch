@@ -1,6 +1,7 @@
 #include "index.h"
 #include "geo_index.h"
 #include "rmutil/util.h"
+#include "rmalloc.h"
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
 
@@ -72,7 +73,7 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
     return NULL;
   }
 
-  GeoRangeIterator *ret = malloc(sizeof(GeoRangeIterator));
+  GeoRangeIterator *ret = rm_malloc(sizeof(GeoRangeIterator));
   ret->atEOF = 0;
   ret->idx = gi;
   ret->offset = 0;
@@ -80,7 +81,7 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
 
   size_t sz = RedisModule_CallReplyLength(rep);
   ret->size = 0;
-  ret->docIds = calloc(sz, sizeof(t_docId));
+  ret->docIds = rm_calloc(sz, sizeof(t_docId));
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
     if (!s) continue;
@@ -179,9 +180,9 @@ int GR_HasNext(void *ctx) {
 /* release the iterator's context and free everything needed */
 void GR_Free(struct indexIterator *self) {
   GeoRangeIterator *it = self->ctx;
-  free(it->docIds);
-  free(it);
-  free(self);
+  rm_free(it->docIds);
+  rm_free(it);
+  rm_free(self);
 }
 
 /* Return the number of results in this iterator. Used by the query execution
@@ -197,7 +198,7 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf) {
     return NULL;
   }
 
-  IndexIterator *ret = malloc(sizeof(IndexIterator));
+  IndexIterator *ret = rm_malloc(sizeof(IndexIterator));
   ret->ctx = it;
   ret->Free = GR_Free;
   ret->HasNext = GR_HasNext;

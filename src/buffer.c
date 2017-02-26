@@ -1,7 +1,8 @@
 #include "buffer.h"
+#include "rmalloc.h"
 #include <assert.h>
 #include <sys/param.h>
-//#include "rmutil/alloc.h"
+
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
 
   Buffer *buf = bw->buf;
@@ -10,7 +11,7 @@ size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
       buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
     } while (buf->offset + len > buf->cap);
 
-    buf->data = realloc(buf->data, buf->cap);
+    buf->data = rm_realloc(buf->data, buf->cap);
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
@@ -27,7 +28,7 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen) {
     newlen = Buffer_Offset(b);
   }
 
-  b->data = realloc(b->data, newlen);
+  b->data = rm_realloc(b->data, newlen);
   b->cap = newlen;
   return newlen;
 }
@@ -46,20 +47,20 @@ BufferReader NewBufferReader(Buffer *b) {
 void Buffer_Init(Buffer *b, size_t cap) {
   b->cap = cap;
   b->offset = 0;
-  b->data = malloc(cap);
+  b->data = rm_malloc(cap);
 }
 
 /**
 Allocate a new buffer around data.
 */
 Buffer *NewBuffer(size_t cap) {
-  Buffer *buf = malloc(sizeof(Buffer));
+  Buffer *buf = rm_malloc(sizeof(Buffer));
   Buffer_Init(buf, cap);
   return buf;
 }
 
 void Buffer_Free(Buffer *buf) {
-  free(buf->data);
+  rm_free(buf->data);
 }
 
 /**

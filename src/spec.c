@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include "rmutil/vector.h"
 #include <math.h>
+#include "rmalloc.h"
 
 RedisModuleType *IndexSpecType;
 
@@ -63,7 +64,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   if (*offset >= argc) return 0;
 
   // the field name comes here
-  sp->name = RedisModule_Strdup(argv[*offset]);
+  sp->name = rm_strdup(argv[*offset]);
 
   // we can't be at the end
   if (++*offset == argc) return 0;
@@ -162,43 +163,13 @@ void IndexSpec_Free(void *ctx) {
   DocTable_Free(&spec->docs);
   if (spec->fields != NULL) {
     for (int i = 0; i < spec->numFields; i++) {
-      RedisModule_Free(spec->fields[i].name);
+      rm_free(spec->fields[i].name);
     }
-    RedisModule_Free(spec->fields);
+    rm_free(spec->fields);
   }
-  RedisModule_Free(spec->name);
+  rm_free(spec->name);
 
-  RedisModule_Free(spec);
-}
-
-/* Saves the spec as a LIST, containing basically the arguments needed to recreate the spec */
-int IndexSpec_Save(RedisModuleCtx *ctx, IndexSpec *sp) {
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, "idx:%s", sp->name),
-                          REDISMODULE_READ | REDISMODULE_WRITE);
-  if (k == NULL) {
-    return REDISMODULE_ERR;
-  }
-
-  // reset the list we'll be writing into
-  if (RedisModule_DeleteKey(k) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  }
-
-  for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_ListPush(
-        k, REDISMODULE_LIST_TAIL,
-        RedisModule_CreateString(ctx, sp->fields[i].name, strlen(sp->fields[i].name)));
-    if (sp->fields[i].type == F_FULLTEXT) {
-      RedisModule_ListPush(k, REDISMODULE_LIST_TAIL,
-                           RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].weight));
-    } else {
-      RedisModule_ListPush(k, REDISMODULE_LIST_TAIL,
-                           RedisModule_CreateString(ctx, NUMERIC_STR, strlen(NUMERIC_STR)));
-    }
-  }
-
-  return REDISMODULE_OK;
+  rm_free(spec);
 }
 
 /* Load the spec from the saved version */
@@ -236,11 +207,11 @@ u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int arg
 }
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
-  IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
-  sp->fields = RedisModule_Calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
+  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = RedisModule_Strdup(name);
+  sp->name = rm_strdup(name);
   sp->docs = NewDocTable(1000);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
@@ -291,14 +262,14 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver != INDEX_CURRENT_VERSION) {
     return NULL;
   }
-  IndexSpec *sp = RedisModule_Alloc(sizeof(IndexSpec));
+  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->docs = NewDocTable(1000);
 
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
-  sp->fields = RedisModule_Calloc(sp->numFields, sizeof(FieldSpec));
+  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   for (int i = 0; i < sp->numFields; i++) {
     __fieldSpec_rdbLoad(rdb, &sp->fields[i]);
   }

@@ -2,6 +2,9 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
+
+#include "rmalloc.h"
+
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
 
@@ -11,13 +14,13 @@
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
-  idx->blocks = realloc(idx->blocks, idx->size * sizeof(IndexBlock));
+  idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = 0, .numDocs = 0};
   Buffer_Init(&(INDEX_LAST_BLOCK(idx).data), INDEX_BLOCK_INITIAL_CAP);
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
-  InvertedIndex *idx = malloc(sizeof(InvertedIndex));
+  InvertedIndex *idx = rm_malloc(sizeof(InvertedIndex));
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
@@ -38,8 +41,8 @@ void InvertedIndex_Free(void *ctx) {
   for (uint32_t i = 0; i < idx->size; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
-  free(idx->blocks);
-  free(idx);
+  rm_free(idx->blocks);
+  rm_free(idx);
 }
 
 size_t __writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, uint8_t flags,
@@ -381,7 +384,7 @@ size_t IR_NumDocs(void *ctx) {
 
 IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fieldMask,
                             IndexFlags flags, Term *term, int singleWordMode) {
-  IndexReader *ret = malloc(sizeof(IndexReader));
+  IndexReader *ret = rm_malloc(sizeof(IndexReader));
   ret->currentBlock = 0;
 
   ret->idx = idx;
@@ -421,7 +424,7 @@ void IR_Free(IndexReader *ir) {
   //   }
   //   SkipIndex_Free(ir->skipIdx);
   Term_Free(ir->term);
-  free(ir);
+  rm_free(ir);
 }
 
 void ReadIterator_Free(IndexIterator *it) {
@@ -430,7 +433,7 @@ void ReadIterator_Free(IndexIterator *it) {
   }
 
   IR_Free(it->ctx);
-  free(it);
+  rm_free(it);
 }
 
 inline t_docId IR_LastDocId(void *ctx) {
@@ -438,7 +441,7 @@ inline t_docId IR_LastDocId(void *ctx) {
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
-  IndexIterator *ri = malloc(sizeof(IndexIterator));
+  IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;

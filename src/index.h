@@ -5,8 +5,6 @@
 #include "forward_index.h"
 #include "index_result.h"
 #include "index_iterator.h"
-#include "score_index.h"
-#include "skip_index.h"
 #include "types.h"
 #include "util/logging.h"
 #include "varint.h"
@@ -14,7 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 
 /* Free the internal data of an index hit. Since index hits are usually on the
 stack,

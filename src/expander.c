@@ -14,8 +14,7 @@ int __numExpanders = 0;
 
 void RegisterQueryExpander(const char *name, QueryExpander ex) {
   // TODO: check for duplicates once this thing is really dynamic
-  __expanders =
-      realloc(__expanders, (__numExpanders + 1) * sizeof(struct __qxkv));
+  __expanders = realloc(__expanders, (__numExpanders + 1) * sizeof(struct __qxkv));
   __expanders[__numExpanders++] = (struct __qxkv){.key = name, .expander = ex};
 }
 
