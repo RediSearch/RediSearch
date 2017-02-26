@@ -1,3 +1,5 @@
+![travis status](https://travis-ci.org/RedisLabsModules/RediSearch.svg?branch=master)
+
 # RediSearch 
 
 ### Full-Text search over redis by RedisLabs
