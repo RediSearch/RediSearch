@@ -1,4 +1,4 @@
-![travis status](https://travis-ci.org/RedisLabsModules/RediSearch.svg?branch=master)
+[![Build Status](https://travis-ci.org/RedisLabsModules/RediSearch.svg?branch=master)](https://travis-ci.org/RedisLabsModules/RediSearch)
 
 # RediSearch 
 
