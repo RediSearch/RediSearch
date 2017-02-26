@@ -5,11 +5,9 @@ install: make clean && make
 before_script:
   - git clone --depth 1 https://github.com/antirez/redis.git
   - cd redis
-  - make -j 4
-  - sudo pip install redis hiredis
+  - make
+  - pip install redis
   - cd ..
 env:
-  - REDIS_PATH=./redis/src/redis-server
-  - REDIS_MODULE_PATH=./src/module.so
-  #- ./redis/src/redis-server --loadmodule ./module.so &
+  - REDIS_PATH=./redis/src/redis-server REDIS_MODULE_PATH=./src/module.so
 script: make test
