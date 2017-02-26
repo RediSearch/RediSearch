@@ -54,7 +54,7 @@ void Buffer_Init(Buffer *b, size_t cap) {
 Allocate a new buffer around data.
 */
 Buffer *NewBuffer(size_t cap) {
-  Buffer *buf = rm_malloc(sizeof(Buffer));
+  Buffer *buf = malloc(sizeof(Buffer));
   Buffer_Init(buf, cap);
   return buf;
 }
