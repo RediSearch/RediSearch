@@ -37,7 +37,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for _ in r.retry_with_rdb_reload():
                 res = r.execute_command(
                     'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
-                self.assertEqual(N+1, len(res))
+                self.assertEqual(N + 1, len(res))
                 self.assertEqual(N, res[0])
 
                 res = r.execute_command(
@@ -214,6 +214,44 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
+
+    def testSlopInOrder(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
+                                            'title', 't1 t2'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1, 'fields',
+                                            'title', 't1 t3 t2'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1, 'fields',
+                                            'title', 't1 t3 t4 t2'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc4', 1, 'fields',
+                                            'title', 't1 t3 t4 t5 t2'))
+
+            res = r.execute_command(
+                'ft.search', 'idx', 't2 t1', 'slop', '0', 'nocontent')
+            self.assertEqual(1, res[0])
+            self.assertEqual('doc1', res[1])
+            self.assertEqual(0, r.execute_command(
+                'ft.search', 'idx', 't2 t1', 'slop', '0', 'inorder')[0])
+            self.assertEqual(1, r.execute_command(
+                'ft.search', 'idx', 't1 t2', 'slop', '0', 'inorder')[0])
+
+            self.assertEqual(2, r.execute_command(
+                'ft.search', 'idx', 't1 t2', 'slop', '1', 'inorder')[0])
+            self.assertEqual(3, r.execute_command(
+                'ft.search', 'idx', 't1 t2', 'slop', '2', 'inorder')[0])
+            self.assertEqual(4, r.execute_command(
+                'ft.search', 'idx', 't1 t2', 'slop', '3', 'inorder')[0])
+            self.assertEqual(4, r.execute_command(
+                'ft.search', 'idx', 't1 t2', 'inorder')[0])
+            self.assertEqual(0, r.execute_command(
+                'ft.search', 'idx', 't t1', 'inorder')[0])
+            self.assertEqual(2, r.execute_command(
+                'ft.search', 'idx', 't1 t2 t3 t4')[0])
+            self.assertEqual(0, r.execute_command(
+                'ft.search', 'idx', 't1 t2 t3 t4', 'inorder')[0])
 
     def testExact(self):
         with self.redis() as r:

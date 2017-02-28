@@ -63,10 +63,17 @@ int testDistance() {
 
   int delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(4, delta);
-  printf("%d\n", IndexResult_IsWithinRange(&res, 1, 0));
-  printf("%d\n", IndexResult_IsWithinRange(&res, 4, 0));
-  printf("%d\n", IndexResult_IsWithinRange(&res, 4, 0));
-  printf("%d\n", IndexResult_IsWithinRange(&res, 5, 1));
+
+  ASSERT_EQUAL(0, IndexResult_IsWithinRange(&res, 0, 0));
+  ASSERT_EQUAL(0, IndexResult_IsWithinRange(&res, 0, 1));
+  ASSERT_EQUAL(0, IndexResult_IsWithinRange(&res, 1, 1));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 1, 0));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 2, 1));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 2, 0));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 3, 1));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 4, 0));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 4, 1));
+  ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 5, 1));
 
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
   delta = IndexResult_MinOffsetDelta(&res);
@@ -265,7 +272,7 @@ int testIntersection() {
   printf("Intersecting...\n");
 
   int count = 0;
-  IndexIterator *ii = NewIntersecIterator(irs, 2, 0, NULL, 0xff);
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, 0, 0);
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   IndexResult h = NewIndexResult();
