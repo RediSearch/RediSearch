@@ -701,7 +701,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (inOrder && slop < 0) {
     slop = __INT_MAX__;
   }
-  printf("slop %d, inOrder %d\n", slop, inOrder);
 
   const char *lang = NULL;
 
@@ -826,10 +825,11 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                           REDISMODULE_READ | REDISMODULE_WRITE);
 
   // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_ModuleTypeGetType(k) != IndexSpecType)) {
-    return RedisModule_ReplyWithError(
-        ctx, "Could not create index key. Perhaps the key already exists?");
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
+    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType)
+      return RedisModule_ReplyWithError(ctx, "Wrong type for index key");
+    else
+      return RedisModule_ReplyWithError(ctx, "Index already exists. Drop it first!");
   }
 
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
