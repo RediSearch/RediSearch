@@ -1,339 +1,1307 @@
+
 <!DOCTYPE html>
-<!--[if lt IE 7 ]><html class="no-js ie6"><![endif]-->
-<!--[if IE 7 ]><html class="no-js ie7"><![endif]-->
-<!--[if IE 8 ]><html class="no-js ie8"><![endif]-->
-<!--[if IE 9 ]><html class="no-js ie9"><![endif]-->
-<!--[if (gt IE 9)|!(IE)]><!--> <html class="no-js"> <!--<![endif]-->
+<html class="no-js">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,maximum-scale=1">
     
-      
-        <title>Python API - RediSearch Documentation</title>
-      
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
         <link rel="canonical" href="http://redisearch.io/python_client/">
       
       
-    
-    <meta property="og:url" content="http://redisearch.io/python_client/">
-    <meta property="og:title" content="RediSearch Documentation">
-    <meta property="og:image" content="http://redisearch.io/python_client//../">
-    <meta name="apple-mobile-web-app-title" content="RediSearch Documentation">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    
-    
-    <link rel="shortcut icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
-    <link rel="icon" type="image/x-icon" href="../assets/images/favicon-e565ddfa3b.ico">
-    <style>
-      @font-face {
-      	font-family: 'Icon';
-      	src: url('../assets/fonts/icon.eot?52m981');
-      	src: url('../assets/fonts/icon.eot?#iefix52m981')
-               format('embedded-opentype'),
-      		   url('../assets/fonts/icon.woff?52m981')
-               format('woff'),
-      		   url('../assets/fonts/icon.ttf?52m981')
-               format('truetype'),
-      		   url('../assets/fonts/icon.svg?52m981#icon')
-               format('svg');
-      	font-weight: normal;
-      	font-style: normal;
-      }
-    </style>
-    <link rel="stylesheet" href="../assets/stylesheets/application-a422ff04cc.css">
+      
+        <link rel="shortcut icon" href="../assets/images/favicon.png">
+      
+      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
     
     
       
+        <title>Python API - RediSearch Documentation</title>
       
-      
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Ubuntu:400,700|Ubuntu+Mono">
-      <style>
-        body, input {
-          font-family: 'Ubuntu', Helvetica, Arial, sans-serif;
-        }
-        pre, code {
-          font-family: 'Ubuntu Mono', 'Courier New', 'Courier', monospace;
-        }
-      </style>
     
     
-    <script src="../assets/javascripts/modernizr-4ab42b99fd.js"></script>
+      <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      
+    
+    
+      
+        
+        
+        
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
+        <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
+      
+      <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    
+    
     
   </head>
   
   
   
-  <body class=" ">
-    
-      
-      
-    
-    <div class="backdrop">
-      <div class="backdrop-paper"></div>
-    </div>
-    <input class="toggle" type="checkbox" id="toggle-drawer">
-    <input class="toggle" type="checkbox" id="toggle-search">
-    <label class="toggle-button overlay" for="toggle-drawer"></label>
-    <header class="header">
-      <nav aria-label="Header">
-  <div class="bar default">
-    <div class="button button-menu" role="button" aria-label="Menu">
-      <label class="toggle-button icon icon-menu" for="toggle-drawer">
-        <span></span>
-      </label>
-    </div>
-    <div class="stretch">
-      <div class="title">
-        
-          <span class="path">
-            
-              
-                Reference <i class="icon icon-link"></i>
-              
-            
-          </span>
-        
-        Python API
-      </div>
-    </div>
-    
-    
-    <div class="button button-search" role="button" aria-label="Search">
-      <label class="toggle-button icon icon-search" title="Search" for="toggle-search"></label>
-    </div>
-  </div>
-  <div class="bar search">
-    <div class="button button-close" role="button" aria-label="Close">
-      <label class="toggle-button icon icon-back" for="toggle-search"></label>
-    </div>
-    <div class="stretch">
-      <div class="field">
-        <input class="query" type="text" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck>
-      </div>
-    </div>
-    <div class="button button-reset" role="button" aria-label="Search">
-      <button class="toggle-button icon icon-close" id="reset-search"></button>
-    </div>
-  </div>
-</nav>
-    </header>
-    <main class="main">
-      
-      <div class="drawer">
-        <nav aria-label="Navigation">
   
-  <a href="https://github.com/RedisLabsModules/RediSearch" class="project">
-    <div class="banner">
-      
-      <div class="name">
-        <strong>
-          RediSearch Documentation
-          <span class="version">
-            
-          </span>
-        </strong>
+    <body>
+  
+    <svg class="md-svg">
+      <defs>
         
-          <br>
-          RedisLabsModules/RediSearch
+        
+          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448" viewBox="0 0 416 448" id="github"><path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19T128 352t-18.125-8.5-10.75-19T96 304t3.125-20.5 10.75-19T128 256t18.125 8.5 10.75 19T160 304zm160 0q0 10-3.125 20.5t-10.75 19T288 352t-18.125-8.5-10.75-19T256 304t3.125-20.5 10.75-19T288 256t18.125 8.5 10.75 19T320 304zm40 0q0-30-17.25-51T296 232q-10.25 0-48.75 5.25Q229.5 240 208 240t-39.25-2.75Q130.75 232 120 232q-29.5 0-46.75 21T56 304q0 22 8 38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0 37.25-1.75t35-7.375 30.5-15 20.25-25.75T360 304zm56-44q0 51.75-15.25 82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5T212 416q-19.5 0-35.5-.75t-36.875-3.125-38.125-7.5-34.25-12.875T37 371.5t-21.5-28.75Q0 312 0 260q0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25 30.875Q171.5 96 212 96q37 0 70 8 26.25-20.5 46.75-30.25T376 64q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34 99.5z"/></svg>
+        
+      </defs>
+    </svg>
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="drawer">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
+    <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
+    
+      <header class="md-header">
+  <nav class="md-header-nav md-grid">
+    <div class="md-flex">
+      <div class="md-flex__cell md-flex__cell--shrink">
+        
+          <a href=".." title="RediSearch Documentation" class="md-icon md-icon--home md-header-nav__button">
+          </a>
         
       </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <label class="md-icon md-icon--menu md-header-nav__button" for="drawer"></label>
+      </div>
+      <div class="md-flex__cell md-flex__cell--stretch">
+        <span class="md-flex__ellipsis md-header-nav__title">
+          
+            
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
+              
+            
+            Python API
+          
+        </span>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        
+          <label class="md-icon md-icon--search md-header-nav__button" for="search"></label>
+          
+<div class="md-search" data-md-component="search">
+  <div class="md-search__overlay"></div>
+  <div class="md-search__inner">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" placeholder="Search" accesskey="s" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query">
+      <label class="md-icon md-search__icon" for="search"></label>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+        
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <div class="md-header-nav__source">
+          
+            
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      GitHub
     </div>
   </a>
-  <div class="scrollable">
-    <div class="wrapper">
+
+          
+        </div>
+      </div>
+    </div>
+  </nav>
+</header>
+    
+    <div class="md-container">
       
-        <ul class="repo">
-          <li class="repo-download">
-            
-            <a href="https://github.com/RedisLabsModules/RediSearch/archive/master.zip" target="_blank" title="Download" data-action="download">
-              <i class="icon icon-download"></i> Download
-            </a>
-          </li>
-          <li class="repo-stars">
-            <a href="https://github.com/RedisLabsModules/RediSearch/stargazers" target="_blank" title="Stargazers" data-action="star">
-              <i class="icon icon-star"></i> Stars
-              <span class="count">&ndash;</span>
-            </a>
-          </li>
-        </ul>
-        <hr>
       
-      <div class="toc">
-        <ul>
+      <main class="md-main">
+        <div class="md-main__inner md-grid" data-md-component="container">
           
             
-  <li>
-    <a class="" title="Home" href="..">
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    <nav class="md-nav md-nav--primary" data-md-level="0">
+  <label class="md-nav__title md-nav__title--site" for="drawer">
+    
+      <i class="md-icon md-icon--home md-nav__button"></i>
+    
+    RediSearch Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      GitHub
+    </div>
+  </a>
+
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href=".." title="Home" class="md-nav__link">
       Home
     </a>
-    
   </li>
 
-          
-            
-  <li>
-    <a class="" title="Quick Start" href="../Quick_Start/">
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
-    
   </li>
 
-          
-            
-  <li>
-    <a class="" title="Commands" href="../Commands/">
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Commands" class="md-nav__link">
       Commands
     </a>
-    
   </li>
 
-          
-            
-  <li>
-    <span class="section">Reference</span>
-    <ul>
+    
       
+      
+      
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
+    
+    <label class="md-nav__link" for="nav-4">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
         
-  <li>
-    <a class="" title="Query Syntax" href="../Query_Syntax/">
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
-    
   </li>
 
-      
         
-  <li>
-    <a class="" title="Stemming Support" href="../Stemming/">
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
       Stemming Support
     </a>
-    
   </li>
 
-      
         
-  <li>
-    <a class="current" title="Python API" href="./">
+          
+          
+          
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Python API
+      </label>
+    
+    <a href="./" title="Python API" class="md-nav__link md-nav__link--active">
       Python API
     </a>
     
       
-        
-      
-      
-        <ul>
-          
-            <li class="anchor">
-              <a title="Overview" href="#overview">
-                Overview
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class AutoCompleter" href="#class-autocompleter">
-                Class AutoCompleter
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class Client" href="#class-client">
-                Class Client
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class BatchIndexer" href="#class-batchindexer">
-                Class BatchIndexer
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class Document" href="#class-document">
-                Class Document
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class GeoField" href="#class-geofield">
-                Class GeoField
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class GeoFilter" href="#class-geofilter">
-                Class GeoFilter
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class NumericField" href="#class-numericfield">
-                Class NumericField
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class NumericFilter" href="#class-numericfilter">
-                Class NumericFilter
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class Query" href="#class-query">
-                Class Query
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class Result" href="#class-result">
-                Class Result
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class Suggestion" href="#class-suggestion">
-                Class Suggestion
-              </a>
-            </li>
-          
-            <li class="anchor">
-              <a title="Class TextField" href="#class-textfield">
-                Class TextField
-              </a>
-            </li>
-          
-        </ul>
-      
+<nav class="md-nav md-nav--secondary">
+  
+  
     
-  </li>
-
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
       
+        <li class="md-nav__item">
+  <a href="#overview" title="Overview" class="md-nav__link">
+    Overview
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
         
-  <li>
-    <a class="" title="Document Payloads" href="../payloads/">
-      Document Payloads
-    </a>
-    
-  </li>
-
+          <li class="md-nav__item">
+  <a href="#example-using-the-python-client" title="Example: Using the Python Client" class="md-nav__link">
+    Example: Using the Python Client
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-using-the-auto-completer-client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
+    Example: Using the Auto Completer Client:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing" title="Installing" class="md-nav__link">
+    Installing
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-autocompleter" title="Class AutoCompleter" class="md-nav__link">
+    Class AutoCompleter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95suggestions" title="add_suggestions" class="md-nav__link">
+    add_suggestions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete" title="delete" class="md-nav__link">
+    delete
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get95suggestions" title="get_suggestions" class="md-nav__link">
+    get_suggestions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#len" title="len" class="md-nav__link">
+    len
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-client" title="Class Client" class="md-nav__link">
+    Class Client
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_1" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95document" title="add_document" class="md-nav__link">
+    add_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_1" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batch95indexer" title="batch_indexer" class="md-nav__link">
+    batch_indexer
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create95index" title="create_index" class="md-nav__link">
+    create_index
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_2" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drop95index" title="drop_index" class="md-nav__link">
+    drop_index
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#info" title="info" class="md-nav__link">
+    info
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load95document" title="load_document" class="md-nav__link">
+    load_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search" title="search" class="md-nav__link">
+    search
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_3" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-batchindexer" title="Class BatchIndexer" class="md-nav__link">
+    Class BatchIndexer
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_2" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95document_1" title="add_document" class="md-nav__link">
+    add_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#commit" title="commit" class="md-nav__link">
+    commit
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-document" title="Class Document" class="md-nav__link">
+    Class Document
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_3" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snippetize" title="snippetize" class="md-nav__link">
+    snippetize
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-geofield" title="Class GeoField" class="md-nav__link">
+    Class GeoField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_4" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-geofilter" title="Class GeoFilter" class="md-nav__link">
+    Class GeoFilter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_5" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-numericfield" title="Class NumericField" class="md-nav__link">
+    Class NumericField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_6" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args_1" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-numericfilter" title="Class NumericFilter" class="md-nav__link">
+    Class NumericFilter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_7" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-query" title="Class Query" class="md-nav__link">
+    Class Query
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_8" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95filter" title="add_filter" class="md-nav__link">
+    add_filter
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get95args" title="get_args" class="md-nav__link">
+    get_args
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit95fields" title="limit_fields" class="md-nav__link">
+    limit_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no95content" title="no_content" class="md-nav__link">
+    no_content
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no95stopwords" title="no_stopwords" class="md-nav__link">
+    no_stopwords
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paging" title="paging" class="md-nav__link">
+    paging
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#query95string" title="query_string" class="md-nav__link">
+    query_string
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verbatim" title="verbatim" class="md-nav__link">
+    verbatim
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-result" title="Class Result" class="md-nav__link">
+    Class Result
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_9" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-suggestion" title="Class Suggestion" class="md-nav__link">
+    Class Suggestion
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_10" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-textfield" title="Class TextField" class="md-nav__link">
+    Class TextField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_11" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args_2" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
     </ul>
+  
+</nav>
+    
   </li>
 
-          
-        </ul>
         
-      </div>
-    </div>
-  </div>
-</nav>
-      </div>
-      <article class="article">
-        <div class="wrapper">
           
-          <h1 id="package-redisearch-documentation">Package redisearch Documentation</h1>
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" title="Overview" class="md-nav__link">
+    Overview
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-using-the-python-client" title="Example: Using the Python Client" class="md-nav__link">
+    Example: Using the Python Client
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-using-the-auto-completer-client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
+    Example: Using the Auto Completer Client:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing" title="Installing" class="md-nav__link">
+    Installing
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-autocompleter" title="Class AutoCompleter" class="md-nav__link">
+    Class AutoCompleter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95suggestions" title="add_suggestions" class="md-nav__link">
+    add_suggestions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete" title="delete" class="md-nav__link">
+    delete
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get95suggestions" title="get_suggestions" class="md-nav__link">
+    get_suggestions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#len" title="len" class="md-nav__link">
+    len
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-client" title="Class Client" class="md-nav__link">
+    Class Client
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_1" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95document" title="add_document" class="md-nav__link">
+    add_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_1" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batch95indexer" title="batch_indexer" class="md-nav__link">
+    batch_indexer
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create95index" title="create_index" class="md-nav__link">
+    create_index
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_2" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drop95index" title="drop_index" class="md-nav__link">
+    drop_index
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#info" title="info" class="md-nav__link">
+    info
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load95document" title="load_document" class="md-nav__link">
+    load_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search" title="search" class="md-nav__link">
+    search
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_3" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-batchindexer" title="Class BatchIndexer" class="md-nav__link">
+    Class BatchIndexer
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_2" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95document_1" title="add_document" class="md-nav__link">
+    add_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#commit" title="commit" class="md-nav__link">
+    commit
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-document" title="Class Document" class="md-nav__link">
+    Class Document
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_3" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snippetize" title="snippetize" class="md-nav__link">
+    snippetize
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-geofield" title="Class GeoField" class="md-nav__link">
+    Class GeoField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_4" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-geofilter" title="Class GeoFilter" class="md-nav__link">
+    Class GeoFilter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_5" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-numericfield" title="Class NumericField" class="md-nav__link">
+    Class NumericField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_6" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args_1" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-numericfilter" title="Class NumericFilter" class="md-nav__link">
+    Class NumericFilter
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_7" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-query" title="Class Query" class="md-nav__link">
+    Class Query
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_8" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add95filter" title="add_filter" class="md-nav__link">
+    add_filter
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get95args" title="get_args" class="md-nav__link">
+    get_args
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit95fields" title="limit_fields" class="md-nav__link">
+    limit_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no95content" title="no_content" class="md-nav__link">
+    no_content
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no95stopwords" title="no_stopwords" class="md-nav__link">
+    no_stopwords
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paging" title="paging" class="md-nav__link">
+    paging
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#query95string" title="query_string" class="md-nav__link">
+    query_string
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verbatim" title="verbatim" class="md-nav__link">
+    verbatim
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-result" title="Class Result" class="md-nav__link">
+    Class Result
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_9" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-suggestion" title="Class Suggestion" class="md-nav__link">
+    Class Suggestion
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_10" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#class-textfield" title="Class TextField" class="md-nav__link">
+    Class TextField
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#9595init9595_11" title="__init__" class="md-nav__link">
+    __init__
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis95args_2" title="redis_args" class="md-nav__link">
+    redis_args
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+               
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/python_client.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+               
+              
+                
+                <h1 id="package-redisearch-documentation">Package redisearch Documentation</h1>
 <h2 id="overview">Overview</h2>
 <p><code>redisearch-py</code> is a python search engine library that utilizes the RediSearch Redis Module API.</p>
 <p>It is the "official" client of redisearch, and should be regarded as its canonical client implementation.</p>
@@ -726,111 +1694,78 @@ def __init__(self, name, weight=1.0)
 def redis_args(self)
 
 </code></pre>
-          <aside class="copyright" role="note">
-            
-            Documentation built with
-            <a href="http://www.mkdocs.org" target="_blank">MkDocs</a>
-            using the
-            <a href="http://squidfunk.github.io/mkdocs-material/" target="_blank">
-              Material
-            </a>
-            theme.
-          </aside>
-          
-            <footer class="footer">
               
-  <nav class="pagination" aria-label="Footer">
-    <div class="previous">
+              
+            </article>
+          </div>
+        </div>
+      </main>
       
-        <a href="../Stemming/" title="Stemming Support">
-          <span class="direction">
-            Previous
-          </span>
-          <div class="page">
-            <div class="button button-previous" role="button" aria-label="Previous">
-              <i class="icon icon-back"></i>
+        
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
-            <div class="stretch">
-              <div class="title">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
                 Stemming Support
-              </div>
+              </span>
             </div>
-          </div>
-        </a>
-      
-    </div>
-    <div class="next">
-      
-        <a href="../payloads/" title="Document Payloads">
-          <span class="direction">
-            Next
-          </span>
-          <div class="page">
-            <div class="stretch">
-              <div class="title">
+          </a>
+        
+        
+          <a href="../payloads/" title="Document Payloads" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
                 Document Payloads
-              </div>
+              </span>
             </div>
-            <div class="button button-next" role="button" aria-label="Next">
-              <i class="icon icon-forward"></i>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
             </div>
-          </div>
-        </a>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+        powered by
+        <a href="http://www.mkdocs.org" title="MkDocs">MkDocs</a>
+        and
+        <a href="http://squidfunk.github.io/mkdocs-material/" title="Material for MkDocs">
+          Material for MkDocs</a>
+      </div>
+      
+        
       
     </div>
-  </nav>
-
-            </footer>
-          
-        </div>
-      </article>
-      <div class="results" role="status" aria-live="polite">
-        <div class="scrollable">
-          <div class="wrapper">
-            <div class="meta"></div>
-            <div class="list"></div>
-          </div>
-        </div>
-      </div>
-    </main>
-    <script>
-      var base_url = '..';
-      var repo_id  = 'RedisLabsModules/RediSearch';
-    </script>
-    <script src="../assets/javascripts/application-997097ee0c.js"></script>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script>app.initialize({url:{base:".."}})</script>
+      
     
     
-      <script>
-        (function(i,s,o,g,r,a,m){
-          i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||
-          []).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-          m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;
-          m.parentNode.insertBefore(a,m)
-        })(window, document,
-          'script', 'https://www.google-analytics.com/analytics.js', 'ga');
-        /* General initialization */
-        ga('create', 'UA-89573912-1', 'redisearch');
-        ga('set', 'anonymizeIp', true);
-        ga('send', 'pageview');
-        /* Track outbound links */
-        var buttons = document.querySelectorAll('a');
-        Array.prototype.map.call(buttons, function(item) {
-          if (item.host != document.location.host) {
-            item.addEventListener('click', function() {
-              var action = item.getAttribute('data-action') || 'follow';
-              ga('send', 'event', 'outbound', action, item.href);
-            });
-          }
-        });
-        /* Register handler to log search on blur */
-        var query = document.querySelector('.query');
-        query.addEventListener('blur', function() {
-          if (this.value) {
-            var path = document.location.pathname;
-            ga('send', 'pageview', path + '?q=' + this.value);
-          }
-        });
-      </script>
+      
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      
     
   </body>
 </html>
