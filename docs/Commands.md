@@ -241,8 +241,7 @@ Search the index with a textual query, returning either documents or just ids.
 - **INFIELDS num field ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)
-
-   - INORDER: Phrase terms must appear in the document in the same order as in the query.  
+- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. 
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
