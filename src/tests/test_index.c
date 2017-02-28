@@ -272,7 +272,7 @@ int testIntersection() {
   printf("Intersecting...\n");
 
   int count = 0;
-  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, 0, 0);
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, -1, 0);
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   IndexResult h = NewIndexResult();
@@ -564,20 +564,20 @@ int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  // TESTFUNC(testVarint);
+  TESTFUNC(testVarint);
   TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
 
-  // TESTFUNC(testUnion);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
-  // TESTFUNC(testDocTable);
+  TESTFUNC(testBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
 
   return 0;
 }
