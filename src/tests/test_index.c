@@ -58,10 +58,15 @@ int testDistance() {
 
   IndexResult res = NewIndexResult();
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw->bw.buf});
+
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw2->bw.buf});
 
   int delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(4, delta);
+  printf("%d\n", IndexResult_IsWithinRange(&res, 1, 0));
+  printf("%d\n", IndexResult_IsWithinRange(&res, 4, 0));
+  printf("%d\n", IndexResult_IsWithinRange(&res, 4, 0));
+  printf("%d\n", IndexResult_IsWithinRange(&res, 5, 1));
 
   IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
   delta = IndexResult_MinOffsetDelta(&res);
@@ -552,20 +557,20 @@ int main(int argc, char **argv) {
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  TESTFUNC(testVarint);
+  // TESTFUNC(testVarint);
   TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
+  // TESTFUNC(testIndexReadWrite);
 
-  TESTFUNC(testReadIterator);
-  TESTFUNC(testIntersection);
+  // TESTFUNC(testReadIterator);
+  // TESTFUNC(testIntersection);
 
-  TESTFUNC(testUnion);
+  // TESTFUNC(testUnion);
 
-  TESTFUNC(testBuffer);
-  TESTFUNC(testTokenize);
-  TESTFUNC(testIndexSpec);
-  TESTFUNC(testIndexFlags);
-  TESTFUNC(testDocTable);
+  // TESTFUNC(testBuffer);
+  // TESTFUNC(testTokenize);
+  // TESTFUNC(testIndexSpec);
+  // TESTFUNC(testIndexFlags);
+  // TESTFUNC(testDocTable);
 
   return 0;
 }

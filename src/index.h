@@ -60,7 +60,8 @@ typedef struct {
   IndexIterator **its;
   int num;
   size_t len;
-  int exact;
+  int maxSlop;
+  int inOrder;
   t_docId lastDocId;
   IndexResult *currentHits;
   DocTable *docTable;
@@ -68,11 +69,13 @@ typedef struct {
   int atEnd;
 } IntersectContext;
 
-/* Create a new intersect iterator over the given list of child iterators. If
-exact is one
-we will only yield results that are exact matches */
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *t,
-                                   u_char fieldMask);
+/* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
+ * negative number, we will allow at most maxSlop intervening positions between the terms. If
+ * maxSlop is set and inOrder is 1, we assert that the terms are in
+ * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, u_char fieldMask,
+                                   int maxSlop, int inOrder);
+
 int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
 int II_Next(void *ctx);
 int II_Read(void *ctx, IndexResult *hit);

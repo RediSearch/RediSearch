@@ -694,6 +694,15 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Parse VERBATIM and LANGUAGE argumens
   int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
 
+  int inOrder = RMUtil_ArgIndex("INORDER", argv, argc) >= 0;
+  long long slop = -1;
+  RMUtil_ParseArgsAfter("SLOP", argv, argc, "l", &slop);
+
+  if (inOrder && slop < 0) {
+    slop = __INT_MAX__;
+  }
+  printf("slop %d, inOrder %d\n", slop, inOrder);
+
   const char *lang = NULL;
 
   // make sure we search for "language" only after the query
@@ -719,7 +728,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander);
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

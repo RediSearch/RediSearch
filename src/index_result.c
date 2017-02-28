@@ -107,3 +107,126 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
   // we return 1 if ditance could not be calculate, to avoid division by zero
   return dist ? dist : r->numRecords - 1;
 }
+
+int __indexResult_withinRangeInOrder(VarintVectorIterator *iters, int *positions, int num,
+                                     int maxSlop) {
+  while (1) {
+
+    // we start from the beginning, and a span of 0
+    int span = 0;
+    for (int i = 0; i < num; i++) {
+      // take the current position and the position of the previous iterator.
+      // For the first iterator we always advance once
+      int pos = i ? positions[i] : VV_Next(&iters[i]);
+      int lastPos = i ? positions[i - 1] : 0;
+
+      // read while we are not in order
+      while (pos != -1 && pos < lastPos) {
+        pos = VV_Next(&iters[i]);
+        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+      }
+      // we've read through the entire list and it's not in order relative to the last pos
+      if (pos == -1) {
+        return 0;
+      }
+
+      // add the diff from the last pos to the total span
+      if (i > 0) {
+        span += (pos - lastPos - 1);
+
+        // if we are already out of slop - just quit
+        if (span > maxSlop) {
+          break;
+        }
+      }
+      positions[i] = pos;
+    }
+
+    if (span <= maxSlop) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+inline int _arrayMin(int *arr, int len, int *pos) {
+  int m = arr[0];
+  *pos = 0;
+  for (int i = 1; i < len; i++) {
+    if (arr[i] < m) {
+      m = arr[i];
+      *pos = i;
+    }
+  }
+  return m;
+}
+inline int _arrayMax(int *arr, int len, int *pos) {
+  int m = arr[0];
+  *pos = 0;
+  for (int i = 1; i < len; i++) {
+    if (arr[i] >= m) {
+      m = arr[i];
+      *pos = i;
+    }
+  }
+  return m;
+}
+
+int __indexResult_withinRangeUnordered(VarintVectorIterator *iters, int *positions, int num,
+                                       int maxSlop) {
+  for (int i = 0; i < num; i++) {
+    positions[i] = VV_Next(&iters[i]);
+  }
+  int minPos, maxPos, min, max;
+  max = _arrayMax(positions, num, &maxPos);
+
+  while (1) {
+
+    // we start from the beginning, and a span of 0
+    min = _arrayMin(positions, num, &minPos);
+    if (min != max) {
+      int span = max - min - (num - 1);
+      printf("min %d, max %d, minPos %d, maxPos %d, span %d\n", min, max, minPos, maxPos, span);
+      if (span <= maxSlop) {
+        return 1;
+      }
+    }
+
+    positions[minPos] = VV_Next(&iters[minPos]);
+    if (positions[minPos] > max) {
+      maxPos = minPos;
+      max = positions[maxPos];
+    } else if (positions[minPos] == -1) {
+      break;
+    }
+  }
+
+  return 0;
+}
+
+/** Test the result offset vectors to see if they fall within a max "slop" or distance between the
+ * terms. That is the total number of non matched offsets between the terms is no bigger than
+ * maxSlop.
+ * e.g. for an exact match, the slop allowed is 0.
+  */
+int IndexResult_IsWithinRange(IndexResult *r, int maxSlop, int inOrder) {
+
+  int num = r->numRecords;
+  if (num <= 1) {
+    return 1;
+  }
+
+  // Fill a list of iterators and the last read positions
+  VarintVectorIterator iters[num];
+  int positions[num];
+  for (int i = 0; i < num; i++) {
+    iters[i] = VarIntVector_iter(&r->records[i].offsets);
+    positions[i] = 0;
+  }
+
+  if (inOrder)
+    return __indexResult_withinRangeInOrder(iters, positions, num, maxSlop);
+  else
+    return __indexResult_withinRangeUnordered(iters, positions, num, maxSlop);
+}

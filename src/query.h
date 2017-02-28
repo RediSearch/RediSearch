@@ -40,6 +40,10 @@ typedef struct query {
 
   RedisSearchCtx *ctx;
 
+  int maxSlop;
+  // Whether phrases are in order or not
+  int inOrder;
+
   struct QueryExpander *expander;
 
   const char *language;
@@ -89,7 +93,7 @@ void Query_SetGeoFilter(Query *q, GeoFilter *gf);
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander);
+                const char *expander, int maxSlop, int inOrder);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

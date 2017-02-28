@@ -173,9 +173,13 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
   for (int i = 0; i < node->numChildren; i++) {
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
-
-  IndexIterator *ret =
-      NewIntersecIterator(iters, node->numChildren, node->exact, q->docTable, q->fieldMask);
+  IndexIterator *ret;
+  if (node->exact) {
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask, 0, 1);
+  } else {
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask, q->maxSlop,
+                              q->inOrder);
+  }
   return ret;
 }
 
@@ -259,11 +263,13 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander) {
+                const char *expander, int slop, int inOrder) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
   ret->limit = limit;
+  ret->maxSlop = slop;
+  ret->inOrder = inOrder;
   ret->fieldMask = fieldMask;
   ret->offset = offset;
   ret->raw = strndup(query, len);

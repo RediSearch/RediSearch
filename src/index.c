@@ -218,15 +218,16 @@ void IntersectIterator_Free(IndexIterator *it) {
   free(it);
 }
 
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, int exact, DocTable *dt,
-                                   u_char fieldMask) {
-  // create context
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt, u_char fieldMask,
+                                   int maxSlop, int inOrder) {
+
   IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
   ctx->its = its;
   ctx->num = num;
   ctx->lastDocId = 0;
   ctx->len = 0;
-  ctx->exact = exact;
+  ctx->maxSlop = maxSlop;
+  ctx->inOrder = inOrder;
   ctx->fieldMask = fieldMask;
   ctx->atEnd = 0;
   ctx->currentHits = calloc(num, sizeof(IndexResult));
@@ -365,11 +366,9 @@ int II_Read(void *ctx, IndexResult *hit) {
         continue;
       }
 
-      // In exact mode, make sure the minimal distance is the number of words
-      if (ic->exact && hit != NULL) {
-        int md = IndexResult_MinOffsetDelta(hit);
-
-        if (md > ic->num - 1) {
+      // If we need to match slop and order, we do it now, and possibly skip the result
+      if (ic->maxSlop >= 0 && hit != NULL) {
+        if (!IndexResult_IsWithinRange(hit, ic->maxSlop, ic->inOrder)) {
           continue;
         }
       }

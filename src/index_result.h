@@ -47,5 +47,6 @@ void IndexResult_Add(IndexResult *dst, IndexResult *src);
 void IndexResult_Print(IndexResult *r);
 void IndexResult_Free(IndexResult *r);
 int IndexResult_MinOffsetDelta(IndexResult *r);
+int IndexResult_IsWithinRange(IndexResult *r, int maxSlop, int inOrder);
 
 #endif
