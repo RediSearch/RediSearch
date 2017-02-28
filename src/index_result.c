@@ -187,7 +187,7 @@ int __indexResult_withinRangeUnordered(VarintVectorIterator *iters, int *positio
     min = _arrayMin(positions, num, &minPos);
     if (min != max) {
       int span = max - min - (num - 1);
-      printf("min %d, max %d, minPos %d, maxPos %d, span %d\n", min, max, minPos, maxPos, span);
+      // printf("min %d, max %d, minPos %d, maxPos %d, span %d\n", min, max, minPos, maxPos, span);
       if (span <= maxSlop) {
         return 1;
       }
