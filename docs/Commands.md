@@ -218,6 +218,7 @@ Array Response. A nested array of keys and values.
 FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
+  [SLOP {slop}] [INORDER]
 	[LANGUAGE language]
 	[EXPANDER expander]
 	[INFIELDS num field ... ]
@@ -239,6 +240,9 @@ Search the index with a textual query, returning either documents or just ids.
   the offset and number of results given. The default is 0 10
 - **INFIELDS num field ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments
+- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)
+
+   - INORDER: Phrase terms must appear in the document in the same order as in the query.  
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 

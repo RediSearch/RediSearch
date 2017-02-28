@@ -563,6 +563,7 @@ cleanup:
     [INFIELDS <num> field ...]
     [LANGUAGE lang] [VERBATIM]
     [FILTER {property} {min} {max}]
+    [SLOP {slop}] [INORDER]
     [GEOFILTER {property} {lon} {lat} {radius} {unit}]
 
 Seach the index with a textual query, returning either documents or just ids.
@@ -607,8 +608,12 @@ document. this can be
    - WITHPAYLOADS: If set, we return document payloads as they were inserted, or nil if no payload
 exists.
 
-
    - NOSTOPWORDS: If set, we do not check the query for stopwords
+
+   - SLOP slop: If set, we allow a maximal intervening number of unmatched offsets between phrase
+terms.
+
+   - INORDER: Phrase terms must appear in the document in the same order as in the query.
 
    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge.
 Defaults
