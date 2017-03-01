@@ -92,6 +92,9 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
  * not found, we return NULL */
 DocumentPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
+/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+t_docId DocTable_GetId(DocTable *dt, const char *key);
+
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 

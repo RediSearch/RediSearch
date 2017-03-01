@@ -26,6 +26,10 @@ inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
   return &t->docs[docId];
 }
 
+/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+t_docId DocTable_GetId(DocTable *dt, const char *key) {
+  return DocIdMap_Get(&dt->dim, key);
+}
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
 * table.
 *

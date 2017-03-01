@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 #include <time.h>
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
@@ -696,9 +697,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // parse WITHPAYLOADS
   int withpaylaods = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
 
-  // Parse VERBATIM and LANGUAGE argumens
+  // Parse VERBATIM and LANGUAGE arguments
   int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
 
+  // Parse INORDER and SLOP arguments
   int inOrder = RMUtil_ArgIndex("INORDER", argv, argc) >= 0;
   long long slop = -1;
   RMUtil_ParseArgsAfter("SLOP", argv, argc, "l", &slop);
@@ -728,6 +730,19 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
+
+  // parse the id filter arguments
+  long long numFilteredIds = 0;
+  IdFilter idf;
+  RMUtil_ParseArgsAfter("INKEYS", &argv[2], argc - 2, "l", &numFilteredIds);
+  if (numFilteredIds > 0 && numFilteredIds < argc - 3) {
+
+    RedisModule_Log(ctx, "debug", "Filtering %d keys", numFilteredIds);
+    int pos = RMUtil_ArgIndex("INKEYS", argv, argc);
+    idf = NewIdFilter(&argv[pos + 2], MIN(argc - pos - 2, numFilteredIds), &sctx.spec->docs);
+  } else {
+    numFilteredIds = 0;
+  }
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
@@ -761,6 +776,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (filterGeo) {
     Query_SetGeoFilter(q, &gf);
+  }
+
+  if (numFilteredIds > 0) {
+    Query_SetIdFilter(q, &idf);
   }
   q->docTable = &sp->docs;
 

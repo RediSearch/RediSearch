@@ -10,6 +10,8 @@
 #include "redis_index.h"
 #include "redismodule.h"
 #include "spec.h"
+#include "id_filter.h"
+
 #include <stdlib.h>
 
 /* forward declaration to avoid include loop */
@@ -83,8 +85,10 @@ QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metad
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);
+QueryNode *NewIdFilterNode(IdFilter *flt);
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
+void Query_SetIdFilter(Query *q, IdFilter *f);
 
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1

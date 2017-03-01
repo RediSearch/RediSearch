@@ -61,6 +61,7 @@ void QueryNode_Free(QueryNode *n) {
       free(n->nn.nf);
       break;  //
     case QN_GEO:
+    case QN_IDS:
       break;
   }
   free(n);
@@ -144,6 +145,16 @@ void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
   _query_SetFilterNode(q, NewNumericNode(nf));
 }
 
+QueryNode *NewIdFilterNode(IdFilter *flt) {
+  QueryNode *qn = __newQueryNode(QN_IDS);
+  qn->fn.f = flt;
+  return qn;
+}
+
+void Query_SetIdFilter(Query *q, IdFilter *f) {
+  _query_SetFilterNode(q, NewIdFilterNode(f));
+}
+
 IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
@@ -209,6 +220,11 @@ IndexIterator *query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
   return NewGeoRangeIterator(&gi, node->gf);
 }
 
+IndexIterator *query_EvalIdFilterNode(Query *q, QueryIdFilterNode *node) {
+
+  return NewIdFilterIterator(node->f);
+}
+
 IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
@@ -245,6 +261,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return query_EvalNumericNode(q, &n->nn);
     case QN_GEO:
       return query_EvalGeofilterNode(q, &n->gn);
+    case QN_IDS:
+      return query_EvalIdFilterNode(q, &n->fn);
   }
 
   return NULL;
@@ -339,6 +357,14 @@ void __queryNode_Print(QueryNode *qs, int depth) {
 
       printf("GEO {%f,%f --> %f %s", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
              qs->gn.gf->unit);
+      break;
+    case QN_IDS:
+
+      printf("IDS { ");
+      for (int i = 0; i < qs->fn.f->size; i++) {
+        printf("%d,", qs->fn.f->ids[i]);
+      }
+      break;
   }
 
   printf("}\n");
