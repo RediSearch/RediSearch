@@ -215,6 +215,28 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
 
+    def testInKeys(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
+
+            for i in range(200):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'foo', 'hello world'))
+
+            for keys in (
+                ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
+                    'doc%d' % i for i in range(99, 0, -5)]
+            ):
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
+                self.assertEqual(len(keys), res[0])
+                self.assertTrue(all((k in res for k in keys)))
+            
+            self.assertEqual(0, r.execute_command(
+                'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 4, 'foo', 'bar', 'baz')[0])
+
     def testSlopInOrder(self):
         with self.redis() as r:
             r.flushdb()

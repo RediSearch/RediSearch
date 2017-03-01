@@ -218,10 +218,11 @@ Array Response. A nested array of keys and values.
 FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
+  [INKEYS {num} {key} ... ]
+  [INFIELDS {num {field} ... ]
   [SLOP {slop}] [INORDER]
-	[LANGUAGE language]
-	[EXPANDER expander]
-	[INFIELDS num field ... ]
+	[LANGUAGE {language}]
+	[EXPANDER {expander}]
   [LIMIT offset num]
 ```
 
@@ -238,8 +239,11 @@ Search the index with a textual query, returning either documents or just ids.
   the content. This is useful if rediseach is only an index on an external document collection
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
-- **INFIELDS num field ...**: If set, filter the results to ones appearing only in specific
+- **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments
+- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the list. 
+  the first argument must be the length of the list, and greater than zero.
+  Non existent keys are ignored - unless all the keys are non existent.
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)
 - **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. 
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
