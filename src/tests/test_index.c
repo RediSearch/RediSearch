@@ -7,6 +7,7 @@
 #include "../tokenize.h"
 #include "../varint.h"
 #include "test_util.h"
+#include "../rmutil/alloc.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
