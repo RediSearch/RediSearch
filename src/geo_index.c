@@ -2,6 +2,7 @@
 #include "geo_index.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
+#include "id_list.h"
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
 
@@ -58,8 +59,9 @@ static int cmp_docids(const void *p1, const void *p2) {
   return (int)(*d1 - *d2);
 }
 
-GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
+t_docId *__gr_load(GeoIndex *gi, GeoFilter *gf, size_t *num) {
 
+  *num = 0;
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleString *ks = fmtGeoIndexKey(gi);
@@ -70,141 +72,29 @@ GeoRangeIterator *__gr_load(GeoIndex *gi, GeoFilter *gf) {
       RedisModule_CreateStringPrintf(ctx, "%f", gf->radius), gf->unit ? gf->unit : "km");
 
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+
     return NULL;
   }
 
-  GeoRangeIterator *ret = rm_malloc(sizeof(GeoRangeIterator));
-  ret->atEOF = 0;
-  ret->idx = gi;
-  ret->offset = 0;
-  ret->lastDocId = 0;
-
   size_t sz = RedisModule_CallReplyLength(rep);
-  ret->size = 0;
-  ret->docIds = rm_calloc(sz, sizeof(t_docId));
+  t_docId *docIds = rm_calloc(sz, sizeof(t_docId));
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
     if (!s) continue;
 
-    ret->docIds[ret->size++] = (t_docId)atol(s);
+    docIds[i] = (t_docId)atol(s);
   }
 
-  if (ret->size != 0) {
-    qsort(ret->docIds, ret->size, sizeof(t_docId), cmp_docids);
-  } else {
-    ret->atEOF = 1;
-  }
-
-  return ret;
-}
-/* Read the next entry from the iterator, into hit *e.
-*  Returns INDEXREAD_EOF if at the end */
-int GR_Read(void *ctx, IndexResult *r) {
-  GeoRangeIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
-    it->atEOF = 1;
-    return INDEXREAD_EOF;
-  }
-
-  it->lastDocId = it->docIds[it->offset];
-  ++it->offset;
-  if (it->offset == it->size) {
-    it->atEOF = 1;
-  }
-  // TODO: Filter here
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
-  IndexResult_PutRecord(r, &rec);
-
-  return INDEXREAD_OK;
-}
-
-/* Skip to a docid, potentially reading the entry into hit, if the docId
- * matches */
-int GR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
-  GeoRangeIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
-    it->atEOF = 1;
-    return INDEXREAD_EOF;
-  }
-
-  if (docId > it->docIds[it->size - 1]) {
-    it->atEOF = 1;
-    return INDEXREAD_EOF;
-  }
-
-  t_offset top = it->size - 1, bottom = it->offset;
-  t_offset i = bottom;
-  t_offset newi;
-
-  while (bottom < top) {
-    t_docId did = it->docIds[i];
-    if (did == docId) {
-      break;
-    }
-    if (docId <= did) {
-      top = i;
-    } else {
-      bottom = i;
-    }
-    newi = (bottom + top) / 2;
-    if (newi == i) {
-      break;
-    }
-    i = newi;
-  }
-  it->offset = i + 1;
-  if (it->offset == it->size) {
-    it->atEOF = 1;
-  }
-
-  it->lastDocId = it->docIds[i];
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
-  IndexResult_PutRecord(r, &rec);
-  // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
-  if (it->lastDocId == docId) {
-    return INDEXREAD_OK;
-  }
-  return INDEXREAD_NOTFOUND;
-}
-
-/* the last docId read */
-t_docId GR_LastDocId(void *ctx) {
-  return ((GeoRangeIterator *)ctx)->lastDocId;
-}
-
-/* can we continue iteration? */
-int GR_HasNext(void *ctx) {
-  return !((GeoRangeIterator *)ctx)->atEOF;
-}
-
-/* release the iterator's context and free everything needed */
-void GR_Free(struct indexIterator *self) {
-  GeoRangeIterator *it = self->ctx;
-  rm_free(it->docIds);
-  rm_free(it);
-  rm_free(self);
-}
-
-/* Return the number of results in this iterator. Used by the query execution
- * on the top iterator */
-size_t GR_Len(void *ctx) {
-  return (size_t)((GeoRangeIterator *)ctx)->size;
+  *num = sz;
+  return docIds;
 }
 
 IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf) {
-  GeoRangeIterator *it = __gr_load(gi, gf);
-
-  if (!it) {
+  size_t sz;
+  t_docId *docIds = __gr_load(gi, gf, &sz);
+  if (!docIds) {
     return NULL;
   }
 
-  IndexIterator *ret = rm_malloc(sizeof(IndexIterator));
-  ret->ctx = it;
-  ret->Free = GR_Free;
-  ret->HasNext = GR_HasNext;
-  ret->LastDocId = GR_LastDocId;
-  ret->Len = GR_Len;
-  ret->Read = GR_Read;
-  ret->SkipTo = GR_SkipTo;
-  return ret;
+  return NewIdListIterator(docIds, (t_offset)sz);
 }
