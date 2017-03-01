@@ -136,9 +136,12 @@ int testIndexReadWrite() {
     IndexResult h = NewIndexResult();
 
     struct timespec start_time, end_time;
+    int n = 0;
     while (IR_HasNext(ir)) {
       IR_Read(ir, &h);
-      printf("%d\n", h.docId);
+      ASSERT_EQUAL(h.docId, n);
+      n++;
+      // printf("%d\n", h.docId);
     }
     // for (int z= 0; z < 10; z++) {
     // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
@@ -218,7 +221,7 @@ int testReadIterator() {
       return -1;
     }
 
-    printf("Iter got %d\n", h.docId);
+    // printf("Iter got %d\n", h.docId);
     ASSERT(h.docId == i++);
   }
   ASSERT(i == 11);
@@ -236,7 +239,7 @@ int testUnion() {
   IndexReader *r1 = NewIndexReader(w, NULL, 0xff, w->flags, NULL, 0);
   IndexReader *r2 = NewIndexReader(w2, NULL, 0xff, w2->flags, NULL, 0);
 
-  printf("Reading!\n");
+  // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
@@ -246,7 +249,7 @@ int testUnion() {
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    printf("%d <=> %d\n", h.docId, expected[i]);
+    // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT(h.docId == expected[i++]);
     // printf("%d, ", h.docId);
   }
@@ -288,8 +291,8 @@ int testIntersection() {
   clock_gettime(CLOCK_REALTIME, &end_time);
   long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-  printf("%d intersections in %ldns\n", count, diffInNanos);
-  printf("top freq: %f\n", topFreq);
+  // printf("%d intersections in %ldns\n", count, diffInNanos);
+  // printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
   ASSERT(topFreq == 475000.0625);
 
