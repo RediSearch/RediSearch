@@ -292,10 +292,10 @@ int testIntersection() {
   clock_gettime(CLOCK_REALTIME, &end_time);
   long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-  // printf("%d intersections in %ldns\n", count, diffInNanos);
-  // printf("top freq: %f\n", topFreq);
+   printf("%d intersections in %ldns\n", count, diffInNanos);
+   printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
-  ASSERT(topFreq == 475000.0625);
+  ASSERT(topFreq == 475000.0);
 
   ii->Free(ii);
   IndexResult_Free(&h);
@@ -488,7 +488,7 @@ int testIndexFlags() {
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteEntry(w, &h);
   // printf("written %d bytes\n", sz);
-  ASSERT_EQUAL(18, sz);
+  ASSERT_EQUAL(15, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
@@ -503,7 +503,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteEntry(w, &h);
-  ASSERT_EQUAL(6, sz);
+  ASSERT_EQUAL(3  , sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -527,7 +527,7 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL(5180, (int)dt.memsize);
+  ASSERT_EQUAL(5980, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);

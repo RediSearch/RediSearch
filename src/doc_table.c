@@ -62,8 +62,8 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags, c
     t->memsize += payloadSize + sizeof(DocumentPayload);
   }
 
-  t->docs[docId] =
-      (DocumentMetadata){.key = rm_strdup(key), .score = score, .flags = flags, .payload = dpl};
+  t->docs[docId] = (DocumentMetadata){
+      .key = rm_strdup(key), .score = score, .flags = flags, .payload = dpl, .maxFreq = 1};
   ++t->size;
   t->memsize += sizeof(DocumentMetadata) + strlen(key);
   DocIdMap_Put(&t->dim, key, docId);
@@ -137,6 +137,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
   for (int i = 1; i < t->size; i++) {
     RedisModule_SaveStringBuffer(rdb, t->docs[i].key, strlen(t->docs[i].key) + 1);
     RedisModule_SaveUnsigned(rdb, t->docs[i].flags);
+    RedisModule_SaveUnsigned(rdb, t->docs[i].maxFreq);
     RedisModule_SaveFloat(rdb, t->docs[i].score);
     if (t->docs[i].flags & Document_HasPayload && t->docs[i].payload) {
       // save an extra space for the null terminator to make the payload null terminated on load
@@ -144,7 +145,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
     }
   }
 }
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
+void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   size_t sz = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
 
@@ -157,6 +158,10 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb) {
     size_t len;
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
+    t->docs[i].maxFreq = 0;
+    if (encver > 1) {
+      t->docs[i].maxFreq = RedisModule_LoadUnsigned(rdb);
+    }
     t->docs[i].score = RedisModule_LoadFloat(rdb);
     t->docs[i].payload = NULL;
     // read payload if set

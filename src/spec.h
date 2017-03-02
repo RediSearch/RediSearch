@@ -55,7 +55,7 @@ typedef enum {
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
-#define INDEX_CURRENT_VERSION 1
+#define INDEX_CURRENT_VERSION 2
 
 typedef struct {
   char *name;

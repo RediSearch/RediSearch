@@ -20,7 +20,7 @@ void Term_Free(Term *t);
 typedef struct {
   t_docId docId;
   Term *term;
-  float tf;
+  uint32_t tf;
   u_char flags;
   OffsetVector offsets;
   // PayLoad payload;
@@ -28,7 +28,8 @@ typedef struct {
 
 typedef struct {
   t_docId docId;
-  double totalTF;
+  double finalScore;
+  uint32_t totalTF;
   u_char flags;
   int numRecords;
   int recordsCap;

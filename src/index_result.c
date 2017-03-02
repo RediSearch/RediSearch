@@ -24,10 +24,10 @@ void IndexResult_Add(IndexResult *dst, IndexResult *src) {
 
 void IndexResult_Print(IndexResult *r) {
 
-  printf("docId: %d, totalTF: %f, flags %x. Terms:\n", r->docId, r->totalTF, r->flags);
+  printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->flags);
 
   for (int i = 0; i < r->numRecords; i++) {
-    printf("\t%s, %d tf %f, flags %x\n", r->records[i].term->str, r->records[i].docId,
+    printf("\t%s, %d tf %d, flags %x\n", r->records[i].term->str, r->records[i].docId,
            r->records[i].tf, r->records[i].flags);
   }
   printf("----------\n");
@@ -52,6 +52,7 @@ void IndexResult_Init(IndexResult *h) {
   h->numRecords = 0;
   h->flags = 0;
   h->totalTF = 0;
+  h->finalScore = 0;
   // h->hasMetadata = 0;
 }
 

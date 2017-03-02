@@ -9,6 +9,7 @@
 ForwardIndex *NewForwardIndex(Document doc) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
+
   idx->hits = kh_init(32);
   idx->docScore = doc.score;
   idx->docId = doc.docId;
@@ -45,9 +46,9 @@ void ForwardIndexFree(ForwardIndex *idx) {
   // TODO: check if we need to rm_free each entry separately
 }
 
-void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-  e->freq = e->freq / idx->maxFreq;
-}
+// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
+//   e->freq = e->freq / idx->maxFreq;
+// }
 
 int forwardIndexTokenFunc(void *ctx, Token t) {
   ForwardIndex *idx = ctx;
@@ -65,6 +66,8 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h->term = t.s;
     h->len = t.len;
     h->stringFreeable = t.stringFreeable;
+    h->freq = 0;
+    
 
     h->vw = NewVarintVectorWriter(4);
     h->docScore = idx->docScore;
@@ -83,9 +86,9 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
   if (t.type == DT_STEM) {
     score *= STEM_TOKEN_FACTOR;
   }
-  h->freq += score;
-  idx->totalFreq += (float)t.score;
-
+  h->freq += MAX(1, (uint32_t)score);
+  idx->totalFreq += h->freq;
+  idx->uniqueTokens++;
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
   VVW_Write(h->vw, t.pos);
 

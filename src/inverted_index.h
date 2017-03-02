@@ -72,7 +72,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fiel
 void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, u_char *flags,
+int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, u_char *flags,
                    VarintVector *offsets);
 
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);

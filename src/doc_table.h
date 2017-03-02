@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
   char *key;
   float score;
+  uint32_t maxFreq;
   u_char flags;
   DocumentPayload *payload;
 } DocumentMetadata;
@@ -104,7 +105,7 @@ int DocTable_Delete(DocTable *t, const char *key);
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
 
 /* Load the table from RDB */
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb);
+void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 /* Emit special FT.DTADD commands to recreate the table */
 void DocTable_AOFRewrite(DocTable *t, RedisModuleString *k, RedisModuleIO *aof);

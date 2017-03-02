@@ -89,7 +89,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for _ in r.retry_with_rdb_reload():
 
                 res = r.execute_command('ft.search', 'idx', 'hello')
-
+                
                 self.assertTrue(len(res) == 5)
                 self.assertEqual(res[0], 2L)
                 self.assertEqual(res[1], "doc2")

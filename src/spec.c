@@ -259,7 +259,7 @@ void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 }
 
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != INDEX_CURRENT_VERSION) {
+  if (encver != INDEX_CURRENT_VERSION && encver != INDEX_CURRENT_VERSION - 1) {
     return NULL;
   }
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
@@ -276,7 +276,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   __indexStats_rdbLoad(rdb, &sp->stats);
 
-  DocTable_RdbLoad(&sp->docs, rdb);
+  DocTable_RdbLoad(&sp->docs, rdb, encver);
   return sp;
 }
 

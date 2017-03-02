@@ -112,23 +112,24 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     }
   }
 
+  DocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
+  md->maxFreq = idx->maxFreq;
+
   // printf("totaltokens :%d\n", totalTokens);
   if (totalTokens > 0) {
     ForwardIndexIterator it = ForwardIndex_Iterate(idx);
 
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
     while (entry != NULL) {
-      LG_DEBUG("doc %d entry: %.*s freq %f\n", idx->docId, (int)entry->len, entry->term,
-               entry->freq);
-      ForwardIndex_NormalizeFreq(idx, entry);
-      InvertedIndex *idx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
+      // ForwardIndex_NormalizeFreq(idx, entry);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
       // IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
-      int isNew = idx->lastId == 0;
+      int isNew = invidx->lastId == 0;
 
       // size_t cap = isNew ? 0 : w->bw.buf->cap;
       // size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
       // size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
-      size_t sz = InvertedIndex_WriteEntry(idx, entry);
+      size_t sz = InvertedIndex_WriteEntry(invidx, entry);
 
       /*******************************************
       * update stats for the index

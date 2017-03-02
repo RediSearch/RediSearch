@@ -11,6 +11,10 @@
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
+size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId, t_docId *docId,
+                          uint32_t *freq, uint8_t *flags, VarintVector *offsets,
+                          int singleWordMode);
+                          
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
@@ -46,14 +50,14 @@ void InvertedIndex_Free(void *ctx) {
 }
 
 size_t __writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, uint8_t flags,
-                    int quantizedScore, size_t offsetsSz, VarintVector *offsets) {
-
+                    uint32_t freq, size_t offsetsSz, VarintVector *offsets) {
   size_t ret = WriteVarint(docId, bw);
   // encode len
 
   // ret += WriteVarint(len, &w->bw);
   // encode freq
-  ret += WriteVarint(quantizedScore, bw);
+  //printf("writing freq %d\n", freq);
+  ret += WriteVarint(freq, bw);
 
   if (idxflags & Index_StoreFieldFlags) {
     // encode flags
@@ -69,8 +73,7 @@ size_t __writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, uint8_
 }
 
 /* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
-                                ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
+size_t InvertedIndex_WriteEntry(InvertedIndex *idx,                                ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
 
   // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
@@ -93,10 +96,11 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
   //   }
   // quantize the score to compress it to max 4 bytes
   // freq is between 0 and 1
-  int quantizedScore = floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
-
-  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, quantizedScore,
-                     offsets->offset, offsets);
+  // int quantizedScore =
+  //     floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
+  
+  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq, offsets->offset,
+                     offsets);
 
   idx->lastId = ent->docId;
   blk->lastId = ent->docId;
@@ -123,13 +127,14 @@ void indexReader_advanceBlock(IndexReader *ir) {
 }
 
 inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId, t_docId *docId,
-                          int *quantizedScore, uint8_t *flags, VarintVector *offsets,
+                          uint32_t *freq, uint8_t *flags, VarintVector *offsets,
                           int singleWordMode) {
   size_t startPos = BufferReader_Offset(br);
   *docId = ReadVarint(br) + lastId;
-  // printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId, ir->lastId);
-  *quantizedScore = ReadVarint(br);
-
+  // printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId,
+  // ir->lastId);
+  *freq = ReadVarint(br);
+  
   if (idxflags & Index_StoreFieldFlags) {
     Buffer_ReadByte(br, (char *)flags);
   } else {
@@ -151,7 +156,7 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
   return BufferReader_Offset(br) - startPos;
 }
 
-inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t *flags,
+inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint8_t *flags,
                           VarintVector *offsets) {
   if (!IR_HasNext(ir)) {
     return INDEXREAD_EOF;
@@ -161,15 +166,9 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, float *freq, uint8_t 
     indexReader_advanceBlock(ir);
   }
   BufferReader *br = &ir->br;
-  int quantizedScore;
-  __readEntry(br, ir->flags, ir->lastId, docId, &quantizedScore, flags, offsets,
+  uint32_t dummyFreq;
+  __readEntry(br, ir->flags, ir->lastId, docId, freq ? freq : &dummyFreq, flags, offsets,
               ir->singleWordMode);
-
-  // unquantize frequency to score
-  if (freq != NULL) {
-    *freq = (float)(quantizedScore ? quantizedScore : 1) / FREQ_QUANTIZE_FACTOR;
-    // printf("READ Quantized score %d, freq %f\n", quantizedScore, *freq);
-  }
 
   ir->lastId = *docId;
   return INDEXREAD_OK;
@@ -234,7 +233,6 @@ int IR_Read(void *ctx, IndexResult *e) {
   }
   int rc;
   do {
-
     rc = IR_GenericRead(ir, &ir->record.docId, &ir->record.tf, &ir->record.flags, offsets);
 
     // add the record to the current result
@@ -505,7 +503,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
 }
 
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num) {
-
   int n = 0;
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);

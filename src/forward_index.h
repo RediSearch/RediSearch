@@ -7,14 +7,14 @@
 #include "document.h"
 
 typedef struct {
-    const char *term;
-    size_t len;
     t_docId docId;
-    float freq;
-    float docScore;
-    u_char flags;
-    VarintVectorWriter *vw;
-    int stringFreeable;
+  const char *term;
+  size_t len;
+  uint32_t freq;
+  float docScore;
+  u_char flags;
+  VarintVectorWriter *vw;
+  int stringFreeable;
 } ForwardIndexEntry;
 
 KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
@@ -23,14 +23,13 @@ KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct {
-    khash_t(32) * hits;
-
+  khash_t(32) * hits;
     t_docId docId;
-    float totalFreq;
-    float maxFreq;
-    float docScore;
-    int uniqueTokens;
-    Stemmer *stemmer;
+  uint32_t totalFreq;
+  uint32_t maxFreq;
+  float docScore;
+  int uniqueTokens;
+  Stemmer *stemmer;
 } ForwardIndex;
 
 typedef struct {
