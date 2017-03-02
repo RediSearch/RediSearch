@@ -2,7 +2,7 @@
 #define __MDMA_TYPES_H__
 #include <stdlib.h>
 
-#include <sys/types.h>
+#include <stdint.h>
 
 typedef u_int32_t t_docId;
 typedef u_int32_t t_offset;
