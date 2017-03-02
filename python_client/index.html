@@ -652,8 +652,22 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#in95order" title="in_order" class="md-nav__link">
+    in_order
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#limit95fields" title="limit_fields" class="md-nav__link">
     limit_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit95ids" title="limit_ids" class="md-nav__link">
+    limit_ids
   </a>
   
 </li>
@@ -687,8 +701,22 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#slop" title="slop" class="md-nav__link">
+    slop
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#verbatim" title="verbatim" class="md-nav__link">
     verbatim
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with95payloads" title="with_payloads" class="md-nav__link">
+    with_payloads
   </a>
   
 </li>
@@ -1173,8 +1201,22 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#in95order" title="in_order" class="md-nav__link">
+    in_order
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#limit95fields" title="limit_fields" class="md-nav__link">
     limit_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit95ids" title="limit_ids" class="md-nav__link">
+    limit_ids
   </a>
   
 </li>
@@ -1208,8 +1250,22 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#slop" title="slop" class="md-nav__link">
+    slop
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#verbatim" title="verbatim" class="md-nav__link">
     verbatim
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with95payloads" title="with_payloads" class="md-nav__link">
+    with_payloads
   </a>
   
 </li>
@@ -1429,7 +1485,7 @@ def __init__(self, index_name, host='localhost', port=6379, conn=None)
 <p>If conn is not None, we employ an already existing redis connection</p>
 <h3 id="add95document">add_document</h3>
 <pre><code class="py">
-def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
 
 </code></pre>
 
@@ -1439,6 +1495,8 @@ def add_document(self, doc_id, nosave=False, score=1.0, **fields)
 <li><strong>doc_id</strong>: the id of the saved document.</li>
 <li><strong>nosave</strong>: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.</li>
 <li><strong>score</strong>: the document ranking, between 0.0 and 1.0 </li>
+<li><strong>payload</strong>: optional inner-index payload we can save for fast access in scoring functions</li>
+<li><strong>replace</strong>: if True, and the document already is in the index, we perform an update and reindex the document</li>
 <li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed. 
              NOTE: Geo points shoule be encoded as strings of "lon,lat"</li>
 </ul>
@@ -1508,7 +1566,7 @@ def __init__(self, client, chunk_size=1000)
 
 <h3 id="add95document_1">add_document</h3>
 <pre><code class="py">
-def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
 
 </code></pre>
 
@@ -1524,7 +1582,7 @@ def commit(self)
 <p>Represents a single document in a result set </p>
 <h3 id="9595init9595_3">__init__</h3>
 <pre><code class="py">
-def __init__(self, id, **fields)
+def __init__(self, id, payload=None, **fields)
 
 </code></pre>
 
@@ -1612,6 +1670,14 @@ def get_args(self)
 </code></pre>
 
 <p>Format the redis arguments for this query and return them</p>
+<h3 id="in95order">in_order</h3>
+<pre><code class="py">
+def in_order(self)
+
+</code></pre>
+
+<p>Match only documents where the query terms appear in the same order in the document.
+i.e. for the query 'hello world', we do not match 'world hello'</p>
 <h3 id="limit95fields">limit_fields</h3>
 <pre><code class="py">
 def limit_fields(self, *fields)
@@ -1622,6 +1688,13 @@ def limit_fields(self, *fields)
 <ul>
 <li><strong>fields</strong>: A list of strings, case sensitive field names from the defined schema</li>
 </ul>
+<h3 id="limit95ids">limit_ids</h3>
+<pre><code class="py">
+def limit_ids(self, *ids)
+
+</code></pre>
+
+<p>Limit the results to a specific set of pre-known document ids of any length</p>
 <h3 id="no95content">no_content</h3>
 <pre><code class="py">
 def no_content(self)
@@ -1655,6 +1728,13 @@ def query_string(self)
 </code></pre>
 
 <p>Return the query string of this query only</p>
+<h3 id="slop">slop</h3>
+<pre><code class="py">
+def slop(self, slop)
+
+</code></pre>
+
+<p>Allow a masimum of N intervening non matched terms between phrase terms (0 means exact phrase)</p>
 <h3 id="verbatim">verbatim</h3>
 <pre><code class="py">
 def verbatim(self)
@@ -1662,11 +1742,18 @@ def verbatim(self)
 </code></pre>
 
 <p>Set the query to be verbatim, i.e. use no query expansion or stemming</p>
+<h3 id="with95payloads">with_payloads</h3>
+<pre><code class="py">
+def with_payloads(self)
+
+</code></pre>
+
+<p>Ask the engine to return document payloads</p>
 <h2 id="class-result">Class Result</h2>
 <p>Represents the result of a search query, and has an array of Document objects</p>
 <h3 id="9595init9595_9">__init__</h3>
 <pre><code class="py">
-def __init__(self, res, hascontent, query_text, duration=0, snippets=None)
+def __init__(self, res, hascontent, query_text, duration=0, snippets=None, has_payload=False)
 
 </code></pre>
 

@@ -1569,10 +1569,11 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
+  [INKEYS {num} {key} ... ]
+  [INFIELDS {num {field} ... ]
   [SLOP {slop}] [INORDER]
-    [LANGUAGE language]
-    [EXPANDER expander]
-    [INFIELDS num field ... ]
+    [LANGUAGE {language}]
+    [EXPANDER {expander}]
   [LIMIT offset num]
 </code></pre>
 
@@ -1587,8 +1588,11 @@ They can be numeric, textual or geographical. For textual fields we optionally s
   the content. This is useful if rediseach is only an index on an external document collection</li>
 <li><strong>LIMIT first num</strong>: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10</li>
-<li><strong>INFIELDS num field ...</strong>: If set, filter the results to ones appearing only in specific
+<li><strong>INFIELDS {num} {field} ...</strong>: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments</li>
+<li><strong>INKEYS {num} {field} ...</strong>: If set, we limit the result to a given set of keys specified in the list. 
+  the first argument must be the length of the list, and greater than zero.
+  Non existent keys are ignored - unless all the keys are non existent.</li>
 <li><strong>SLOP {slop}</strong>: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)</li>
 <li><strong>INORDER</strong>: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. </li>
 <li><strong>FILTER numeric_field min max</strong>: If set, and numeric_field is defined as a numeric field in 
