@@ -171,7 +171,7 @@ If conn is not None, we employ an already existing redis connection
 ### add\_document
 ```py
 
-def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
 
 ```
 
@@ -184,6 +184,8 @@ Add a single document to the index.
 - **doc_id**: the id of the saved document.
 - **nosave**: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.
 - **score**: the document ranking, between 0.0 and 1.0 
+- **payload**: optional inner-index payload we can save for fast access in scoring functions
+- **replace**: if True, and the document already is in the index, we perform an update and reindex the document
 - **fields** kwargs dictionary of the document fields to be saved and/or indexed. 
              NOTE: Geo points shoule be encoded as strings of "lon,lat"
 
@@ -288,7 +290,7 @@ def __init__(self, client, chunk_size=1000)
 ### add\_document
 ```py
 
-def add_document(self, doc_id, nosave=False, score=1.0, **fields)
+def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
 
 ```
 
@@ -318,7 +320,7 @@ Represents a single document in a result set
 ### \_\_init\_\_
 ```py
 
-def __init__(self, id, **fields)
+def __init__(self, id, payload=None, **fields)
 
 ```
 
@@ -457,6 +459,19 @@ def get_args(self)
 Format the redis arguments for this query and return them
 
 
+### in\_order
+```py
+
+def in_order(self)
+
+```
+
+
+
+Match only documents where the query terms appear in the same order in the document.
+i.e. for the query 'hello world', we do not match 'world hello'
+
+
 ### limit\_fields
 ```py
 
@@ -469,6 +484,18 @@ def limit_fields(self, *fields)
 Limit the search to specific TEXT fields only
 
 - **fields**: A list of strings, case sensitive field names from the defined schema
+
+
+### limit\_ids
+```py
+
+def limit_ids(self, *ids)
+
+```
+
+
+
+Limit the results to a specific set of pre-known document ids of any length
 
 
 ### no\_content
@@ -523,6 +550,18 @@ def query_string(self)
 Return the query string of this query only
 
 
+### slop
+```py
+
+def slop(self, slop)
+
+```
+
+
+
+Allow a masimum of N intervening non matched terms between phrase terms (0 means exact phrase)
+
+
 ### verbatim
 ```py
 
@@ -535,6 +574,18 @@ def verbatim(self)
 Set the query to be verbatim, i.e. use no query expansion or stemming
 
 
+### with\_payloads
+```py
+
+def with_payloads(self)
+
+```
+
+
+
+Ask the engine to return document payloads
+
+
 
 
 ## Class Result
@@ -542,7 +593,7 @@ Represents the result of a search query, and has an array of Document objects
 ### \_\_init\_\_
 ```py
 
-def __init__(self, res, hascontent, query_text, duration=0, snippets=None)
+def __init__(self, res, hascontent, query_text, duration=0, snippets=None, has_payload=False)
 
 ```
 
