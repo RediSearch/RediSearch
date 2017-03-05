@@ -395,7 +395,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 /* Calculate sum(TF-IDF)*document score for each result */
-double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
+double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h, double minScore) {
   if (dmd->score == 0) return 0;
   // IndexResult_Print(h);
   if (h->numRecords == 1) {
@@ -411,7 +411,8 @@ double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
   tfidf *= dmd->score / dmd->maxFreq;
   // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,
   //        dmd->maxFreq, _tfidf, tfidf);
-
+  if (tfidf < minScore) return 0;
+  
   tfidf /= (double)IndexResult_MinOffsetDelta(h);
 
   // printf("after normalize: %f\n", tfidf);
@@ -471,14 +472,14 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     // IndexResult_Print(h);
-    h->finalScore = CalculateResultScore(dmd, h);
+    h->finalScore = CalculateResultScore(dmd, h, minScore);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
       pooledHit = NULL;
       if (heap_count(pq) == heap_size(pq)) {
         IndexResult *minh = heap_peek(pq);
-        minScore = minh->totalTF;
+        minScore = minh->finalScore;
       }
     } else {
       if (h->finalScore >= minScore) {
