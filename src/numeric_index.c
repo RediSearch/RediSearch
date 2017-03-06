@@ -359,7 +359,7 @@ int NR_Read(void *ctx, RSIndexResult *r) {
   }
   /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
-  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
   IndexResult_PutRecord(r, &rec);
 
   return INDEXREAD_OK;

@@ -1,3 +1,4 @@
+#include "offset_vector.h"
 #include "index_result.h"
 #include "varint.h"
 #include "rmalloc.h"
@@ -89,9 +90,9 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   int num = r->numRecords;
 
   for (int i = 1; i < num; i++) {
-
-    RSOffsetIterator v1 = RSOffsetVector_Iterate(&r->records[i - 1].offsets);
-    RSOffsetIterator v2 = RSOffsetVector_Iterate(&r->records[i].offsets);
+    RSOffsetIterator v1, v2;
+    RSOffsetVector_Iterate(&v1, r->records[i - 1].offsets);
+    RSOffsetVector_Iterate(&v2, r->records[i].offsets);
     int p1 = RSOffsetIterator_Next(&v1);
     int p2 = RSOffsetIterator_Next(&v2);
     int cd = __absdelta(p2, p1);
@@ -225,7 +226,7 @@ int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder) {
   RSOffsetIterator iters[num];
   int positions[num];
   for (int i = 0; i < num; i++) {
-    iters[i] = RSOffsetVector_Iterate(&r->records[i].offsets);
+    RSOffsetVector_Iterate(&iters[i], r->records[i].offsets);
     positions[i] = 0;
   }
 

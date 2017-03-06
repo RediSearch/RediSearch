@@ -76,7 +76,7 @@ typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
  * Scoring Function API
  **************************************/
 
-#define RS_OFFSETVECTOR_EOF (uint32_t) - 1;
+#define RS_OFFSETVECTOR_EOF (uint32_t) - 1
 
 #ifndef __RS_OFFSET_VECTOR_H__
 typedef struct RSOffsetVector RSOffsetVector;
@@ -84,8 +84,8 @@ typedef struct RSOffsetVector RSOffsetVector;
 typedef struct RSOffsetIterator RSOffsetIterator;
 #endif
 
-struct RSOffsetIterator RSOffsetVector_Iterate(RSOffsetVector *v);
-uint32_t RSOffsetIterator_Next(RSOffsetVector *vi);
+void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v);
+uint32_t RSOffsetIterator_Next(RSOffsetIterator *vi);
 
 /* A single term being evaluated in query time */
 typedef struct {
