@@ -56,7 +56,7 @@ typedef struct query {
 typedef struct {
   const char *id;
   double score;
-  DocumentPayload *payload;
+  RSPayload *payload;
 } ResultEntry;
 
 /* QueryResult represents the final processed result of a query execution */

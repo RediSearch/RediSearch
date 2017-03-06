@@ -71,7 +71,7 @@ int testRangeIterator() {
   // ASSERT_EQUAL(it->Len(it->ctx), N);
   int count = 0;
 
-  IndexResult res = NewIndexResult();
+  RSIndexResult res = NewIndexResult();
   while (it->HasNext(it->ctx)) {
 
     int rc = it->Read(it->ctx, &res);

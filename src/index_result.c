@@ -4,67 +4,69 @@
 #include <math.h>
 #include <sys/param.h>
 
-inline void IndexResult_PutRecord(IndexResult *r, IndexRecord *record) {
+inline void IndexResult_PutRecord(RSIndexResult *r, RSIndexRecord *record) {
   if (r->numRecords == r->recordsCap) {
     // printf("expanding record cap from %d\n", r->recordsCap);
     r->recordsCap = r->recordsCap ? r->recordsCap * 2 : DEFAULT_RECORDLIST_SIZE;
-    r->records = rm_realloc(r->records, r->recordsCap * sizeof(IndexRecord));
+    r->records = rm_realloc(r->records, r->recordsCap * sizeof(RSIndexRecord));
   }
   r->records[r->numRecords++] = *record;
   r->docId = record->docId;
-  r->flags |= record->flags;
-  r->totalTF += record->tf;
+  r->fieldMask |= record->fieldMask;
+  r->totalTF += record->freq;
 }
 
-void IndexResult_Add(IndexResult *dst, IndexResult *src) {
+void IndexResult_Add(RSIndexResult *dst, RSIndexResult *src) {
   for (int i = 0; i < src->numRecords; i++) {
     IndexResult_PutRecord(dst, &src->records[i]);
   }
 }
 
-void IndexResult_Print(IndexResult *r) {
+void IndexResult_Print(RSIndexResult *r) {
 
-  printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->flags);
+  printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
 
   for (int i = 0; i < r->numRecords; i++) {
     printf("\t%s, %d tf %d, flags %x\n", r->records[i].term->str, r->records[i].docId,
-           r->records[i].tf, r->records[i].flags);
+           r->records[i].freq, r->records[i].fieldMask);
   }
   printf("----------\n");
 }
 
-Term *NewTerm(char *str) {
-  Term *ret = rm_malloc(sizeof(Term));
+RSQueryTerm *NewTerm(char *str) {
+  RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;
-  ret->metadata = NULL;
   ret->str = str;
+  ret->len = strlen(str);
+  ret->flags = 0;
   return ret;
 }
 
-void Term_Free(Term *t) {
+void Term_Free(RSQueryTerm *t) {
 
   rm_free(t);
 }
 
-void IndexResult_Init(IndexResult *h) {
+void IndexResult_Init(RSIndexResult *h) {
 
   h->docId = 0;
   h->numRecords = 0;
-  h->flags = 0;
+  h->fieldMask = 0;
   h->totalTF = 0;
   h->finalScore = 0;
+
   // h->hasMetadata = 0;
 }
 
-IndexResult NewIndexResult() {
-  IndexResult h;
+RSIndexResult NewIndexResult() {
+  RSIndexResult h;
   h.recordsCap = DEFAULT_RECORDLIST_SIZE;
-  h.records = rm_calloc(h.recordsCap, sizeof(IndexRecord));
+  h.records = rm_calloc(h.recordsCap, sizeof(RSIndexRecord));
   IndexResult_Init(&h);
   return h;
 }
 
-void IndexResult_Free(IndexResult *r) {
+void IndexResult_Free(RSIndexResult *r) {
   if (r->records) {
     rm_free(r->records);
     r->records = NULL;
@@ -78,7 +80,7 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param vs a list of vector pointers
 @param num the size of the list
 */
-int IndexResult_MinOffsetDelta(IndexResult *r) {
+int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   if (r->numRecords <= 1) {
     return 1;
   }
@@ -88,17 +90,17 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
 
   for (int i = 1; i < num; i++) {
 
-    VarintVectorIterator v1 = VarIntVector_iter(&r->records[i - 1].offsets);
-    VarintVectorIterator v2 = VarIntVector_iter(&r->records[i].offsets);
-    int p1 = VV_Next(&v1);
-    int p2 = VV_Next(&v2);
+    RSOffsetIterator v1 = RSOffsetVector_Iterate(&r->records[i - 1].offsets);
+    RSOffsetIterator v2 = RSOffsetVector_Iterate(&r->records[i].offsets);
+    int p1 = RSOffsetIterator_Next(&v1);
+    int p2 = RSOffsetIterator_Next(&v2);
     int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != -1 && p2 != -1) {
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
-        p1 = VV_Next(&v1);
+        p1 = RSOffsetIterator_Next(&v1);
       } else {
-        p2 = VV_Next(&v2);
+        p2 = RSOffsetIterator_Next(&v2);
       }
     }
 
@@ -109,7 +111,7 @@ int IndexResult_MinOffsetDelta(IndexResult *r) {
   return dist ? dist : r->numRecords - 1;
 }
 
-int __indexResult_withinRangeInOrder(VarintVectorIterator *iters, int *positions, int num,
+int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, int *positions, int num,
                                      int maxSlop) {
   while (1) {
 
@@ -118,16 +120,16 @@ int __indexResult_withinRangeInOrder(VarintVectorIterator *iters, int *positions
     for (int i = 0; i < num; i++) {
       // take the current position and the position of the previous iterator.
       // For the first iterator we always advance once
-      int pos = i ? positions[i] : VV_Next(&iters[i]);
-      int lastPos = i ? positions[i - 1] : 0;
+      uint32_t pos = i ? positions[i] : RSOffsetIterator_Next(&iters[i]);
+      uint32_t lastPos = i ? positions[i - 1] : 0;
 
       // read while we are not in order
       while (pos != -1 && pos < lastPos) {
-        pos = VV_Next(&iters[i]);
+        pos = RSOffsetIterator_Next(&iters[i]);
         // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
       // we've read through the entire list and it's not in order relative to the last pos
-      if (pos == -1) {
+      if (pos == RS_OFFSETVECTOR_EOF) {
         return 0;
       }
 
@@ -174,12 +176,12 @@ inline int _arrayMax(int *arr, int len, int *pos) {
   return m;
 }
 
-int __indexResult_withinRangeUnordered(VarintVectorIterator *iters, int *positions, int num,
+int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, int *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
-    positions[i] = VV_Next(&iters[i]);
+    positions[i] = RSOffsetIterator_Next(&iters[i]);
   }
-  int minPos, maxPos, min, max;
+  uint32_t minPos, maxPos, min, max;
   max = _arrayMax(positions, num, &maxPos);
 
   while (1) {
@@ -195,11 +197,11 @@ int __indexResult_withinRangeUnordered(VarintVectorIterator *iters, int *positio
       }
     }
 
-    positions[minPos] = VV_Next(&iters[minPos]);
+    positions[minPos] = RSOffsetIterator_Next(&iters[minPos]);
     if (positions[minPos] > max) {
       maxPos = minPos;
       max = positions[maxPos];
-    } else if (positions[minPos] == -1) {
+    } else if (positions[minPos] == RS_OFFSETVECTOR_EOF) {
       break;
     }
   }
@@ -212,7 +214,7 @@ int __indexResult_withinRangeUnordered(VarintVectorIterator *iters, int *positio
  * maxSlop.
  * e.g. for an exact match, the slop allowed is 0.
   */
-int IndexResult_IsWithinRange(IndexResult *r, int maxSlop, int inOrder) {
+int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder) {
 
   int num = r->numRecords;
   if (num <= 1) {
@@ -220,10 +222,10 @@ int IndexResult_IsWithinRange(IndexResult *r, int maxSlop, int inOrder) {
   }
 
   // Fill a list of iterators and the last read positions
-  VarintVectorIterator iters[num];
+  RSOffsetIterator iters[num];
   int positions[num];
   for (int i = 0; i < num; i++) {
-    iters[i] = VarIntVector_iter(&r->records[i].offsets);
+    iters[i] = RSOffsetVector_Iterate(&r->records[i].offsets);
     positions[i] = 0;
   }
 

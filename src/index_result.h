@@ -3,51 +3,25 @@
 
 #include "types.h"
 #include "varint.h"
-
-typedef VarintVector OffsetVector;
+#include "redisearch.h"
 
 #define DEFAULT_RECORDLIST_SIZE 4
 
-typedef struct {
-  char *str;
-  double idf;
-  void *metadata;
-} Term;
-
-Term *NewTerm(char *str);
-void Term_Free(Term *t);
-
-typedef struct {
-  t_docId docId;
-  Term *term;
-  uint32_t tf;
-  u_char flags;
-  OffsetVector offsets;
-  // PayLoad payload;
-} IndexRecord;
-
-typedef struct {
-  t_docId docId;
-  double finalScore;
-  uint32_t totalTF;
-  u_char flags;
-  int numRecords;
-  int recordsCap;
-  IndexRecord *records;
-} IndexResult;
+RSQueryTerm *NewTerm(char *str);
+void Term_Free(RSQueryTerm *t);
 
 /** Reset the state of an existing index hit. This can be used to
 recycle index hits during reads */
-void IndexResult_Init(IndexResult *h);
+void IndexResult_Init(RSIndexResult *h);
 /** Init a new index hit. This is not a heap allocation and doesn't neeed to be
  * freed */
-IndexResult NewIndexResult();
+RSIndexResult NewIndexResult();
 
-void IndexResult_PutRecord(IndexResult *r, IndexRecord *record);
-void IndexResult_Add(IndexResult *dst, IndexResult *src);
-void IndexResult_Print(IndexResult *r);
-void IndexResult_Free(IndexResult *r);
-int IndexResult_MinOffsetDelta(IndexResult *r);
-int IndexResult_IsWithinRange(IndexResult *r, int maxSlop, int inOrder);
+void IndexResult_PutRecord(RSIndexResult *r, RSIndexRecord *record);
+void IndexResult_Add(RSIndexResult *dst, RSIndexResult *src);
+void IndexResult_Print(RSIndexResult *r);
+void IndexResult_Free(RSIndexResult *r);
+int IndexResult_MinOffsetDelta(RSIndexResult *r);
+int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder);
 
 #endif

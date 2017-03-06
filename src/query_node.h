@@ -42,7 +42,7 @@ typedef struct {
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
- * tokenizers. Later this gets passed to scoring functions in a Term object. See IndexRecord */
+ * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
 typedef struct {
   char *str;
   size_t len;

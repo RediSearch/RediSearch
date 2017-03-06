@@ -384,7 +384,7 @@ void Query_Free(Query *q) {
 
 /* Compare hits for sorting in the heap during traversal of the top N */
 static int cmpHits(const void *e1, const void *e2, const void *udata) {
-  const IndexResult *h1 = e1, *h2 = e2;
+  const RSIndexResult *h1 = e1, *h2 = e2;
 
   if (h1->finalScore < h2->finalScore) {
     return 1;
@@ -395,7 +395,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 /* Calculate sum(TF-IDF)*document score for each result */
-double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h) {
+double CalculateResultScore(RSDocumentMetadata *dmd, RSIndexResult *h) {
   if (dmd->score == 0) return 0;
   // IndexResult_Print(h);
   if (h->numRecords == 1) {
@@ -442,17 +442,17 @@ QueryResult *Query_Execute(Query *query) {
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpHits, NULL, num);
 
-  IndexResult *pooledHit = NULL;
+  RSIndexResult *pooledHit = NULL;
   double minScore = 0;
   int numDeleted = 0;
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
     if (pooledHit == NULL) {
-      pooledHit = malloc(sizeof(IndexResult));
+      pooledHit = malloc(sizeof(RSIndexResult));
       *pooledHit = NewIndexResult();
     }
-    IndexResult *h = pooledHit;
+    RSIndexResult *h = pooledHit;
     IndexResult_Init(h);
     int rc = it->Read(it->ctx, h);
 
@@ -462,7 +462,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
 
-    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
@@ -477,7 +477,7 @@ QueryResult *Query_Execute(Query *query) {
       heap_offerx(pq, h);
       pooledHit = NULL;
       if (heap_count(pq) == heap_size(pq)) {
-        IndexResult *minh = heap_peek(pq);
+        RSIndexResult *minh = heap_peek(pq);
         minScore = minh->totalTF;
       }
     } else {
@@ -486,7 +486,7 @@ QueryResult *Query_Execute(Query *query) {
         heap_offerx(pq, h);
 
         // get the new min score
-        IndexResult *minh = heap_peek(pq);
+        RSIndexResult *minh = heap_peek(pq);
         minScore = minh->finalScore;
       } else {
         pooledHit = h;
@@ -508,9 +508,9 @@ QueryResult *Query_Execute(Query *query) {
   res->results = calloc(n, sizeof(ResultEntry));
 
   for (int i = 0; i < n; ++i) {
-    IndexResult *h = heap_poll(pq);
+    RSIndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->finalScore, dmd->payload};
     }
@@ -521,7 +521,7 @@ QueryResult *Query_Execute(Query *query) {
 
   // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
-    IndexResult *h = heap_poll(pq);
+    RSIndexResult *h = heap_poll(pq);
     IndexResult_Free(h);
     free(h);
   }

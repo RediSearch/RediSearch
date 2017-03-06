@@ -112,7 +112,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     }
   }
 
-  DocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
+  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
   md->maxFreq = idx->maxFreq;
 
   // printf("totaltokens :%d\n", totalTokens);

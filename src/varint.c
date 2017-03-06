@@ -45,37 +45,6 @@ size_t varintSize(int value) {
   return outputSize;
 }
 
-VarintVectorIterator VarIntVector_iter(VarintVector *v) {
-  VarintVectorIterator ret;
-  ret.br = NewBufferReader(v);
-  ret.index = 0;
-  ret.lastValue = 0;
-  return ret;
-}
-
-inline int VV_HasNext(VarintVectorIterator *vi) {
-  return !BufferReader_AtEnd(&vi->br);
-}
-
-inline int VV_Next(VarintVectorIterator *vi) {
-  if (VV_HasNext(vi)) {
-    ++vi->index;
-    vi->lastValue = ReadVarint(&vi->br) + vi->lastValue;
-    return vi->lastValue;
-  }
-
-  return -1;
-}
-
-// size_t VV_Size(VarintVector *vv) {
-//   return vv->cap;
-//   // if (vv->type & BUFFER_WRITE) {
-//   //   return BufferLen(vv);
-//   // }
-//   // // for readonly buffers the size is the capacity
-//   // return vv->cap;
-// }
-
 void VVW_Free(VarintVectorWriter *w) {
   Buffer_Free(w->bw.buf);
   free(w->bw.buf);

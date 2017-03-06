@@ -5,36 +5,7 @@
 #include "types.h"
 #include "redismodule.h"
 #include "util/triemap.h"
-
-typedef struct {
-  char *data;
-  size_t len;
-} DocumentPayload;
-/* DocumentMetadata describes metadata stored about a document in the index (not the document
-* itself).
-*
-* The key is the actual user defined key of the document, not the incremental id. It is used to
-* convert incremental internal ids to external string keys.
-*
-* Score is the original user score as inserted to the index
-*
-* Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
-*/
-typedef struct {
-  char *key;
-  float score;
-  uint32_t maxFreq;
-  u_char flags;
-  DocumentPayload *payload;
-} DocumentMetadata;
-//#pragma pack()
-
-/* Document flags. The only supported flag currently is deleted, but more might come later one */
-typedef enum {
-  Document_DefaultFlags = 0x00,
-  Document_Deleted = 0x01,
-  Document_HasPayload = 0x02
-} DocumentFlags;
+#include "redisearch.h"
 
 /* Map between external id an incremental id */
 typedef struct { TrieMapNode *tm; } DocIdMap;
@@ -63,7 +34,7 @@ typedef struct {
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
-  DocumentMetadata *docs;
+  RSDocumentMetadata *docs;
   DocIdMap dim;
 
 } DocTable;
@@ -73,7 +44,7 @@ DocTable NewDocTable(size_t cap);
 
 /* Get the metadata for a doc Id from the DocTable.
 *  If docId is not inside the table, we return NULL */
-DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
+RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
 * table.
@@ -91,7 +62,7 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 
 /* Get the payload for a document, if any was set. If no payload has been set or the document id is
  * not found, we return NULL */
-DocumentPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
+RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(DocTable *dt, const char *key);

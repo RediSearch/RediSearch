@@ -5,7 +5,7 @@
 
 /* Read the next entry from the iterator, into hit *e.
 *  Returns INDEXREAD_EOF if at the end */
-int IL_Read(void *ctx, IndexResult *r) {
+int IL_Read(void *ctx, RSIndexResult *r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->size == 0) {
     it->atEOF = 1;
@@ -18,7 +18,7 @@ int IL_Read(void *ctx, IndexResult *r) {
     it->atEOF = 1;
   }
   // TODO: Filter here
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   IndexResult_PutRecord(r, &rec);
 
   return INDEXREAD_OK;
@@ -26,7 +26,7 @@ int IL_Read(void *ctx, IndexResult *r) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int IL_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
+int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->size == 0) {
     it->atEOF = 1;
@@ -64,7 +64,7 @@ int IL_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
   }
 
   it->lastDocId = it->docIds[i];
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   IndexResult_PutRecord(r, &rec);
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {

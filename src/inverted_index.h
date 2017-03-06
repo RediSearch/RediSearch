@@ -1,6 +1,7 @@
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
 
+#include "redisearch.h"
 #include "buffer.h"
 #include "doc_table.h"
 #include "forward_index.h"
@@ -45,14 +46,14 @@ typedef struct indexReadCtx {
   // u_int skipIdxPos;
   DocTable *docTable;
 
-  uint8_t fieldMask;
+  uint32_t fieldMask;
 
   IndexFlags flags;
 
   int singleWordMode;
 
   size_t len;
-  IndexRecord record;
+  RSIndexRecord record;
   Term *term;
 } IndexReader;
 
@@ -77,8 +78,8 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, u_char *flag
 
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);
 
-/* Read an entry from an inverted index into IndexResult */
-int IR_Read(void *ctx, IndexResult *e);
+/* Read an entry from an inverted index into RSIndexResult */
+int IR_Read(void *ctx, RSIndexResult *e);
 
 /* Move to the next entry in an inverted index, without reading the whole entry
  */
@@ -89,7 +90,7 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
 
 /* The number of docs in an inverted index entry */
 size_t IR_NumDocs(void *ctx);

@@ -68,11 +68,11 @@ typedef struct {
 
 /* Read the next entry from the iterator, into hit *e.
   *  Returns INDEXREAD_EOF if at the end */
-int NR_Read(void *ctx, IndexResult *e);
+int NR_Read(void *ctx, RSIndexResult *e);
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
 
 /* the last docId read */
 t_docId NR_LastDocId(void *ctx);

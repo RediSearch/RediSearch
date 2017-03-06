@@ -12,9 +12,8 @@
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId, t_docId *docId,
-                          uint32_t *freq, uint8_t *flags, VarintVector *offsets,
-                          int singleWordMode);
-                          
+                   uint32_t *freq, uint8_t *flags, VarintVector *offsets, int singleWordMode);
+
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
@@ -56,7 +55,7 @@ size_t __writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, uint8_
 
   // ret += WriteVarint(len, &w->bw);
   // encode freq
-  //printf("writing freq %d\n", freq);
+  // printf("writing freq %d\n", freq);
   ret += WriteVarint(freq, bw);
 
   if (idxflags & Index_StoreFieldFlags) {
@@ -73,7 +72,8 @@ size_t __writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, uint8_
 }
 
 /* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntry(InvertedIndex *idx,                                ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
+size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
+                                ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
 
   // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
@@ -98,9 +98,9 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,                             
   // freq is between 0 and 1
   // int quantizedScore =
   //     floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
-  
-  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq, offsets->offset,
-                     offsets);
+
+  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq,
+                     offsets->offset, offsets);
 
   idx->lastId = ent->docId;
   blk->lastId = ent->docId;
@@ -131,10 +131,11 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
                           int singleWordMode) {
   size_t startPos = BufferReader_Offset(br);
   *docId = ReadVarint(br) + lastId;
+
   // printf("IR %s read docId %d, last id %d\n", ir->term->str, *docId,
   // ir->lastId);
   *freq = ReadVarint(br);
-  
+
   if (idxflags & Index_StoreFieldFlags) {
     Buffer_ReadByte(br, (char *)flags);
   } else {
@@ -189,7 +190,7 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   *docId = ReadVarint(br) + ir->lastId;
 
   ReadVarint(br);  // read quantized score
-  uint8_t flags = 0xff;
+  uint32_t flags = 0xffffffff;
 
   // pseudo-read flags
   if (ir->flags & Index_StoreFieldFlags) {
@@ -212,11 +213,11 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   return INDEXREAD_OK;
 }
 
-int IR_Read(void *ctx, IndexResult *e) {
+int IR_Read(void *ctx, RSIndexResult *e) {
 
   IndexReader *ir = ctx;
 
-  // IndexRecord rec = {.term = ir->term};
+  // RSIndexRecord rec = {.term = ir->term};
 
   //   if (ir->->useScoreIndex && ir->scoreIndex) {
   //     ScoreIndexEntry *ent = ScoreIndex_Next(ir->scoreIndex);
@@ -322,7 +323,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
+int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
   IndexReader *ir = ctx;
 
   // printf("IR %s skipTo %d\n", ir->term->str, docId);
@@ -393,7 +394,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fiel
     ret->term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
   }
 
-  ret->record = (IndexRecord){.term = term};
+  ret->record = (RSIndexRecord){.term = term};
   ret->lastId = 0;
   ret->docTable = docTable;
   ret->len = 0;
@@ -475,7 +476,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
   while (!BufferReader_AtEnd(&br)) {
     size_t sz = __readEntry(&br, flags, lastReadId, &docId, &qscore, &fflags, &offsets, 0);
 
-    DocumentMetadata *md = DocTable_Get(dt, docId);
+    RSDocumentMetadata *md = DocTable_Get(dt, docId);
     lastReadId = docId;
     if (md->flags & Document_Deleted) {
       frags += 1;

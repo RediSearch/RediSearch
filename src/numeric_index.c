@@ -332,7 +332,7 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 
 /* Read the next entry from the iterator, into hit *e.
   *  Returns INDEXREAD_EOF if at the end */
-int NR_Read(void *ctx, IndexResult *r) {
+int NR_Read(void *ctx, RSIndexResult *r) {
   NumericRangeIterator *it = ctx;
   if (it->atEOF) {
     return INDEXREAD_EOF;
@@ -359,7 +359,7 @@ int NR_Read(void *ctx, IndexResult *r) {
   }
   /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
-  IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   IndexResult_PutRecord(r, &rec);
 
   return INDEXREAD_OK;
@@ -367,7 +367,7 @@ int NR_Read(void *ctx, IndexResult *r) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
+int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
 
   // printf("nr %p skipto %d\n", ctx, docId);
   NumericRangeIterator *it = ctx;
@@ -410,7 +410,7 @@ int NR_SkipTo(void *ctx, u_int32_t docId, IndexResult *r) {
   // }
 
   // it->lastDocId = it->rng->entries[i].docId;
-  // IndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  // RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
   // IndexResult_PutRecord(r, &rec);
   // // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   // if (it->lastDocId == docId) {
