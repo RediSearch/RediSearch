@@ -90,7 +90,8 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     blk->firstId = ent->docId;
   }
   size_t ret = 0;
-  RSOffsetVector *offsets = ent->vw->bw.buf;
+  
+  RSOffsetVector offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
 
   BufferWriter bw = NewBufferWriter(&blk->data);
   //   if (idx->flags & Index_StoreScoreIndexes) {
@@ -102,7 +103,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
   //     floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
 
   ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq,
-                     offsets->offset, offsets);
+                     offsets.len, &offsets);
 
   idx->lastId = ent->docId;
   blk->lastId = ent->docId;
@@ -150,9 +151,8 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
 
     // If needed - read offset vectors
     if (offsets != NULL && !singleWordMode) {
-      offsets->cap = offsetsLen;
       offsets->data = br->pos;
-      offsets->offset = offsetsLen;
+      offsets->len = offsetsLen;
     }
     Buffer_Skip(br, offsetsLen);
   }
@@ -221,7 +221,7 @@ int IR_Read(void *ctx, RSIndexResult *e) {
 
   RSOffsetVector *offsets = NULL;
   if (!ir->singleWordMode) {
-    offsets = ir->record.offsets;
+    offsets = &ir->record.offsets;
   }
   int rc;
   do {
@@ -462,6 +462,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
   t_docId docId;
   uint32_t fflags;
   int frags = 0;
+
   RSOffsetVector offsets;
   int qscore;
   while (!BufferReader_AtEnd(&br)) {
@@ -477,7 +478,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
       if (frags) {
         printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
                blk->lastId);
-        __writeEntry(&bw, flags, docId - blk->lastId, fflags, qscore, offsets.cap, &offsets);
+        __writeEntry(&bw, flags, docId - blk->lastId, fflags, qscore, offsets.len, &offsets);
       } else {
         bw.buf->offset += sz;
         bw.pos += sz;

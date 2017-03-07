@@ -6,9 +6,9 @@ void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v);
 uint32_t RSOffsetIterator_Next(RSOffsetIterator *it);
 
 void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v) {
-  it->br = NewBufferReader(v);
+  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
+  it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
-  it->index = 0;
 }
 
 inline int offsetVector_HasNext(RSOffsetIterator *vi) {

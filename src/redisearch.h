@@ -81,9 +81,12 @@ typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 
 #define RS_OFFSETVECTOR_EOF (uint32_t) - 1
 
-#ifndef __RS_OFFSET_VECTOR_H__
-typedef struct RSOffsetVector RSOffsetVector;
+typedef struct {
+  char *data;
+  size_t len;
+} RSOffsetVector;
 
+#ifndef __RS_OFFSET_VECTOR_H__
 typedef struct RSOffsetIterator RSOffsetIterator;
 #endif
 
@@ -103,7 +106,7 @@ typedef struct {
   RSQueryTerm *term;
   uint32_t freq;
   uint32_t fieldMask;
-  RSOffsetVector *offsets;
+  RSOffsetVector offsets;
 } RSIndexRecord;
 
 typedef struct {
