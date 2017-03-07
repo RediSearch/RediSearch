@@ -1,6 +1,6 @@
 #ifndef __NUMERIC_FILTER_H__
 #define __NUMERIC_FILTER_H__
-#include "types.h"
+#include "redisearch.h"
 #include "search_ctx.h"
 #include "rmutil/vector.h"
 

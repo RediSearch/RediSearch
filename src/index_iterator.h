@@ -2,7 +2,7 @@
 #define __INDEX_ITERATOR_H__
 
 #include <stdint.h>
-#include "types.h"
+#include "redisearch.h"
 #include "index_result.h"
 
 #define INDEXREAD_EOF 0

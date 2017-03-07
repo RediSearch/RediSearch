@@ -18,7 +18,7 @@ RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o index_result.o expander.o doc_table.o numeric_filter.o \
-		numeric_index.o geo_index.o inverted_index.o id_list.o id_filter.o
+		numeric_index.o geo_index.o inverted_index.o id_list.o id_filter.o offset_vector.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS= redis_index.o query.o spec.o  module.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
@@ -79,8 +79,7 @@ libnu:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
-	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) \
-		$(QUERY_PARSE) $(SHOBJ_LDFLAGS) $(LIBS) $(LIBNU) -lc -lm
+	$(LD) -o $@ $(MODULE) $(LIBNU) $(LIBTRIE) $(SHOBJ_LDFLAGS) -lc -lm
 
 
 release: CFLAGS += $(RELEASEFLAGS)

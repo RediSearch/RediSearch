@@ -165,7 +165,6 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   if (ir == NULL) {
     return NULL;
   }
-  ir->term->metadata = node->metadata;
   return NewReadIterator(ir);
 }
 
@@ -406,7 +405,7 @@ double CalculateResultScore(RSDocumentMetadata *dmd, RSIndexResult *h) {
 
   double tfidf = 0;
   for (int i = 0; i < h->numRecords; i++) {
-    tfidf += (float)h->records[i].tf * (h->records[i].term ? h->records[i].term->idf : 0);
+    tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
   }
   tfidf *= dmd->score / dmd->maxFreq;
   // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,

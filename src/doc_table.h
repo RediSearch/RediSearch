@@ -2,7 +2,6 @@
 #define __DOC_TABLE_H__
 #include <stdlib.h>
 #include <string.h>
-#include "types.h"
 #include "redismodule.h"
 #include "util/triemap.h"
 #include "redisearch.h"

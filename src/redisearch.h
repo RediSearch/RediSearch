@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef u_int32_t t_docId;
+typedef u_int32_t t_offset;
+
 typedef struct {
   char *data;
   size_t len;

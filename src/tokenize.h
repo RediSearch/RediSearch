@@ -3,7 +3,7 @@
 #define __TOKENIZE_H__
 
 #include "stemmer.h"
-#include "types.h"
+#include "redisearch.h"
 #include "util/khash.h"
 #include "varint.h"
 #include <ctype.h>

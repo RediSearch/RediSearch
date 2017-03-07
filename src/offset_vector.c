@@ -2,13 +2,13 @@
 #include "redisearch.h"
 #include "varint.h"
 
-struct RSOffsetIterator RSOffsetVector_Iterate(RSOffsetVector *v);
-uint32_t RSOffsetIterator_Next(RSOffsetVector *vi);
+void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v);
+uint32_t RSOffsetIterator_Next(RSOffsetIterator *it);
 
-RSOffsetIterator RSOffsetVector_Iterate(RSOffsetVector *v) {
-  RSOffsetVector_Iterate ret ret.br = NewBufferReader(v);
-  ret.lastValue = 0;
-  return ret;
+void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v) {
+  it->br = NewBufferReader(v);
+  it->lastValue = 0;
+  it->index = 0;
 }
 
 inline int offsetVector_HasNext(RSOffsetIterator *vi) {

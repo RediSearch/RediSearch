@@ -8,7 +8,7 @@
 #include "index_iterator.h"
 #include "index_result.h"
 #include "spec.h"
-#include "types.h"
+
 #include <stdint.h>
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
@@ -54,7 +54,7 @@ typedef struct indexReadCtx {
 
   size_t len;
   RSIndexRecord record;
-  Term *term;
+  RSQueryTerm *term;
 } IndexReader;
 
 /* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
@@ -67,14 +67,14 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fieldMask,
-                            IndexFlags flags, Term *term, int singleWordMode);
+IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fieldMask,
+                            IndexFlags flags, RSQueryTerm *term, int singleWordMode);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, u_char *flags,
-                   VarintVector *offsets);
+int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint32_t *flags,
+                   RSOffsetVector *offsets);
 
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);
 

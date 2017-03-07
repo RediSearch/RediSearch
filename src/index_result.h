@@ -1,7 +1,6 @@
 #ifndef __INDEX_RESULT_H__
 #define __INDEX_RESULT_H__
 
-#include "types.h"
 #include "varint.h"
 #include "redisearch.h"
 

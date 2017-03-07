@@ -1,13 +1,13 @@
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
-#include "types.h"
+#include "redisearch.h"
 #include "util/khash.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"
 
 typedef struct {
-    t_docId docId;
+  t_docId docId;
   const char *term;
   size_t len;
   uint32_t freq;
@@ -24,7 +24,7 @@ KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
 
 typedef struct {
   khash_t(32) * hits;
-    t_docId docId;
+  t_docId docId;
   uint32_t totalFreq;
   uint32_t maxFreq;
   float docScore;
@@ -33,8 +33,8 @@ typedef struct {
 } ForwardIndex;
 
 typedef struct {
-    ForwardIndex *idx;
-    khiter_t k;
+  ForwardIndex *idx;
+  khiter_t k;
 } ForwardIndexIterator;
 
 int forwardIndexTokenFunc(void *ctx, Token t);

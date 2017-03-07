@@ -5,7 +5,7 @@
 #include "forward_index.h"
 #include "index_result.h"
 #include "index_iterator.h"
-#include "types.h"
+#include "redisearch.h"
 #include "util/logging.h"
 #include "varint.h"
 #include <ctype.h>

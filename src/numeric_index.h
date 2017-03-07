@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "rmutil/vector.h"
-#include "types.h"
+#include "redisearch.h"
 #include "index_result.h"
 #include "redismodule.h"
 #include "search_ctx.h"

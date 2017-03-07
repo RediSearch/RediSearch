@@ -1,7 +1,7 @@
 #ifndef __QUERY_EXPANDER_H__
 #define __QUERY_EXPANDER_H__
 #include <stdlib.h>
-#include "types.h"
+#include "redisearch.h"
 #include "query_node.h"
 #include "query.h"
 

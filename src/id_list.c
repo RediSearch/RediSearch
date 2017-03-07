@@ -18,7 +18,7 @@ int IL_Read(void *ctx, RSIndexResult *r) {
     it->atEOF = 1;
   }
   // TODO: Filter here
-  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
   IndexResult_PutRecord(r, &rec);
 
   return INDEXREAD_OK;
@@ -64,7 +64,7 @@ int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
   }
 
   it->lastDocId = it->docIds[i];
-  RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
+  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
   IndexResult_PutRecord(r, &rec);
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {
