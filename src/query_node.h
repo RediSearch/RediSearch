@@ -3,7 +3,7 @@
 #include <stdlib.h>
 //#include "numeric_index.h"
 
-struct queryNode;
+struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
@@ -29,14 +29,14 @@ typedef enum {
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
-  struct queryNode **children;
+  struct RSQueryNode **children;
   int numChildren;
   int exact;
 } QueryPhraseNode;
 
 /* A Union node represents a set of child nodes where the index unions the result between them */
 typedef struct {
-  struct queryNode **children;
+  struct RSQueryNode **children;
   int numChildren;
 } QueryUnionNode;
 
@@ -62,7 +62,7 @@ typedef struct { struct idFilter *f; } QueryIdFilterNode;
 
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it is,
  * and a union of all possible nodes  */
-typedef struct queryNode {
+typedef struct RSQueryNode {
   union {
     QueryPhraseNode pn;
     QueryTokenNode tn;

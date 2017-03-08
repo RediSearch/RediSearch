@@ -291,13 +291,19 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->root = NULL;
   ret->numTokens = 0;
   ret->stopwords = stopwords;
-  ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
+  // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   /* Get the scorer - falling back to TF-IDF scoring if not found */
   ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : "TFIDF");
   if (!ret->scorer) ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, "TFIDF");
 
+  /* Get the query expander */
+  ret->expCtx.query = ret;
+  ret->expander = NULL;
+  if (!verbatim) {
+    ret->expander = Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : "SBSTEM");
+  }
   return ret;
 }
 
@@ -321,9 +327,29 @@ QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
   return n;
 }
 
+void _queryNode_expand(Query *q, QueryNode *qn) {
+  RSToken tok;
+
+  if (qn->type == QN_TOKEN) {
+    q->expCtx.currentNode = &qn;
+    tok.language = q->language;
+    tok.str = qn->tn.str;
+    tok.len = qn->tn.len;
+    q->expander(&q->expCtx, &tok);
+
+  } else if (qn->type == QN_PHRASE) {
+    for (int i = 0; i < qn->pn.numChildren; i++) {
+      _queryNode_expand(q, qn->pn.children[i]);
+    }
+  } else if (qn->type == QN_UNION) {
+    for (int i = 0; i < qn->un.numChildren; i++) {
+      _queryNode_expand(q, qn->un.children[i]);
+    }
+  }
+}
 void Query_Expand(Query *q) {
   if (q->expander && q->root) {
-    q->root = __queryNode_Expand(q, q->expander, q->root);
+    _queryNode_expand(q, q->root);
   }
 }
 
@@ -379,9 +405,9 @@ void Query_Free(Query *q) {
   // if (q->stemmer) {
   //   q->stemmer->Free(q->stemmer);
   // }
-  if (q->expander && q->expander->ctx) {
-    q->expander->Free(q->expander->ctx);
-  }
+  // if (q->expander && q->expander->ctx) {
+  //   q->expander->Free(q->expander->ctx);
+  // }
   free(q->raw);
   free(q);
 }

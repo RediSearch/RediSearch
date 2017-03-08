@@ -15,12 +15,9 @@
 #include "id_filter.h"
 #include "redisearch.h"
 
-/* forward declaration to avoid include loop */
-struct QueryExpander;
-
 /* A Query represents the parse tree and execution plan for a single search
  * query */
-typedef struct query {
+typedef struct RSQuery {
   // the raw query text
   char *raw;
   // the raw text len
@@ -47,7 +44,8 @@ typedef struct query {
   // Whether phrases are in order or not
   int inOrder;
 
-  struct QueryExpander *expander;
+  RSQueryTokenExpander expander;
+  RSQueryExpanderCtx expCtx;
 
   RSScoringFunction scorer;
   RSScoringFunctionCtx scorerCtx;
@@ -55,6 +53,8 @@ typedef struct query {
   const char *language;
 
   const char **stopwords;
+
+  RSPayload payload;
 } Query;
 
 typedef struct {

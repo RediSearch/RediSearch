@@ -1162,7 +1162,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
+  // Init extension mechanism
   Extensions_Init();
+
+  // Register the default hard coded extension
   Extension_Load("DEFAULT", DefaultExtensionInit);
 
   /* Self initialization */

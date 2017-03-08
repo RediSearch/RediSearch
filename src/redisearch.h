@@ -64,15 +64,18 @@ typedef uint32_t RSTokenFlags;
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
  * tokens */
 typedef struct {
-  char *str;
+  const char *str;
   size_t len;
+  const char *language;
   RSTokenFlags flags;
 } RSToken;
 
 typedef struct RSQueryExpanderCtx {
   struct RSQuery *query;
-  struct RSQueryNode *currentNode;
-  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, RSToken *token);
+  struct RSQueryNode **currentNode;
+  void *privdata;
+  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+                      RSTokenFlags flags);
   void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
 } RSQueryExpanderCtx;
 

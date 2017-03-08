@@ -18,7 +18,7 @@ typedef struct {
 
 RSScoringFunction Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
 
-ExtensionsQueryExpanderCtx *Extensions_GetQueryExpander(const char *name);
+RSQueryTokenExpander Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);
 
 int Extension_Load(const char *name, RSExtensionInitFunc func);
 

@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "index_result.h"
 #include "dep/triemap/triemap.h"
+#include "query.h"
 
 TrieMap *__queryExpanders = NULL;
 TrieMap *__scorers = NULL;
@@ -66,10 +67,30 @@ RSScoringFunction Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const
   return NULL;
 }
 
-ExtensionsQueryExpanderCtx *Extensions_GetQueryExpander(const char *name) {
-  void *p = TrieMap_Find(__queryExpanders, (char *)name, strlen(name));
-  if (p && p != TRIEMAP_NOTFOUND) {
-    return (ExtensionsQueryExpanderCtx *)p;
+void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+                     RSTokenFlags flags) {
+
+  Query *q = ctx->query;
+  QueryNode *qn = *ctx->currentNode;
+
+  if (qn->type != QN_UNION) {
+    QueryNode *un = NewUnionNode();
+    QueryUnionNode_AddChild(&un->un, qn);
+    qn = un;
+  }
+  QueryUnionNode_AddChild(&qn->un, NewTokenNode(q, str, len));
+  q->numTokens++;
+}
+
+void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
+  ctx->query->payload = payload;
+}
+
+RSQueryTokenExpander Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name) {
+  ExtensionsQueryExpanderCtx *p = TrieMap_Find(__queryExpanders, (char *)name, strlen(name));
+  if (p && (void *)p != TRIEMAP_NOTFOUND) {
+    ctx->privdata = p->privdata;
+    return p->exp;
   }
   return NULL;
 }
