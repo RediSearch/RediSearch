@@ -1,6 +1,8 @@
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
+#include <stdlib.h>
+
 #include "index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
@@ -11,8 +13,7 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "id_filter.h"
-
-#include <stdlib.h>
+#include "redisearch.h"
 
 /* forward declaration to avoid include loop */
 struct QueryExpander;
@@ -47,6 +48,9 @@ typedef struct query {
   int inOrder;
 
   struct QueryExpander *expander;
+
+  RSScoringFunction scorer;
+  RSScoringFunctionCtx scorerCtx;
 
   const char *language;
 
@@ -97,7 +101,7 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int maxSlop, int inOrder);
+                const char *expander, int maxSlop, int inOrder, const char *scorer);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

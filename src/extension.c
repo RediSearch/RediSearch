@@ -2,7 +2,7 @@
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "redismodule.h"
-#include "query_result.h"
+#include "index_result.h"
 #include "dep/triemap/triemap.h"
 
 TrieMap *__queryExpanders = NULL;
@@ -51,24 +51,25 @@ int Extension_Load(const char *name, RSExtensionInitFunc func) {
   return func(&ctx);
 }
 
-ExtensionsScoringFunctionCtx *Extensions_GetScoringFunction(const char *name) {
+int Ext_ScorerGetSlop(RSIndexResult *r) {
+  return IndexResult_MinOffsetDelta(r);
+}
 
-  void *p = TrieMap_Find(__scorers, (char*)name, strlen(name));
-  if (p && p != TRIEMAP_NOTFOUND) {
-    return (ExtensionsScoringFunctionCtx *)p;
+RSScoringFunction Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name) {
+
+  ExtensionsScoringFunctionCtx *p = TrieMap_Find(__scorers, (char *)name, strlen(name));
+  if (p && (void *)p != TRIEMAP_NOTFOUND) {
+    ctx->privdata = p->privdata;
+    ctx->GetSlop = Ext_ScorerGetSlop;
+    return p->sf;
   }
   return NULL;
 }
 
 ExtensionsQueryExpanderCtx *Extensions_GetQueryExpander(const char *name) {
-  void *p = TrieMap_Find(__queryExpanders, (char*)name, strlen(name));
+  void *p = TrieMap_Find(__queryExpanders, (char *)name, strlen(name));
   if (p && p != TRIEMAP_NOTFOUND) {
     return (ExtensionsQueryExpanderCtx *)p;
   }
   return NULL;
-}
-
-
-int Ext_ScorerGetSlop(RSQueryResult *r) {
-  return Query
 }

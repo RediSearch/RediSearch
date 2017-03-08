@@ -16,6 +16,8 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "extension.h"
+#include "ext/default.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -385,8 +387,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
-                                           (float)sp->stats.invertedCap);
+  __reply_kvnum(
+      n, "inverted_cap_ovh",
+      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
@@ -748,7 +751,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder);
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, NULL);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
@@ -1158,6 +1161,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   // LOGGING_INIT(0xFFFFFFFF);
   if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
+
+  Extensions_Init();
+  Extension_Load("DEFAULT", DefaultExtensionInit);
 
   /* Self initialization */
   RegisterStemmerExpander();

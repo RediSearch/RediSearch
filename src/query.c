@@ -12,6 +12,7 @@
 #include "tokenize.h"
 #include "util/heap.h"
 #include "util/logging.h"
+#include "extension.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
@@ -277,7 +278,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int slop, int inOrder) {
+                const char *expander, int slop, int inOrder, const char *scorer) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -292,6 +293,10 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->stopwords = stopwords;
   ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
+
+  /* Get the scorer - falling back to TF-IDF scoring if not found */
+  ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : "TFIDF");
+  if (!ret->scorer) ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, "TFIDF");
 
   return ret;
 }
@@ -393,29 +398,29 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
   return h1->docId - h2->docId;
 }
 
-/* Calculate sum(TF-IDF)*document score for each result */
-double CalculateResultScore(RSDocumentMetadata *dmd, RSIndexResult *h) {
-  if (dmd->score == 0) return 0;
-  // IndexResult_Print(h);
-  if (h->numRecords == 1) {
-    return dmd->score * (float)h->totalTF / (float)dmd->maxFreq;
-    // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n",
-    // dmd->score, dmd->maxFreq, ret, ret);
-  }
+// /* Calculate sum(TF-IDF)*document score for each result */
+// double CalculateResultScore(RSDocumentMetadata *dmd, RSIndexResult *h) {
+//   if (dmd->score == 0) return 0;
+//   // IndexResult_Print(h);
+//   if (h->numRecords == 1) {
+//     return dmd->score * (float)h->totalTF / (float)dmd->maxFreq;
+//     // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n",
+//     // dmd->score, dmd->maxFreq, ret, ret);
+//   }
 
-  double tfidf = 0;
-  for (int i = 0; i < h->numRecords; i++) {
-    tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
-  }
-  tfidf *= dmd->score / dmd->maxFreq;
-  // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,
-  //        dmd->maxFreq, _tfidf, tfidf);
+//   double tfidf = 0;
+//   for (int i = 0; i < h->numRecords; i++) {
+//     tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
+//   }
+//   tfidf *= dmd->score / dmd->maxFreq;
+//   // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,
+//   //        dmd->maxFreq, _tfidf, tfidf);
 
-  tfidf /= (double)IndexResult_MinOffsetDelta(h);
+//   tfidf /= (double)IndexResult_MinOffsetDelta(h);
 
-  // printf("after normalize: %f\n", tfidf);
-  return tfidf;
-}
+//   // printf("after normalize: %f\n", tfidf);
+//   return tfidf;
+// }
 
 QueryResult *Query_Execute(Query *query) {
   //__queryNode_Print(query->root, 0);
@@ -469,15 +474,15 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
 
-    // IndexResult_Print(h);
-    h->finalScore = CalculateResultScore(dmd, h);
+    /* Call the query scoring function to calculate the score */
+    h->finalScore = query->scorer(&query->scorerCtx, h, dmd, minScore);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
       pooledHit = NULL;
       if (heap_count(pq) == heap_size(pq)) {
         RSIndexResult *minh = heap_peek(pq);
-        minScore = minh->totalTF;
+        minScore = minh->finalScore;
       }
     } else {
       if (h->finalScore >= minScore) {

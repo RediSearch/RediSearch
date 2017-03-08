@@ -16,7 +16,8 @@ typedef struct {
   void *privdata;
 } ExtensionsQueryExpanderCtx;
 
-ExtensionsScoringFunctionCtx *Extensions_GetScoringFunction(const char *name);
+RSScoringFunction Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
+
 ExtensionsQueryExpanderCtx *Extensions_GetQueryExpander(const char *name);
 
 int Extension_Load(const char *name, RSExtensionInitFunc func);

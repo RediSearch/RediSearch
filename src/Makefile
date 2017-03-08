@@ -2,7 +2,7 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I./ -DREDIS_MODULE_TARGET
+CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I$(shell pwd) -DREDIS_MODULE_TARGET
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
@@ -20,6 +20,7 @@ VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o index_result.o expander.o doc_table.o numeric_filter.o \
 		numeric_index.o geo_index.o inverted_index.o id_list.o id_filter.o offset_vector.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
+EXTOBJS=ext/default.o  extension.o
 REDIS= redis_index.o query.o spec.o  module.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
 UTILOBJS=util/heap.o util/logging.o util/fnv.o
@@ -32,7 +33,8 @@ TESTS=test.o
 SRCDIR := $(shell pwd)
 #MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS))
 
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP))
+MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) \
+	$(UTILOBJS) $(RMUTILOBJS) $(EXTOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP))
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o

@@ -7,6 +7,9 @@
 typedef u_int32_t t_docId;
 typedef u_int32_t t_offset;
 
+#define REDISEARCH_ERR 1
+#define REDISEARCH_OK 0
+
 typedef struct {
   char *data;
   size_t len;
@@ -133,4 +136,6 @@ typedef struct RSExtensionCtx {
   int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, void *privdata);
   int (*RegisterQueryExpander)(const char *alias, RSQueryTokenExpander exp, void *privdata);
 } RSExtensionCtx;
+
+typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
 #endif
