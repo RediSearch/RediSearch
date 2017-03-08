@@ -393,7 +393,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   __reply_kvnum(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  __reply_kvnum(n, "key_table_size_mb", TrieMapNode_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  __reply_kvnum(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   __reply_kvnum(n, "records_per_doc_avg",
                 (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   __reply_kvnum(n, "bytes_per_record_avg",
