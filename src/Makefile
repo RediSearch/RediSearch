@@ -22,16 +22,17 @@ INDEX=index.o forward_index.o index_result.o expander.o doc_table.o numeric_filt
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 REDIS= redis_index.o query.o spec.o  module.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a
+LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
 #MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS))
 
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE))
+MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP))
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -39,11 +40,13 @@ CC=gcc
 UTIL = util
 RMUTIL = rmutil
 TRIE = trie
+TRIEMAP = triemap
 
 .PHONY: rmutil $(RMUTIL) 
 .PHONY: util $(UTIL)
 .PHONY: trie $(TRIE)
 .PHONY: tests  
+.PHONY: triemap ($TRIEMAP)
 
 # util: $(UTIL)
 
@@ -58,6 +61,9 @@ $(RMUTIL):
 $(TRIE):
 	$(MAKE) -C $@
 
+$(TRIEMAP):
+	$(MAKE) -C dep/triemap
+
 query_parser:
 	$(MAKE) -C $@
 	
@@ -68,6 +74,8 @@ test:
 	$(MAKE) -C tests build test
 	# high level python integration tests
 	$(MAKE) -C pytest test
+	# Triemap tests
+	$(MAKE) -C dep/triemap/test test
 
 snowball:
 	$(MAKE) -C dep/snowball libstemmer.o
@@ -83,10 +91,10 @@ module.so: $(MODULE)
 
 
 release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball libnu trie | module.so
+release: util rmutil snowball libnu trie triemap | module.so
 
 debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball libnu trie  | module.so
+debug: util rmutil snowball libnu trie  triemap | module.so
 	
 
 clean:

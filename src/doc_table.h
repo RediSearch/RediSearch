@@ -3,11 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "util/triemap.h"
+#include "dep/triemap/triemap.h"
 #include "redisearch.h"
 
 /* Map between external id an incremental id */
-typedef struct { TrieMapNode *tm; } DocIdMap;
+typedef struct { TrieMap *tm; } DocIdMap;
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */

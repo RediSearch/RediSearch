@@ -2,22 +2,23 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS ?= -g -fPIC -lc -lm -std=gnu99 -I./ 
+CFLAGS ?= -g -O0 -fPIC -lc -lm -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o\
 		numeric_filter.o geo_index.o id_list.o id_filter.o offset_vector.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
 REDIS=redis_index.o query.o spec.o 
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
 LIBTRIE=trie/libtrie.a
+LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) )
+DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(LIBTRIEMAP) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) )
 
 
 CC=gcc

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-
+#include "dep/triemap/triemap.h"
 #include "rmalloc.h"
 
 /* Creates a new DocTable with a given capacity */
@@ -197,14 +197,14 @@ void DocTable_AOFRewrite(DocTable *t, RedisModuleString *key, RedisModuleIO *aof
 
 DocIdMap NewDocIdMap() {
 
-  TrieMapNode *m = NewTrieMap();
+  TrieMap *m = NewTrieMap();
   return (DocIdMap){m};
 }
 
 t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
 
-  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
-  if (val) {
+  void *val = TrieMap_Find(m->tm, (unsigned char *)key, strlen(key));
+  if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
   return 0;
@@ -219,16 +219,15 @@ void *_docIdMap_replace(void *oldval, void *newval) {
 
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
-  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMapNode_Free(m->tm, RedisModule_Free);
+  TrieMap_Free(m->tm, RedisModule_Free);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *key) {
-  return TrieMapNode_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
+  return TrieMap_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
 }
