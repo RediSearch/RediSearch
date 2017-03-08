@@ -80,7 +80,7 @@ int testRangeIterator() {
     }
 
     ASSERT(res.docId > 0);
-    ASSERT(res.flags = 0xff);
+    ASSERT(res.fieldMask = 0xff);
     ASSERT(res.numRecords == 1)
     count++;
   }

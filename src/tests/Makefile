@@ -6,7 +6,7 @@ CFLAGS ?= -g -fPIC -lc -lm -std=gnu99 -I./
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o\
-		numeric_filter.o geo_index.o id_list.o id_filter.o
+		numeric_filter.o geo_index.o id_list.o id_filter.o offset_vector.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o expander.o 
 REDIS=redis_index.o query.o spec.o 
 UTILOBJS=util/heap.o util/logging.o util/fnv.o util/triemap.o

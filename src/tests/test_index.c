@@ -1,3 +1,4 @@
+#include "../offset_vector.h"
 #include "../buffer.h"
 #include "../index.h"
 #include "../inverted_index.h"
@@ -15,7 +16,7 @@
 
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
-  int expected[5] = {10, 1000, 1020, 10000, 10020};
+  uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
   for (int i = 0; i < 5; i++) {
     VVW_Write(vw, expected[i]);
   }
@@ -23,12 +24,15 @@ int testVarint() {
   // VVW_Write(vw, 100);
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
-  // Buffer_Seek(vw->bw.buf, 0);
-  VarintVectorIterator it = VarIntVector_iter(vw->bw.buf);
-  int x = 0;
 
-  while (VV_HasNext(&it)) {
-    int n = VV_Next(&it);
+  RSOffsetVector vec = (RSOffsetVector){.data =vw->bw.buf->data, .len = vw->bw.buf->offset};
+  // Buffer_Seek(vw->bw.buf, 0);
+  RSOffsetIterator it;
+  RSOffsetVector_Iterate(&it, &vec);
+  int x = 0;
+  uint32_t n =0 ;
+  while (RS_OFFSETVECTOR_EOF != (n = RSOffsetIterator_Next(&it))) {
+    
     ASSERTM(n == expected[x++], "Wrong number decoded");
     // printf("%d %d\n", x, n);
   }
@@ -58,9 +62,9 @@ int testDistance() {
   VVW_Truncate(vw2);
 
   RSIndexResult res = NewIndexResult();
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = *vw->bw.buf});
+  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset}});
 
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = *vw2->bw.buf});
+  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw2->bw.buf->data, .len = vw2->bw.buf->offset}});
 
   int delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(4, delta);
@@ -76,7 +80,7 @@ int testDistance() {
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 4, 1));
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 5, 1));
 
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
+  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw3->bw.buf->data, .len = vw3->bw.buf->offset}});
   delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(53, delta);
 
@@ -292,8 +296,8 @@ int testIntersection() {
   clock_gettime(CLOCK_REALTIME, &end_time);
   long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-   printf("%d intersections in %ldns\n", count, diffInNanos);
-   printf("top freq: %f\n", topFreq);
+  printf("%d intersections in %ldns\n", count, diffInNanos);
+  printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
   ASSERT(topFreq == 475000.0);
 
@@ -503,7 +507,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteEntry(w, &h);
-  ASSERT_EQUAL(3  , sz);
+  ASSERT_EQUAL(3, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
