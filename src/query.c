@@ -13,6 +13,7 @@
 #include "util/heap.h"
 #include "util/logging.h"
 #include "extension.h"
+#include "ext/default.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
@@ -295,14 +296,18 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   /* Get the scorer - falling back to TF-IDF scoring if not found */
-  ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : "TFIDF");
-  if (!ret->scorer) ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, "TFIDF");
+  ret->scorer =
+      Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
+  if (!ret->scorer)
+    ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
 
   /* Get the query expander */
   ret->expCtx.query = ret;
   ret->expander = NULL;
   if (!verbatim) {
-    ret->expander = Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : "SBSTEM");
+    ret->expander =
+        Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
+    printf("Expander name: %s, expander %p\n", expander, ret->expander);
   }
   return ret;
 }

@@ -22,6 +22,7 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, void 
   ctx->privdata = privdata;
   ctx->sf = func;
   if (TrieMap_Find(__scorers, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+    rm_free(ctx);
     return REDISEARCH_ERR;
   }
   TrieMap_Add(__scorers, (char *)alias, strlen(alias), ctx, NULL);
@@ -36,9 +37,10 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, void 
   ctx->privdata = privdata;
   ctx->exp = exp;
   if (TrieMap_Find(__scorers, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+    rm_free(ctx);
     return REDISEARCH_ERR;
   }
-  TrieMap_Add(__scorers, (char *)alias, strlen(alias), ctx, NULL);
+  TrieMap_Add(__queryExpanders, (char *)alias, strlen(alias), ctx, NULL);
   return REDISEARCH_OK;
 }
 
@@ -89,6 +91,8 @@ void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
 RSQueryTokenExpander Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name) {
   ExtensionsQueryExpanderCtx *p = TrieMap_Find(__queryExpanders, (char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
+    ctx->ExpandToken = Ext_ExpandToken;
+    ctx->SetPayload = Ext_SetPayload;
     ctx->privdata = p->privdata;
     return p->exp;
   }

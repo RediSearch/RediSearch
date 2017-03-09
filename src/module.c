@@ -1166,7 +1166,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   Extensions_Init();
 
   // Register the default hard coded extension
-  Extension_Load("DEFAULT", DefaultExtensionInit);
+  if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
+    RedisModule_Log(ctx, "error", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
 
   /* Self initialization */
   RegisterStemmerExpander();
