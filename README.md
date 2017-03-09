@@ -8,6 +8,12 @@
 
 ### Latest Release: [0.9 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.9)
 
+# Client Libraries
+
+* **Python**: [https://github.com/RedisLabs/redisearch-py](https://github.com/RedisLabs/redisearch-py)
+
+* **Java**: [https://github.com/RedisLabs/JRediSearch](https://github.com/RedisLabs/JRediSearch)
+
 # Overview
 
 Redisearch impements a search engine on top of redis, but unlike other redis 
