@@ -2,7 +2,7 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I./ -DREDIS_MODULE_TARGET
+CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I./
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
@@ -14,6 +14,7 @@ else
 endif
 export CFLAGS
 
+MODULE=-DREDIS_MODULE_TARGET
 RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o
@@ -63,9 +64,9 @@ query_parser:
 	
 .PHONY: query_parser
 
-test:
+test: all
 	# low level redis-independant tests
-	$(MAKE) -C tests build test
+	$(MAKE) -C tests $@
 	# high level python integration tests
 	$(MAKE) -C pytest test
 
@@ -76,7 +77,7 @@ libnu:
 	$(MAKE) -C dep/libnu
 
 .c.xo:
-	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
+	$(CC) -I. $(CFLAGS) $(MODULE) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 module.so: $(MODULE)
 	$(LD) -o $@ $(VARINT) $(INDEX) $(TEXT) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) $(LIBTRIE) \
