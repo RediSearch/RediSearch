@@ -44,10 +44,14 @@ typedef struct RSQuery {
   // Whether phrases are in order or not
   int inOrder;
 
+  // Query expander
   RSQueryTokenExpander expander;
+  RSFreeFunction expanderFree;
   RSQueryExpanderCtx expCtx;
 
+  // Custom scorer
   RSScoringFunction scorer;
+  RSFreeFunction scorerFree;
   RSScoringFunctionCtx scorerCtx;
 
   const char *language;

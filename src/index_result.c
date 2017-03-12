@@ -89,21 +89,27 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   int dist = 0;
   int num = r->numRecords;
 
+  RSOffsetIterator *v1 = NULL, *v2 = NULL;
   for (int i = 1; i < num; i++) {
-    RSOffsetIterator v1, v2;
-    RSOffsetVector_Iterate(&v1, &r->records[i - 1].offsets);
-    RSOffsetVector_Iterate(&v2, &r->records[i].offsets);
-    uint32_t p1 = RSOffsetIterator_Next(&v1);
-    uint32_t p2 = RSOffsetIterator_Next(&v2);
+    // if this is not the first iteration, we take v1 from v2 and rewind it
+
+    v1 = RSOffsetVector_Iterate(&r->records[i - 1].offsets);
+    v2 = RSOffsetVector_Iterate(&r->records[i].offsets);
+
+    uint32_t p1 = RSOffsetIterator_Next(v1);
+    uint32_t p2 = RSOffsetIterator_Next(v2);
     int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != RS_OFFSETVECTOR_EOF && p2 != RS_OFFSETVECTOR_EOF) {
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
-        p1 = RSOffsetIterator_Next(&v1);
+        p1 = RSOffsetIterator_Next(v1);
       } else {
-        p2 = RSOffsetIterator_Next(&v2);
+        p2 = RSOffsetIterator_Next(v2);
       }
     }
+
+    RSOffsetIterator_Free(v1);
+    RSOffsetIterator_Free(v2);
 
     dist += cd * cd;
   }
@@ -112,7 +118,7 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   return dist ? dist : r->numRecords - 1;
 }
 
-int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
+int __indexResult_withinRangeInOrder(RSOffsetIterator **iters, uint32_t *positions, int num,
                                      int maxSlop) {
   while (1) {
 
@@ -121,12 +127,12 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
     for (int i = 0; i < num; i++) {
       // take the current position and the position of the previous iterator.
       // For the first iterator we always advance once
-      uint32_t pos = i ? positions[i] : RSOffsetIterator_Next(&iters[i]);
+      uint32_t pos = i ? positions[i] : RSOffsetIterator_Next(iters[i]);
       uint32_t lastPos = i ? positions[i - 1] : 0;
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
-        pos = RSOffsetIterator_Next(&iters[i]);
+        pos = RSOffsetIterator_Next(iters[i]);
         printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
       printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
@@ -183,10 +189,10 @@ inline uint32_t _arrayMax(uint32_t *arr, int len, int *pos) {
   return m;
 }
 
-int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
+int __indexResult_withinRangeUnordered(RSOffsetIterator **iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
-    positions[i] = RSOffsetIterator_Next(&iters[i]);
+    positions[i] = RSOffsetIterator_Next(iters[i]);
   }
   uint32_t minPos, maxPos, min, max;
   max = _arrayMax(positions, num, &maxPos);
@@ -204,7 +210,7 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
       }
     }
 
-    positions[minPos] = RSOffsetIterator_Next(&iters[minPos]);
+    positions[minPos] = RSOffsetIterator_Next(iters[minPos]);
     if (positions[minPos] != RS_OFFSETVECTOR_EOF && positions[minPos] > max) {
       maxPos = minPos;
       max = positions[maxPos];
@@ -229,10 +235,10 @@ int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder) {
   }
 
   // Fill a list of iterators and the last read positions
-  RSOffsetIterator iters[num];
+  RSOffsetIterator *iters[num];
   uint32_t positions[num];
   for (int i = 0; i < num; i++) {
-    RSOffsetVector_Iterate(&iters[i], &r->records[i].offsets);
+    iters[i] = RSOffsetVector_Iterate(&r->records[i].offsets);
     positions[i] = 0;
   }
 

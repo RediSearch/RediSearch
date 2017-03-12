@@ -730,7 +730,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &expander);
   }
   if (!expander) {
-    expander = STEMMER_EXPANDER_NAME;
+    expander = DEFAULT_EXPANDER_NAME;
   }
 
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
@@ -1170,10 +1170,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "error", "Could not register default extension");
     return REDISMODULE_ERR;
   }
-
-  /* Self initialization */
-  RegisterStemmerExpander();
-
+  
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 

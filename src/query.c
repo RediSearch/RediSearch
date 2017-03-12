@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/param.h>
 
-#include "expander.h"
+
 #include "geo_index.h"
 #include "index.h"
 #include "query.h"
@@ -296,47 +296,57 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   /* Get the scorer - falling back to TF-IDF scoring if not found */
-  ret->scorer =
+  ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
-  if (!ret->scorer)
-    ret->scorer = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
+  if (!scx) {
+    scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
+  }
+  if (scx) {
+    ret->scorer = scx->sf;
+    ret->scorerFree = scx->ff;
+  }
 
   /* Get the query expander */
   ret->expCtx.query = ret;
   ret->expander = NULL;
+  ret->expanderFree = NULL;
   if (!verbatim) {
-    ret->expander =
+    ExtQueryExpanderCtx *exp =
         Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
-    printf("Expander name: %s, expander %p\n", expander, ret->expander);
+    if (exp) {
+      ret->expander = exp->exp;
+      ret->expCtx.privdata = exp->privdata;
+      ret->expanderFree = exp->ff;
+    }
   }
   return ret;
 }
 
-QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
-  QueryNode *xn = e->Expand(e->ctx, q, n);
-  if (xn) {
-    // printf("expanded node %p!\n", xn);
-    //__queryNode_Print(xn, 0);
-    return xn;
-  }
+// QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
+//   QueryNode *xn = e->Expand(e->ctx, q, n);
+//   if (xn) {
+//     / printf("expanded node %p!\n", xn);
+//     //__queryNode_Print(xn, 0);
+//     return xn;
+//   }
 
-  if (n->type == QN_PHRASE) {
-    for (int i = 0; i < n->pn.numChildren; i++) {
-      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
-    }
-  } else if (n->type == QN_UNION) {
-    for (int i = 0; i < n->pn.numChildren; i++) {
-      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
-    }
-  }
-  return n;
-}
+//   if (n->type == QN_PHRASE) {
+//     for (int i = 0; i < n->pn.numChildren; i++) {
+//       n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+//     }
+//   } else if (n->type == QN_UNION) {
+//     for (int i = 0; i < n->pn.numChildren; i++) {
+//       n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+//     }
+//   }
+//   return n;
+// }
 
-void _queryNode_expand(Query *q, QueryNode *qn) {
+void _queryNode_expand(Query *q, QueryNode **pqn) {
   RSToken tok;
-
+  QueryNode *qn = *pqn;
   if (qn->type == QN_TOKEN) {
-    q->expCtx.currentNode = &qn;
+    q->expCtx.currentNode = pqn;
     tok.language = q->language;
     tok.str = qn->tn.str;
     tok.len = qn->tn.len;
@@ -344,17 +354,17 @@ void _queryNode_expand(Query *q, QueryNode *qn) {
 
   } else if (qn->type == QN_PHRASE) {
     for (int i = 0; i < qn->pn.numChildren; i++) {
-      _queryNode_expand(q, qn->pn.children[i]);
+      _queryNode_expand(q, &qn->pn.children[i]);
     }
   } else if (qn->type == QN_UNION) {
     for (int i = 0; i < qn->un.numChildren; i++) {
-      _queryNode_expand(q, qn->un.children[i]);
+      _queryNode_expand(q, &qn->un.children[i]);
     }
   }
 }
 void Query_Expand(Query *q) {
   if (q->expander && q->root) {
-    _queryNode_expand(q, q->root);
+    _queryNode_expand(q, &q->root);
   }
 }
 
@@ -406,13 +416,17 @@ void Query_Free(Query *q) {
   if (q->root) {
     QueryNode_Free(q->root);
   }
+  // if we have a custom expander with a free function - call it now
+  // printf("expander free %p. privdata %p\n", q->expanderFree, q->expCtx.privdata);
+  if (q->expanderFree) {
+    q->expanderFree(q->expCtx.privdata);
+  }
 
-  // if (q->stemmer) {
-  //   q->stemmer->Free(q->stemmer);
-  // }
-  // if (q->expander && q->expander->ctx) {
-  //   q->expander->Free(q->expander->ctx);
-  // }
+  // we have a custom scorer with a free function - call it now
+  if (q->scorerFree) {
+    q->scorerFree(q->scorerCtx.privdata);
+  }
+
   free(q->raw);
   free(q);
 }
@@ -454,7 +468,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 // }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query->root, 0);
+  __queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

@@ -3,12 +3,11 @@
 #include <stdio.h>
 #include <sys/param.h>
 #include "dep/snowball/include/libstemmer.h"
-#include "expander.h"
 
-const char *__supportedLanguages[] = {
-    "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    "russian", "spanish",   "swedish", "tamil",     "turkish",    NULL};
+const char *__supportedLanguages[] = {"arabic",     "danish",   "dutch",     "english", "finnish",
+                                      "french",     "german",   "hungarian", "italian", "norwegian",
+                                      "portuguese", "romanian", "russian",   "spanish", "swedish",
+                                      "tamil",      "turkish",  NULL};
 
 int IsSupportedLanguage(const char *language, size_t len) {
   for (int i = 0; __supportedLanguages[i] != NULL; i++) {
@@ -20,54 +19,50 @@ int IsSupportedLanguage(const char *language, size_t len) {
   return 0;
 }
 
-QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
+// QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n) {
 
-  if (n->type == QN_TOKEN && q->language) {
+//   if (n->type == QN_TOKEN && q->language) {
 
-    struct sb_stemmer *sb = sb_stemmer_new(q->language, NULL);
-    // No stemmer available for this language - just return the node so we won't
-    // be called again
-    if (!sb) {
-      return n;
-    }
+//     struct sb_stemmer *sb = sb_stemmer_new(q->language, NULL);
+//     // No stemmer available for this language - just return the node so we won't
+//     // be called again
+//     if (!sb) {
+//       return n;
+//     }
 
-    const sb_symbol *b = (const sb_symbol *)n->tn.str;
-    const sb_symbol *stemmed =
-        sb_stemmer_stem(sb, (const sb_symbol *)n->tn.str, n->tn.len);
+//     const sb_symbol *b = (const sb_symbol *)n->tn.str;
+//     const sb_symbol *stemmed = sb_stemmer_stem(sb, (const sb_symbol *)n->tn.str, n->tn.len);
 
-    QueryNode *ret = NULL;
-    if (stemmed) {
+//     QueryNode *ret = NULL;
+//     if (stemmed) {
 
-      if (stemmed && strncasecmp(stemmed, n->tn.str, n->tn.len)) {
-        // we are now evaluating two tokens and not 1
-        q->numTokens++;
-        // Create a new union
-        ret = NewUnionNode();
+//       if (stemmed && strncasecmp(stemmed, n->tn.str, n->tn.len)) {
+//         // we are now evaluating two tokens and not 1
+//         q->numTokens++;
+//         // Create a new union
+//         ret = NewUnionNode();
 
-        int sl = sb_stemmer_length(sb);
-        // Add the token and the ste as the union's children
-        QueryUnionNode_AddChild(&ret->un, n);
-        QueryUnionNode_AddChild(&ret->un,
-                                NewTokenNode(q, strndup(stemmed, sl), sl));
-      }
-    }
-    sb_stemmer_delete(sb);
-    return ret;
-  }
+//         int sl = sb_stemmer_length(sb);
+//         // Add the token and the ste as the union's children
+//         QueryUnionNode_AddChild(&ret->un, n);
+//         QueryUnionNode_AddChild(&ret->un, NewTokenNode(q, strndup(stemmed, sl), sl));
+//       }
+//     }
+//     sb_stemmer_delete(sb);
+//     return ret;
+//   }
 
-  return NULL;
-}
+//   return NULL;
+// }
 
-void RegisterStemmerExpander() {
+// void RegisterStemmerExpander() {
 
-  QueryExpander qx =
-      (QueryExpander){.Expand = StemmerExpand, .Free = NULL, .ctx = NULL};
+//   QueryExpander qx = (QueryExpander){.Expand = StemmerExpand, .Free = NULL, .ctx = NULL};
 
-  RegisterQueryExpander(STEMMER_EXPANDER_NAME, qx);
-}
+//   RegisterQueryExpander(STEMMER_EXPANDER_NAME, qx);
+// }
 
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len,
-                             size_t *outlen) {
+const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
   const sb_symbol *b = (const sb_symbol *)word;
   struct sb_stemmer *sb = ctx;
 
@@ -100,9 +95,9 @@ Stemmer *__newSnowballStemmer(const char *language) {
 
 Stemmer *NewStemmer(StemmerType type, const char *language) {
   switch (type) {
-  case SnowballStemmer:
+    case SnowballStemmer:
 
-    return __newSnowballStemmer(language);
+      return __newSnowballStemmer(language);
   }
 
   fprintf(stderr, "Invalid stemmer type");

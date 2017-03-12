@@ -26,9 +26,12 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
 }
 
 void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
-  printf("expanding %s\n", token->str);
 
-  struct sb_stemmer *sb = sb_stemmer_new(token->language, NULL);
+  // we store the stemmer as private data on the first call to expand
+  if (!ctx->privdata) {
+    ctx->privdata = sb_stemmer_new(token->language, NULL);
+  }
+  struct sb_stemmer *sb = ctx->privdata;
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
@@ -45,20 +48,28 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     ctx->ExpandToken(ctx, strndup(stemmed, sl), sl, 0x0);  // TODO: Set proper flags here
   }
 
-  sb_stemmer_delete(sb);
+  // sb_stemmer_delete(sb);
+}
+
+void defaultExpanderFree(void *p) {
+  if (p) {
+
+    sb_stemmer_delete(p);
+  }
 }
 
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* TF-IDF scorer is the default scorer */
-  if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, NULL) ==
-      REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

@@ -25,18 +25,17 @@ int testVarint() {
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
 
-  RSOffsetVector vec = (RSOffsetVector){.data =vw->bw.buf->data, .len = vw->bw.buf->offset};
+  RSOffsetVector vec = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset};
   // Buffer_Seek(vw->bw.buf, 0);
-  RSOffsetIterator it;
-  RSOffsetVector_Iterate(&it, &vec);
+  RSOffsetIterator *it = RSOffsetVector_Iterate(&vec);
   int x = 0;
-  uint32_t n =0 ;
-  while (RS_OFFSETVECTOR_EOF != (n = RSOffsetIterator_Next(&it))) {
-    
+  uint32_t n = 0;
+  while (RS_OFFSETVECTOR_EOF != (n = RSOffsetIterator_Next(it))) {
+
     ASSERTM(n == expected[x++], "Wrong number decoded");
     // printf("%d %d\n", x, n);
   }
-
+  RSOffsetIterator_Free(it);
   VVW_Free(vw);
   return 0;
 }
@@ -62,9 +61,15 @@ int testDistance() {
   VVW_Truncate(vw2);
 
   RSIndexResult res = NewIndexResult();
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset}});
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw->bw.buf->data,
+                                                                     .len = vw->bw.buf->offset}});
 
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw2->bw.buf->data, .len = vw2->bw.buf->offset}});
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw2->bw.buf->data,
+                                                                     .len = vw2->bw.buf->offset}});
 
   int delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(4, delta);
@@ -80,7 +85,10 @@ int testDistance() {
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 4, 1));
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 5, 1));
 
-  IndexResult_PutRecord(&res, &(RSIndexRecord){.docId = 1, .offsets = (RSOffsetVector){.data = vw3->bw.buf->data, .len = vw3->bw.buf->offset}});
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw3->bw.buf->data,
+                                                                     .len = vw3->bw.buf->offset}});
   delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(53, delta);
 

@@ -1,14 +1,28 @@
 #include "offset_vector.h"  // must be included before redisearch.h!!!!
 #include "redisearch.h"
 #include "varint.h"
+#include "rmalloc.h"
 
-void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v);
+RSOffsetIterator *RSOffsetVector_Iterate(RSOffsetVector *v);
 uint32_t RSOffsetIterator_Next(RSOffsetIterator *it);
 
-void RSOffsetVector_Iterate(RSOffsetIterator *it, RSOffsetVector *v) {
+RSOffsetIterator *RSOffsetVector_Iterate(RSOffsetVector *v) {
+  RSOffsetIterator *it = rm_new(RSOffsetIterator);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
+  return it;
+}
+
+void RSOffsetIterator_Free(RSOffsetIterator *it) {
+  rm_free(it);
+}
+
+/* Rewind an offset vector iterator and start reading it from the beginning. */
+void RSOffsetIterator_Rewind(RSOffsetIterator *it) {
+  it->lastValue = 0;
+  it->buf.offset = 0;
+  it->br.pos = it->buf.data;
 }
 
 inline int offsetVector_HasNext(RSOffsetIterator *vi) {

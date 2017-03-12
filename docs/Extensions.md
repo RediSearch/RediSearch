@@ -7,6 +7,42 @@ There are two kinds of extension APIs at the moment:
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
 2. **Scoring Funtions**, whose role is to rank search results in query time.
 
+# Registering Extensions
+
+Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. 
+
+The entry point is a function receiving an `RSExtensionCtx` object, that contains functions for registering the expanders/scorers. 
+
+Right now, it is necessary to call these init functions explicitly in `module.c`, but in the future this will be atuomated.
+
+Here is an example of an extension initialization function:
+
+```c
+int MyExtensionInit(RSExtensionCtx *ctx) {
+
+  /* Register  a scoring function with an alias my_scorer and no special private data and free function */
+  if (ctx->RegisterScoringFunction("my_scorer", MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register a query expander  */
+  if (ctx->RegisterQueryExpander("my_expander", MyExpander, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  return REDISEARCH_OK;
+}
+```
+
+### Calling your custom functions
+
+When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
+e.g.:
+
+```
+FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
+```
 
 # The Query Expander API
 

@@ -6,20 +6,27 @@
 /* Initialize the extensions mechanism, create registries, etc */
 void Extensions_Init();
 
+/* Context for saving a scoring function and its private data and free */
 typedef struct {
   RSScoringFunction sf;
+  RSFreeFunction ff;
   void *privdata;
-} ExtensionsScoringFunctionCtx;
+} ExtScoringFunctionCtx;
 
+/* Context for saving the a token expander and its free / privdata */
 typedef struct {
   RSQueryTokenExpander exp;
+  RSFreeFunction ff;
   void *privdata;
-} ExtensionsQueryExpanderCtx;
+} ExtQueryExpanderCtx;
 
-RSScoringFunction Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
+/* Get a scoring function by name. Returns NULL if no such scoring function exists */
+ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
 
-RSQueryTokenExpander Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);
+/* Get a query expander function by name. Returns NULL if no such function exists */
+ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);
 
+/* Load an extension explicitly with its name and an init function */
 int Extension_Load(const char *name, RSExtensionInitFunc func);
 
 #endif

@@ -17,7 +17,7 @@ export CFLAGS
 RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
 VARINT=varint.o buffer.o
-INDEX=index.o forward_index.o index_result.o expander.o doc_table.o numeric_filter.o \
+INDEX=index.o forward_index.o index_result.o doc_table.o numeric_filter.o \
 		numeric_index.o geo_index.o inverted_index.o id_list.o id_filter.o offset_vector.o
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 EXTOBJS=ext/default.o  extension.o
