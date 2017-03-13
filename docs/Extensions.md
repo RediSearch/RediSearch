@@ -7,7 +7,7 @@ There are two kinds of extension APIs at the moment:
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
 2. **Scoring Funtions**, whose role is to rank search results in query time.
 
-# Registering Extensions
+## Registering Extensions
 
 Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. 
 
@@ -38,7 +38,7 @@ int MyExtensionInit(RSExtensionCtx *ctx) {
 }
 ```
 
-### Calling your custom functions
+## Calling your custom functions
 
 When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
 e.g.:
@@ -47,7 +47,7 @@ e.g.:
 FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
 ```
 
-# The Query Expander API
+## The Query Expander API
 
 At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.
 
@@ -117,7 +117,7 @@ typedef struct {
 
 ```
 
-# The Scoring Function API
+## The Scoring Function API
 
 A scoring function receives each document being evaluated by the query, for final ranking. 
 It has access to all the query terms that brought up the document,and to metadata about the
@@ -143,7 +143,7 @@ minSocre is the minimal score that will yield a result that will be relevant to 
 
 The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.
 
-## RSScoringFunctionCtx
+### RSScoringFunctionCtx
 
 This is an object containing the following members:
 
@@ -151,18 +151,18 @@ This is an object containing the following members:
 * **RSPayload payload**: A Payload object set either by the query expander or the client.
 * **int GetSlop(RSIndexResult *res)**: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.
 
-## RSIndexResult
+### RSIndexResult
 
 This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result.
 
 See redisearch.h for details
 
-## RSDocumentMetadata
+### RSDocumentMetadata
 
 This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. 
 
 
-# Example Query Expander
+## Example Query Expander
 
 This example query expander expands each token with the the term foo:
 
@@ -174,7 +174,7 @@ void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 }
 ```
 
-# Example Scoring Function
+## Example Scoring Function
 
 This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:
 

@@ -3,23 +3,30 @@ site_url: http://redisearch.io
 canonical_url: http://redisearch.io
 repo_url: https://github.com/RedisLabsModules/RediSearch
 theme: material
-extra:
-  feature:
-    tabs: true
+
+
 google_analytics:
   - 'UA-89573912-1'
   - 'auto'
 markdown_extensions:
   - codehilite
+  - toc(permalink=true)
+extra:
+  palette:
+    primary: 'indigo'
+    
+  feature:
+    tabs: true
 pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
-    - 'Commands': 'Commands.md'    
-    - 'Reference':
-        - 'Query Syntax': 'Query_Syntax.md'
-        - 'Stemming Support': Stemming.md
-        - 'Python API': python_client.md
-        - 'Document Payloads': payloads.md
-        - 'Extension API': Extensions.md
+    - 'Commands': 'Commands.md'       
+    - 'Query Syntax': 'Query_Syntax.md'
+    - 'Extension API': Extensions.md
+    - 'Stemming Support': Stemming.md
+    - 'Python API': python_client.md
+    - 'Java API': java_client.md
+    - 'Document Payloads': payloads.md
+    
 
 #google_analytics: ['UA-89573912-1', 'redisearch']
