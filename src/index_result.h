@@ -6,7 +6,7 @@
 
 #define DEFAULT_RECORDLIST_SIZE 4
 
-RSQueryTerm *NewTerm(char *str);
+RSQueryTerm *NewTerm(RSToken *tok);
 void Term_Free(RSQueryTerm *t);
 
 /** Reset the state of an existing index hit. This can be used to

@@ -17,10 +17,8 @@
 void __queryNode_Print(QueryNode *qs, int depth);
 
 void _queryTokenNode_Free(QueryTokenNode *tn) {
+
   free(tn->str);
-  if (tn->metadata) {
-    free(tn->metadata);
-  }
 }
 
 void _queryPhraseNode_Free(QueryPhraseNode *pn) {
@@ -71,19 +69,20 @@ QueryNode *__newQueryNode(QueryNodeType type) {
   return s;
 }
 
-QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata) {
-  // If we are using stemming, stem the current token, and if needed add a
-  // UNION of it an the stem
+QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags) {
+  QueryNode *ret = __newQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  QueryNode *ret = __newQueryNode(QN_TOKEN);
-
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .metadata = metadata};
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
   return ret;
 }
 
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
-  return NewTokenNodeMetadata(q, s, len, NULL);
+  QueryNode *ret = __newQueryNode(QN_TOKEN);
+  q->numTokens++;
+
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
 }
 
 QueryNode *NewUnionNode() {
@@ -161,7 +160,7 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
 
   IndexReader *ir =
-      Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);
+      Redis_OpenReader(q->ctx, node, q->docTable, isSingleWord, q->fieldMask);
 
   if (ir == NULL) {
     return NULL;
@@ -310,6 +309,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
 
   /* Get the query expander */
   ret->expCtx.query = ret;
+  ret->expCtx.language = ret->language;
   ret->expander = NULL;
   ret->expanderFree = NULL;
   if (!verbatim) {
@@ -325,14 +325,11 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
 }
 
 void _queryNode_expand(Query *q, QueryNode **pqn) {
-  RSToken tok;
+
   QueryNode *qn = *pqn;
   if (qn->type == QN_TOKEN) {
     q->expCtx.currentNode = pqn;
-    tok.language = q->language;
-    tok.str = qn->tn.str;
-    tok.len = qn->tn.len;
-    q->expander(&q->expCtx, &tok);
+    q->expander(&q->expCtx, &qn->tn);
 
   } else if (qn->type == QN_PHRASE) {
     for (int i = 0; i < qn->pn.numChildren; i++) {
@@ -344,6 +341,7 @@ void _queryNode_expand(Query *q, QueryNode **pqn) {
     }
   }
 }
+
 void Query_Expand(Query *q) {
   if (q->expander && q->root) {
     _queryNode_expand(q, &q->root);
@@ -354,6 +352,7 @@ void __queryNode_Print(QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
+
   switch (qs->type) {
     case QN_PHRASE:
       printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
@@ -363,7 +362,7 @@ void __queryNode_Print(QueryNode *qs, int depth) {
 
       break;
     case QN_TOKEN:
-      printf("{%s", (char *)qs->tn.str);
+      printf("{%s%s", (char *)qs->tn.str, qs->tn.expanded ? "*": "");
       break;
 
     case QN_NUMERIC: {
@@ -424,30 +423,6 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
   }
   return h1->docId - h2->docId;
 }
-
-// /* Calculate sum(TF-IDF)*document score for each result */
-// double CalculateResultScore(RSDocumentMetadata *dmd, RSIndexResult *h) {
-//   if (dmd->score == 0) return 0;
-//   // IndexResult_Print(h);
-//   if (h->numRecords == 1) {
-//     return dmd->score * (float)h->totalTF / (float)dmd->maxFreq;
-//     // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n",
-//     // dmd->score, dmd->maxFreq, ret, ret);
-//   }
-
-//   double tfidf = 0;
-//   for (int i = 0; i < h->numRecords; i++) {
-//     tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
-//   }
-//   tfidf *= dmd->score / dmd->maxFreq;
-//   // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,
-//   //        dmd->maxFreq, _tfidf, tfidf);
-
-//   tfidf /= (double)IndexResult_MinOffsetDelta(h);
-
-//   // printf("after normalize: %f\n", tfidf);
-//   return tfidf;
-// }
 
 QueryResult *Query_Execute(Query *query) {
   //__queryNode_Print(query->root, 0);

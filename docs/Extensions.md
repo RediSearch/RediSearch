@@ -72,6 +72,9 @@ typedef struct RSQueryExpanderCtx {
   /* Private data of the extension, set on extension initialization */
   void *privdata;
 
+  /* The language of the query, defaults to "english" */
+  cost char *language;
+
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its length,
    * and flags is a 32 bit flag mask that can be used by the extension to set private information on
@@ -99,9 +102,11 @@ typedef struct {
   const char *str;
   /* The token length */
   size_t len;
-  /* The token query langauge, defaults to English */
-  const char *language;
-  /* Token flags */
+  
+  /* 1 if the token is the result of query expansion */
+  uint8_t expanded:1;
+
+  /* Extension specific token flags that can be examined later by the scoring function */
   RSTokenFlags flags;
 } RSToken;
 
@@ -158,7 +163,7 @@ This example query expander expands each token with the the term foo:
 
 ```c
 void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-    ctx->ExpandToken(ctx, strdup("foo"), strlen("foo"), 0);  
+    ctx->ExpandToken(ctx, strdup("foo"), strlen("foo"), 0x1337);  
 }
 ```
 

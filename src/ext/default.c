@@ -29,7 +29,7 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   // we store the stemmer as private data on the first call to expand
   if (!ctx->privdata) {
-    ctx->privdata = sb_stemmer_new(token->language, NULL);
+    ctx->privdata = sb_stemmer_new(ctx->language, NULL);
   }
   struct sb_stemmer *sb = ctx->privdata;
   // No stemmer available for this language - just return the node so we won't

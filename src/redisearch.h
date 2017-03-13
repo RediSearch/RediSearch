@@ -68,13 +68,15 @@ typedef uint32_t RSTokenFlags;
  * tokens */
 typedef struct {
   /* The token string - which may or may not be NULL terminated */
-  const char *str;
+  char *str;
   /* The token length */
   size_t len;
-  /* The token query langauge, defaults to English */
-  const char *language;
-  /* Token flags */
-  RSTokenFlags flags;
+
+  /* Is this token an expansion? */
+  uint8_t expanded : 1;
+
+  /* Extension set token flags - up to 31 bits */
+  RSTokenFlags flags : 31;
 } RSToken;
 
 /* RSQueryExpanderCtx is a context given to query expanders, containing callback methods and useful
@@ -91,10 +93,13 @@ typedef struct RSQueryExpanderCtx {
    * calbackk is provided, it will be used automatically to free this data */
   void *privdata;
 
+  /* The language of the query. Defaults to "english" */
+  const char *language;
+
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
-   * union-merged with the given token in query time. str is the expanded string, len is its length,
-   * and flags is a 32 bit flag mask that can be used by the extension to set private information on
-   * the token */
+   * union-merged with the given token in query time. str is the expanded string, len is its
+  length, and flags is a 32 bit flag mask that can be used by the extension to set private
+  information on the token */
   void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                       RSTokenFlags flags);
 

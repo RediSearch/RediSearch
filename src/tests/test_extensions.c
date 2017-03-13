@@ -17,7 +17,7 @@ double myScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata 
 }
 
 void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0);
+  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
 }
 
 int numFreed = 0;
@@ -100,11 +100,21 @@ int testQueryExpander() {
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
+  ASSERT(n->pn.children[0]->un.children[0]->tn.expanded == 0)
   ASSERT_STRING_EQ("foo", n->pn.children[0]->un.children[1]->tn.str);
+  ASSERT_EQUAL(0x00FF, n->pn.children[0]->un.children[1]->tn.flags);
+
+  ASSERT(n->pn.children[0]->un.children[1]->tn.expanded != 0);
 
   ASSERT(n->pn.children[1]->type == QN_UNION);
   ASSERT_STRING_EQ("world", n->pn.children[1]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("foo", n->pn.children[1]->un.children[1]->tn.str);
+
+  RSQueryTerm *qtr = NewTerm(&n->pn.children[1]->un.children[1]->tn);
+  ASSERT(qtr->str == n->pn.children[1]->un.children[1]->tn.str);
+  ASSERT_EQUAL(0x00FF, qtr->flags);
+
+  Term_Free(qtr);
 
   Query_Free(q);
   ASSERT_EQUAL(2, numFreed);

@@ -1,6 +1,7 @@
 #ifndef __QUERY_NODE_H__
 #define __QUERY_NODE_H__
 #include <stdlib.h>
+#include "redisearch.h"
 //#include "numeric_index.h"
 
 struct RSQueryNode;
@@ -43,15 +44,7 @@ typedef struct {
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
  * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
-typedef struct {
-  char *str;
-  size_t len;
-
-  /* Private data that can be written by expanders and read by filters/scorers.
-  It is passed to the Term object of an index result record */
-  void *metadata;
-
-} QueryTokenNode;
+typedef RSToken QueryTokenNode;
 
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;

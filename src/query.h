@@ -88,8 +88,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 /* Free the query execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
-QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata);
-
+QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);

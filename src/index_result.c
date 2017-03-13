@@ -34,12 +34,12 @@ void IndexResult_Print(RSIndexResult *r) {
   printf("----------\n");
 }
 
-RSQueryTerm *NewTerm(char *str) {
+RSQueryTerm *NewTerm(RSToken *tok) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;
-  ret->str = str;
-  ret->len = strlen(str);
-  ret->flags = 0;
+  ret->str = tok->str;
+  ret->len = tok->len;
+  ret->flags = tok->flags;
   return ret;
 }
 
