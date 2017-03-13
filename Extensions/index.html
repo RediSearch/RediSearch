@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,7 +24,7 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
     
     
@@ -58,7 +58,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -135,6 +135,45 @@
     
     <div class="md-container">
       
+      
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
       
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
@@ -331,10 +370,10 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="extending-redisearch">Extending RediSearch</h1>
 <p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.</p>
@@ -348,90 +387,93 @@
 <p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
 <p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be atuomated.</p>
 <p>Here is an example of an extension initialization function:</p>
-<pre><code class="c">
-#include &lt;redisearch.h&gt; //must be in the include path
+<div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
-int MyExtensionInit(RSExtensionCtx *ctx) {
+<span class="kt">int</span> <span class="nf">MyExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span> <span class="p">{</span>
 
-  /* Register  a scoring function with an alias my_scorer and no special private data and free function */
-  if (ctx-&gt;RegisterScoringFunction(&quot;my_scorer&quot;, MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
-  }
+  <span class="cm">/* Register  a scoring function with an alias my_scorer and no special private data and free function */</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">RegisterScoringFunction</span><span class="p">(</span><span class="s">&quot;my_scorer&quot;</span><span class="p">,</span> <span class="n">MyCustomScorer</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">)</span> <span class="o">==</span> <span class="n">REDISEARCH_ERR</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="n">REDISEARCH_ERR</span><span class="p">;</span>
+  <span class="p">}</span>
 
-  /* Register a query expander  */
-  if (ctx-&gt;RegisterQueryExpander(&quot;my_expander&quot;, MyExpander, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
-  }
+  <span class="cm">/* Register a query expander  */</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">RegisterQueryExpander</span><span class="p">(</span><span class="s">&quot;my_expander&quot;</span><span class="p">,</span> <span class="n">MyExpander</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">)</span> <span class="o">==</span>
+      <span class="n">REDISEARCH_ERR</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="n">REDISEARCH_ERR</span><span class="p">;</span>
+  <span class="p">}</span>
 
-  return REDISEARCH_OK;
-}
-</code></pre>
+  <span class="k">return</span> <span class="n">REDISEARCH_OK</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
 
 <h3 id="calling-your-custom-functions">Calling your custom functions</h3>
 <p>When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
 e.g.:</p>
-<pre><code>FT.SEARCH my_index &quot;foo bar&quot; EXPANDER my_expander SCORER my_scorer
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.SEARCH my_index &quot;foo bar&quot; EXPANDER my_expander SCORER my_scorer
+</pre></div>
+
 
 <h1 id="the-query-expander-api">The Query Expander API</h1>
 <p>At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.</p>
 <p>The API for an expander is the following:</p>
-<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+<div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
-void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-    ...
-}
-</code></pre>
+<span class="kt">void</span> <span class="nf">MyQueryExpander</span><span class="p">(</span><span class="n">RSQueryExpanderCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">RSToken</span> <span class="o">*</span><span class="n">token</span><span class="p">)</span> <span class="p">{</span>
+    <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
 
 <h3 id="rsqueryexpanderctx">RSQueryExpanderCtx</h3>
 <p>RSQueryExpanderCtx is a context that contains private data of the extension, and a callback method to expand the query. It is defined as:</p>
-<pre><code class="c">typedef struct RSQueryExpanderCtx {
+<div class="codehilite"><pre><span></span><span class="k">typedef</span> <span class="k">struct</span> <span class="n">RSQueryExpanderCtx</span> <span class="p">{</span>
 
-  /* Opaque query object used internally by the engine, and should not be accessed */
-  struct RSQuery *query;
+  <span class="cm">/* Opaque query object used internally by the engine, and should not be accessed */</span>
+  <span class="k">struct</span> <span class="n">RSQuery</span> <span class="o">*</span><span class="n">query</span><span class="p">;</span>
 
-  /* Opaque query node object used internally by the engine, and should not be accessed */
-  struct RSQueryNode **currentNode;
+  <span class="cm">/* Opaque query node object used internally by the engine, and should not be accessed */</span>
+  <span class="k">struct</span> <span class="n">RSQueryNode</span> <span class="o">**</span><span class="n">currentNode</span><span class="p">;</span>
 
-  /* Private data of the extension, set on extension initialization */
-  void *privdata;
+  <span class="cm">/* Private data of the extension, set on extension initialization */</span>
+  <span class="kt">void</span> <span class="o">*</span><span class="n">privdata</span><span class="p">;</span>
 
-  /* The language of the query, defaults to &quot;english&quot; */
-  cost char *language;
+  <span class="cm">/* The language of the query, defaults to &quot;english&quot; */</span>
+  <span class="n">cost</span> <span class="kt">char</span> <span class="o">*</span><span class="n">language</span><span class="p">;</span>
 
-  /* ExpandToken allows the user to add an expansion of the token in the query, that will be
-   * union-merged with the given token in query time. str is the expanded string, len is its length,
-   * and flags is a 32 bit flag mask that can be used by the extension to set private information on
-   * the token */
-  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
-                      RSTokenFlags flags);
+  <span class="cm">/* ExpandToken allows the user to add an expansion of the token in the query, that will be</span>
+<span class="cm">   * union-merged with the given token in query time. str is the expanded string, len is its length,</span>
+<span class="cm">   * and flags is a 32 bit flag mask that can be used by the extension to set private information on</span>
+<span class="cm">   * the token */</span>
+  <span class="kt">void</span> <span class="p">(</span><span class="o">*</span><span class="n">ExpandToken</span><span class="p">)(</span><span class="k">struct</span> <span class="n">RSQueryExpanderCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">str</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">len</span><span class="p">,</span>
+                      <span class="n">RSTokenFlags</span> <span class="n">flags</span><span class="p">);</span>
 
-  /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
-   */
-  void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
+  <span class="cm">/* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)</span>
+<span class="cm">   */</span>
+  <span class="kt">void</span> <span class="p">(</span><span class="o">*</span><span class="n">SetPayload</span><span class="p">)(</span><span class="k">struct</span> <span class="n">RSQueryExpanderCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">RSPayload</span> <span class="n">payload</span><span class="p">);</span>
 
-} RSQueryExpanderCtx;
-</code></pre>
+<span class="p">}</span> <span class="n">RSQueryExpanderCtx</span><span class="p">;</span>
+</pre></div>
+
 
 <h3 id="rstoken">RSToken</h3>
 <p>RSToken represents a single query token to be expanded, and is defined as:</p>
-<pre><code class="c">/* A token in the query. The expanders receive query tokens and can expand the query with more query
- * tokens */
-typedef struct {
-  /* The token string - which may or may not be NULL terminated */
-  const char *str;
-  /* The token length */
-  size_t len;
+<div class="codehilite"><pre><span></span><span class="cm">/* A token in the query. The expanders receive query tokens and can expand the query with more query</span>
+<span class="cm"> * tokens */</span>
+<span class="k">typedef</span> <span class="k">struct</span> <span class="p">{</span>
+  <span class="cm">/* The token string - which may or may not be NULL terminated */</span>
+  <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">str</span><span class="p">;</span>
+  <span class="cm">/* The token length */</span>
+  <span class="kt">size_t</span> <span class="n">len</span><span class="p">;</span>
 
-  /* 1 if the token is the result of query expansion */
-  uint8_t expanded:1;
+  <span class="cm">/* 1 if the token is the result of query expansion */</span>
+  <span class="kt">uint8_t</span> <span class="nl">expanded</span><span class="p">:</span><span class="mi">1</span><span class="p">;</span>
 
-  /* Extension specific token flags that can be examined later by the scoring function */
-  RSTokenFlags flags;
-} RSToken;
+  <span class="cm">/* Extension specific token flags that can be examined later by the scoring function */</span>
+  <span class="n">RSTokenFlags</span> <span class="n">flags</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">RSToken</span><span class="p">;</span>
+</pre></div>
 
-</code></pre>
 
 <h1 id="the-scoring-function-api">The Scoring Function API</h1>
 <p>A scoring function receives each document being evaluated by the query, for final ranking. 
@@ -440,9 +482,10 @@ document such as its a-priory score, length, etc.</p>
 <p>Since the scoring function is evaluated per each document, potentially millions of times, and since
 redis is single threaded - it is important that it works as fast as possible and be heavily optimized. </p>
 <p>A scoring function is applied to each potential result (per document) and is implemented with the following signature:</p>
-<pre><code class="c">double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
-                                    RSDocumentMetadata *dmd, double minScore);
-</code></pre>
+<div class="codehilite"><pre><span></span><span class="kt">double</span> <span class="nf">MyScoringFunction</span><span class="p">(</span><span class="n">RSScoringFunctionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">RSIndexResult</span> <span class="o">*</span><span class="n">res</span><span class="p">,</span>
+                                    <span class="n">RSDocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span> <span class="kt">double</span> <span class="n">minScore</span><span class="p">);</span>
+</pre></div>
+
 
 <p>RSScoringFunctionCtx is a context that implements some helper methods. </p>
 <p>RSIndexResult is the result information - containing the document id, frequency, terms and offsets. </p>
@@ -463,46 +506,52 @@ redis is single threaded - it is important that it works as fast as possible and
 <p>This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. </p>
 <h1 id="example-query-expander">Example Query Expander</h1>
 <p>This example query expander expands each token with the the term foo:</p>
-<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+<div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
-void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-    ctx-&gt;ExpandToken(ctx, strdup(&quot;foo&quot;), strlen(&quot;foo&quot;), 0x1337);  
-}
-</code></pre>
+<span class="kt">void</span> <span class="nf">DummyExpander</span><span class="p">(</span><span class="n">RSQueryExpanderCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">RSToken</span> <span class="o">*</span><span class="n">token</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">ctx</span><span class="o">-&gt;</span><span class="n">ExpandToken</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">strdup</span><span class="p">(</span><span class="s">&quot;foo&quot;</span><span class="p">),</span> <span class="n">strlen</span><span class="p">(</span><span class="s">&quot;foo&quot;</span><span class="p">),</span> <span class="mh">0x1337</span><span class="p">);</span>  
+<span class="p">}</span>
+</pre></div>
+
 
 <h1 id="example-scoring-function">Example Scoring Function</h1>
 <p>This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:</p>
-<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+<div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
-double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                   double minScore) {
-  // no need to evaluate documents with score 0 
-  if (dmd-&gt;score == 0) return 0;
+<span class="kt">double</span> <span class="nf">TFIDFScorer</span><span class="p">(</span><span class="n">RSScoringFunctionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">RSIndexResult</span> <span class="o">*</span><span class="n">h</span><span class="p">,</span> <span class="n">RSDocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span>
+                   <span class="kt">double</span> <span class="n">minScore</span><span class="p">)</span> <span class="p">{</span>
+  <span class="c1">// no need to evaluate documents with score 0 </span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">dmd</span><span class="o">-&gt;</span><span class="n">score</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
 
-  // calculate sum(tf-idf) for each term in the result
-  double tfidf = 0;
-  for (int i = 0; i &lt; h-&gt;numRecords; i++) {
-    // take the term frequency and multiply by the term IDF, add that to the total
-    tfidf += (float)h-&gt;records[i].freq * (h-&gt;records[i].term ? h-&gt;records[i].term-&gt;idf : 0);
-  }
-  // normalize by the maximal frequency of any term in the document   
-  tfidf /=  (double)dmd-&gt;maxFreq;
+  <span class="c1">// calculate sum(tf-idf) for each term in the result</span>
+  <span class="kt">double</span> <span class="n">tfidf</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">h</span><span class="o">-&gt;</span><span class="n">numRecords</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+    <span class="c1">// take the term frequency and multiply by the term IDF, add that to the total</span>
+    <span class="n">tfidf</span> <span class="o">+=</span> <span class="p">(</span><span class="kt">float</span><span class="p">)</span><span class="n">h</span><span class="o">-&gt;</span><span class="n">records</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">freq</span> <span class="o">*</span> <span class="p">(</span><span class="n">h</span><span class="o">-&gt;</span><span class="n">records</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">term</span> <span class="o">?</span> <span class="n">h</span><span class="o">-&gt;</span><span class="n">records</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">term</span><span class="o">-&gt;</span><span class="nl">idf</span> <span class="p">:</span> <span class="mi">0</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="c1">// normalize by the maximal frequency of any term in the document   </span>
+  <span class="n">tfidf</span> <span class="o">/=</span>  <span class="p">(</span><span class="kt">double</span><span class="p">)</span><span class="n">dmd</span><span class="o">-&gt;</span><span class="n">maxFreq</span><span class="p">;</span>
 
-  // multiply by the document score (between 0 and 1)
-  tfidf *= dmd-&gt;score;
+  <span class="c1">// multiply by the document score (between 0 and 1)</span>
+  <span class="n">tfidf</span> <span class="o">*=</span> <span class="n">dmd</span><span class="o">-&gt;</span><span class="n">score</span><span class="p">;</span>
 
-  // no need to factor the slop if tfidf is already below minimal score
-  if (tfidf &lt; minScore) {
-    return 0;
-  }
+  <span class="c1">// no need to factor the slop if tfidf is already below minimal score</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">tfidf</span> <span class="o">&lt;</span> <span class="n">minScore</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="p">}</span>
 
-  // get the slop and divide the result by it, making sure we prefer results with closer terms
-  tfidf /= (double)ctx-&gt;GetSlop(h);
+  <span class="c1">// get the slop and divide the result by it, making sure we prefer results with closer terms</span>
+  <span class="n">tfidf</span> <span class="o">/=</span> <span class="p">(</span><span class="kt">double</span><span class="p">)</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">GetSlop</span><span class="p">(</span><span class="n">h</span><span class="p">);</span>
 
-  return tfidf;
-}
-</code></pre>
+  <span class="k">return</span> <span class="n">tfidf</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -552,13 +601,13 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
     
       
-      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
       
     
   </body>

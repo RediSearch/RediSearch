@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,7 +24,7 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
     
     
@@ -58,7 +58,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -131,6 +131,43 @@
     
     <div class="md-container">
       
+      
+        
+
+<nav class="md-tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
       
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
@@ -739,6 +776,8 @@
     </nav>
   
 </li>
+      
+      
       
     </ul>
   
@@ -1364,6 +1403,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -1374,18 +1415,19 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="rediseach-full-command-documentation">RediSeach Full Command Documentation</h1>
 <h2 id="ftcreate">FT.CREATE</h2>
 <h3 id="format">Format:</h3>
-<pre><code>  FT.CREATE {index} 
+<div class="codehilite"><pre><span></span>  FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
-</code></pre>
+</pre></div>
+
 
 <h3 id="description">Description:</h3>
 <p>Creates an index with the given spec. The index name will be used in all the key names
@@ -1416,13 +1458,14 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftadd">FT.ADD</h2>
 <h3 id="format_1">Format:</h3>
-<pre><code>FT.ADD {index} {docId} {score} 
+<div class="codehilite"><pre><span></span>FT.ADD {index} {docId} {score} 
   [NOSAVE]
   [REPLACE]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   FIELDS {field} {value} [{field} {value}...]
-</code></pre>
+</pre></div>
+
 
 <h3 id="description_1">Description</h3>
 <p>Add a documet to the index.</p>
@@ -1474,8 +1517,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftaddhash">FT.ADDHASH</h2>
 <h3 id="format_2">Format</h3>
-<pre><code> FT.ADDHASH {index} {docId} {score} [LANGUAGE language] [REPLACE]
-</code></pre>
+<div class="codehilite"><pre><span></span> <span class="n">FT</span><span class="p">.</span><span class="n">ADDHASH</span> <span class="p">{</span><span class="n">index</span><span class="p">}</span> <span class="p">{</span><span class="n">docId</span><span class="p">}</span> <span class="p">{</span><span class="n">score</span><span class="p">}</span> <span class="p">[</span><span class="n">LANGUAGE</span> <span class="n">language</span><span class="p">]</span> <span class="p">[</span><span class="n">REPLACE</span><span class="p">]</span>
+</pre></div>
+
 
 <h3 id="description_2">Description</h3>
 <p>Add a documet to the index from an existing HASH key in Redis.</p>
@@ -1513,8 +1557,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftinfo">FT.INFO</h2>
 <h3 id="format_3">Format</h3>
-<pre><code>FT.INFO {index} 
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.INFO {index} 
+</pre></div>
+
 
 <h3 id="description_3">Description</h3>
 <p>Return information and statistics on the index. Returned values include:</p>
@@ -1525,7 +1570,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <li>Size and capacity of the index buffers.</li>
 </ul>
 <p>Example:</p>
-<pre><code>127.0.0.1:6379&gt; ft.info wik{0}
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; ft.info wik{0}
  1) index_name
  2) wikipedia
  3) fields
@@ -1565,7 +1610,8 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 28) &quot;1.20
 29) offset_bits_per_record_avg
 30) &quot;8.00
-</code></pre>
+</pre></div>
+
 
 <h3 id="parameters_3">Parameters</h3>
 <ul>
@@ -1578,7 +1624,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftsearch">FT.SEARCH</h2>
 <h3 id="format_4">Format</h3>
-<pre><code>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
+<div class="codehilite"><pre><span></span>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
   [INKEYS {num} {key} ... ]
@@ -1588,7 +1634,8 @@ They can be numeric, textual or geographical. For textual fields we optionally s
     [EXPANDER {expander}]
   [SCORER {scorer}]
   [LIMIT offset num]
-</code></pre>
+</pre></div>
+
 
 <h3 id="description_4">Description</h3>
 <p>Search the index with a textual query, returning either documents or just ids.</p>
@@ -1634,8 +1681,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <hr />
 <h2 id="ftdel">FT.DEL</h2>
 <h3 id="format_5">Format</h3>
-<pre><code>FT.DEL {index} {doc_id}
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.DEL {index} {doc_id}
+</pre></div>
+
 
 <h3 id="description_5">Description</h3>
 <p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
@@ -1654,8 +1702,9 @@ Thus, deleting and re-inserting the same document over and over will inflate the
 <hr />
 <h2 id="ftdrop">FT.DROP</h2>
 <h3 id="format_6">Format</h3>
-<pre><code>FT.DROP {index}
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.DROP {index}
+</pre></div>
+
 
 <h3 id="description_6">Description</h3>
 <p>Deletes all the keys associated with the index. </p>
@@ -1670,8 +1719,9 @@ that the index specification is not deleted.</p>
 <hr />
 <h2 id="ftoptimize">FT.OPTIMIZE</h2>
 <p>Format</p>
-<pre><code>FT.OPTIMIZE {index}
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.OPTIMIZE {index}
+</pre></div>
+
 
 <p>Description</p>
 <p>After the index is built (and doesn't need to be updated again withuot a complete rebuild)
@@ -1687,8 +1737,9 @@ we can optimize memory consumption by trimming all index buffers to their actual
 <hr />
 <h2 id="ftsuggadd">FT.SUGGADD</h2>
 <h3 id="format_7">Format</h3>
-<pre><code>FT.SUGADD {key} {string} {score} [INCR]
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.SUGADD {key} {string} {score} [INCR]
+</pre></div>
+
 
 <h3 id="description_7">Description</h3>
 <p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
@@ -1705,8 +1756,9 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <hr />
 <h2 id="ftsugget">FT.SUGGET</h2>
 <h3 id="format_8">Format</h3>
-<pre><code>FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
-</code></pre>
+<div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="n">SUGGET</span> <span class="p">{</span><span class="n">key</span><span class="p">}</span> <span class="p">{</span><span class="n">prefix</span><span class="p">}</span> <span class="p">[</span><span class="n">FUZZY</span><span class="p">]</span> <span class="p">[</span><span class="n">MAX</span> <span class="n">num</span><span class="p">]</span>
+</pre></div>
+
 
 <h3 id="description_8">Description</h3>
 <p>Get completion suggestions for a prefix</p>
@@ -1724,8 +1776,9 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <hr />
 <h2 id="ftsugdel">FT.SUGDEL</h2>
 <h3 id="format_9">Format</h3>
-<pre><code>FT.SUGDEL {key} {string}
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.SUGDEL {key} {string}
+</pre></div>
+
 
 <h3 id="description_9">Description</h3>
 <p>Delete a string from a suggestion index. </p>
@@ -1739,8 +1792,9 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <hr />
 <h2 id="ftsuglen">FT.SUGLEN</h2>
 <p>Format</p>
-<pre><code>FT.SUGLEN {key}
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.SUGLEN {key}
+</pre></div>
+
 
 <h3 id="description_10">Description</h3>
 <p>Get the size of an autoc-complete suggestion dictionary</p>
@@ -1750,7 +1804,12 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 </ul>
 <h3 id="returns_11">Returns:</h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -1814,13 +1873,13 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
     
       
-      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
       
     
   </body>

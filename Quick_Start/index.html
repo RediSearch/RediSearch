@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,7 +24,7 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
     
     
@@ -58,7 +58,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -131,6 +131,43 @@
     
     <div class="md-container">
       
+      
+        
+
+<nav class="md-tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
       
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
@@ -256,6 +293,8 @@
   </a>
   
 </li>
+      
+      
       
     </ul>
   
@@ -422,6 +461,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -432,34 +473,36 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:</h1>
 <h2 id="building-and-running">Building and running:</h2>
-<pre><code class="sh">git clone https://github.com/RedisLabsModules/RediSearch.git
-cd RediSearch/src
+<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
+<span class="nb">cd</span> RediSearch/src
 make all
 
-# Assuming you have a redis build from the unstable branch:
+<span class="c1"># Assuming you have a redis build from the unstable branch:</span>
 /path/to/redis-server --loadmodule ./module.so
-</code></pre>
+</pre></div>
+
 
 <h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):</h2>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 OK 
+</pre></div>
 
-</code></pre>
 
 <h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
 OK
-</code></pre>
+</pre></div>
+
 
 <h2 id="searching-the-index">Searching the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
 1) (integer) 1
 2) &quot;doc1&quot;
 3) 1) &quot;title&quot;
@@ -468,25 +511,31 @@ OK
    4) &quot;lorem ipsum&quot;
    5) &quot;url&quot;
    6) &quot;http://redis.io&quot;
-</code></pre>
+</pre></div>
+
 
 <blockquote>
 <p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
 </blockquote>
 <h2 id="dropping-the-index">Dropping the index:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.DROP myIdx
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.DROP myIdx
 OK
-</code></pre>
+</pre></div>
+
 
 <h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:</h2>
-<pre><code>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
 OK
 
 127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
 1) &quot;hello world&quot;
-
-</code></pre>
+</pre></div>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -550,13 +599,13 @@ OK
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
     
       
-      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
       
     
   </body>

@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,7 +24,7 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
     
     
@@ -58,7 +58,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -135,6 +135,45 @@
     
     <div class="md-container">
       
+      
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
       
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
@@ -793,6 +832,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -1354,6 +1395,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -1364,10 +1407,10 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/python_client.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/python_client.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="package-redisearch-documentation">Package redisearch Documentation</h1>
 <h2 id="overview">Overview</h2>
@@ -1375,48 +1418,46 @@
 <p>It is the "official" client of redisearch, and should be regarded as its canonical client implementation.</p>
 <p>The source code can be found at <a href="http://github.com/RedisLabs/redisearch-py">http://github.com/RedisLabs/redisearch-py</a></p>
 <h3 id="example-using-the-python-client">Example: Using the Python Client</h3>
-<pre><code class="py">
-from redisearch import Client, TextField, NumericField
+<div class="codehilite"><pre><span></span><span class="kn">from</span> <span class="nn">redisearch</span> <span class="kn">import</span> <span class="n">Client</span><span class="p">,</span> <span class="n">TextField</span><span class="p">,</span> <span class="n">NumericField</span>
 
-# Creating a client with a given index name
-client = Client('myIndex')
+<span class="c1"># Creating a client with a given index name</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="s1">&#39;myIndex&#39;</span><span class="p">)</span>
 
-# Creating the index definition and schema
-client.create_index([TextField('title', weight=5.0), TextField('body')])
+<span class="c1"># Creating the index definition and schema</span>
+<span class="n">client</span><span class="o">.</span><span class="n">create_index</span><span class="p">([</span><span class="n">TextField</span><span class="p">(</span><span class="s1">&#39;title&#39;</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mf">5.0</span><span class="p">),</span> <span class="n">TextField</span><span class="p">(</span><span class="s1">&#39;body&#39;</span><span class="p">)])</span>
 
-# Indexing a document
-client.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')
+<span class="c1"># Indexing a document</span>
+<span class="n">client</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="s1">&#39;doc1&#39;</span><span class="p">,</span> <span class="n">title</span> <span class="o">=</span> <span class="s1">&#39;RediSearch&#39;</span><span class="p">,</span> <span class="n">body</span> <span class="o">=</span> <span class="s1">&#39;Redisearch impements a search engine on top of redis&#39;</span><span class="p">)</span>
 
-# Simple search
-res = client.search(&quot;search engine&quot;)
+<span class="c1"># Simple search</span>
+<span class="n">res</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;search engine&quot;</span><span class="p">)</span>
 
-# the result has the total number of results, and a list of documents
-print res.total # &quot;1&quot;
-print res.docs[0].title 
+<span class="c1"># the result has the total number of results, and a list of documents</span>
+<span class="k">print</span> <span class="n">res</span><span class="o">.</span><span class="n">total</span> <span class="c1"># &quot;1&quot;</span>
+<span class="k">print</span> <span class="n">res</span><span class="o">.</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">title</span> 
 
-# Searching with snippets
-res = client.search(&quot;search engine&quot;, snippet_sizes = {'body': 50})
+<span class="c1"># Searching with snippets</span>
+<span class="n">res</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;search engine&quot;</span><span class="p">,</span> <span class="n">snippet_sizes</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;body&#39;</span><span class="p">:</span> <span class="mi">50</span><span class="p">})</span>
 
-# Searching with complext parameters:
-q = Query(&quot;search engine&quot;).verbatim().no_content().paging(0,5)
-res = client.search(q)
+<span class="c1"># Searching with complext parameters:</span>
+<span class="n">q</span> <span class="o">=</span> <span class="n">Query</span><span class="p">(</span><span class="s2">&quot;search engine&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">verbatim</span><span class="p">()</span><span class="o">.</span><span class="n">no_content</span><span class="p">()</span><span class="o">.</span><span class="n">paging</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span>
+<span class="n">res</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="example-using-the-auto-completer-client">Example: Using the Auto Completer Client:</h3>
-<pre><code class="py">
-# Using the auto-completer
-ac = AutoCompleter('ac')
+<div class="codehilite"><pre><span></span><span class="c1"># Using the auto-completer</span>
+<span class="n">ac</span> <span class="o">=</span> <span class="n">AutoCompleter</span><span class="p">(</span><span class="s1">&#39;ac&#39;</span><span class="p">)</span>
 
-# Adding some terms
-ac.add_suggestions(Suggestion('foo', 5.0), Suggestion('bar', 1.0))
+<span class="c1"># Adding some terms</span>
+<span class="n">ac</span><span class="o">.</span><span class="n">add_suggestions</span><span class="p">(</span><span class="n">Suggestion</span><span class="p">(</span><span class="s1">&#39;foo&#39;</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">),</span> <span class="n">Suggestion</span><span class="p">(</span><span class="s1">&#39;bar&#39;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">))</span>
 
-# Getting suggestions
-suggs = ac.get_suggestions('goo') # returns nothing
+<span class="c1"># Getting suggestions</span>
+<span class="n">suggs</span> <span class="o">=</span> <span class="n">ac</span><span class="o">.</span><span class="n">get_suggestions</span><span class="p">(</span><span class="s1">&#39;goo&#39;</span><span class="p">)</span> <span class="c1"># returns nothing</span>
 
-suggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']
+<span class="n">suggs</span> <span class="o">=</span> <span class="n">ac</span><span class="o">.</span><span class="n">get_suggestions</span><span class="p">(</span><span class="s1">&#39;goo&#39;</span><span class="p">,</span> <span class="n">fuzzy</span> <span class="o">=</span> <span class="bp">True</span><span class="p">)</span> <span class="c1"># returns [&#39;foo&#39;]</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="installing">Installing</h3>
 <ol>
@@ -1430,41 +1471,38 @@ suggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']
 <p>Install the python client</p>
 </li>
 </ol>
-<pre><code class="sh">$ pip install redisearch
-</code></pre>
+<div class="codehilite"><pre><span></span>$ pip install redisearch
+</pre></div>
+
 
 <h2 id="class-autocompleter">Class AutoCompleter</h2>
 <p>A client to RediSearch's AutoCompleter API</p>
 <p>It provides prefix searches with optionally fuzzy matching of prefixes    </p>
 <h3 id="9595init9595">__init__</h3>
-<pre><code class="py">
-def __init__(self, key, host='localhost', port=6379, conn=None)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s1">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">6379</span><span class="p">,</span> <span class="n">conn</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create a new AutoCompleter client for the given key, and optional host and port</p>
 <p>If conn is not None, we employ an already existing redis connection</p>
 <h3 id="add95suggestions">add_suggestions</h3>
-<pre><code class="py">
-def add_suggestions(self, *suggestions, **kwargs)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">add_suggestions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">suggestions</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Add suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.</p>
 <p>If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores </p>
 <h3 id="delete">delete</h3>
-<pre><code class="py">
-def delete(self, string)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Delete a string from the AutoCompleter index.
 Returns 1 if the string was found and deleted, 0 otherwise</p>
 <h3 id="get95suggestions">get_suggestions</h3>
-<pre><code class="py">
-def get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">get_suggestions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">with_scores</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Get a list of suggestions from the AutoCompleter, for a given prefix</p>
 <h3 id="parameters">Parameters:</h3>
@@ -1478,28 +1516,25 @@ def get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)
 </ul>
 <p>Returns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.</p>
 <h3 id="len">len</h3>
-<pre><code class="py">
-def len(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Return the number of entries in the AutoCompleter index</p>
 <h2 id="class-client">Class Client</h2>
 <p>A client for the RediSearch module. 
 It abstracts the API of the module and lets you just use the engine </p>
 <h3 id="9595init9595_1">__init__</h3>
-<pre><code class="py">
-def __init__(self, index_name, host='localhost', port=6379, conn=None)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index_name</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s1">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">6379</span><span class="p">,</span> <span class="n">conn</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create a new Client for the given index_name, and optional host and port</p>
 <p>If conn is not None, we employ an already existing redis connection</p>
 <h3 id="add95document">add_document</h3>
-<pre><code class="py">
-def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">add_document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doc_id</span><span class="p">,</span> <span class="n">nosave</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Add a single document to the index.</p>
 <h3 id="parameters_1">Parameters</h3>
@@ -1513,17 +1548,15 @@ def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=Fa
              NOTE: Geo points shoule be encoded as strings of "lon,lat"</li>
 </ul>
 <h3 id="batch95indexer">batch_indexer</h3>
-<pre><code class="py">
-def batch_indexer(self, chunk_size=100)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">batch_indexer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create a new batch indexer from the client with a given chunk size</p>
 <h3 id="create95index">create_index</h3>
-<pre><code class="py">
-def create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">create_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">no_term_offsets</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_field_flags</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_score_indexes</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create the search index. Creating an existing index juts updates its properties</p>
 <h3 id="parameters_2">Parameters:</h3>
@@ -1534,31 +1567,27 @@ def create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_s
 <li><strong>no_score_indexes</strong>: If true, we will not save optimized top score indexes for single word queries</li>
 </ul>
 <h3 id="drop95index">drop_index</h3>
-<pre><code class="py">
-def drop_index(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">drop_index</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Drop the index if it exists</p>
 <h3 id="info">info</h3>
-<pre><code class="py">
-def info(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">info</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Get info an stats about the the current index, including the number of documents, memory consumption, etc</p>
 <h3 id="load95document">load_document</h3>
-<pre><code class="py">
-def load_document(self, id)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">load_document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">id</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Load a single document by id</p>
 <h3 id="search">search</h3>
-<pre><code class="py">
-def search(self, query, snippet_sizes=None)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">search</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">snippet_sizes</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Search the index for a given query, and return a result of documents</p>
 <h3 id="parameters_3">Parameters</h3>
@@ -1571,38 +1600,33 @@ def search(self, query, snippet_sizes=None)
 <p>A batch indexer allows you to automatically batch 
 document indexeing in pipelines, flushing it every N documents. </p>
 <h3 id="9595init9595_2">__init__</h3>
-<pre><code class="py">
-def __init__(self, client, chunk_size=1000)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="add95document_1">add_document</h3>
-<pre><code class="py">
-def add_document(self, doc_id, nosave=False, score=1.0, payload=None, replace=False, **fields)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">add_document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doc_id</span><span class="p">,</span> <span class="n">nosave</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Add a document to the batch query</p>
 <h3 id="commit">commit</h3>
-<pre><code class="py">
-def commit(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">commit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Manually commit and flush the batch indexing query</p>
 <h2 id="class-document">Class Document</h2>
 <p>Represents a single document in a result set </p>
 <h3 id="9595init9595_3">__init__</h3>
-<pre><code class="py">
-def __init__(self, id, payload=None, **fields)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">id</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="snippetize">snippetize</h3>
-<pre><code class="py">
-def snippetize(self, field, size=500, bold_tokens=())
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">snippetize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">bold_tokens</span><span class="o">=</span><span class="p">())</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create a shortened snippet from the document's content 
 :param size: the szie of the snippet in characters. It might be a bit longer or shorter
@@ -1610,46 +1634,40 @@ def snippetize(self, field, size=500, bold_tokens=())
 <h2 id="class-geofield">Class GeoField</h2>
 <p>GeoField is used to define a geo-indexing field in a schema defintion</p>
 <h3 id="9595init9595_4">__init__</h3>
-<pre><code class="py">
-def __init__(self, name)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="redis95args">redis_args</h3>
-<pre><code class="py">
-def redis_args(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">redis_args</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h2 id="class-geofilter">Class GeoFilter</h2>
 <p>None</p>
 <h3 id="9595init9595_5">__init__</h3>
-<pre><code class="py">
-def __init__(self, field, lon, lat, radius, unit='km')
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">,</span> <span class="n">radius</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;km&#39;</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h2 id="class-numericfield">Class NumericField</h2>
 <p>NumericField is used to define a numeric field in a schema defintion</p>
 <h3 id="9595init9595_6">__init__</h3>
-<pre><code class="py">
-def __init__(self, name)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="redis95args_1">redis_args</h3>
-<pre><code class="py">
-def redis_args(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">redis_args</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h2 id="class-numericfilter">Class NumericFilter</h2>
 <p>None</p>
 <h3 id="9595init9595_7">__init__</h3>
-<pre><code class="py">
-def __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">minval</span><span class="p">,</span> <span class="n">maxval</span><span class="p">,</span> <span class="n">minExclusive</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">maxExclusive</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h2 id="class-query">Class Query</h2>
 <p>Query is used to build complex queries that have more parameters than just the query string.
@@ -1657,18 +1675,16 @@ The query string is set in the constructor, and other options have setter functi
 <p>The setter functions return the query object, so they can be chained, 
 i.e. <code>Query("foo").verbatim().filter(...)</code> etc.</p>
 <h3 id="9595init9595_8">__init__</h3>
-<pre><code class="py">
-def __init__(self, query_string)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query_string</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Create a new query object. </p>
 <p>The query string is set in the constructor, and other options have setter functions.</p>
 <h3 id="add95filter">add_filter</h3>
-<pre><code class="py">
-def add_filter(self, flt)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">add_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flt</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Add a numeric or geo filter to the query. 
 <strong>Currently only one of each filter is supported by the engine</strong></p>
@@ -1676,57 +1692,50 @@ def add_filter(self, flt)
 <li><strong>flt</strong>: A NumericFilter or GeoFilter object, used on a corresponding field</li>
 </ul>
 <h3 id="get95args">get_args</h3>
-<pre><code class="py">
-def get_args(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">get_args</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Format the redis arguments for this query and return them</p>
 <h3 id="in95order">in_order</h3>
-<pre><code class="py">
-def in_order(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">in_order</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Match only documents where the query terms appear in the same order in the document.
 i.e. for the query 'hello world', we do not match 'world hello'</p>
 <h3 id="limit95fields">limit_fields</h3>
-<pre><code class="py">
-def limit_fields(self, *fields)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">limit_fields</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Limit the search to specific TEXT fields only</p>
 <ul>
 <li><strong>fields</strong>: A list of strings, case sensitive field names from the defined schema</li>
 </ul>
 <h3 id="limit95ids">limit_ids</h3>
-<pre><code class="py">
-def limit_ids(self, *ids)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">limit_ids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">ids</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Limit the results to a specific set of pre-known document ids of any length</p>
 <h3 id="no95content">no_content</h3>
-<pre><code class="py">
-def no_content(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">no_content</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Set the query to only return ids and not the document content</p>
 <h3 id="no95stopwords">no_stopwords</h3>
-<pre><code class="py">
-def no_stopwords(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">no_stopwords</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Prevent the query from being filtered for stopwords. 
 Only useful in very big queries that you are certain contain no stopwords.</p>
 <h3 id="paging">paging</h3>
-<pre><code class="py">
-def paging(self, offset, num)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">paging</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">num</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Set the paging for the query (defaults to 0..10).</p>
 <ul>
@@ -1734,40 +1743,35 @@ def paging(self, offset, num)
 <li><strong>num</strong>: How many results do we want</li>
 </ul>
 <h3 id="query95string">query_string</h3>
-<pre><code class="py">
-def query_string(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">query_string</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Return the query string of this query only</p>
 <h3 id="slop">slop</h3>
-<pre><code class="py">
-def slop(self, slop)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">slop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">slop</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Allow a masimum of N intervening non matched terms between phrase terms (0 means exact phrase)</p>
 <h3 id="verbatim">verbatim</h3>
-<pre><code class="py">
-def verbatim(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">verbatim</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Set the query to be verbatim, i.e. use no query expansion or stemming</p>
 <h3 id="with95payloads">with_payloads</h3>
-<pre><code class="py">
-def with_payloads(self)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">with_payloads</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <p>Ask the engine to return document payloads</p>
 <h2 id="class-result">Class Result</h2>
 <p>Represents the result of a search query, and has an array of Document objects</p>
 <h3 id="9595init9595_9">__init__</h3>
-<pre><code class="py">
-def __init__(self, res, hascontent, query_text, duration=0, snippets=None, has_payload=False)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">res</span><span class="p">,</span> <span class="n">hascontent</span><span class="p">,</span> <span class="n">query_text</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">snippets</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">has_payload</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <ul>
 <li><strong>snippets</strong>: An optional dictionary of the form {field: snippet_size} for snippet formatting</li>
@@ -1775,25 +1779,26 @@ def __init__(self, res, hascontent, query_text, duration=0, snippets=None, has_p
 <h2 id="class-suggestion">Class Suggestion</h2>
 <p>Represents a single suggestion being sent or returned from the auto complete server</p>
 <h3 id="9595init9595_10">__init__</h3>
-<pre><code class="py">
-def __init__(self, string, score=1.0)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h2 id="class-textfield">Class TextField</h2>
 <p>TextField is used to define a text field in a schema definition</p>
 <h3 id="9595init9595_11">__init__</h3>
-<pre><code class="py">
-def __init__(self, name, weight=1.0)
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</pre></div>
 
-</code></pre>
 
 <h3 id="redis95args_2">redis_args</h3>
-<pre><code class="py">
-def redis_args(self)
-
-</code></pre>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">redis_args</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</pre></div>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -1857,13 +1862,13 @@ def redis_args(self)
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
     
       
-      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
       
     
   </body>

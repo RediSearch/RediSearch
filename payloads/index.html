@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,7 +24,7 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
     
     
@@ -58,7 +58,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -135,6 +135,45 @@
     
     <div class="md-container">
       
+      
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
       
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
@@ -321,6 +360,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -386,6 +427,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -396,10 +439,10 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/payloads.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/payloads.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="document-payloads">Document Payloads</h1>
 <p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
@@ -413,24 +456,27 @@ if you are interested in fast evaluation, some sort of binary encoded data which
 <h2 id="adding-payloads-for-documents">Adding payloads for documents:</h2>
 <p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
 This is done with the PAYLOAD keyword:</p>
-<pre><code>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
-</code></pre>
+<div class="codehilite"><pre><span></span>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
+</pre></div>
+
 
 <h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time</h2>
 <p>When imlplementing a scoring function, the signature of the function exposed is:</p>
-<pre><code class="c">double (*ScoringFunction)(DocumentMetadata *dmd, IndexResult *h);
-</code></pre>
+<div class="codehilite"><pre><span></span><span class="kt">double</span> <span class="p">(</span><span class="o">*</span><span class="n">ScoringFunction</span><span class="p">)(</span><span class="n">DocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span> <span class="n">IndexResult</span> <span class="o">*</span><span class="n">h</span><span class="p">);</span>
+</pre></div>
+
 
 <blockquote>
 <p>NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.</p>
 </blockquote>
 <p>DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with
 arbitrary length:</p>
-<pre><code class="c">typedef struct  {
-    char *data,
-    uint32_t len;
-} DocumentPayload;
-</code></pre>
+<div class="codehilite"><pre><span></span><span class="k">typedef</span> <span class="k">struct</span>  <span class="p">{</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">data</span><span class="p">,</span>
+    <span class="kt">uint32_t</span> <span class="n">len</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">DocumentPayload</span><span class="p">;</span>
+</pre></div>
+
 
 <p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
 It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
@@ -439,7 +485,7 @@ It is recommended to encode some metadata about the payload inside it, like a le
 <p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>
 <p>If <code>WITHPAYLOADS</code> is set, the payloads follow the document id in the returned result. 
 If <code>WITHSCORES</code> is set as well, the payloads follow the scores. e.g.:</p>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE foo SCHEMA bar TEXT
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE foo SCHEMA bar TEXT
 OK
 127.0.0.1:6379&gt; FT.ADD foo doc2 1.0 PAYLOAD &quot;hi there!&quot; FIELDS bar &quot;hello&quot;
 OK
@@ -450,8 +496,13 @@ OK
 4) &quot;hi there!&quot;      # payload
 5) 1) &quot;bar&quot;         # fields
    2) &quot;hello&quot;
-</code></pre>
+</pre></div>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -515,13 +566,13 @@ OK
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
     
       
-      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","redisearch"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+      <script>!function(e,t,a,n,o,c,i){e.GoogleAnalyticsObject=o,e[o]=e[o]||function(){(e[o].q=e[o].q||[]).push(arguments)},e[o].l=1*new Date,c=t.createElement(a),i=t.getElementsByTagName(a)[0],c.async=1,c.src=n,i.parentNode.insertBefore(c,i)}(window,document,"script","https://www.google-analytics.com/analytics.js","ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var t=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",t,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
       
     
   </body>
