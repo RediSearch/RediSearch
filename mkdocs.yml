@@ -3,6 +3,14 @@ site_url: http://redisearch.io
 canonical_url: http://redisearch.io
 repo_url: https://github.com/RedisLabsModules/RediSearch
 theme: material
+extra:
+  feature:
+    tabs: true
+google_analytics:
+  - 'UA-89573912-1'
+  - 'auto'
+markdown_extensions:
+  - codehilite
 pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
@@ -14,4 +22,4 @@ pages:
         - 'Document Payloads': payloads.md
         - 'Extension API': Extensions.md
 
-google_analytics: ['UA-89573912-1', 'redisearch']
+#google_analytics: ['UA-89573912-1', 'redisearch']
