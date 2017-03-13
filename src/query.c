@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/param.h>
 
-
 #include "geo_index.h"
 #include "index.h"
 #include "query.h"
@@ -325,7 +324,6 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   return ret;
 }
 
-
 void _queryNode_expand(Query *q, QueryNode **pqn) {
   RSToken tok;
   QueryNode *qn = *pqn;
@@ -452,7 +450,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 // }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query->root, 0);
+  //__queryNode_Print(query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
