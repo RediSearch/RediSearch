@@ -19,7 +19,7 @@ LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
 SRCDIR := $(shell pwd)
-DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(LIBTRIEMAP) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) )
+DEPS := $(patsubst %, $(SRCDIR)/../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) $(LIBTRIEMAP) )
 
 
 CC=gcc
