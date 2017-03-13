@@ -7,7 +7,7 @@
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
-        <link rel="canonical" href="http://redisearch.io/payloads/">
+        <link rel="canonical" href="http://redisearch.io/Extensions/">
       
       
       
@@ -17,7 +17,7 @@
     
     
       
-        <title>Document Payloads - RediSearch Documentation</title>
+        <title>Extension API - RediSearch Documentation</title>
       
     
     
@@ -80,7 +80,7 @@
                 </span>
               
             
-            Document Payloads
+            Extension API
           
         </span>
       </div>
@@ -272,6 +272,18 @@
           
           
 
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
   
 
 
@@ -282,61 +294,10 @@
       
     
     
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Document Payloads
-      </label>
-    
-    <a href="./" title="Document Payloads" class="md-nav__link md-nav__link--active">
-      Document Payloads
-    </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#adding-payloads-for-documents" title="Adding payloads for documents:" class="md-nav__link">
-    Adding payloads for documents:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#evaluating-payloads-in-query-time" title="Evaluating Payloads in Query Time" class="md-nav__link">
-    Evaluating Payloads in Query Time
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#retrieving-payloads-from-documents" title="Retrieving payloads from documents" class="md-nav__link">
-    Retrieving payloads from documents
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-    
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Extensions/" title="Extension API" class="md-nav__link">
+    <a href="./" title="Extension API" class="md-nav__link md-nav__link--active">
       Extension API
     </a>
+    
   </li>
 
         
@@ -362,32 +323,6 @@
     
   
   
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#adding-payloads-for-documents" title="Adding payloads for documents:" class="md-nav__link">
-    Adding payloads for documents:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#evaluating-payloads-in-query-time" title="Evaluating Payloads in Query Time" class="md-nav__link">
-    Evaluating Payloads in Query Time
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#retrieving-payloads-from-documents" title="Retrieving payloads from documents" class="md-nav__link">
-    Retrieving payloads from documents
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -397,59 +332,166 @@
           <div class="md-content">
             <article class="md-content__inner md-typeset">
                
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/payloads.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
                
               
                 
-                <h1 id="document-payloads">Document Payloads</h1>
-<p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
-aggregation or scoring functions, we might want to store that data as an inline payload. 
-This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
-<p>Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,
-We can add custom payloads that can be evaluated in run-time.</p>
-<p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
-of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
-if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
-<h2 id="adding-payloads-for-documents">Adding payloads for documents:</h2>
-<p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
-This is done with the PAYLOAD keyword:</p>
-<pre><code>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
+                <h1 id="extending-redisearch">Extending RediSearch</h1>
+<p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.</p>
+<p>There are two kinds of extension APIs at the moment: </p>
+<ol>
+<li><strong>Query Expanders</strong>, whose role is to expand query tokens (i.e. stemmers).</li>
+<li><strong>Scoring Funtions</strong>, whose role is to rank search results in query time.</li>
+</ol>
+<h1 id="registering-extensions">Registering Extensions</h1>
+<p>Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. </p>
+<p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
+<p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be atuomated.</p>
+<p>Here is an example of an extension initialization function:</p>
+<pre><code class="c">int MyExtensionInit(RSExtensionCtx *ctx) {
+
+  /* Register  a scoring function with an alias my_scorer and no special private data and free function */
+  if (ctx-&gt;RegisterScoringFunction(&quot;my_scorer&quot;, MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register a query expander  */
+  if (ctx-&gt;RegisterQueryExpander(&quot;my_expander&quot;, MyExpander, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  return REDISEARCH_OK;
+}
 </code></pre>
 
-<h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time</h2>
-<p>When imlplementing a scoring function, the signature of the function exposed is:</p>
-<pre><code class="c">double (*ScoringFunction)(DocumentMetadata *dmd, IndexResult *h);
+<h3 id="calling-your-custom-functions">Calling your custom functions</h3>
+<p>When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
+e.g.:</p>
+<pre><code>FT.SEARCH my_index &quot;foo bar&quot; EXPANDER my_expander SCORER my_scorer
 </code></pre>
 
-<blockquote>
-<p>NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.</p>
-</blockquote>
-<p>DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with
-arbitrary length:</p>
-<pre><code class="c">typedef struct  {
-    char *data,
-    uint32_t len;
-} DocumentPayload;
+<h1 id="the-query-expander-api">The Query Expander API</h1>
+<p>At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.</p>
+<p>The API for an expander is the following:</p>
+<pre><code class="c">void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+    ...
+}
 </code></pre>
 
-<p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
-It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
-<h2 id="retrieving-payloads-from-documents">Retrieving payloads from documents</h2>
-<p>When searching, it is possible to request the document payloads from the engine. </p>
-<p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>
-<p>If <code>WITHPAYLOADS</code> is set, the payloads follow the document id in the returned result. 
-If <code>WITHSCORES</code> is set as well, the payloads follow the scores. e.g.:</p>
-<pre><code>127.0.0.1:6379&gt; FT.CREATE foo SCHEMA bar TEXT
-OK
-127.0.0.1:6379&gt; FT.ADD foo doc2 1.0 PAYLOAD &quot;hi there!&quot; FIELDS bar &quot;hello&quot;
-OK
-127.0.0.1:6379&gt; FT.SEARCH foo &quot;hello&quot; WITHPAYLOADS WITHSCORES
-1) (integer) 1
-2) &quot;doc2&quot;           # id
-3) &quot;1&quot;              # score
-4) &quot;hi there!&quot;      # payload
-5) 1) &quot;bar&quot;         # fields
-   2) &quot;hello&quot;
+<h3 id="rsqueryexpanderctx">RSQueryExpanderCtx</h3>
+<p>RSQueryExpanderCtx is a context that contains private data of the extension, and a callback method to expand the query. It is defined as:</p>
+<pre><code class="c">typedef struct RSQueryExpanderCtx {
+
+  /* Opaque query object used internally by the engine, and should not be accessed */
+  struct RSQuery *query;
+
+  /* Opaque query node object used internally by the engine, and should not be accessed */
+  struct RSQueryNode **currentNode;
+
+  /* Private data of the extension, set on extension initialization */
+  void *privdata;
+
+  /* The language of the query, defaults to &quot;english&quot; */
+  cost char *language;
+
+  /* ExpandToken allows the user to add an expansion of the token in the query, that will be
+   * union-merged with the given token in query time. str is the expanded string, len is its length,
+   * and flags is a 32 bit flag mask that can be used by the extension to set private information on
+   * the token */
+  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+                      RSTokenFlags flags);
+
+  /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
+   */
+  void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
+
+} RSQueryExpanderCtx;
+</code></pre>
+
+<h3 id="rstoken">RSToken</h3>
+<p>RSToken represents a single query token to be expanded, and is defined as:</p>
+<pre><code class="c">/* A token in the query. The expanders receive query tokens and can expand the query with more query
+ * tokens */
+typedef struct {
+  /* The token string - which may or may not be NULL terminated */
+  const char *str;
+  /* The token length */
+  size_t len;
+
+  /* 1 if the token is the result of query expansion */
+  uint8_t expanded:1;
+
+  /* Extension specific token flags that can be examined later by the scoring function */
+  RSTokenFlags flags;
+} RSToken;
+
+</code></pre>
+
+<h1 id="the-scoring-function-api">The Scoring Function API</h1>
+<p>A scoring function receives each document being evaluated by the query, for final ranking. 
+It has access to all the query terms that brought up the document,and to metadata about the
+document such as its a-priory score, length, etc.</p>
+<p>Since the scoring function is evaluated per each document, potentially millions of times, and since
+redis is single threaded - it is important that it works as fast as possible and be heavily optimized. </p>
+<p>A scoring function is applied to each potential result (per document) and is implemented with the following signature:</p>
+<pre><code class="c">double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
+                                    RSDocumentMetadata *dmd, double minScore);
+</code></pre>
+
+<p>RSScoringFunctionCtx is a context that implements some helper methods. </p>
+<p>RSIndexResult is the result information - containing the document id, frequency, terms and offsets. </p>
+<p>RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. </p>
+<p>minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.</p>
+<p>The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.</p>
+<h2 id="rsscoringfunctionctx">RSScoringFunctionCtx</h2>
+<p>This is an object containing the following members:</p>
+<ul>
+<li><strong>void *privdata</strong>: a pointer to an object set by the extension on initialization time.</li>
+<li><strong>RSPayload payload</strong>: A Payload object set either by the query expander or the client.</li>
+<li><strong>int GetSlop(RSIndexResult *res)</strong>: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.</li>
+</ul>
+<h2 id="rsindexresult">RSIndexResult</h2>
+<p>This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result.</p>
+<p>See redisearch.h for details</p>
+<h2 id="rsdocumentmetadata">RSDocumentMetadata</h2>
+<p>This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. </p>
+<h1 id="example-query-expander">Example Query Expander</h1>
+<p>This example query expander expands each token with the the term foo:</p>
+<pre><code class="c">void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+    ctx-&gt;ExpandToken(ctx, strdup(&quot;foo&quot;), strlen(&quot;foo&quot;), 0x1337);  
+}
+</code></pre>
+
+<h1 id="example-scoring-function">Example Scoring Function</h1>
+<p>This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:</p>
+<pre><code class="c">double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+                   double minScore) {
+  // no need to evaluate documents with score 0 
+  if (dmd-&gt;score == 0) return 0;
+
+  // calculate sum(tf-idf) for each term in the result
+  double tfidf = 0;
+  for (int i = 0; i &lt; h-&gt;numRecords; i++) {
+    // take the term frequency and multiply by the term IDF, add that to the total
+    tfidf += (float)h-&gt;records[i].freq * (h-&gt;records[i].term ? h-&gt;records[i].term-&gt;idf : 0);
+  }
+  // normalize by the maximal frequency of any term in the document   
+  tfidf /=  (double)dmd-&gt;maxFreq;
+
+  // multiply by the document score (between 0 and 1)
+  tfidf *= dmd-&gt;score;
+
+  // no need to factor the slop if tfidf is already below minimal score
+  if (tfidf &lt; minScore) {
+    return 0;
+  }
+
+  // get the slop and divide the result by it, making sure we prefer results with closer terms
+  tfidf /= (double)ctx-&gt;GetSlop(h);
+
+  return tfidf;
+}
 </code></pre>
               
               
@@ -464,7 +506,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../python_client/" title="Python API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../payloads/" title="Document Payloads" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -473,25 +515,11 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Python API
+                Document Payloads
               </span>
             </div>
           </a>
         
-        
-          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
-            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
-              <span class="md-flex__ellipsis">
-                <span class="md-footer-nav__direction">
-                  Next
-                </span>
-                Extension API
-              </span>
-            </div>
-            <div class="md-flex__cell md-flex__cell--shrink">
-              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
-            </div>
-          </a>
         
       </nav>
     </div>
