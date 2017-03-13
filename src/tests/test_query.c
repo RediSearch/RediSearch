@@ -18,6 +18,7 @@ int isValidQuery(char *qt) {
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) {
+    Query_Free(q);
     FAIL("Error parsing query '%s': %s", qt, err);
   }
   ASSERT(n != NULL);
@@ -105,7 +106,7 @@ TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
-  
+
   //  benchmarkQueryParser();
 
 });
