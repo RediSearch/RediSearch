@@ -18,7 +18,7 @@ extra:
   feature:
     tabs: true
 pages:
-    - 'Home': 'index.md'
+    - 'RediSearch': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Commands': 'Commands.md'       
     - 'Query Syntax': 'Query_Syntax.md'
