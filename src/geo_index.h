@@ -1,7 +1,7 @@
 #ifndef __GEO_INDEX_H__
 #define __GEO_INDEX_H__
 
-#include "types.h"
+#include "redisearch.h"
 #include "redismodule.h"
 #include "index_result.h"
 #include "index_iterator.h"

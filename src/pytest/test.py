@@ -462,7 +462,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                             'title', 'hello kitty'))
 
             res = r.execute_command(
-                'ft.search', 'idx', 'hellos', "nocontent", "expander", "stem")
+                'ft.search', 'idx', 'hellos', "nocontent", "expander", "SBSTEM")
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
 

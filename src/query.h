@@ -1,6 +1,8 @@
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
+#include <stdlib.h>
+
 #include "index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
@@ -11,15 +13,11 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "id_filter.h"
-
-#include <stdlib.h>
-
-/* forward declaration to avoid include loop */
-struct QueryExpander;
+#include "redisearch.h"
 
 /* A Query represents the parse tree and execution plan for a single search
  * query */
-typedef struct query {
+typedef struct RSQuery {
   // the raw query text
   char *raw;
   // the raw text len
@@ -46,17 +44,27 @@ typedef struct query {
   // Whether phrases are in order or not
   int inOrder;
 
-  struct QueryExpander *expander;
+  // Query expander
+  RSQueryTokenExpander expander;
+  RSFreeFunction expanderFree;
+  RSQueryExpanderCtx expCtx;
+
+  // Custom scorer
+  RSScoringFunction scorer;
+  RSFreeFunction scorerFree;
+  RSScoringFunctionCtx scorerCtx;
 
   const char *language;
 
   const char **stopwords;
+
+  RSPayload payload;
 } Query;
 
 typedef struct {
   const char *id;
   double score;
-  DocumentPayload *payload;
+  RSPayload *payload;
 } ResultEntry;
 
 /* QueryResult represents the final processed result of a query execution */
@@ -80,8 +88,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 /* Free the query execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
-QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata);
-
+QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewNumericNode(NumericFilter *flt);
@@ -97,7 +104,7 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int maxSlop, int inOrder);
+                const char *expander, int maxSlop, int inOrder, const char *scorer);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

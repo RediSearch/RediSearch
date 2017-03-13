@@ -5,7 +5,7 @@
 #include "forward_index.h"
 #include "index_result.h"
 #include "index_iterator.h"
-#include "types.h"
+#include "redisearch.h"
 #include "util/logging.h"
 #include "varint.h"
 #include <ctype.h>
@@ -16,11 +16,11 @@
 /* Free the internal data of an index hit. Since index hits are usually on the
 stack,
 this does not actually free the hit itself */
-void IndexResult_Terminate(IndexResult *h);
+void IndexResult_Terminate(RSIndexResult *h);
 
 /** Load document metadata for an index hit, marking it as having metadata.
 Currently has no effect due to performance issues */
-int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt);
+int IndexResult_LoadMetadata(RSIndexResult *h, DocTable *dt);
 
 /* Free a union iterator */
 void UnionIterator_Free(IndexIterator *it);
@@ -38,7 +38,7 @@ typedef struct {
   int pos;
   size_t len;
   t_docId minDocId;
-  IndexResult *currentHits;
+  RSIndexResult *currentHits;
   DocTable *docTable;
   int atEnd;
 } UnionContext;
@@ -47,9 +47,9 @@ typedef struct {
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
 
-int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
 int UI_Next(void *ctx);
-int UI_Read(void *ctx, IndexResult *hit);
+int UI_Read(void *ctx, RSIndexResult *hit);
 int UI_HasNext(void *ctx);
 size_t UI_Len(void *ctx);
 t_docId UI_LastDocId(void *ctx);
@@ -63,9 +63,9 @@ typedef struct {
   int maxSlop;
   int inOrder;
   t_docId lastDocId;
-  IndexResult *currentHits;
+  RSIndexResult *currentHits;
   DocTable *docTable;
-  u_char fieldMask;
+  uint32_t fieldMask;
   int atEnd;
 } IntersectContext;
 
@@ -76,9 +76,9 @@ typedef struct {
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, u_char fieldMask,
                                    int maxSlop, int inOrder);
 
-int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
 int II_Next(void *ctx);
-int II_Read(void *ctx, IndexResult *hit);
+int II_Read(void *ctx, RSIndexResult *hit);
 int II_HasNext(void *ctx);
 size_t II_Len(void *ctx);
 t_docId II_LastDocId(void *ctx);

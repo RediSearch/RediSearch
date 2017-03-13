@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/param.h>
 
-#include "expander.h"
 #include "geo_index.h"
 #include "index.h"
 #include "query.h"
@@ -12,14 +11,14 @@
 #include "tokenize.h"
 #include "util/heap.h"
 #include "util/logging.h"
+#include "extension.h"
+#include "ext/default.h"
 
 void __queryNode_Print(QueryNode *qs, int depth);
 
 void _queryTokenNode_Free(QueryTokenNode *tn) {
+
   free(tn->str);
-  if (tn->metadata) {
-    free(tn->metadata);
-  }
 }
 
 void _queryPhraseNode_Free(QueryPhraseNode *pn) {
@@ -70,19 +69,20 @@ QueryNode *__newQueryNode(QueryNodeType type) {
   return s;
 }
 
-QueryNode *NewTokenNodeMetadata(Query *q, const char *s, size_t len, void *metadata) {
-  // If we are using stemming, stem the current token, and if needed add a
-  // UNION of it an the stem
+QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags) {
+  QueryNode *ret = __newQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  QueryNode *ret = __newQueryNode(QN_TOKEN);
-
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .metadata = metadata};
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
   return ret;
 }
 
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
-  return NewTokenNodeMetadata(q, s, len, NULL);
+  QueryNode *ret = __newQueryNode(QN_TOKEN);
+  q->numTokens++;
+
+  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
 }
 
 QueryNode *NewUnionNode() {
@@ -159,13 +159,11 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
 
   int isSingleWord = q->numTokens == 1 && q->fieldMask == 0xff;
 
-  IndexReader *ir =
-      Redis_OpenReader(q->ctx, node->str, node->len, q->docTable, isSingleWord, q->fieldMask);
+  IndexReader *ir = Redis_OpenReader(q->ctx, node, q->docTable, isSingleWord, q->fieldMask);
 
   if (ir == NULL) {
     return NULL;
   }
-  ir->term->metadata = node->metadata;
   return NewReadIterator(ir);
 }
 
@@ -278,7 +276,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int slop, int inOrder) {
+                const char *expander, int slop, int inOrder, const char *scorer) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -291,35 +289,61 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->root = NULL;
   ret->numTokens = 0;
   ret->stopwords = stopwords;
-  ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
+  // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
+  /* Get the scorer - falling back to TF-IDF scoring if not found */
+  ret->scorer = NULL;
+  ret->scorerCtx.privdata = NULL;
+  ret->scorerFree = NULL;
+  ExtScoringFunctionCtx *scx =
+      Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
+  if (!scx) {
+    scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
+  }
+  if (scx) {
+    ret->scorer = scx->sf;
+    ret->scorerFree = scx->ff;
+  }
+
+  /* Get the query expander */
+  ret->expCtx.query = ret;
+  ret->expCtx.language = ret->language;
+  ret->expander = NULL;
+  ret->expanderFree = NULL;
+  if (!verbatim) {
+    ExtQueryExpanderCtx *exp =
+        Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
+    if (exp) {
+      ret->expander = exp->exp;
+      ret->expCtx.privdata = exp->privdata;
+      ret->expanderFree = exp->ff;
+    }
+  }
   return ret;
 }
 
-QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
-  QueryNode *xn = e->Expand(e->ctx, q, n);
-  if (xn) {
-    // printf("expanded node %p!\n", xn);
-    //__queryNode_Print(xn, 0);
-    return xn;
-  }
+void _queryNode_expand(Query *q, QueryNode **pqn) {
 
-  if (n->type == QN_PHRASE) {
-    for (int i = 0; i < n->pn.numChildren; i++) {
-      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+  QueryNode *qn = *pqn;
+  if (qn->type == QN_TOKEN) {
+    q->expCtx.currentNode = pqn;
+    q->expander(&q->expCtx, &qn->tn);
+
+  } else if (qn->type == QN_PHRASE) {
+    for (int i = 0; i < qn->pn.numChildren; i++) {
+      _queryNode_expand(q, &qn->pn.children[i]);
     }
-  } else if (n->type == QN_UNION) {
-    for (int i = 0; i < n->pn.numChildren; i++) {
-      n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
+  } else if (qn->type == QN_UNION) {
+    for (int i = 0; i < qn->un.numChildren; i++) {
+      _queryNode_expand(q, &qn->un.children[i]);
     }
   }
-  return n;
 }
 
 void Query_Expand(Query *q) {
   if (q->expander && q->root) {
-    q->root = __queryNode_Expand(q, q->expander, q->root);
+    _queryNode_expand(q, &q->root);
   }
 }
 
@@ -327,6 +351,7 @@ void __queryNode_Print(QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
+
   switch (qs->type) {
     case QN_PHRASE:
       printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
@@ -336,7 +361,7 @@ void __queryNode_Print(QueryNode *qs, int depth) {
 
       break;
     case QN_TOKEN:
-      printf("{%s", (char *)qs->tn.str);
+      printf("{%s%s", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
       break;
 
     case QN_NUMERIC: {
@@ -371,20 +396,24 @@ void Query_Free(Query *q) {
   if (q->root) {
     QueryNode_Free(q->root);
   }
-
-  // if (q->stemmer) {
-  //   q->stemmer->Free(q->stemmer);
-  // }
-  if (q->expander && q->expander->ctx) {
-    q->expander->Free(q->expander->ctx);
+  // if we have a custom expander with a free function - call it now
+  // printf("expander free %p. privdata %p\n", q->expanderFree, q->expCtx.privdata);
+  if (q->expanderFree) {
+    q->expanderFree(q->expCtx.privdata);
   }
+
+  // we have a custom scorer with a free function - call it now
+  if (q->scorerFree) {
+    q->scorerFree(q->scorerCtx.privdata);
+  }
+
   free(q->raw);
   free(q);
 }
 
 /* Compare hits for sorting in the heap during traversal of the top N */
 static int cmpHits(const void *e1, const void *e2, const void *udata) {
-  const IndexResult *h1 = e1, *h2 = e2;
+  const RSIndexResult *h1 = e1, *h2 = e2;
 
   if (h1->finalScore < h2->finalScore) {
     return 1;
@@ -392,31 +421,6 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
     return -1;
   }
   return h1->docId - h2->docId;
-}
-
-/* Calculate sum(TF-IDF)*document score for each result */
-double CalculateResultScore(DocumentMetadata *dmd, IndexResult *h, double minScore) {
-  if (dmd->score == 0) return 0;
-  // IndexResult_Print(h);
-  if (h->numRecords == 1) {
-    return dmd->score * (float)h->totalTF / (float)dmd->maxFreq;
-    // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n",
-    // dmd->score, dmd->maxFreq, ret, ret);
-  }
-
-  double tfidf = 0;
-  for (int i = 0; i < h->numRecords; i++) {
-    tfidf += (float)h->records[i].tf * (h->records[i].term ? h->records[i].term->idf : 0);
-  }
-  tfidf *= dmd->score / dmd->maxFreq;
-  // printf("dmd score: %f, dmd maxFreq: %d, tfidf: %f, tifidf normalized: %f\n", dmd->score,
-  //        dmd->maxFreq, _tfidf, tfidf);
-  if (tfidf < minScore) return 0;
-  
-  tfidf /= (double)IndexResult_MinOffsetDelta(h);
-
-  // printf("after normalize: %f\n", tfidf);
-  return tfidf;
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -443,17 +447,17 @@ QueryResult *Query_Execute(Query *query) {
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpHits, NULL, num);
 
-  IndexResult *pooledHit = NULL;
+  RSIndexResult *pooledHit = NULL;
   double minScore = 0;
   int numDeleted = 0;
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
     if (pooledHit == NULL) {
-      pooledHit = malloc(sizeof(IndexResult));
+      pooledHit = malloc(sizeof(RSIndexResult));
       *pooledHit = NewIndexResult();
     }
-    IndexResult *h = pooledHit;
+    RSIndexResult *h = pooledHit;
     IndexResult_Init(h);
     int rc = it->Read(it->ctx, h);
 
@@ -463,7 +467,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
 
-    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
@@ -471,14 +475,14 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
 
-    // IndexResult_Print(h);
-    h->finalScore = CalculateResultScore(dmd, h, minScore);
+    /* Call the query scoring function to calculate the score */
+    h->finalScore = query->scorer(&query->scorerCtx, h, dmd, minScore);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
       pooledHit = NULL;
       if (heap_count(pq) == heap_size(pq)) {
-        IndexResult *minh = heap_peek(pq);
+        RSIndexResult *minh = heap_peek(pq);
         minScore = minh->finalScore;
       }
     } else {
@@ -487,7 +491,7 @@ QueryResult *Query_Execute(Query *query) {
         heap_offerx(pq, h);
 
         // get the new min score
-        IndexResult *minh = heap_peek(pq);
+        RSIndexResult *minh = heap_peek(pq);
         minScore = minh->finalScore;
       } else {
         pooledHit = h;
@@ -509,9 +513,9 @@ QueryResult *Query_Execute(Query *query) {
   res->results = calloc(n, sizeof(ResultEntry));
 
   for (int i = 0; i < n; ++i) {
-    IndexResult *h = heap_poll(pq);
+    RSIndexResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    DocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->finalScore, dmd->payload};
     }
@@ -522,7 +526,7 @@ QueryResult *Query_Execute(Query *query) {
 
   // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
-    IndexResult *h = heap_poll(pq);
+    RSIndexResult *h = heap_poll(pq);
     IndexResult_Free(h);
     free(h);
   }

@@ -17,7 +17,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->num = num;
   ctx->docTable = dt;
   ctx->atEnd = 0;
-  ctx->currentHits = calloc(num, sizeof(IndexResult));
+  ctx->currentHits = calloc(num, sizeof(RSIndexResult));
   for (int i = 0; i < num; i++) {
     ctx->currentHits[i] = NewIndexResult();
   }
@@ -34,7 +34,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   return it;
 }
 
-int UI_Read(void *ctx, IndexResult *hit) {
+int UI_Read(void *ctx, RSIndexResult *hit) {
   UnionContext *ui = ctx;
   // nothing to do
   if (ui->num == 0 || ui->atEnd) {
@@ -96,7 +96,7 @@ int UI_Read(void *ctx, IndexResult *hit) {
 }
 
 int UI_Next(void *ctx) {
-  // IndexResult h = NewIndexResult();
+  // RSIndexResult h = NewIndexResult();
   return UI_Read(ctx, NULL);
 }
 
@@ -124,7 +124,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int UI_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
+int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
   if (docId == 0) {
     return UI_Read(ctx, hit);
   }
@@ -230,7 +230,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt, u
   ctx->inOrder = inOrder;
   ctx->fieldMask = fieldMask;
   ctx->atEnd = 0;
-  ctx->currentHits = calloc(num, sizeof(IndexResult));
+  ctx->currentHits = calloc(num, sizeof(RSIndexResult));
   for (int i = 0; i < num; i++) {
     ctx->currentHits[i] = NewIndexResult();
   }
@@ -248,7 +248,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt, u
   return it;
 }
 
-int II_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit) {
+int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
 
   /* A seek with docId 0 is equivalent to a read */
   if (docId == 0) {
@@ -306,7 +306,7 @@ int II_Next(void *ctx) {
   return II_Read(ctx, NULL);
 }
 
-int II_Read(void *ctx, IndexResult *hit) {
+int II_Read(void *ctx, RSIndexResult *hit) {
   IntersectContext *ic = (IntersectContext *)ctx;
 
   if (ic->num == 0) return INDEXREAD_EOF;
@@ -320,7 +320,7 @@ int II_Read(void *ctx, IndexResult *hit) {
       IndexIterator *it = ic->its[i];
       if (!it) goto eof;
 
-      IndexResult *h = &ic->currentHits[i];
+      RSIndexResult *h = &ic->currentHits[i];
       // skip to the next
 
       int rc = INDEXREAD_OK;
@@ -362,7 +362,7 @@ int II_Read(void *ctx, IndexResult *hit) {
       ic->lastDocId++;
 
       // // make sure the flags are matching.
-      if ((hit->flags & ic->fieldMask) == 0) {
+      if ((hit->fieldMask & ic->fieldMask) == 0) {
         continue;
       }
 

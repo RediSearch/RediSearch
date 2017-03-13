@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-
+#include "dep/triemap/triemap.h"
 #include "rmalloc.h"
 
 /* Creates a new DocTable with a given capacity */
@@ -13,13 +13,13 @@ DocTable NewDocTable(size_t cap) {
                     .cap = cap,
                     .maxDocId = 0,
                     .memsize = 0,
-                    .docs = rm_calloc(cap, sizeof(DocumentMetadata)),
+                    .docs = rm_calloc(cap, sizeof(RSDocumentMetadata)),
                     .dim = NewDocIdMap()};
 }
 
 /* Get the metadata for a doc Id from the DocTable.
 *  If docId is not inside the table, we return NULL */
-inline DocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
+inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
   if (docId == 0 || docId > t->maxDocId) {
     return NULL;
   }
@@ -47,30 +47,30 @@ t_docId DocTable_Put(DocTable *t, const char *key, double score, u_char flags, c
   if (t->maxDocId + 1 >= t->cap) {
 
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
-    t->docs = rm_realloc(t->docs, t->cap * sizeof(DocumentMetadata));
+    t->docs = rm_realloc(t->docs, t->cap * sizeof(RSDocumentMetadata));
   }
 
   /* Copy the payload since it's probably an input string not retained */
-  DocumentPayload *dpl = NULL;
+  RSPayload *dpl = NULL;
   if (payload && payloadSize) {
 
-    dpl = rm_malloc(sizeof(DocumentPayload));
+    dpl = rm_malloc(sizeof(RSPayload));
     dpl->data = rm_calloc(1, payloadSize + 1);
     memcpy(dpl->data, payload, payloadSize);
     dpl->len = payloadSize;
     flags |= Document_HasPayload;
-    t->memsize += payloadSize + sizeof(DocumentPayload);
+    t->memsize += payloadSize + sizeof(RSPayload);
   }
 
-  t->docs[docId] = (DocumentMetadata){
+  t->docs[docId] = (RSDocumentMetadata){
       .key = rm_strdup(key), .score = score, .flags = flags, .payload = dpl, .maxFreq = 1};
   ++t->size;
-  t->memsize += sizeof(DocumentMetadata) + strlen(key);
+  t->memsize += sizeof(RSDocumentMetadata) + strlen(key);
   DocIdMap_Put(&t->dim, key, docId);
   return docId;
 }
 
-DocumentPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
+RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
   if (docId == 0 || docId > t->maxDocId) {
     return NULL;
   }
@@ -93,7 +93,7 @@ inline float DocTable_GetScore(DocTable *t, t_docId docId) {
   return t->docs[docId].score;
 }
 
-void dmd_free(DocumentMetadata *md) {
+void dmd_free(RSDocumentMetadata *md) {
   if (md->payload) {
     rm_free(md->payload->data);
     rm_free(md->payload);
@@ -117,7 +117,7 @@ int DocTable_Delete(DocTable *t, const char *key) {
   t_docId docId = DocIdMap_Get(&t->dim, key);
   if (docId && docId <= t->maxDocId) {
 
-    DocumentMetadata *md = &t->docs[docId];
+    RSDocumentMetadata *md = &t->docs[docId];
     if (md->payload) {
       rm_free(md->payload->data);
       rm_free(md->payload);
@@ -151,7 +151,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
   if (sz > t->cap) {
     t->cap = sz;
-    t->docs = rm_realloc(t->docs, t->cap * sizeof(DocumentMetadata));
+    t->docs = rm_realloc(t->docs, t->cap * sizeof(RSDocumentMetadata));
   }
   t->size = t->cap;
   for (size_t i = 1; i < sz; i++) {
@@ -166,14 +166,14 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->docs[i].payload = NULL;
     // read payload if set
     if (t->docs[i].flags & Document_HasPayload) {
-      t->docs[i].payload = RedisModule_Alloc(sizeof(DocumentPayload));
+      t->docs[i].payload = RedisModule_Alloc(sizeof(RSPayload));
       t->docs[i].payload->data = RedisModule_LoadStringBuffer(rdb, &t->docs[i].payload->len);
       t->docs[i].payload->len--;
-      t->memsize += t->docs[i].payload->len + sizeof(DocumentPayload);
+      t->memsize += t->docs[i].payload->len + sizeof(RSPayload);
     }
 
     DocIdMap_Put(&t->dim, t->docs[i].key, i);
-    t->memsize += sizeof(DocumentMetadata) + len;
+    t->memsize += sizeof(RSDocumentMetadata) + len;
   }
 }
 
@@ -197,14 +197,14 @@ void DocTable_AOFRewrite(DocTable *t, RedisModuleString *key, RedisModuleIO *aof
 
 DocIdMap NewDocIdMap() {
 
-  TrieMapNode *m = NewTrieMap();
+  TrieMap *m = NewTrieMap();
   return (DocIdMap){m};
 }
 
 t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
 
-  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
-  if (val) {
+  void *val = TrieMap_Find(m->tm, (unsigned char *)key, strlen(key));
+  if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
   return 0;
@@ -219,16 +219,15 @@ void *_docIdMap_replace(void *oldval, void *newval) {
 
 void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
-  void *val = TrieMapNode_Find(m->tm, (unsigned char *)key, strlen(key));
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMapNode_Add(&m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMapNode_Free(m->tm, RedisModule_Free);
+  TrieMap_Free(m->tm, RedisModule_Free);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *key) {
-  return TrieMapNode_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
+  return TrieMap_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
 }

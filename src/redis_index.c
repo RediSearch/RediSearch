@@ -4,6 +4,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
+#include "rmalloc.h"
 #include <stdio.h>
 
 RedisModuleType *InvertedIndexType;
@@ -16,7 +17,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   idx->lastId = RedisModule_LoadUnsigned(rdb);
   idx->numDocs = RedisModule_LoadUnsigned(rdb);
   idx->size = RedisModule_LoadUnsigned(rdb);
-  idx->blocks = calloc(idx->size, sizeof(IndexBlock));
+  idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
@@ -150,10 +151,10 @@ InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, si
   return RedisModule_ModuleTypeGetValue(k);
 }
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len, DocTable *dt,
-                              int singleWordMode, u_char fieldMask) {
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
+                              u_char fieldMask) {
 
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
+  RedisModuleString *termKey = fmtRedisTermKey(ctx, tok->str, tok->len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
   RedisModule_FreeString(ctx->redisCtx, termKey);
   // we do not allow empty indexes when loading an existing index
@@ -163,8 +164,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, const char *term, size_t len,
   }
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
-  return NewIndexReader(idx, dt, fieldMask, ctx->spec->flags, NewTerm((char *)term),
-                        singleWordMode);
+  return NewIndexReader(idx, dt, fieldMask, ctx->spec->flags, NewTerm(tok), singleWordMode);
 }
 
 // void Redis_CloseReader(IndexReader *r) {

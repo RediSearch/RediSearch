@@ -16,6 +16,8 @@
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "extension.h"
+#include "ext/default.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,7 +114,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     }
   }
 
-  DocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
+  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
   md->maxFreq = idx->maxFreq;
 
   // printf("totaltokens :%d\n", totalTokens);
@@ -385,15 +387,16 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
-                                           (float)sp->stats.invertedCap);
+  __reply_kvnum(
+      n, "inverted_cap_ovh",
+      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
   __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   __reply_kvnum(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  __reply_kvnum(n, "key_table_size_mb", TrieMapNode_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  __reply_kvnum(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   __reply_kvnum(n, "records_per_doc_avg",
                 (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   __reply_kvnum(n, "bytes_per_record_avg",
@@ -727,7 +730,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &expander);
   }
   if (!expander) {
-    expander = STEMMER_EXPANDER_NAME;
+    expander = DEFAULT_EXPANDER_NAME;
   }
 
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
@@ -748,7 +751,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder);
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, NULL);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
@@ -1159,9 +1162,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
   if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  /* Self initialization */
-  RegisterStemmerExpander();
+  // Init extension mechanism
+  Extensions_Init();
 
+  // Register the default hard coded extension
+  if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
+    RedisModule_Log(ctx, "error", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
+  
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 

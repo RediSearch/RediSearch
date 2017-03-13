@@ -1,9 +1,10 @@
 #ifndef __QUERY_NODE_H__
 #define __QUERY_NODE_H__
 #include <stdlib.h>
+#include "redisearch.h"
 //#include "numeric_index.h"
 
-struct queryNode;
+struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
@@ -29,29 +30,21 @@ typedef enum {
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
-  struct queryNode **children;
+  struct RSQueryNode **children;
   int numChildren;
   int exact;
 } QueryPhraseNode;
 
 /* A Union node represents a set of child nodes where the index unions the result between them */
 typedef struct {
-  struct queryNode **children;
+  struct RSQueryNode **children;
   int numChildren;
 } QueryUnionNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
- * tokenizers. Later this gets passed to scoring functions in a Term object. See IndexRecord */
-typedef struct {
-  char *str;
-  size_t len;
-
-  /* Private data that can be written by expanders and read by filters/scorers.
-  It is passed to the Term object of an index result record */
-  void *metadata;
-
-} QueryTokenNode;
+ * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
+typedef RSToken QueryTokenNode;
 
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;
@@ -62,7 +55,7 @@ typedef struct { struct idFilter *f; } QueryIdFilterNode;
 
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it is,
  * and a union of all possible nodes  */
-typedef struct queryNode {
+typedef struct RSQueryNode {
   union {
     QueryPhraseNode pn;
     QueryTokenNode tn;

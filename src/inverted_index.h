@@ -1,13 +1,14 @@
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
 
+#include "redisearch.h"
 #include "buffer.h"
 #include "doc_table.h"
 #include "forward_index.h"
 #include "index_iterator.h"
 #include "index_result.h"
 #include "spec.h"
-#include "types.h"
+
 #include <stdint.h>
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
@@ -45,15 +46,15 @@ typedef struct indexReadCtx {
   // u_int skipIdxPos;
   DocTable *docTable;
 
-  uint8_t fieldMask;
+  uint32_t fieldMask;
 
   IndexFlags flags;
 
   int singleWordMode;
 
   size_t len;
-  IndexRecord record;
-  Term *term;
+  RSIndexRecord record;
+  RSQueryTerm *term;
 } IndexReader;
 
 /* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
@@ -66,19 +67,19 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint8_t fieldMask,
-                            IndexFlags flags, Term *term, int singleWordMode);
+IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fieldMask,
+                            IndexFlags flags, RSQueryTerm *term, int singleWordMode);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, u_char *flags,
-                   VarintVector *offsets);
+int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint32_t *flags,
+                   RSOffsetVector *offsets);
 
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);
 
-/* Read an entry from an inverted index into IndexResult */
-int IR_Read(void *ctx, IndexResult *e);
+/* Read an entry from an inverted index into RSIndexResult */
+int IR_Read(void *ctx, RSIndexResult *e);
 
 /* Move to the next entry in an inverted index, without reading the whole entry
  */
@@ -89,7 +90,7 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, u_int32_t docId, IndexResult *hit);
+int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
 
 /* The number of docs in an inverted index entry */
 size_t IR_NumDocs(void *ctx);

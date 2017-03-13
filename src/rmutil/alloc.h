@@ -41,10 +41,11 @@ char *rmalloc_strndup(const char *s, size_t n);
 #define strndup(s, n) rmalloc_strndup(s, n)
 
 #else
+
+#endif /* REDIS_MODULE_TARGET */
 /* This function shold be called if you are working with malloc-patched code
  * ouside of redis, usually for unit tests. Call it once when entering your unit
  * tests' main() */
 void RMUTil_InitAlloc();
-#endif /* REDIS_MODULE_TARGET */
 
 #endif /* __RMUTIL_ALLOC__ */

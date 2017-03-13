@@ -2,7 +2,7 @@
 #define __RS_DOCUMENT_H__
 #include "redismodule.h"
 #include "search_ctx.h"
-#include "types.h"
+#include "redisearch.h"
 
 typedef struct {
   RedisModuleString *name;

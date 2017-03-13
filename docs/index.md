@@ -16,6 +16,12 @@ This allows much faster performance, significantly less memory consumption, and
 more advanced features like exact phrase matching, that are not possible with 
 traditional redis search approaches. 
 
+## Client Libraries
+
+* **Python**: [https://github.com/RedisLabs/redisearch-py](https://github.com/RedisLabs/redisearch-py)
+
+* **Java**: [https://github.com/RedisLabs/JRediSearch](https://github.com/RedisLabs/JRediSearch)
+
 ## Primary Features:
 
 * Full-Text indexing of multiple fields in documents.

@@ -63,8 +63,8 @@ int testTokenize() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
   TESTFUNC(testTokenize);
-}
+});

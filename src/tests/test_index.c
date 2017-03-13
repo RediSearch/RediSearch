@@ -1,3 +1,4 @@
+#include "../offset_vector.h"
 #include "../buffer.h"
 #include "../index.h"
 #include "../inverted_index.h"
@@ -15,7 +16,7 @@
 
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
-  int expected[5] = {10, 1000, 1020, 10000, 10020};
+  uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
   for (int i = 0; i < 5; i++) {
     VVW_Write(vw, expected[i]);
   }
@@ -23,16 +24,18 @@ int testVarint() {
   // VVW_Write(vw, 100);
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
-  // Buffer_Seek(vw->bw.buf, 0);
-  VarintVectorIterator it = VarIntVector_iter(vw->bw.buf);
-  int x = 0;
 
-  while (VV_HasNext(&it)) {
-    int n = VV_Next(&it);
+  RSOffsetVector vec = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset};
+  // Buffer_Seek(vw->bw.buf, 0);
+  RSOffsetIterator *it = RSOffsetVector_Iterate(&vec);
+  int x = 0;
+  uint32_t n = 0;
+  while (RS_OFFSETVECTOR_EOF != (n = RSOffsetIterator_Next(it))) {
+
     ASSERTM(n == expected[x++], "Wrong number decoded");
     // printf("%d %d\n", x, n);
   }
-
+  RSOffsetIterator_Free(it);
   VVW_Free(vw);
   return 0;
 }
@@ -57,10 +60,16 @@ int testDistance() {
   VVW_Truncate(vw);
   VVW_Truncate(vw2);
 
-  IndexResult res = NewIndexResult();
-  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw->bw.buf});
+  RSIndexResult res = NewIndexResult();
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw->bw.buf->data,
+                                                                     .len = vw->bw.buf->offset}});
 
-  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw2->bw.buf});
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw2->bw.buf->data,
+                                                                     .len = vw2->bw.buf->offset}});
 
   int delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(4, delta);
@@ -76,7 +85,10 @@ int testDistance() {
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 4, 1));
   ASSERT_EQUAL(1, IndexResult_IsWithinRange(&res, 5, 1));
 
-  IndexResult_PutRecord(&res, &(IndexRecord){.docId = 1, .offsets = *vw3->bw.buf});
+  IndexResult_PutRecord(&res,
+                        &(RSIndexRecord){.docId = 1,
+                                         .offsets = (RSOffsetVector){.data = vw3->bw.buf->data,
+                                                                     .len = vw3->bw.buf->offset}});
   delta = IndexResult_MinOffsetDelta(&res);
   ASSERT_EQUAL(53, delta);
 
@@ -134,7 +146,7 @@ int testIndexReadWrite() {
 
     // printf("si: %d\n", si->len);
     IndexReader *ir = NewIndexReader(idx, NULL, 0xff, INDEX_DEFAULT_FLAGS, NULL, 1);  //
-    IndexResult h = NewIndexResult();
+    RSIndexResult h = NewIndexResult();
 
     struct timespec start_time, end_time;
     int n = 0;
@@ -204,7 +216,7 @@ typedef struct {
   int counter;
 } IterationContext;
 
-int printIntersect(void *ctx, IndexResult *hits, int argc) {
+int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
   printf("intersect: %d\n", hits[0].docId);
   return 0;
 }
@@ -213,7 +225,7 @@ int testReadIterator() {
   InvertedIndex *idx = createIndex(10, 1);
 
   IndexReader *r1 = NewIndexReader(idx, NULL, 0xff, INDEX_DEFAULT_FLAGS, NULL, 0);
-  IndexResult h = NewIndexResult();
+  RSIndexResult h = NewIndexResult();
 
   IndexIterator *it = NewReadIterator(r1);
   int i = 1;
@@ -246,7 +258,7 @@ int testUnion() {
   irs[1] = NewReadIterator(r2);
 
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL);
-  IndexResult h = NewIndexResult();
+  RSIndexResult h = NewIndexResult();
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -279,7 +291,7 @@ int testIntersection() {
   IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, -1, 0);
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
-  IndexResult h = NewIndexResult();
+  RSIndexResult h = NewIndexResult();
 
   float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
@@ -292,8 +304,8 @@ int testIntersection() {
   clock_gettime(CLOCK_REALTIME, &end_time);
   long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-   printf("%d intersections in %ldns\n", count, diffInNanos);
-   printf("top freq: %f\n", topFreq);
+  printf("%d intersections in %ldns\n", count, diffInNanos);
+  printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
   ASSERT(topFreq == 475000.0);
 
@@ -503,7 +515,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteEntry(w, &h);
-  ASSERT_EQUAL(3  , sz);
+  ASSERT_EQUAL(3, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -538,7 +550,7 @@ int testDocTable() {
     float score = DocTable_GetScore(&dt, i + 1);
     ASSERT_EQUAL((int)score, i);
 
-    DocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
+    RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT(dmd != NULL);
     ASSERT(dmd->flags & Document_HasPayload);
     ASSERT_STRING_EQ((char *)dmd->key, (char *)buf);
@@ -564,7 +576,7 @@ int testDocTable() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
@@ -582,6 +594,4 @@ int main(int argc, char **argv) {
   TESTFUNC(testIndexSpec);
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
-
-  return 0;
-}
+});
