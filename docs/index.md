@@ -31,11 +31,13 @@ traditional redis search approaches.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search of up to 8 words.
 * Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
+* Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
 * Limiting searches to specific document fields (up to 8 fields supported).
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands. 
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids
 * Automatically index existing HASH keys as documents.
-* Document deletion.
+* Document deletion and updating with index garbage collection.
+
 

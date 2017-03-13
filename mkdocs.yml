@@ -12,5 +12,6 @@ pages:
         - 'Stemming Support': Stemming.md
         - 'Python API': python_client.md
         - 'Document Payloads': payloads.md
+        - 'Extension API': Extensions.md
 
 google_analytics: ['UA-89573912-1', 'redisearch']

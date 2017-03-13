@@ -223,6 +223,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [SLOP {slop}] [INORDER]
 	[LANGUAGE {language}]
 	[EXPANDER {expander}]
+  [SCORER {scorer}]
   [LIMIT offset num]
 ```
 
@@ -256,9 +257,10 @@ Search the index with a textual query, returning either documents or just ids.
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
-- **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
+- **LANGUAGE {language}**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
-- **EXPANDER expander**: If set, we will use a custom query expander instead of the stemmer. Currently has no affect.
+- **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/Extensions).
+- **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/Extensions).
 - **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 
