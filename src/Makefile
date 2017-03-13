@@ -2,7 +2,7 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I$(shell pwd) -DREDIS_MODULE_TARGET
+CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC  -std=gnu99 -I"$(shell pwd)" -DREDIS_MODULE_TARGET
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
@@ -30,11 +30,9 @@ LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
 TESTS=test.o
 
-SRCDIR := $(shell pwd)
-#MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS))
 
-MODULE=$(patsubst %, $(SRCDIR)/%, $(VARINT) $(TEXT) $(INDEX) $(REDIS) \
-	$(UTILOBJS) $(RMUTILOBJS) $(EXTOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP))
+MODULE=$(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) \
+	$(EXTOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP)
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
