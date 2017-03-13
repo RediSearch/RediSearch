@@ -348,7 +348,10 @@
 <p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
 <p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be atuomated.</p>
 <p>Here is an example of an extension initialization function:</p>
-<pre><code class="c">int MyExtensionInit(RSExtensionCtx *ctx) {
+<pre><code class="c">
+#include &lt;redisearch.h&gt; //must be in the include path
+
+int MyExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register  a scoring function with an alias my_scorer and no special private data and free function */
   if (ctx-&gt;RegisterScoringFunction(&quot;my_scorer&quot;, MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
@@ -374,7 +377,9 @@ e.g.:</p>
 <h1 id="the-query-expander-api">The Query Expander API</h1>
 <p>At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.</p>
 <p>The API for an expander is the following:</p>
-<pre><code class="c">void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+
+void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     ...
 }
 </code></pre>
@@ -458,14 +463,18 @@ redis is single threaded - it is important that it works as fast as possible and
 <p>This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. </p>
 <h1 id="example-query-expander">Example Query Expander</h1>
 <p>This example query expander expands each token with the the term foo:</p>
-<pre><code class="c">void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+
+void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     ctx-&gt;ExpandToken(ctx, strdup(&quot;foo&quot;), strlen(&quot;foo&quot;), 0x1337);  
 }
 </code></pre>
 
 <h1 id="example-scoring-function">Example Scoring Function</h1>
 <p>This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:</p>
-<pre><code class="c">double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+<pre><code class="c">#include &lt;redisearch.h&gt; //must be in the include path
+
+double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
   // no need to evaluate documents with score 0 
   if (dmd-&gt;score == 0) return 0;
