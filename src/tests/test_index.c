@@ -576,7 +576,7 @@ int testDocTable() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
@@ -594,6 +594,4 @@ int main(int argc, char **argv) {
   TESTFUNC(testIndexSpec);
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
-
-  return 0;
-}
+});

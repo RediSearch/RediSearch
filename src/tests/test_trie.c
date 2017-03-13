@@ -13,8 +13,7 @@
 
 int count = 0;
 
-FilterCode stepFilter(unsigned char b, void *ctx, int *matched,
-                      void *matchCtx) {
+FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) {
   return F_CONTINUE;
 }
 // void *stepFilter(char b, void *ctx, void *stackCtx) {
@@ -42,11 +41,11 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched,
 
 int __trie_add(TrieNode **n, char *str, float sc, TrieAddOp op) {
   size_t rlen;
-  rune *runes = strToRunes(str, &rlen); 
-  
-   int rc = TrieNode_Add(n, runes, rlen, sc, op);
-   free(runes);
-   return rc;
+  rune *runes = strToRunes(str, &rlen);
+
+  int rc = TrieNode_Add(n, runes, rlen, sc, op);
+  free(runes);
+  return rc;
 }
 
 int testRuneUtil() {
@@ -64,7 +63,7 @@ int testRuneUtil() {
   char *backToStr = runesToStr(expectedRunes, 2, &backToStrLen);
   ASSERT_STRING_EQ(str, backToStr);
   free(backToStr);
-  
+
   // convert from string to runes
   size_t unicodeLen;
   rune expectedUnicodeRunes[5] = {216, 8719, 960, 229, 197};
@@ -93,7 +92,7 @@ int testRuneUtil() {
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
   rune *foldedUnicodeRunes = strToFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
-  ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]); 
+  ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]);
   ASSERT_EQUAL(foldedUnicodeLen, 5);
   ASSERT_EQUAL(foldedUnicodeRunes[0], 248);
   ASSERT_EQUAL(foldedUnicodeRunes[1], 8719);
@@ -115,8 +114,7 @@ int testTrie() {
   int rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
   rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
-  ASSERT_EQUAL(0,
-                   rc); // the second insert of the same term should result in 0
+  ASSERT_EQUAL(0, rc);  // the second insert of the same term should result in 0
   rc = __trie_add(&root, "help", 2, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
 
@@ -131,7 +129,7 @@ int testTrie() {
 
   // replace the score
   __trie_add(&root, "helter skelter", 6, ADD_REPLACE);
-  
+
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 6);
 
@@ -140,13 +138,12 @@ int testTrie() {
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 12);
 
-
-  rc = TrieNode_Delete(root,  runes, rlen);
+  rc = TrieNode_Delete(root, runes, rlen);
   ASSERT(rc == 1);
-  rc = TrieNode_Delete(root,  runes, rlen);
+  rc = TrieNode_Delete(root, runes, rlen);
   ASSERT(rc == 0);
   sc = TrieNode_Find(root, runes, rlen);
-  
+
   ASSERT(sc == 0);
 
   TrieNode_Free(root);
@@ -193,8 +190,7 @@ int testDFAFilter() {
   int i = 0;
   while ((read = getline(&line, &len, fp)) != -1) {
     char *sep = strchr(line, ',');
-    if (!sep)
-      continue;
+    if (!sep) continue;
 
     *sep = 0;
     double score = atof(sep + 1) + 1;
@@ -213,13 +209,21 @@ int testDFAFilter() {
 
   fclose(fp);
 
-  if (line)
-    free(line);
+  if (line) free(line);
 
   printf("loaded %d entries\n", i);
 
-  char *terms[] = {"DostOEvsky", "dostoevski", "cbs",     "cbxs", "gangsta",
-                   "geNGsta",    "jezebel",    "hezebel", "\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d", "\xd7\xa9\xd7\x97\xd7\x95\xd7\x9d", NULL};
+  char *terms[] = {"DostOEvsky",
+                   "dostoevski",
+                   "cbs",
+                   "cbxs",
+                   "gangsta",
+                   "geNGsta",
+                   "jezebel",
+                   "hezebel",
+                   "\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d",
+                   "\xd7\xa9\xd7\x97\xd7\x95\xd7\x9d",
+                   NULL};
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   unsigned long long totalns = 0;
@@ -256,7 +260,7 @@ int testDFAFilter() {
 
   char *prefixes[] = {"dos", "cb", "gang", "jez", "של", "שח", NULL};
   for (i = 0; prefixes[i] != NULL; i++) {
-    //printf("prefix %d: %s\n", i, prefixes[i]);
+    // printf("prefix %d: %s\n", i, prefixes[i]);
     runes = strToRunes(prefixes[i], &rlen);
     DFAFilter fc = NewDFAFilter(runes, rlen, 1, 1);
 
@@ -288,9 +292,9 @@ int testDFAFilter() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
   TESTFUNC(testRuneUtil);
   TESTFUNC(testDFAFilter);
   TESTFUNC(testTrie);
   TESTFUNC(testUnicode);
-}
+});

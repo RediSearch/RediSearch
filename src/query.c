@@ -296,6 +296,9 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   /* Get the scorer - falling back to TF-IDF scoring if not found */
+  ret->scorer = NULL;
+  ret->scorerCtx.privdata = NULL;
+  ret->scorerFree = NULL;
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
   if (!scx) {
@@ -322,25 +325,6 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   return ret;
 }
 
-// QueryNode *__queryNode_Expand(Query *q, QueryExpander *e, QueryNode *n) {
-//   QueryNode *xn = e->Expand(e->ctx, q, n);
-//   if (xn) {
-//     / printf("expanded node %p!\n", xn);
-//     //__queryNode_Print(xn, 0);
-//     return xn;
-//   }
-
-//   if (n->type == QN_PHRASE) {
-//     for (int i = 0; i < n->pn.numChildren; i++) {
-//       n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
-//     }
-//   } else if (n->type == QN_UNION) {
-//     for (int i = 0; i < n->pn.numChildren; i++) {
-//       n->pn.children[i] = __queryNode_Expand(q, e, n->pn.children[i]);
-//     }
-//   }
-//   return n;
-// }
 
 void _queryNode_expand(Query *q, QueryNode **pqn) {
   RSToken tok;

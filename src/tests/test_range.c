@@ -111,10 +111,9 @@ int benchmarkNumericRangeTree() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testNumericRangeTree);
   TESTFUNC(testRangeIterator);
   benchmarkNumericRangeTree();
-  return 0;
-}
+});

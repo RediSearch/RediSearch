@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS ?= -g -O0 -fPIC -lc -lm -std=gnu99 -I./ 
+CFLAGS ?= -g -O0 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o\
@@ -27,10 +27,15 @@ CC=gcc
 
 stemmer: test_stemmer.o
 	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm
-
 test_stemmer: 
 	@(sh -c ./test_stemmer)
 .PHONY: test_stemmer
+
+extensions: test_extensions.o
+	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) -lc -lm
+test_extensions:
+	@(sh -c ./test_extensions)
+.PHONY: test_extensions
 
 trie: test_trie.o
 	$(CC) $(CFLAGS)  -o test_trie test_trie.o $ $(DEPS) -lc -lm

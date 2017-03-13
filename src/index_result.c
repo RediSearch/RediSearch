@@ -133,9 +133,9 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator **iters, uint32_t *positio
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = RSOffsetIterator_Next(iters[i]);
-        printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
@@ -203,8 +203,8 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator **iters, uint32_t *posit
     min = _arrayMin(positions, num, &minPos);
     if (min != max) {
       int span = (int)max - (int)min - (num - 1);
-      printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
-             minPos, maxPos, span);
+      // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
+      //        minPos, maxPos, span);
       if (span <= maxSlop) {
         return 1;
       }

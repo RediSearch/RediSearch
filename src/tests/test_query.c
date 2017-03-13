@@ -152,11 +152,12 @@ void benchmarkQueryParser() {
   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
 }
 
-int main(int argc, char **argv) {
+TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
   // TESTFUNC(testQueryExpander);
 
-  benchmarkQueryParser();
-}
+  //  benchmarkQueryParser();
+
+});
