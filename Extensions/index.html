@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -74,10 +76,6 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
-              
-                <span class="md-header-nav__parent">
-                  Reference
-                </span>
               
             
             Extension API
@@ -138,16 +136,14 @@
       
         
 
-  
-
-<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+<nav class="md-tabs" data-md-component="tabs">
   <div class="md-tabs__inner md-grid">
     <ul class="md-tabs__list">
       
         
   <li class="md-tabs__item">
     
-      <a href=".." title="Home" class="md-tabs__link">
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
         Home
       </a>
     
@@ -159,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -254,27 +249,6 @@
       
       
 
-  
-
-
-  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -282,46 +256,10 @@
     </a>
   </li>
 
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
-      Stemming Support
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
-  </li>
-
-        
-          
-          
-          
+    
+      
+      
+      
 
   
 
@@ -333,15 +271,167 @@
       
     
     
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Extension API
+      </label>
+    
     <a href="./" title="Extension API" class="md-nav__link md-nav__link--active">
       Extension API
     </a>
     
-  </li>
-
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#registering-extensions" title="Registering Extensions" class="md-nav__link">
+    Registering Extensions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calling-your-custom-functions" title="Calling your custom functions" class="md-nav__link">
+    Calling your custom functions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-query-expander-api" title="The Query Expander API" class="md-nav__link">
+    The Query Expander API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rsqueryexpanderctx" title="RSQueryExpanderCtx" class="md-nav__link">
+    RSQueryExpanderCtx
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rstoken" title="RSToken" class="md-nav__link">
+    RSToken
+  </a>
+  
+</li>
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-scoring-function-api" title="The Scoring Function API" class="md-nav__link">
+    The Scoring Function API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rsscoringfunctionctx" title="RSScoringFunctionCtx" class="md-nav__link">
+    RSScoringFunctionCtx
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsindexresult" title="RSIndexResult" class="md-nav__link">
+    RSIndexResult
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsdocumentmetadata" title="RSDocumentMetadata" class="md-nav__link">
+    RSDocumentMetadata
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-query-expander" title="Example Query Expander" class="md-nav__link">
+    Example Query Expander
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-scoring-function" title="Example Scoring Function" class="md-nav__link">
+    Example Scoring Function
+  </a>
+  
+</li>
+      
+      
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
   </li>
 
     
@@ -362,6 +452,102 @@
     
   
   
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#registering-extensions" title="Registering Extensions" class="md-nav__link">
+    Registering Extensions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calling-your-custom-functions" title="Calling your custom functions" class="md-nav__link">
+    Calling your custom functions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-query-expander-api" title="The Query Expander API" class="md-nav__link">
+    The Query Expander API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rsqueryexpanderctx" title="RSQueryExpanderCtx" class="md-nav__link">
+    RSQueryExpanderCtx
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rstoken" title="RSToken" class="md-nav__link">
+    RSToken
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-scoring-function-api" title="The Scoring Function API" class="md-nav__link">
+    The Scoring Function API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rsscoringfunctionctx" title="RSScoringFunctionCtx" class="md-nav__link">
+    RSScoringFunctionCtx
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsindexresult" title="RSIndexResult" class="md-nav__link">
+    RSIndexResult
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsdocumentmetadata" title="RSDocumentMetadata" class="md-nav__link">
+    RSDocumentMetadata
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-query-expander" title="Example Query Expander" class="md-nav__link">
+    Example Query Expander
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-scoring-function" title="Example Scoring Function" class="md-nav__link">
+    Example Scoring Function
+  </a>
+  
+</li>
+      
+      
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -375,14 +561,14 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="extending-redisearch">Extending RediSearch</h1>
+                <h1 id="extending-redisearch">Extending RediSearch<a class="headerlink" href="#extending-redisearch" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.</p>
 <p>There are two kinds of extension APIs at the moment: </p>
 <ol>
 <li><strong>Query Expanders</strong>, whose role is to expand query tokens (i.e. stemmers).</li>
 <li><strong>Scoring Funtions</strong>, whose role is to rank search results in query time.</li>
 </ol>
-<h1 id="registering-extensions">Registering Extensions</h1>
+<h2 id="registering-extensions">Registering Extensions<a class="headerlink" href="#registering-extensions" title="Permanent link">&para;</a></h2>
 <p>Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. </p>
 <p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
 <p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be atuomated.</p>
@@ -407,14 +593,14 @@
 </pre></div>
 
 
-<h3 id="calling-your-custom-functions">Calling your custom functions</h3>
+<h2 id="calling-your-custom-functions">Calling your custom functions<a class="headerlink" href="#calling-your-custom-functions" title="Permanent link">&para;</a></h2>
 <p>When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
 e.g.:</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH my_index &quot;foo bar&quot; EXPANDER my_expander SCORER my_scorer
 </pre></div>
 
 
-<h1 id="the-query-expander-api">The Query Expander API</h1>
+<h2 id="the-query-expander-api">The Query Expander API<a class="headerlink" href="#the-query-expander-api" title="Permanent link">&para;</a></h2>
 <p>At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.</p>
 <p>The API for an expander is the following:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
@@ -425,7 +611,7 @@ e.g.:</p>
 </pre></div>
 
 
-<h3 id="rsqueryexpanderctx">RSQueryExpanderCtx</h3>
+<h3 id="rsqueryexpanderctx">RSQueryExpanderCtx<a class="headerlink" href="#rsqueryexpanderctx" title="Permanent link">&para;</a></h3>
 <p>RSQueryExpanderCtx is a context that contains private data of the extension, and a callback method to expand the query. It is defined as:</p>
 <div class="codehilite"><pre><span></span><span class="k">typedef</span> <span class="k">struct</span> <span class="n">RSQueryExpanderCtx</span> <span class="p">{</span>
 
@@ -456,7 +642,7 @@ e.g.:</p>
 </pre></div>
 
 
-<h3 id="rstoken">RSToken</h3>
+<h3 id="rstoken">RSToken<a class="headerlink" href="#rstoken" title="Permanent link">&para;</a></h3>
 <p>RSToken represents a single query token to be expanded, and is defined as:</p>
 <div class="codehilite"><pre><span></span><span class="cm">/* A token in the query. The expanders receive query tokens and can expand the query with more query</span>
 <span class="cm"> * tokens */</span>
@@ -475,7 +661,7 @@ e.g.:</p>
 </pre></div>
 
 
-<h1 id="the-scoring-function-api">The Scoring Function API</h1>
+<h2 id="the-scoring-function-api">The Scoring Function API<a class="headerlink" href="#the-scoring-function-api" title="Permanent link">&para;</a></h2>
 <p>A scoring function receives each document being evaluated by the query, for final ranking. 
 It has access to all the query terms that brought up the document,and to metadata about the
 document such as its a-priory score, length, etc.</p>
@@ -492,19 +678,19 @@ redis is single threaded - it is important that it works as fast as possible and
 <p>RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. </p>
 <p>minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.</p>
 <p>The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.</p>
-<h2 id="rsscoringfunctionctx">RSScoringFunctionCtx</h2>
+<h3 id="rsscoringfunctionctx">RSScoringFunctionCtx<a class="headerlink" href="#rsscoringfunctionctx" title="Permanent link">&para;</a></h3>
 <p>This is an object containing the following members:</p>
 <ul>
 <li><strong>void *privdata</strong>: a pointer to an object set by the extension on initialization time.</li>
 <li><strong>RSPayload payload</strong>: A Payload object set either by the query expander or the client.</li>
 <li><strong>int GetSlop(RSIndexResult *res)</strong>: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.</li>
 </ul>
-<h2 id="rsindexresult">RSIndexResult</h2>
+<h3 id="rsindexresult">RSIndexResult<a class="headerlink" href="#rsindexresult" title="Permanent link">&para;</a></h3>
 <p>This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result.</p>
 <p>See redisearch.h for details</p>
-<h2 id="rsdocumentmetadata">RSDocumentMetadata</h2>
+<h3 id="rsdocumentmetadata">RSDocumentMetadata<a class="headerlink" href="#rsdocumentmetadata" title="Permanent link">&para;</a></h3>
 <p>This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. </p>
-<h1 id="example-query-expander">Example Query Expander</h1>
+<h2 id="example-query-expander">Example Query Expander<a class="headerlink" href="#example-query-expander" title="Permanent link">&para;</a></h2>
 <p>This example query expander expands each token with the the term foo:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
@@ -514,7 +700,7 @@ redis is single threaded - it is important that it works as fast as possible and
 </pre></div>
 
 
-<h1 id="example-scoring-function">Example Scoring Function</h1>
+<h2 id="example-scoring-function">Example Scoring Function<a class="headerlink" href="#example-scoring-function" title="Permanent link">&para;</a></h2>
 <p>This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
@@ -564,7 +750,7 @@ redis is single threaded - it is important that it works as fast as possible and
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../payloads/" title="Document Payloads" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Query_Syntax/" title="Query Syntax" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -573,11 +759,25 @@ redis is single threaded - it is important that it works as fast as possible and
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Document Payloads
+                Query Syntax
               </span>
             </div>
           </a>
         
+        
+          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Stemming Support
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
         
       </nav>
     </div>

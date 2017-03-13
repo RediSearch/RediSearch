@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -74,10 +76,6 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
-              
-                <span class="md-header-nav__parent">
-                  Reference
-                </span>
               
             
             Stemming Support
@@ -138,16 +136,14 @@
       
         
 
-  
-
-<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+<nav class="md-tabs" data-md-component="tabs">
   <div class="md-tabs__inner md-grid">
     <ul class="md-tabs__list">
       
         
   <li class="md-tabs__item">
     
-      <a href=".." title="Home" class="md-tabs__link">
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
         Home
       </a>
     
@@ -159,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -254,27 +249,6 @@
       
       
 
-  
-
-
-  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -282,10 +256,22 @@
     </a>
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Extensions/" title="Extension API" class="md-nav__link">
+      Extension API
+    </a>
+  </li>
+
+    
+      
+      
+      
 
   
 
@@ -330,10 +316,10 @@
     
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -342,33 +328,28 @@
     </a>
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Extensions/" title="Extension API" class="md-nav__link">
-      Extension API
-    </a>
-  </li>
-
-        
-      </ul>
-    </nav>
   </li>
 
     
@@ -416,14 +397,14 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Stemming.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="stemming-support">Stemming Support</h1>
+                <h1 id="stemming-support">Stemming Support<a class="headerlink" href="#stemming-support" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports stemming - that is adding the base form of a word to the index. This allows 
 the query for "going" to also return results for "go" and "gone", for example. </p>
 <p>The current stemming support is based on the Snowball stemmer library, which supports most European
 languages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif
 langauge support, please open an issue). </p>
 <p>For further details see the <a href="http://snowballstem.org/">Snowball Stemmer website</a>.</p>
-<h2 id="supported-languages">Supported languages:</h2>
+<h2 id="supported-languages">Supported languages:<a class="headerlink" href="#supported-languages" title="Permanent link">&para;</a></h2>
 <p>The following languages are supported, and can be passed to the engine 
 when indexing or querying, with lowercase letters:</p>
 <ul>
@@ -463,7 +444,7 @@ when indexing or querying, with lowercase letters:</p>
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Query_Syntax/" title="Query Syntax" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -472,7 +453,7 @@ when indexing or querying, with lowercase letters:</p>
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Query Syntax
+                Extension API
               </span>
             </div>
           </a>

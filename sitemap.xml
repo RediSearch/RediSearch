@@ -26,37 +26,51 @@
     
 
     
-        
     <url>
      <loc>http://redisearch.io/Query_Syntax/</loc>
      <lastmod>2017-03-13</lastmod>
      <changefreq>daily</changefreq>
     </url>
-        
-    <url>
-     <loc>http://redisearch.io/Stemming/</loc>
-     <lastmod>2017-03-13</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    <url>
-     <loc>http://redisearch.io/python_client/</loc>
-     <lastmod>2017-03-13</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    <url>
-     <loc>http://redisearch.io/payloads/</loc>
-     <lastmod>2017-03-13</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
+    
+
+    
     <url>
      <loc>http://redisearch.io/Extensions/</loc>
      <lastmod>2017-03-13</lastmod>
      <changefreq>daily</changefreq>
     </url>
-        
+    
+
+    
+    <url>
+     <loc>http://redisearch.io/Stemming/</loc>
+     <lastmod>2017-03-13</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
+     <loc>http://redisearch.io/python_client/</loc>
+     <lastmod>2017-03-13</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
+     <loc>http://redisearch.io/java_client/</loc>
+     <lastmod>2017-03-13</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
+     <loc>http://redisearch.io/payloads/</loc>
+     <lastmod>2017-03-13</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
     
 
 </urlset>

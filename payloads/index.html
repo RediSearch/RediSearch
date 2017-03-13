@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -74,10 +76,6 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
-              
-                <span class="md-header-nav__parent">
-                  Reference
-                </span>
               
             
             Document Payloads
@@ -138,16 +136,14 @@
       
         
 
-  
-
-<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+<nav class="md-tabs" data-md-component="tabs">
   <div class="md-tabs__inner md-grid">
     <ul class="md-tabs__list">
       
         
   <li class="md-tabs__item">
     
-      <a href=".." title="Home" class="md-tabs__link">
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
         Home
       </a>
     
@@ -159,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -254,27 +249,6 @@
       
       
 
-  
-
-
-  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -282,10 +256,22 @@
     </a>
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Extensions/" title="Extension API" class="md-nav__link">
+      Extension API
+    </a>
+  </li>
+
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -294,10 +280,10 @@
     </a>
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -306,10 +292,22 @@
     </a>
   </li>
 
-        
-          
-          
-          
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
 
   
 
@@ -366,23 +364,6 @@
   
 </nav>
     
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Extensions/" title="Extension API" class="md-nav__link">
-      Extension API
-    </a>
-  </li>
-
-        
-      </ul>
-    </nav>
   </li>
 
     
@@ -444,7 +425,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/payloads.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="document-payloads">Document Payloads</h1>
+                <h1 id="document-payloads">Document Payloads<a class="headerlink" href="#document-payloads" title="Permanent link">&para;</a></h1>
 <p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
 aggregation or scoring functions, we might want to store that data as an inline payload. 
 This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
@@ -453,14 +434,14 @@ We can add custom payloads that can be evaluated in run-time.</p>
 <p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
 of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
 if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
-<h2 id="adding-payloads-for-documents">Adding payloads for documents:</h2>
+<h2 id="adding-payloads-for-documents">Adding payloads for documents:<a class="headerlink" href="#adding-payloads-for-documents" title="Permanent link">&para;</a></h2>
 <p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
 This is done with the PAYLOAD keyword:</p>
 <div class="codehilite"><pre><span></span>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
 </pre></div>
 
 
-<h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time</h2>
+<h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time<a class="headerlink" href="#evaluating-payloads-in-query-time" title="Permanent link">&para;</a></h2>
 <p>When imlplementing a scoring function, the signature of the function exposed is:</p>
 <div class="codehilite"><pre><span></span><span class="kt">double</span> <span class="p">(</span><span class="o">*</span><span class="n">ScoringFunction</span><span class="p">)(</span><span class="n">DocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span> <span class="n">IndexResult</span> <span class="o">*</span><span class="n">h</span><span class="p">);</span>
 </pre></div>
@@ -480,7 +461,7 @@ arbitrary length:</p>
 
 <p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
 It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
-<h2 id="retrieving-payloads-from-documents">Retrieving payloads from documents</h2>
+<h2 id="retrieving-payloads-from-documents">Retrieving payloads from documents<a class="headerlink" href="#retrieving-payloads-from-documents" title="Permanent link">&para;</a></h2>
 <p>When searching, it is possible to request the document payloads from the engine. </p>
 <p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>
 <p>If <code>WITHPAYLOADS</code> is set, the payloads follow the document id in the returned result. 
@@ -515,7 +496,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../python_client/" title="Python API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../java_client/" title="Java API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -524,25 +505,11 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Python API
+                Java API
               </span>
             </div>
           </a>
         
-        
-          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
-            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
-              <span class="md-flex__ellipsis">
-                <span class="md-footer-nav__direction">
-                  Next
-                </span>
-                Extension API
-              </span>
-            </div>
-            <div class="md-flex__cell md-flex__cell--shrink">
-              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
-            </div>
-          </a>
         
       </nav>
     </div>

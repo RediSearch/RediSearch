@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -74,10 +76,6 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
-              
-                <span class="md-header-nav__parent">
-                  Reference
-                </span>
               
             
             Query Syntax
@@ -138,16 +136,14 @@
       
         
 
-  
-
-<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+<nav class="md-tabs" data-md-component="tabs">
   <div class="md-tabs__inner md-grid">
     <ul class="md-tabs__list">
       
         
   <li class="md-tabs__item">
     
-      <a href=".." title="Home" class="md-tabs__link">
+      <a href=".." title="Home" class="md-tabs__link md-tabs__link--active">
         Home
       </a>
     
@@ -159,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="./" title="Reference" class="md-tabs__link md-tabs__link--active">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -257,27 +252,6 @@
   
 
 
-  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
-  
-
-
   <li class="md-nav__item md-nav__item--active">
     
     <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
@@ -331,46 +305,10 @@
     
   </li>
 
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
-      Stemming Support
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
-  </li>
-
-        
-          
-          
-          
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -379,9 +317,52 @@
     </a>
   </li>
 
-        
-      </ul>
-    </nav>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
   </li>
 
     
@@ -442,7 +423,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Query_Syntax.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="search-query-syntax">Search Query Syntax:</h1>
+                <h1 id="search-query-syntax">Search Query Syntax:<a class="headerlink" href="#search-query-syntax" title="Permanent link">&para;</a></h1>
 <p>We support a simple syntax for complex queries with the following rules:</p>
 <ul>
 <li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
@@ -451,7 +432,7 @@
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
-<h2 id="a-few-examples">A few examples</h2>
+<h2 id="a-few-examples">A few examples<a class="headerlink" href="#a-few-examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
 <p>Simple phrase query - hello AND world</p>
@@ -489,7 +470,7 @@
 
 </li>
 </ul>
-<h3 id="technical-note">Technical Note</h3>
+<h3 id="technical-note">Technical Note<a class="headerlink" href="#technical-note" title="Permanent link">&para;</a></h3>
 <p>The query parser is built using the Lemon Parser Generator. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
                 
                   
@@ -524,13 +505,13 @@
           </a>
         
         
-          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Stemming Support
+                Extension API
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">

@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -153,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -320,71 +321,16 @@
       
 
 
-  <li class="md-nav__item md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
-
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
-      Stemming Support
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
-  </li>
-
-        
-          
-          
-          
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -393,9 +339,52 @@
     </a>
   </li>
 
-        
-      </ul>
-    </nav>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
   </li>
 
     
@@ -478,8 +467,8 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:</h1>
-<h2 id="building-and-running">Building and running:</h2>
+                <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:<a class="headerlink" href="#quick-start-guide-for-redisearch" title="Permanent link">&para;</a></h1>
+<h2 id="building-and-running">Building and running:<a class="headerlink" href="#building-and-running" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
 <span class="nb">cd</span> RediSearch/src
 make all
@@ -489,19 +478,19 @@ make all
 </pre></div>
 
 
-<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):</h2>
+<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):<a class="headerlink" href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 OK 
 </pre></div>
 
 
-<h2 id="adding-documents-to-the-index">Adding documents to the index:</h2>
+<h2 id="adding-documents-to-the-index">Adding documents to the index:<a class="headerlink" href="#adding-documents-to-the-index" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
 OK
 </pre></div>
 
 
-<h2 id="searching-the-index">Searching the index:</h2>
+<h2 id="searching-the-index">Searching the index:<a class="headerlink" href="#searching-the-index" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
 1) (integer) 1
 2) &quot;doc1&quot;
@@ -517,13 +506,13 @@ OK
 <blockquote>
 <p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
 </blockquote>
-<h2 id="dropping-the-index">Dropping the index:</h2>
+<h2 id="dropping-the-index">Dropping the index:<a class="headerlink" href="#dropping-the-index" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.DROP myIdx
 OK
 </pre></div>
 
 
-<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:</h2>
+<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:<a class="headerlink" href="#adding-and-getting-auto-complete-suggestions" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
 OK
 

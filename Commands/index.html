@@ -26,6 +26,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+      
     
     
       
@@ -44,7 +46,7 @@
   
   
   
-    <body>
+    <body data-md-color-primary="indigo" data-md-color-accent="">
   
     <svg class="md-svg">
       <defs>
@@ -153,17 +155,16 @@
         
       
         
-  
-  
-    <li class="md-tabs__item">
       
-        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
-          Reference
-        </a>
+        
       
-    </li>
-  
-
+        
+      
+        
+      
+        
+      
+        
       
     </ul>
   </div>
@@ -791,71 +792,16 @@
       
 
 
-  <li class="md-nav__item md-nav__item--nested">
-    
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
-    
-    <label class="md-nav__link" for="nav-4">
-      Reference
-    </label>
-    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-4">
-        Reference
-      </label>
-      <ul class="md-nav__list" data-md-scrollfix>
-        
-        
-          
-          
-          
-
-
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
-      Stemming Support
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-        
-          
-          
-          
-
-
-  <li class="md-nav__item">
-    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
-  </li>
-
-        
-          
-          
-          
+    
+      
+      
+      
 
 
   <li class="md-nav__item">
@@ -864,9 +810,52 @@
     </a>
   </li>
 
-        
-      </ul>
-    </nav>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
   </li>
 
     
@@ -1420,19 +1409,19 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
                 
                 
-                <h1 id="rediseach-full-command-documentation">RediSeach Full Command Documentation</h1>
-<h2 id="ftcreate">FT.CREATE</h2>
-<h3 id="format">Format:</h3>
+                <h1 id="rediseach-full-command-documentation">RediSeach Full Command Documentation<a class="headerlink" href="#rediseach-full-command-documentation" title="Permanent link">&para;</a></h1>
+<h2 id="ftcreate">FT.CREATE<a class="headerlink" href="#ftcreate" title="Permanent link">&para;</a></h2>
+<h3 id="format">Format:<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
 </pre></div>
 
 
-<h3 id="description">Description:</h3>
+<h3 id="description">Description:<a class="headerlink" href="#description" title="Permanent link">&para;</a></h3>
 <p>Creates an index with the given spec. The index name will be used in all the key names
 so keep it short!</p>
-<h3 id="parameters">Parameters:</h3>
+<h3 id="parameters">Parameters:<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>index</strong>: the index name to create. If it exists the old spec will be overwritten</p>
@@ -1451,13 +1440,13 @@ so keep it short!</p>
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
 </li>
 </ul>
-<h3 id="complexity">Complexity</h3>
+<h3 id="complexity">Complexity<a class="headerlink" href="#complexity" title="Permanent link">&para;</a></h3>
 <p>O(1)</p>
-<h3 id="returns">Returns:</h3>
+<h3 id="returns">Returns:<a class="headerlink" href="#returns" title="Permanent link">&para;</a></h3>
 <p>OK or an error</p>
 <hr />
-<h2 id="ftadd">FT.ADD</h2>
-<h3 id="format_1">Format:</h3>
+<h2 id="ftadd">FT.ADD<a class="headerlink" href="#ftadd" title="Permanent link">&para;</a></h2>
+<h3 id="format_1">Format:<a class="headerlink" href="#format_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.ADD {index} {docId} {score} 
   [NOSAVE]
   [REPLACE]
@@ -1467,9 +1456,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 </pre></div>
 
 
-<h3 id="description_1">Description</h3>
+<h3 id="description_1">Description<a class="headerlink" href="#description_1" title="Permanent link">&para;</a></h3>
 <p>Add a documet to the index.</p>
-<h3 id="parameters_1">Parameters:</h3>
+<h3 id="parameters_1">Parameters:<a class="headerlink" href="#parameters_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
@@ -1510,20 +1499,20 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
 "russian", "spanish",   "swedish", "tamil",     "turkish"</p>
 </blockquote>
-<h3 id="complexity_1">Complexity</h3>
+<h3 id="complexity_1">Complexity<a class="headerlink" href="#complexity_1" title="Permanent link">&para;</a></h3>
 <p>O(n), where n is the number of tokens in the document</p>
-<h3 id="returns_1">Returns</h3>
+<h3 id="returns_1">Returns<a class="headerlink" href="#returns_1" title="Permanent link">&para;</a></h3>
 <p>OK on success, or an error if something went wrong.</p>
 <hr />
-<h2 id="ftaddhash">FT.ADDHASH</h2>
-<h3 id="format_2">Format</h3>
+<h2 id="ftaddhash">FT.ADDHASH<a class="headerlink" href="#ftaddhash" title="Permanent link">&para;</a></h2>
+<h3 id="format_2">Format<a class="headerlink" href="#format_2" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span> <span class="n">FT</span><span class="p">.</span><span class="n">ADDHASH</span> <span class="p">{</span><span class="n">index</span><span class="p">}</span> <span class="p">{</span><span class="n">docId</span><span class="p">}</span> <span class="p">{</span><span class="n">score</span><span class="p">}</span> <span class="p">[</span><span class="n">LANGUAGE</span> <span class="n">language</span><span class="p">]</span> <span class="p">[</span><span class="n">REPLACE</span><span class="p">]</span>
 </pre></div>
 
 
-<h3 id="description_2">Description</h3>
+<h3 id="description_2">Description<a class="headerlink" href="#description_2" title="Permanent link">&para;</a></h3>
 <p>Add a documet to the index from an existing HASH key in Redis.</p>
-<h3 id="parameters_2">Parameters:</h3>
+<h3 id="parameters_2">Parameters:<a class="headerlink" href="#parameters_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
@@ -1550,18 +1539,18 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
 "russian", "spanish",   "swedish", "tamil",     "turkish"</p>
 </blockquote>
-<h3 id="complexity_2">Complexity</h3>
+<h3 id="complexity_2">Complexity<a class="headerlink" href="#complexity_2" title="Permanent link">&para;</a></h3>
 <p>O(n), where n is the number of tokens in the document</p>
-<h3 id="returns_2">Returns</h3>
+<h3 id="returns_2">Returns<a class="headerlink" href="#returns_2" title="Permanent link">&para;</a></h3>
 <p>OK on success, or an error if something went wrong.</p>
 <hr />
-<h2 id="ftinfo">FT.INFO</h2>
-<h3 id="format_3">Format</h3>
+<h2 id="ftinfo">FT.INFO<a class="headerlink" href="#ftinfo" title="Permanent link">&para;</a></h2>
+<h3 id="format_3">Format<a class="headerlink" href="#format_3" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.INFO {index} 
 </pre></div>
 
 
-<h3 id="description_3">Description</h3>
+<h3 id="description_3">Description<a class="headerlink" href="#description_3" title="Permanent link">&para;</a></h3>
 <p>Return information and statistics on the index. Returned values include:</p>
 <ul>
 <li>Number of documents.</li>
@@ -1613,17 +1602,17 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 </pre></div>
 
 
-<h3 id="parameters_3">Parameters</h3>
+<h3 id="parameters_3">Parameters<a class="headerlink" href="#parameters_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="complexity_3">Complexity</h3>
+<h3 id="complexity_3">Complexity<a class="headerlink" href="#complexity_3" title="Permanent link">&para;</a></h3>
 <p>O(1)</p>
-<h3 id="returns_3">Returns</h3>
+<h3 id="returns_3">Returns<a class="headerlink" href="#returns_3" title="Permanent link">&para;</a></h3>
 <p>Array Response. A nested array of keys and values.</p>
 <hr />
-<h2 id="ftsearch">FT.SEARCH</h2>
-<h3 id="format_4">Format</h3>
+<h2 id="ftsearch">FT.SEARCH<a class="headerlink" href="#ftsearch" title="Permanent link">&para;</a></h2>
+<h3 id="format_4">Format<a class="headerlink" href="#format_4" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
@@ -1637,9 +1626,9 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 </pre></div>
 
 
-<h3 id="description_4">Description</h3>
+<h3 id="description_4">Description<a class="headerlink" href="#description_4" title="Permanent link">&para;</a></h3>
 <p>Search the index with a textual query, returning either documents or just ids.</p>
-<h3 id="parameters_4">Parameters</h3>
+<h3 id="parameters_4">Parameters<a class="headerlink" href="#parameters_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 <li><strong>query</strong>: the text query to search. If it's more than a single word, put it in quotes.
@@ -1672,52 +1661,52 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <li><strong>WITHPAYLOADS</strong>: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if <code>WITHSCORES</code> was set, follow the scores.</li>
 </ul>
-<h3 id="complexity_4">Complexity</h3>
+<h3 id="complexity_4">Complexity<a class="headerlink" href="#complexity_4" title="Permanent link">&para;</a></h3>
 <p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>
 <p>Complexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.</p>
-<h3 id="returns_4">Returns</h3>
+<h3 id="returns_4">Returns<a class="headerlink" href="#returns_4" title="Permanent link">&para;</a></h3>
 <p><strong>Array reply,</strong> where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. </p>
 <p>If <strong>NOCONTENT</strong> was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.</p>
 <hr />
-<h2 id="ftdel">FT.DEL</h2>
-<h3 id="format_5">Format</h3>
+<h2 id="ftdel">FT.DEL<a class="headerlink" href="#ftdel" title="Permanent link">&para;</a></h2>
+<h3 id="format_5">Format<a class="headerlink" href="#format_5" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.DEL {index} {doc_id}
 </pre></div>
 
 
-<h3 id="description_5">Description</h3>
+<h3 id="description_5">Description<a class="headerlink" href="#description_5" title="Permanent link">&para;</a></h3>
 <p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
 <p>After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.</p>
 <p><strong>NOTE</strong>: This does not actually delete the document from the index, just marks it as deleted. 
 Thus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.</p>
-<h3 id="parameters_5">Parameters</h3>
+<h3 id="parameters_5">Parameters<a class="headerlink" href="#parameters_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 <li><strong>doc_id</strong>: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.</li>
 </ul>
-<h3 id="complexity_5">Complexity</h3>
+<h3 id="complexity_5">Complexity<a class="headerlink" href="#complexity_5" title="Permanent link">&para;</a></h3>
 <p>O(1)</p>
-<h3 id="returns_5">Returns</h3>
+<h3 id="returns_5">Returns<a class="headerlink" href="#returns_5" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: 1 if the document was deleted, 0 if not.</p>
 <hr />
-<h2 id="ftdrop">FT.DROP</h2>
-<h3 id="format_6">Format</h3>
+<h2 id="ftdrop">FT.DROP<a class="headerlink" href="#ftdrop" title="Permanent link">&para;</a></h2>
+<h3 id="format_6">Format<a class="headerlink" href="#format_6" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.DROP {index}
 </pre></div>
 
 
-<h3 id="description_6">Description</h3>
+<h3 id="description_6">Description<a class="headerlink" href="#description_6" title="Permanent link">&para;</a></h3>
 <p>Deletes all the keys associated with the index. </p>
 <p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.</p>
-<h3 id="parameters_6">Parameters</h3>
+<h3 id="parameters_6">Parameters<a class="headerlink" href="#parameters_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_6">Returns</h3>
+<h3 id="returns_6">Returns<a class="headerlink" href="#returns_6" title="Permanent link">&para;</a></h3>
 <p>Status Reply: OK on success.</p>
 <hr />
-<h2 id="ftoptimize">FT.OPTIMIZE</h2>
+<h2 id="ftoptimize">FT.OPTIMIZE<a class="headerlink" href="#ftoptimize" title="Permanent link">&para;</a></h2>
 <p>Format</p>
 <div class="codehilite"><pre><span></span>FT.OPTIMIZE {index}
 </pre></div>
@@ -1728,41 +1717,41 @@ that the index specification is not deleted.</p>
 we can optimize memory consumption by trimming all index buffers to their actual size.</p>
 <p><strong>Warning 1</strong>: Do not run it if you intend to update your index afterward.</p>
 <p><strong>Warning 2</strong>: This blocks redis for a long time. Do not run it on production instances</p>
-<h3 id="parameters_7">Parameters</h3>
+<h3 id="parameters_7">Parameters<a class="headerlink" href="#parameters_7" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
 </ul>
-<h3 id="returns_7">Returns:</h3>
+<h3 id="returns_7">Returns:<a class="headerlink" href="#returns_7" title="Permanent link">&para;</a></h3>
 <p>Integer Reply - the number of index entries optimized.</p>
 <hr />
-<h2 id="ftsuggadd">FT.SUGGADD</h2>
-<h3 id="format_7">Format</h3>
+<h2 id="ftsuggadd">FT.SUGGADD<a class="headerlink" href="#ftsuggadd" title="Permanent link">&para;</a></h2>
+<h3 id="format_7">Format<a class="headerlink" href="#format_7" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SUGADD {key} {string} {score} [INCR]
 </pre></div>
 
 
-<h3 id="description_7">Description</h3>
+<h3 id="description_7">Description<a class="headerlink" href="#description_7" title="Permanent link">&para;</a></h3>
 <p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestino dictionaries to the user.</p>
-<h3 id="parameters_8">Parameters</h3>
+<h3 id="parameters_8">Parameters<a class="headerlink" href="#parameters_8" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the suggestion string we index</li>
 <li><strong>score</strong>: a floating point number of the suggestion string's weight</li>
 <li><strong>INCR</strong>: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time</li>
 </ul>
-<h3 id="returns_8">Returns:</h3>
+<h3 id="returns_8">Returns:<a class="headerlink" href="#returns_8" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
-<h2 id="ftsugget">FT.SUGGET</h2>
-<h3 id="format_8">Format</h3>
+<h2 id="ftsugget">FT.SUGGET<a class="headerlink" href="#ftsugget" title="Permanent link">&para;</a></h2>
+<h3 id="format_8">Format<a class="headerlink" href="#format_8" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="n">SUGGET</span> <span class="p">{</span><span class="n">key</span><span class="p">}</span> <span class="p">{</span><span class="n">prefix</span><span class="p">}</span> <span class="p">[</span><span class="n">FUZZY</span><span class="p">]</span> <span class="p">[</span><span class="n">MAX</span> <span class="n">num</span><span class="p">]</span>
 </pre></div>
 
 
-<h3 id="description_8">Description</h3>
+<h3 id="description_8">Description<a class="headerlink" href="#description_8" title="Permanent link">&para;</a></h3>
 <p>Get completion suggestions for a prefix</p>
-<h3 id="parameters_9">Parameters:</h3>
+<h3 id="parameters_9">Parameters:<a class="headerlink" href="#parameters_9" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>prefix</strong>: the prefix to complete on</li>
@@ -1771,38 +1760,38 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be
   used to merge results from multiple instances</li>
 </ul>
-<h3 id="returns_9">Returns:</h3>
+<h3 id="returns_9">Returns:<a class="headerlink" href="#returns_9" title="Permanent link">&para;</a></h3>
 <p>Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry</p>
 <hr />
-<h2 id="ftsugdel">FT.SUGDEL</h2>
-<h3 id="format_9">Format</h3>
+<h2 id="ftsugdel">FT.SUGDEL<a class="headerlink" href="#ftsugdel" title="Permanent link">&para;</a></h2>
+<h3 id="format_9">Format<a class="headerlink" href="#format_9" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SUGDEL {key} {string}
 </pre></div>
 
 
-<h3 id="description_9">Description</h3>
+<h3 id="description_9">Description<a class="headerlink" href="#description_9" title="Permanent link">&para;</a></h3>
 <p>Delete a string from a suggestion index. </p>
-<h3 id="parameters_10">Parameters</h3>
+<h3 id="parameters_10">Parameters<a class="headerlink" href="#parameters_10" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 <li><strong>string</strong>: the string to delete</li>
 </ul>
-<h3 id="returns_10">Returns:</h3>
+<h3 id="returns_10">Returns:<a class="headerlink" href="#returns_10" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: 1 if the string was found and deleted, 0 otherwise.</p>
 <hr />
-<h2 id="ftsuglen">FT.SUGLEN</h2>
+<h2 id="ftsuglen">FT.SUGLEN<a class="headerlink" href="#ftsuglen" title="Permanent link">&para;</a></h2>
 <p>Format</p>
 <div class="codehilite"><pre><span></span>FT.SUGLEN {key}
 </pre></div>
 
 
-<h3 id="description_10">Description</h3>
+<h3 id="description_10">Description<a class="headerlink" href="#description_10" title="Permanent link">&para;</a></h3>
 <p>Get the size of an autoc-complete suggestion dictionary</p>
-<h3 id="parameters_11">Parameters</h3>
+<h3 id="parameters_11">Parameters<a class="headerlink" href="#parameters_11" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
 </ul>
-<h3 id="returns_11">Returns:</h3>
+<h3 id="returns_11">Returns:<a class="headerlink" href="#returns_11" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
                 
                   
