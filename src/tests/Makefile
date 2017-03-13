@@ -2,6 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
+
 CFLAGS ?= -g -O0 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
@@ -65,10 +66,10 @@ test_range: range
 	@(sh -c ./test_range)
 .PHONY: test_range
 
-build: stemmer trie index range
+build: stemmer trie index range extensions query
 
 	
-test: test_index test_stemmer test_trie	 test_range
+test: test_index test_stemmer test_trie	 test_range test_extensions test_query
 
 all: build test
 

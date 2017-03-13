@@ -82,9 +82,7 @@ int testQueryExpander() {
 
   const char *qt = "hello world";
   char *err = NULL;
-  Query *NewQuery(RedisSearchCtx * ctx, const char *query, size_t len, int offset, int limit,
-                  u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
-                  const char *expander, int maxSlop, int inOrder, const char *scorer);
+
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, "myExpander",
                       -1, 0, "myScorer");
 
@@ -111,7 +109,6 @@ int testQueryExpander() {
   Query_Free(q);
   ASSERT_EQUAL(2, numFreed);
   RETURN_TEST_SUCCESS;
-  
 }
 
 TEST_MAIN({
