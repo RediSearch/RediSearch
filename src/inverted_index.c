@@ -3,7 +3,6 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
-
 #include "rmalloc.h"
 
 #define INDEX_BLOCK_SIZE 100
@@ -90,7 +89,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     blk->firstId = ent->docId;
   }
   size_t ret = 0;
-  
+
   RSOffsetVector offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
 
   BufferWriter bw = NewBufferWriter(&blk->data);
@@ -102,8 +101,8 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
   // int quantizedScore =
   //     floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
 
-  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq,
-                     offsets.len, &offsets);
+  ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq, offsets.len,
+                     &offsets);
 
   idx->lastId = ent->docId;
   blk->lastId = ent->docId;
@@ -390,17 +389,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fie
   ret->docTable = docTable;
   ret->len = 0;
   ret->singleWordMode = singleWordMode;
-  //   // only use score index on single words, no field filter and large entries
-  //   ret->useScoreIndex = 0;
-  //   ret->scoreIndex = NULL;
-  //   if (flags & Index_StoreScoreIndexes) {
-  //     ret->useScoreIndex = sci != NULL && singleWordMode && fieldMask == 0xff &&
-  //                          ret->header.numDocs > SCOREINDEX_DELETE_THRESHOLD;
-  //     ret->scoreIndex = sci;
-  //   }
 
-  // LG_DEBUG("Load offsets %d, si: %p", singleWordMode, si);
-  //   ret->skipIdx = si;
   ret->fieldMask = fieldMask;
   ret->flags = flags;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).data);
@@ -408,11 +397,6 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fie
 }
 
 void IR_Free(IndexReader *ir) {
-  //   membufferRelease(ir->buf);
-  //   if (ir->scoreIndex) {
-  //     ScoreIndex_Free(ir->scoreIndex);
-  //   }
-  //   SkipIndex_Free(ir->skipIdx);
   Term_Free(ir->term);
   rm_free(ir);
 }

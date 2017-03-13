@@ -4,6 +4,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
+#include "rmalloc.h"
 #include <stdio.h>
 
 RedisModuleType *InvertedIndexType;
@@ -16,7 +17,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   idx->lastId = RedisModule_LoadUnsigned(rdb);
   idx->numDocs = RedisModule_LoadUnsigned(rdb);
   idx->size = RedisModule_LoadUnsigned(rdb);
-  idx->blocks = calloc(idx->size, sizeof(IndexBlock));
+  idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
