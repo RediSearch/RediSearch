@@ -18,6 +18,9 @@ Right now, it is necessary to call these init functions explicitly in `module.c`
 Here is an example of an extension initialization function:
 
 ```c
+
+#include <redisearch.h> //must be in the include path
+
 int MyExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register  a scoring function with an alias my_scorer and no special private data and free function */
@@ -51,6 +54,8 @@ At the moment, we only support basic query expansion, one token at a time. An ex
 The API for an expander is the following:
 
 ```c
+#include <redisearch.h> //must be in the include path
+
 void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     ...
 }
@@ -162,6 +167,8 @@ This is an object describing global information, unrelated to the current query,
 This example query expander expands each token with the the term foo:
 
 ```c
+#include <redisearch.h> //must be in the include path
+
 void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     ctx->ExpandToken(ctx, strdup("foo"), strlen("foo"), 0x1337);  
 }
@@ -172,6 +179,8 @@ void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:
 
 ```c
+#include <redisearch.h> //must be in the include path
+
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
   // no need to evaluate documents with score 0 
