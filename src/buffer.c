@@ -75,7 +75,7 @@ inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
     return 0;
   }
 
-  data = memcpy(data, br->pos, len);
+  memcpy(data, br->pos, len);
   br->pos += len;
   // b->offset += len;
 
