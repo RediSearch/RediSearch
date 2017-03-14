@@ -47,6 +47,8 @@ e.g.:
 FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
 ```
 
+**NOTE**: Expander and scorer aliases are **case sensitive**.
+
 ## The Query Expander API
 
 At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.
@@ -78,7 +80,7 @@ typedef struct RSQueryExpanderCtx {
   void *privdata;
 
   /* The language of the query, defaults to "english" */
-  cost char *language;
+  const char *language;
 
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its length,
