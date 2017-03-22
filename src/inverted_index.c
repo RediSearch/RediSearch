@@ -220,21 +220,22 @@ int IR_Read(void *ctx, RSIndexResult *e) {
 
   RSOffsetVector *offsets = NULL;
   if (!ir->singleWordMode) {
-    offsets = &ir->record.offsets;
+    offsets = &ir->record->term.offsets;
   }
   int rc;
   do {
-    rc = IR_GenericRead(ir, &ir->record.docId, &ir->record.freq, &ir->record.fieldMask, offsets);
+    rc = IR_GenericRead(ir, &ir->record->docId, &ir->record->freq, &ir->record->fieldMask, offsets);
 
     // add the record to the current result
     if (rc == INDEXREAD_OK) {
-      if (!(ir->record.fieldMask & ir->fieldMask)) {
+      if (!(ir->record->fieldMask & ir->fieldMask)) {
         continue;
       }
 
       ++ir->len;
-      ir->lastId = ir->record.docId;
-      IndexResult_PutRecord(e, &ir->record);
+      ir->lastId = ir->record->docId;
+      AggregateResult_AddChild(e, ir->record);
+      
 
       // printf("IR LOOP %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId,
       // ir->lastId,rc);
@@ -384,7 +385,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fie
     ret->term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
   }
 
-  ret->record = (RSIndexRecord){.term = term};
+  ret->record = NewTokenRecord(term);
   ret->lastId = 0;
   ret->docTable = docTable;
   ret->len = 0;

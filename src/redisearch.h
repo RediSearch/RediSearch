@@ -120,7 +120,7 @@ typedef void (*RSFreeFunction)(void *);
 
 /* RS_OFFSETVECTOR_EOF is returned from an RSOffsetIterator when calling next and reaching the end.
  * When calling the iterator you should check for this return value */
-#define RS_OFFSETVECTOR_EOF (uint32_t) - 1
+#define RS_OFFSETVECTOR_EOF UINT32_MAX
 
 /* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
  * by iterating over it with RSOffsetVector_Iterate */
@@ -129,23 +129,13 @@ typedef struct {
   size_t len;
 } RSOffsetVector;
 
-#ifndef __RS_OFFSET_VECTOR_H__
-/* Forward declaration of the offset vector iterator, implemented internally */
-typedef struct RSOffsetIterator RSOffsetIterator;
-#endif
-
-/* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
-RSOffsetIterator *RSOffsetVector_Iterate(RSOffsetVector *v);
-
-/* Get the next value in an offset vector and advance the iterator. If we've reached the end of the
- * vector, RS_OFFSETVECTOR_EOF is returned */
-uint32_t RSOffsetIterator_Next(RSOffsetIterator *vi);
-
-/* Free an iterator object after we are done reading it */
-void RSOffsetIterator_Free(RSOffsetIterator *it);
-
-/* Rewind an offset vector iterator and start reading it from the beginning. */
-void RSOffsetIterator_Rewind(RSOffsetIterator *it);
+/* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
+typedef struct RSOffsetIterator {
+  void *ctx;
+  uint32_t (*Next)(void *ctx);
+  void (*Rewind)(void *ctx);
+  void (*Free)(void *ctx);
+} RSOffsetIterator;
 
 /* A single term being evaluated in query time */
 typedef struct {
@@ -163,39 +153,45 @@ typedef struct {
 /* RSIndexRecord represents a single record of a document inside a term in the inverted index */
 typedef struct {
 
-  /* The internal document id, not the user given key. We use incremental ids internally */
-  t_docId docId;
   /* The term that brought up this record */
   RSQueryTerm *term;
-  /* The frequency of the term in the document, un-normalized */
-  uint32_t freq;
-  /* Field mask - each text field is applied an id which is a power of 2. Thus we can filter out
-   * results per field using a mask */
-  uint32_t fieldMask;
+
   /* The encoded offsets in which the term appeared in the document */
   RSOffsetVector offsets;
 
-} RSIndexRecord;
+} RSTermRecord;
 
-/* RSIndexResult rerpresents the aggregate result of a few RSIndexRecord objects. In a single term
- * query it will have just one term, but in phrase and union queries it can have many records.
- * All members here are read-only and should NOT be changed by extensions */
+typedef enum { RSResultType_Union, RSResultType_Intersection, RSResultType_Term } RSResultType;
+
 typedef struct {
+  /* The number of child records */
+  int numChildren;
+  /* The capacity of the records array. Has no use for extensions */
+  int childrenCap;
+  /* An array of recods */
+  struct RSIndexResult **children;
+
+} RSAggregateResult;
+
+typedef struct RSIndexResult {
   /* The docuId of the result */
   t_docId docId;
-  /* The final score as processed by the scoring function */
-  double finalScore;
+
   /* the total frequency of all the records in this result */
-  uint32_t totalTF;
+  uint32_t freq;
+
   /* The aggregate field mask of all the records in this result */
   uint32_t fieldMask;
-  /* The number of records */
-  int numRecords;
-  /* The capacity of the records array. Has no use for extensions */
-  int recordsCap;
-  /* An array of recods */
-  RSIndexRecord *records;
+
+  union {
+    RSAggregateResult agg;
+    RSTermRecord term;
+  };
+  RSResultType type;
 } RSIndexResult;
+
+/* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
+RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);
 
 /* The context given to a scoring function. It includes the payload set by the user or expander, the
  * private data set by the extensionm and callback functions */

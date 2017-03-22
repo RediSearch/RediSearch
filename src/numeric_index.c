@@ -359,8 +359,9 @@ int NR_Read(void *ctx, RSIndexResult *r) {
   }
   /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
-  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
-  IndexResult_PutRecord(r, &rec);
+  it->rec.docId = it->lastDocId;
+
+  AggregateResult_AddChild(r, &it->rec);
 
   return INDEXREAD_OK;
 }
@@ -404,26 +405,6 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
   it->offset = i;
   // it->lastDocId = it->rng->entries[i].docId;
   return NR_Read(it, r);
-  // it->offset = i + 1;
-  // if (it->offset == it->rng->size) {
-  //   it->atEOF = 1;
-  // }
-
-  // it->lastDocId = it->rng->entries[i].docId;
-  // RSIndexRecord rec = {.flags = 0xFF, .docId = it->lastDocId, .tf = 0};
-  // IndexResult_PutRecord(r, &rec);
-  // // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
-  // if (it->lastDocId == docId) {
-  //   if (it->nf) {
-  //     int match = NumericFilter_Match(it->nf, it->rng->entries[i].value);
-  //     // printf("nf %f..%f, score %f. match? %d\n", it->nf->min, it->nf->max,
-  //     //     it->rng->entries[i].value, match);
-
-  //     if (!match) return INDEXREAD_NOTFOUND;
-  //   }
-  //   return INDEXREAD_OK;
-  // }
-  // return INDEXREAD_NOTFOUND;
 }
 /* the last docId read */
 t_docId NR_LastDocId(void *ctx) {
@@ -462,6 +443,13 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   it->lastDocId = 0;
   it->offset = 0;
   it->rng = nr;
+  it->rec = (RSIndexResult){.docId = 0,
+                            .fieldMask = 0xFFFFFFFF,
+                            .freq = 0,
+                            .type = RSResultType_Term,
+                            .term = (RSTermRecord){
+                                .term = NULL, .offsets = (RSOffsetVector){},
+                            }};
   ret->ctx = it;
 
   ret->Free = NR_Free;

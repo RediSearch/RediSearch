@@ -10,10 +10,10 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
                    double minScore) {
   if (dmd->score == 0) return 0;
 
-  double tfidf = 0;
-  for (int i = 0; i < h->numRecords; i++) {
-    tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
-  }
+  double tfidf = h->freq;
+  // for (int i = 0; i < h->agg.numChildren; i++) {
+  //   tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
+  // }
   tfidf *= dmd->score / (double)dmd->maxFreq;
 
   // no need to factor the distance if tfidf is already below minimal score

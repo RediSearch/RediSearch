@@ -411,13 +411,18 @@ void Query_Free(Query *q) {
   free(q);
 }
 
+typedef struct {
+  t_docId docId;
+  double score;
+} heapResult;
+
 /* Compare hits for sorting in the heap during traversal of the top N */
 static int cmpHits(const void *e1, const void *e2, const void *udata) {
-  const RSIndexResult *h1 = e1, *h2 = e2;
+  const heapResult *h1 = e1, *h2 = e2;
 
-  if (h1->finalScore < h2->finalScore) {
+  if (h1->score < h2->score) {
     return 1;
-  } else if (h1->finalScore > h2->finalScore) {
+  } else if (h1->score > h2->score) {
     return -1;
   }
   return h1->docId - h2->docId;
@@ -447,19 +452,19 @@ QueryResult *Query_Execute(Query *query) {
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpHits, NULL, num);
 
-  RSIndexResult *pooledHit = NULL;
+  heapResult *pooledHit = NULL;
   double minScore = 0;
   int numDeleted = 0;
+  RSIndexResult *r = NewIntersectResult(1);
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
     if (pooledHit == NULL) {
-      pooledHit = malloc(sizeof(RSIndexResult));
-      *pooledHit = NewIndexResult();
+      pooledHit = malloc(sizeof(heapResult));
     }
-    RSIndexResult *h = pooledHit;
-    IndexResult_Init(h);
-    int rc = it->Read(it->ctx, h);
+    heapResult *h = pooledHit;
+    AggregateResult_Reset(r);
+    int rc = it->Read(it->ctx, r);
 
     if (rc == INDEXREAD_EOF) {
       break;
@@ -467,7 +472,7 @@ QueryResult *Query_Execute(Query *query) {
       continue;
     }
 
-    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
@@ -476,31 +481,33 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    h->finalScore = query->scorer(&query->scorerCtx, h, dmd, minScore);
+    h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
+    h->docId = r->docId;
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
       pooledHit = NULL;
       if (heap_count(pq) == heap_size(pq)) {
-        RSIndexResult *minh = heap_peek(pq);
-        minScore = minh->finalScore;
+        heapResult *minh = heap_peek(pq);
+        minScore = minh->score;
       }
     } else {
-      if (h->finalScore >= minScore) {
+      if (h->score >= minScore) {
         pooledHit = heap_poll(pq);
         heap_offerx(pq, h);
 
         // get the new min score
-        RSIndexResult *minh = heap_peek(pq);
-        minScore = minh->finalScore;
+        heapResult *minh = heap_peek(pq);
+        minScore = minh->score;
       } else {
         pooledHit = h;
       }
     }
   }
 
+  IndexResult_Free(r);
   if (pooledHit) {
-    IndexResult_Free(pooledHit);
+    // IndexResult_Free(pooledHit);
     free(pooledHit);
     pooledHit = NULL;
   }
@@ -513,21 +520,18 @@ QueryResult *Query_Execute(Query *query) {
   res->results = calloc(n, sizeof(ResultEntry));
 
   for (int i = 0; i < n; ++i) {
-    RSIndexResult *h = heap_poll(pq);
+    heapResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
-      res->results[n - i - 1] = (ResultEntry){dmd->key, h->finalScore, dmd->payload};
+      res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
     }
-    IndexResult_Free(h);
-
     free(h);
   }
 
   // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
-    RSIndexResult *h = heap_poll(pq);
-    IndexResult_Free(h);
+    heapResult *h = heap_poll(pq);
     free(h);
   }
 

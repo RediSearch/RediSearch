@@ -18,8 +18,9 @@ int IL_Read(void *ctx, RSIndexResult *r) {
     it->atEOF = 1;
   }
   // TODO: Filter here
-  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
-  IndexResult_PutRecord(r, &rec);
+  it->res.docId = it->lastDocId;
+
+  AggregateResult_AddChild(r, &it->res);
 
   return INDEXREAD_OK;
 }
@@ -64,8 +65,9 @@ int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
   }
 
   it->lastDocId = it->docIds[i];
-  RSIndexRecord rec = {.fieldMask = 0xFFFFFFFF, .docId = it->lastDocId, .freq = 0};
-  IndexResult_PutRecord(r, &rec);
+  it->res.docId = it->lastDocId;
+  AggregateResult_AddChild(r, &it->res);
+
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {
     return INDEXREAD_OK;
@@ -112,6 +114,14 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   it->size = num;
   it->atEOF = 0;
   it->lastDocId = 0;
+  it->res = (RSIndexResult){.docId = 0,
+                            .fieldMask = 0xFFFFFFFF,
+                            .freq = 0,
+                            .type = RSResultType_Term,
+                            .term = (RSTermRecord){
+                                .term = NULL, .offsets = (RSOffsetVector){},
+                            }};
+
   it->offset = 0;
 
   IndexIterator *ret = rm_new(IndexIterator);

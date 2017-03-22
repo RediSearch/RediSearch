@@ -53,7 +53,7 @@ typedef struct indexReadCtx {
   int singleWordMode;
 
   size_t len;
-  RSIndexRecord record;
+  RSIndexResult *record;
   RSQueryTerm *term;
 } IndexReader;
 
