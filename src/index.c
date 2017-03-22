@@ -17,9 +17,11 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->num = num;
   ctx->docTable = dt;
   ctx->atEnd = 0;
+
   ctx->currentHits = calloc(num, sizeof(RSIndexResult));
   for (int i = 0; i < num; i++) {
-    IndexResult_Init(&ctx->currentHits[i]);
+    ctx->currentHits[i] = *NewIntersectResult(2);
+    // IndexResult_Init(&ctx->currentHits[i]);
   }
   ctx->len = 0;
   // bind the union iterator calls
@@ -43,6 +45,8 @@ int UI_Read(void *ctx, RSIndexResult *hit) {
   }
 
   int numActive = 0;
+  AggregateResult_Reset(&hit->agg);
+  hit->type = RSResultType_Union;
 
   do {
     // find the minimal iterator
@@ -80,11 +84,11 @@ int UI_Read(void *ctx, RSIndexResult *hit) {
     // take the minimum entry and yield it
     if (minIdx != -1) {
       // return UI_SkipTo(ctx, ui->currentHits[minIdx].docId, hit);
-      if (hit) {
-        AggregateResult_Reset(&hit->agg);
+      // if (hit) {
+      //   AggregateResult_Reset(&hit->agg);
 
-        AggregateResult_AddChild(hit, &ui->currentHits[minIdx]);
-      }
+      //   // AggregateResult_AddChild(hit, &ui->currentHits[minIdx]);
+      // }
       printf("UI %p read docId %d OK\n", ui, ui->currentHits[minIdx].docId);
       UI_SkipTo(ui, ui->currentHits[minIdx].docId, hit);
       // return INDEXREAD_OK;
@@ -136,7 +140,8 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
   }
   UnionContext *ui = ctx;
   printf("UI %p skipto %d\n", ui, docId);
-
+  AggregateResult_Reset(&hit->agg);
+  hit->type = RSResultType_Union;
   int n = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
@@ -167,7 +172,7 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
     // we found a hit - no need to continue
     if (rc == INDEXREAD_OK) {
       if (hit) {
-        AggregateResult_Reset(&ui->currentHits[i]);
+        // AggregateResult_Reset(&ui->currentHits[i].agg);
         AggregateResult_AddChild(hit, &ui->currentHits[i]);
       }
       ui->minDocId = hit->docId;
@@ -183,7 +188,6 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
     return INDEXREAD_EOF;
   }
   if (found > 0) {
-
     return INDEXREAD_OK;
   }
 
@@ -202,7 +206,7 @@ void UnionIterator_Free(IndexIterator *it) {
     if (ui->its[i]) {
       ui->its[i]->Free(ui->its[i]);
     }
-    IndexResult_Free(&ui->currentHits[i]);
+    // IndexResult_Free(&ui->currentHits[i]);
   }
 
   free(ui->currentHits);
@@ -222,7 +226,7 @@ void IntersectIterator_Free(IndexIterator *it) {
     if (ui->its[i] != NULL) {
       ui->its[i]->Free(ui->its[i]);
     }
-    IndexResult_Free(&ui->currentHits[i]);
+    // IndexResult_Free(&ui->currentHits[i]);
   }
 
   free(ui->currentHits);
@@ -245,7 +249,8 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt, u
   ctx->atEnd = 0;
   ctx->currentHits = calloc(num, sizeof(RSIndexResult));
   for (int i = 0; i < num; i++) {
-    IndexResult_Init(&ctx->currentHits[i]);
+    // IndexResult_Init(&ctx->currentHits[i]);
+    ctx->currentHits[i] = *(NewIntersectResult(2));
   }
   ctx->docTable = dt;
 
@@ -268,7 +273,8 @@ int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
     return II_Read(ctx, hit);
   }
   IntersectContext *ic = ctx;
-
+  AggregateResult_Reset(&hit->agg);
+  hit->type = RSResultType_Intersection;
   int nfound = 0;
 
   int rc = INDEXREAD_EOF;
@@ -279,7 +285,7 @@ int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
 
     // only read if we're not already at the final position
     if (ic->currentHits[i].docId != ic->lastDocId || ic->lastDocId == 0) {
-      AggregateResult_Reset(&ic->currentHits[i]);
+      AggregateResult_Reset(&ic->currentHits[i].agg);
       rc = it->SkipTo(it->ctx, docId, &ic->currentHits[i]);
     }
 
@@ -299,9 +305,8 @@ int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
 
   if (nfound == ic->num) {
     if (hit) {
-      AggregateResult_Reset(hit);
       for (int i = 0; i < ic->num; i++) {
-        IndexResult_AddChild(hit, &ic->currentHits[i]);
+        AggregateResult_AddChild(hit, &ic->currentHits[i]);
       }
     }
     return INDEXREAD_OK;
@@ -323,7 +328,8 @@ int II_Read(void *ctx, RSIndexResult *hit) {
   IntersectContext *ic = (IntersectContext *)ctx;
 
   if (ic->num == 0) return INDEXREAD_EOF;
-
+  AggregateResult_Reset(&hit->agg);
+  hit->type = RSResultType_Intersection;
   int nh = 0;
   int i = 0;
 
@@ -338,9 +344,7 @@ int II_Read(void *ctx, RSIndexResult *hit) {
 
       int rc = INDEXREAD_OK;
       if (h->docId != ic->lastDocId || ic->lastDocId == 0) {
-        if (h->type != RSResultType_Term) {
-          AggregateResult_Reset(h);
-        }
+
         if (i == 0 && h->docId >= ic->lastDocId) {
           rc = it->Read(it->ctx, h);
         } else {
@@ -367,9 +371,9 @@ int II_Read(void *ctx, RSIndexResult *hit) {
       // printf("II %p HIT @ %d\n", ic, ic->currentHits[0].docId);
       // sum up all hits
       if (hit != NULL) {
-        AggregateResult_Reset(hit);
+        AggregateResult_Reset(&hit->agg);
         for (int i = 0; i < nh; i++) {
-          IndexResult_AddChild(hit, &ic->currentHits[i]);
+          AggregateResult_AddChild(hit, &ic->currentHits[i]);
         }
       }
 

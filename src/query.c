@@ -463,7 +463,7 @@ QueryResult *Query_Execute(Query *query) {
       pooledHit = malloc(sizeof(heapResult));
     }
     heapResult *h = pooledHit;
-    AggregateResult_Reset(r);
+    AggregateResult_Reset(&r->agg);
     int rc = it->Read(it->ctx, r);
 
     if (rc == INDEXREAD_EOF) {
@@ -505,7 +505,7 @@ QueryResult *Query_Execute(Query *query) {
     }
   }
 
-  IndexResult_Free(r);
+//  IndexResult_Free(r);
   if (pooledHit) {
     // IndexResult_Free(pooledHit);
     free(pooledHit);

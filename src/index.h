@@ -38,6 +38,7 @@ typedef struct {
   int pos;
   size_t len;
   t_docId minDocId;
+
   RSIndexResult *currentHits;
   DocTable *docTable;
   int atEnd;
@@ -63,6 +64,7 @@ typedef struct {
   int maxSlop;
   int inOrder;
   t_docId lastDocId;
+  // RSIndexResult *result;
   RSIndexResult *currentHits;
   DocTable *docTable;
   uint32_t fieldMask;

@@ -101,11 +101,12 @@ void __aggResult_free(RSIndexResult *r) {
 }
 
 void IndexResult_Free(RSIndexResult *r) {
+  printf("IResultFree %p\n", r);
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
     rm_free(r->agg.children);
     r->agg.children = NULL;
   }
-  rm_free(r);
+  // rm_free(r);
 }
 
 #define __absdelta(x, y) (x > y ? x - y : y - x)
@@ -128,8 +129,8 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   for (int i = 1; i < num; i++) {
     // if this is not the first iteration, we take v1 from v2 and rewind it
 
-    v1 = RSIndexResult_IterateOffsets(&agg->children[i - 1]);
-    v2 = RSIndexResult_IterateOffsets(&agg->children[i - 1]);
+    v1 = RSIndexResult_IterateOffsets(agg->children[i - 1]);
+    v2 = RSIndexResult_IterateOffsets(agg->children[i]);
 
     uint32_t p1 = v1.Next(v1.ctx);
     uint32_t p2 = v2.Next(v2.ctx);
@@ -276,7 +277,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   RSOffsetIterator iters[num];
   uint32_t positions[num];
   for (int i = 0; i < num; i++) {
-    iters[i] = RSIndexResult_IterateOffsets(&r->children[i]);
+    iters[i] = RSIndexResult_IterateOffsets(r->children[i]);
     positions[i] = 0;
   }
 

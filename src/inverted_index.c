@@ -234,8 +234,8 @@ int IR_Read(void *ctx, RSIndexResult *e) {
 
       ++ir->len;
       ir->lastId = ir->record->docId;
-      AggregateResult_AddChild(e, ir->record);
-      
+      *e = *ir->record;
+      // AggregateResult_AddChild(e, ir->record);
 
       // printf("IR LOOP %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId,
       // ir->lastId,rc);
