@@ -390,6 +390,9 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       // If we need to match slop and order, we do it now, and possibly skip the result
       if (ic->maxSlop >= 0) {
         if (!IndexResult_IsWithinRange(ic->current, ic->maxSlop, ic->inOrder)) {
+          printf("Skipping due to slop: \n");
+          IndexResult_Print(ic->current, 0);
+          printf("=====\n");
           continue;
         }
       }

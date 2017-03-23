@@ -46,6 +46,11 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
 }
 
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
+  printf("Adding %p ", child);
+  IndexResult_Print(child, 0);
+  printf("to => %p ", parent);
+  IndexResult_Print(parent, 0);
+  printf("------\n");
   RSAggregateResult *agg = &parent->agg;
   if (agg->numChildren >= agg->childrenCap) {
     agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
@@ -57,7 +62,21 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
   parent->fieldMask |= child->fieldMask;
 }
 
-void IndexResult_Print(RSIndexResult *r) {
+void IndexResult_Print(RSIndexResult *r, int depth) {
+  // for (int i = 0; i < depth; i++) printf("  ");
+  if (r->type == RSResultType_Term) {
+    printf("Term{%s}, ", r->term.term ? r->term.term->str : "nil");
+    return;
+  }
+  printf("%s { ", r->type == RSResultType_Intersection ? "Inter" : "Union");
+
+  for (int i = 0; i < r->agg.numChildren; i++) {
+
+    IndexResult_Print(r->agg.children[i], depth + 1);
+  }
+  //  for (int i = 0; i < depth; i++) printf("  ");
+
+  printf("},");
 
   // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
 
@@ -165,29 +184,30 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
       // For the first iterator we always advance once
       uint32_t pos = i ? positions[i] : iters[i].Next(iters[i].ctx);
       uint32_t lastPos = i ? positions[i - 1] : 0;
+      printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = iters[i].Next(iters[i].ctx);
-        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+        printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+      printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
         return 0;
       }
+      positions[i] = pos;
 
       // add the diff from the last pos to the total span
       if (i > 0) {
         span += ((int)pos - (int)lastPos - 1);
-
+        printf("Span: %d\n", span);
         // if we are already out of slop - just quit
         if (span > maxSlop) {
           break;
         }
       }
-      positions[i] = pos;
     }
 
     if (span <= maxSlop) {

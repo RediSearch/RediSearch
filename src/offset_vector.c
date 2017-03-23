@@ -28,15 +28,19 @@ typedef struct {
   RSAggregateResult *res;
   RSOffsetIterator *iters;
   uint32_t *offsets;
+  RSResultType t;
+  t_docId docId;
 } _RSAggregateOffsetIterator;
 
 uint32_t _aoi_Next(void *ctx);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
-RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
+RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t, t_docId docId) {
   _RSAggregateOffsetIterator *it = rm_new(_RSAggregateOffsetIterator);
   it->res = agg;
+  it->t = t;
+  it->docId = docId;
   it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
   it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
 
@@ -56,7 +60,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
 
     case RSResultType_Intersection:
     case RSResultType_Union:
-      return _aggregateResult_iterate(&res->agg);
+      return _aggregateResult_iterate(&res->agg, res->type, res->docId);
       break;
   }
 }
@@ -104,7 +108,8 @@ uint32_t _aoi_Next(void *ctx) {
     it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx);
   }
   // return the minimal value - if we haven't found anything it should be EOF
-  printf("%p %d\n", it, minVal);
+  printf("%p (%s %d, %d children) %d\n", it, it->t == RSResultType_Intersection ? "inter" : "union",
+         it->docId, it->res->numChildren, minVal);
   return minVal;
 }
 

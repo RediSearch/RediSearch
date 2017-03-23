@@ -22,7 +22,7 @@ RSIndexResult *NewUnionResult(size_t cap);
 RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
-void IndexResult_Print(RSIndexResult *r);
+void IndexResult_Print(RSIndexResult *r, int depth);
 void IndexResult_Free(RSIndexResult *r);
 
 int IndexResult_MinOffsetDelta(RSIndexResult *r);
