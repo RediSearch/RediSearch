@@ -16,7 +16,7 @@ void _ovi_free(void *ctx) {
 }
 
 RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
-  _RSOffsetVectorIterator *it = rm_new(RSOffsetIterator);
+  _RSOffsetVectorIterator *it = rm_new(_RSOffsetVectorIterator);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;

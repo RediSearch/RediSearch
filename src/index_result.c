@@ -35,7 +35,7 @@ RSIndexResult *NewUnionResult(size_t cap) {
 RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Union,
+  *res = (RSIndexResult){.type = RSResultType_Term,
                          .docId = 0,
                          .fieldMask = 0,
                          .freq = 0,
@@ -139,14 +139,12 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
         p1 = v1.Next(v1.ctx);
-        ;
       } else {
         p2 = v2.Next(v2.ctx);
-        ;
       }
     }
 
-    v1.Free(v1.ctx);
+    v1.Free(v1.ctx);  
     v2.Free(v2.ctx);
 
     dist += cd * cd;

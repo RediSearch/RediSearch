@@ -19,8 +19,8 @@ int IL_Read(void *ctx, RSIndexResult *r) {
   }
   // TODO: Filter here
   it->res.docId = it->lastDocId;
-
-  AggregateResult_AddChild(r, &it->res);
+  *r = it->res;
+  // AggregateResult_AddChild(r, &it->res);
 
   return INDEXREAD_OK;
 }
@@ -66,7 +66,9 @@ int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
 
   it->lastDocId = it->docIds[i];
   it->res.docId = it->lastDocId;
-  AggregateResult_AddChild(r, &it->res);
+
+  *r = it->res;
+  // AggregateResult_AddChild(r, &it->res);
 
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {

@@ -568,6 +568,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertEqual(4, len(rc))
                 self.assertTrue(float(rc[1]) > 0)
                 self.assertTrue(float(rc[3]) > 0)
+                
 
             rc = r.execute_command("ft.SUGDEL", "ac", "hello world")
             self.assertEqual(1L, rc)

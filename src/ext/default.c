@@ -5,15 +5,24 @@
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
 
+double _tfidfRecursive(RSIndexResult *r) {
+
+  if (r->type == RSResultType_Term) {
+    return r->freq * (r->term.term ? r->term.term->idf : 0);
+  }
+
+  double ret = 0;
+  for (int i = 0; i < r->agg.numChildren; i++) {
+    ret += _tfidfRecursive(r->agg.children[i]);
+  }
+  return ret;
+}
 /* Calculate sum(TF-IDF)*document score for each result */
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
   if (dmd->score == 0) return 0;
 
-  double tfidf = h->freq;
-  // for (int i = 0; i < h->agg.numChildren; i++) {
-  //   tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
-  // }
+  double tfidf = _tfidfRecursive(h);
   tfidf *= dmd->score / (double)dmd->maxFreq;
 
   // no need to factor the distance if tfidf is already below minimal score

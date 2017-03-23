@@ -505,7 +505,7 @@ QueryResult *Query_Execute(Query *query) {
     }
   }
 
-//  IndexResult_Free(r);
+  //  IndexResult_Free(r);
   if (pooledHit) {
     // IndexResult_Free(pooledHit);
     free(pooledHit);
@@ -525,6 +525,9 @@ QueryResult *Query_Execute(Query *query) {
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
+      
+    } else {
+      printf("NO DMD FOR %d\n", h->docId);
     }
     free(h);
   }

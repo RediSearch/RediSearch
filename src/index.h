@@ -39,7 +39,7 @@ typedef struct {
   size_t len;
   t_docId minDocId;
 
-  RSIndexResult *currentHits;
+  RSIndexResult **currentHits;
   DocTable *docTable;
   int atEnd;
 } UnionContext;
@@ -65,7 +65,7 @@ typedef struct {
   int inOrder;
   t_docId lastDocId;
   // RSIndexResult *result;
-  RSIndexResult *currentHits;
+  RSIndexResult **currentHits;
   DocTable *docTable;
   uint32_t fieldMask;
   int atEnd;

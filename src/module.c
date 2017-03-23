@@ -1170,7 +1170,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "error", "Could not register default extension");
     return REDISMODULE_ERR;
   }
-  
+
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
