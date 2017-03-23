@@ -332,7 +332,7 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 
 /* Read the next entry from the iterator, into hit *e.
   *  Returns INDEXREAD_EOF if at the end */
-int NR_Read(void *ctx, RSIndexResult *r) {
+int NR_Read(void *ctx, RSIndexResult **r) {
   NumericRangeIterator *it = ctx;
   if (it->atEOF) {
     return INDEXREAD_EOF;
@@ -360,15 +360,14 @@ int NR_Read(void *ctx, RSIndexResult *r) {
   /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
   it->rec.docId = it->lastDocId;
-
-  AggregateResult_AddChild(r, &it->rec);
+  *r = &it->rec;
 
   return INDEXREAD_OK;
 }
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
+int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
 
   // printf("nr %p skipto %d\n", ctx, docId);
   NumericRangeIterator *it = ctx;
@@ -428,6 +427,10 @@ size_t NR_Len(void *ctx) {
   return ((NumericRangeIterator *)ctx)->rng->size;
 }
 
+RSIndexResult *NR_Current(void *ctx) {
+  return &((NumericRangeIterator *)ctx)->rec;
+}
+
 IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   IndexIterator *ret = malloc(sizeof(IndexIterator));
 
@@ -456,6 +459,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   ret->Len = NR_Len;
   ret->HasNext = NR_HasNext;
   ret->LastDocId = NR_LastDocId;
+  ret->Current = NR_Current;
   ret->Read = NR_Read;
   ret->SkipTo = NR_SkipTo;
   return ret;

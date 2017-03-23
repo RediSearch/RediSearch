@@ -79,7 +79,7 @@ int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint32_t *fl
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);
 
 /* Read an entry from an inverted index into RSIndexResult */
-int IR_Read(void *ctx, RSIndexResult *e);
+int IR_Read(void *ctx, RSIndexResult **e);
 
 /* Move to the next entry in an inverted index, without reading the whole entry
  */
@@ -90,7 +90,9 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
+int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
+
+RSIndexResult *IR_Current(void *ctx);
 
 /* The number of docs in an inverted index entry */
 size_t IR_NumDocs(void *ctx);

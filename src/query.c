@@ -455,7 +455,7 @@ QueryResult *Query_Execute(Query *query) {
   heapResult *pooledHit = NULL;
   double minScore = 0;
   int numDeleted = 0;
-  RSIndexResult *r = NewIntersectResult(1);
+  RSIndexResult *r = NULL;
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
@@ -463,8 +463,8 @@ QueryResult *Query_Execute(Query *query) {
       pooledHit = malloc(sizeof(heapResult));
     }
     heapResult *h = pooledHit;
-    AggregateResult_Reset(&r->agg);
-    int rc = it->Read(it->ctx, r);
+
+    int rc = it->Read(it->ctx, &r);
 
     if (rc == INDEXREAD_EOF) {
       break;
@@ -525,9 +525,6 @@ QueryResult *Query_Execute(Query *query) {
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
-      
-    } else {
-      printf("NO DMD FOR %d\n", h->docId);
     }
     free(h);
   }

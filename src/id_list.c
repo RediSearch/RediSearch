@@ -5,7 +5,7 @@
 
 /* Read the next entry from the iterator, into hit *e.
 *  Returns INDEXREAD_EOF if at the end */
-int IL_Read(void *ctx, RSIndexResult *r) {
+int IL_Read(void *ctx, RSIndexResult **r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->size == 0) {
     it->atEOF = 1;
@@ -19,7 +19,7 @@ int IL_Read(void *ctx, RSIndexResult *r) {
   }
   // TODO: Filter here
   it->res.docId = it->lastDocId;
-  *r = it->res;
+  *r = &it->res;
   // AggregateResult_AddChild(r, &it->res);
 
   return INDEXREAD_OK;
@@ -27,7 +27,7 @@ int IL_Read(void *ctx, RSIndexResult *r) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
+int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->size == 0) {
     it->atEOF = 1;
@@ -67,7 +67,7 @@ int IL_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *r) {
   it->lastDocId = it->docIds[i];
   it->res.docId = it->lastDocId;
 
-  *r = it->res;
+  *r = &it->res;
   // AggregateResult_AddChild(r, &it->res);
 
   // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
@@ -85,6 +85,10 @@ t_docId IL_LastDocId(void *ctx) {
 /* can we continue iteration? */
 int IL_HasNext(void *ctx) {
   return !((IdListIterator *)ctx)->atEOF;
+}
+
+RSIndexResult *IL_Current(void *ctx) {
+  return &((IdListIterator *)ctx)->res;
 }
 
 /* release the iterator's context and free everything needed */
@@ -133,6 +137,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   ret->LastDocId = IL_LastDocId;
   ret->Len = IL_Len;
   ret->Read = IL_Read;
+  ret->Current = IL_Current;
   ret->SkipTo = IL_SkipTo;
   return ret;
 }

@@ -14,13 +14,16 @@ Basically query execution creates a tree of iterators that activate each other
 recursively */
 typedef struct indexIterator {
   void *ctx;
+
+  RSIndexResult *(*Current)(void *ctx);
+
   /* Read the next entry from the iterator, into hit *e.
   *  Returns INDEXREAD_EOF if at the end */
-  int (*Read)(void *ctx, RSIndexResult *e);
+  int (*Read)(void *ctx, RSIndexResult **e);
 
   /* Skip to a docid, potentially reading the entry into hit, if the docId
    * matches */
-  int (*SkipTo)(void *ctx, u_int32_t docId, RSIndexResult *hit);
+  int (*SkipTo)(void *ctx, t_docId docId, RSIndexResult **hit);
 
   /* the last docId read */
   t_docId (*LastDocId)(void *ctx);

@@ -34,12 +34,12 @@ void ReadIterator_Free(IndexIterator *it);
 /* UnionContext is used during the running of a union iterator */
 typedef struct {
   IndexIterator **its;
+  t_docId *docIds;
   int num;
   int pos;
   size_t len;
   t_docId minDocId;
-
-  RSIndexResult **currentHits;
+  RSIndexResult *current;
   DocTable *docTable;
   int atEnd;
 } UnionContext;
@@ -47,10 +47,10 @@ typedef struct {
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
-
-int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
+RSIndexResult *UI_Current(void *ctx);
+int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
 int UI_Next(void *ctx);
-int UI_Read(void *ctx, RSIndexResult *hit);
+int UI_Read(void *ctx, RSIndexResult **hit);
 int UI_HasNext(void *ctx);
 size_t UI_Len(void *ctx);
 t_docId UI_LastDocId(void *ctx);
@@ -59,13 +59,15 @@ t_docId UI_LastDocId(void *ctx);
  * iterator */
 typedef struct {
   IndexIterator **its;
+  t_docId *docIds;
+  RSIndexResult *current;
   int num;
   size_t len;
   int maxSlop;
   int inOrder;
   t_docId lastDocId;
+
   // RSIndexResult *result;
-  RSIndexResult **currentHits;
   DocTable *docTable;
   uint32_t fieldMask;
   int atEnd;
@@ -78,10 +80,11 @@ typedef struct {
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, u_char fieldMask,
                                    int maxSlop, int inOrder);
 
-int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit);
+int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
 int II_Next(void *ctx);
-int II_Read(void *ctx, RSIndexResult *hit);
+int II_Read(void *ctx, RSIndexResult **hit);
 int II_HasNext(void *ctx);
+RSIndexResult *II_Current(void *ctx);
 size_t II_Len(void *ctx);
 t_docId II_LastDocId(void *ctx);
 

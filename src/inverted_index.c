@@ -214,7 +214,7 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
   return INDEXREAD_OK;
 }
 
-int IR_Read(void *ctx, RSIndexResult *e) {
+int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
 
@@ -234,7 +234,7 @@ int IR_Read(void *ctx, RSIndexResult *e) {
 
       ++ir->len;
       ir->lastId = ir->record->docId;
-      *e = *ir->record;
+      *e = ir->record;
       // AggregateResult_AddChild(e, ir->record);
 
       // printf("IR LOOP %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId,
@@ -246,6 +246,9 @@ int IR_Read(void *ctx, RSIndexResult *e) {
   return rc;
 }
 
+RSIndexResult *IR_Current(void *ctx) {
+  return ((IndexReader *)ctx)->record;
+}
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   Buffer_Seek(&ir->br, offset);
   ir->lastId = docId;
@@ -314,7 +317,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult *hit) {
+int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   IndexReader *ir = ctx;
 
   // printf("IR %s skipTo %d\n", ir->term->str, docId);
@@ -424,6 +427,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->HasNext = IR_HasNext;
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
+  ri->Current = IR_Current;
   return ri;
 }
 

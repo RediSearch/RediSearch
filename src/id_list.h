@@ -11,7 +11,7 @@ typedef struct {
   t_offset size;
   t_offset offset;
   int atEOF;
-  RSIndexResult res; 
+  RSIndexResult res;
 } IdListIterator;
 
 /* Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
