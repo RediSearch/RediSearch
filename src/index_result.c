@@ -101,7 +101,7 @@ void __aggResult_free(RSIndexResult *r) {
 }
 
 void IndexResult_Free(RSIndexResult *r) {
-  printf("IResultFree %p\n", r);
+
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
     rm_free(r->agg.children);
     r->agg.children = NULL;
@@ -144,7 +144,7 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
       }
     }
 
-    v1.Free(v1.ctx);  
+    v1.Free(v1.ctx);
     v2.Free(v2.ctx);
 
     dist += cd * cd;

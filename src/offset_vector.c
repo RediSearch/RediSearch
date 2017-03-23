@@ -104,6 +104,7 @@ uint32_t _aoi_Next(void *ctx) {
     it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx);
   }
   // return the minimal value - if we haven't found anything it should be EOF
+  printf("%p %d\n", it, minVal);
   return minVal;
 }
 

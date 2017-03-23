@@ -67,8 +67,8 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
         // read while we're not at the end and perhaps the flags do not match
         while (rc == INDEXREAD_NOTFOUND) {
           rc = it->Read(it->ctx, &res);
+          ui->docIds[i] = res->docId;
         }
-        ui->docIds[i] = res->docId;
       }
 
       if (rc != INDEXREAD_EOF) {
@@ -89,6 +89,7 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
 
       //   // AggregateResult_AddChild(hit, &ui->currentHits[minIdx]);
       // }
+
       printf("UI %p read docId %d OK\n", ui, ui->docIds[minIdx]);
       UI_SkipTo(ui, ui->docIds[minIdx], hit);
       // return INDEXREAD_OK;
@@ -150,9 +151,10 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
       }
+      ui->docIds[i] = res->docId;
 
     } else {
-      rc = ui->docIds[i] == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+      rc = (ui->docIds[i] == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
 
     if (ui->docIds[i] && rc != INDEXREAD_EOF) {
