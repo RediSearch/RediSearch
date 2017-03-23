@@ -21,14 +21,15 @@ class Client(redis.StrictRedis):
 
     def __init__(self, disposable_redis, port):
 
-        redis.StrictRedis.__init__(self, port = port)
+        redis.StrictRedis.__init__(self, port=port)
         self.dr = disposable_redis
 
     def retry_with_rdb_reload(self):
 
-            yield 1
-            self.dr.dump_and_reload()
-            yield 2
+        yield 1
+        self.dr.dump_and_reload()
+        yield 2
+
 
 class DisposableRedis(object):
 
@@ -51,7 +52,7 @@ class DisposableRedis(object):
         self.dumped = False
 
     def _startProcess(self):
-        
+
         self.process = subprocess.Popen(
             self.args,
             stdin=subprocess.PIPE,
@@ -65,6 +66,7 @@ class DisposableRedis(object):
             except redis.ConnectionError:
                 self.process.poll()
                 if self.process.returncode is not None:
+                    
                     raise RuntimeError(
                         "Process has exited with code {}".format(self.process.returncode))
                 time.sleep(0.1)
@@ -77,11 +79,10 @@ class DisposableRedis(object):
 
         self.dumpfile = 'dump.%s.rdb' % self.port
         self.args = [self.path,
-                '--port', str(self.port),
-                '--dir', tempfile.gettempdir(),
-                '--save', '',
-                '--dbfilename', self.dumpfile] + self.extra_args
-
+                     '--port', str(self.port),
+                     '--dir', tempfile.gettempdir(),
+                     '--save', '',
+                     '--dbfilename', self.dumpfile] + self.extra_args
 
         self._startProcess()
         return self.client()
@@ -89,21 +90,21 @@ class DisposableRedis(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.process.terminate()
         if self.dumped:
-            os.unlink(os.path.join(tempfile.gettempdir(), self.dumpfile))
+            try:
+                os.unlink(os.path.join(tempfile.gettempdir(), self.dumpfile))
+            except OSError:
+                pass
 
     def dump_and_reload(self):
+        """
+        Dump the rdb and reload it, to test for serialization errors
+        """
 
         conn = self.client()
         conn.save()
         self.dumped = True
-        self.process.terminate()
-        self._startProcess()
-        
+        conn.execute_command('DEBUG', 'RELOAD')
 
-    
-  
-        
-    
     def client(self):
         """
         :rtype: redis.StrictRedis

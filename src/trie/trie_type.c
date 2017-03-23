@@ -93,7 +93,6 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
 
     if (heap_count(pq) < heap_size(pq)) {
       ent->str = runesToStr(rstr, slen, &ent->len);
-      // strndup(str, slen);
       heap_offerx(pq, ent);
       pooledEntry = NULL;
 
@@ -192,7 +191,8 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
     size_t len;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
-    Trie_InsertStringBuffer(tree, str, len, score, 0);
+    Trie_InsertStringBuffer(tree, str, len - 1, score, 0);
+    RedisModule_Free(str);
   }
   // TrieNode_Print(tree->root, 0, 0);
   return tree;
@@ -211,7 +211,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
       size_t slen;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_SaveStringBuffer(rdb, s, slen);
+      RedisModule_SaveStringBuffer(rdb, s, slen + 1);
       RedisModule_SaveDouble(rdb, (double)score);
       free(s);
       count++;
