@@ -517,7 +517,7 @@ int testIndexFlags() {
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteEntry(w, &h);
   // printf("written %d bytes\n", sz);
-  ASSERT_EQUAL(15, sz);
+  ASSERT_EQUAL(16, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
@@ -532,7 +532,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteEntry(w, &h);
-  ASSERT_EQUAL(3, sz);
+  ASSERT_EQUAL(4, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);

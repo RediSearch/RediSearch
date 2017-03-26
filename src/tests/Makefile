@@ -9,7 +9,7 @@ INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o do
 		numeric_filter.o geo_index.o id_list.o id_filter.o offset_vector.o extension.o 
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o 
 REDIS=redis_index.o query.o spec.o 
-UTILOBJS=util/heap.o util/logging.o util/fnv.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o util/qint.o
 RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o
 QUERY_PARSE=query_parser/tokenizer.o query_parser/parser.o query_parser/parse.o
 LIBTRIE=trie/libtrie.a
