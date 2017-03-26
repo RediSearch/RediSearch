@@ -1,4 +1,3 @@
-#include "offset_vector.h"
 #include "inverted_index.h"
 #include "math.h"
 #include "varint.h"
@@ -93,13 +92,6 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
   RSOffsetVector offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
 
   BufferWriter bw = NewBufferWriter(&blk->data);
-  //   if (idx->flags & Index_StoreScoreIndexes) {
-  //     ScoreIndexWriter_AddEntry(&w->scoreWriter, ent->freq, BufferOffset(w->bw.buf), w->lastId);
-  //   }
-  // quantize the score to compress it to max 4 bytes
-  // freq is between 0 and 1
-  // int quantizedScore =
-  //     floorl(ent->freq * ent->docScore * (double)FREQ_QUANTIZE_FACTOR);
 
   ret = __writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->flags, ent->freq, offsets.len,
                      &offsets);
@@ -401,6 +393,9 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fie
 }
 
 void IR_Free(IndexReader *ir) {
+
+  IndexResult_Free(ir->record);
+
   Term_Free(ir->term);
   rm_free(ir);
 }

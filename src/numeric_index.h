@@ -63,7 +63,7 @@ typedef struct {
   t_docId lastDocId;
   u_int offset;
   int atEOF;
-  RSIndexResult rec;
+  RSIndexResult *rec;
 
 } NumericRangeIterator;
 

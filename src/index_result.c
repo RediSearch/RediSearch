@@ -1,16 +1,10 @@
-#include "offset_vector.h"
 #include "index_result.h"
 #include "varint.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
 
-RSIndexResult *NewIndexResult() {
-  RSIndexResult *res = rm_new(RSIndexResult);
-  memset(res, 0, sizeof(RSIndexResult));
-  return res;
-}
-
+/* Allocate a new aggregate result of a given type with a given capacity*/
 RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
@@ -25,13 +19,17 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
   return res;
 }
 
+/* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap) {
   return __newAggregateResult(cap, RSResultType_Intersection);
 }
+
+/* Allocate a new union result with a given capacity*/
 RSIndexResult *NewUnionResult(size_t cap) {
   return __newAggregateResult(cap, RSResultType_Union);
 }
 
+/* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
@@ -46,12 +44,10 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
 }
 
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
-  printf("Adding %p ", child);
-  IndexResult_Print(child, 0);
-  printf("to => %p ", parent);
-  IndexResult_Print(parent, 0);
-  printf("------\n");
+
   RSAggregateResult *agg = &parent->agg;
+
+  /* Increase capacity if needed */
   if (agg->numChildren >= agg->childrenCap) {
     agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
     agg->children = rm_realloc(agg->children, agg->childrenCap * sizeof(RSIndexResult *));
@@ -112,11 +108,9 @@ void IndexResult_Init(RSIndexResult *h) {
   }
 }
 
-void AggregateResult_Reset(RSAggregateResult *r) {
+/* Reset the aggregate result's child vector */
+inline void AggregateResult_Reset(RSAggregateResult *r) {
   r->numChildren = 0;
-}
-
-void __aggResult_free(RSIndexResult *r) {
 }
 
 void IndexResult_Free(RSIndexResult *r) {
@@ -125,7 +119,7 @@ void IndexResult_Free(RSIndexResult *r) {
     rm_free(r->agg.children);
     r->agg.children = NULL;
   }
-  // rm_free(r);
+  rm_free(r);
 }
 
 #define __absdelta(x, y) (x > y ? x - y : y - x)
@@ -184,14 +178,14 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
       // For the first iterator we always advance once
       uint32_t pos = i ? positions[i] : iters[i].Next(iters[i].ctx);
       uint32_t lastPos = i ? positions[i - 1] : 0;
-      printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+      // printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = iters[i].Next(iters[i].ctx);
-        printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
+      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
@@ -202,7 +196,6 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
       // add the diff from the last pos to the total span
       if (i > 0) {
         span += ((int)pos - (int)lastPos - 1);
-        printf("Span: %d\n", span);
         // if we are already out of slop - just quit
         if (span > maxSlop) {
           break;
@@ -245,12 +238,15 @@ inline uint32_t _arrayMax(uint32_t *arr, int len, int *pos) {
   return m;
 }
 
+/* Check the index result for maximal slop, in an unordered fashion.
+ * The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop */
 int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
     positions[i] = iters[i].Next(iters[i].ctx);
   }
   uint32_t minPos, maxPos, min, max;
+  // find the max member
   max = _arrayMax(positions, num, &maxPos);
 
   while (1) {
@@ -258,19 +254,26 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
     // we start from the beginning, and a span of 0
     min = _arrayMin(positions, num, &minPos);
     if (min != max) {
+      // calculate max - min
       int span = (int)max - (int)min - (num - 1);
       // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
       //        minPos, maxPos, span);
+      // if it matches the condition - just return success
       if (span <= maxSlop) {
         return 1;
       }
     }
 
+    // if we are not meeting the conditions - advance the minimal iterator
     positions[minPos] = iters[minPos].Next(iters[minPos].ctx);
+    // If the minimal iterator is larger than the max iterator, the minimal iterator is the new
+    // maximal iterator.
     if (positions[minPos] != RS_OFFSETVECTOR_EOF && positions[minPos] > max) {
       maxPos = minPos;
       max = positions[maxPos];
+
     } else if (positions[minPos] == RS_OFFSETVECTOR_EOF) {
+      // this means we've reached the end
       break;
     }
   }
@@ -299,6 +302,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     positions[i] = 0;
   }
 
+  // cal the relevant algorithm based on ordered/unordered condition
   if (inOrder)
     return __indexResult_withinRangeInOrder(iters, positions, num, maxSlop);
   else

@@ -359,8 +359,8 @@ int NR_Read(void *ctx, RSIndexResult **r) {
   }
   /// printf("match after read loop: %d\n", match);
   // TODO: Filter here
-  it->rec.docId = it->lastDocId;
-  *r = &it->rec;
+  it->rec->docId = it->lastDocId;
+  *r = it->rec;
 
   return INDEXREAD_OK;
 }
@@ -417,6 +417,8 @@ int NR_HasNext(void *ctx) {
 
 /* release the iterator's context and free everything needed */
 void NR_Free(IndexIterator *self) {
+  NumericRangeIterator *it = self->ctx;
+  IndexResult_Free(it->rec);
   free(self->ctx);
   free(self);
 }
@@ -428,7 +430,7 @@ size_t NR_Len(void *ctx) {
 }
 
 RSIndexResult *NR_Current(void *ctx) {
-  return &((NumericRangeIterator *)ctx)->rec;
+  return ((NumericRangeIterator *)ctx)->rec;
 }
 
 IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
@@ -446,13 +448,8 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   it->lastDocId = 0;
   it->offset = 0;
   it->rng = nr;
-  it->rec = (RSIndexResult){.docId = 0,
-                            .fieldMask = 0xFFFFFFFF,
-                            .freq = 0,
-                            .type = RSResultType_Term,
-                            .term = (RSTermRecord){
-                                .term = NULL, .offsets = (RSOffsetVector){},
-                            }};
+  it->rec = NewTokenRecord(NULL);
+  it->rec->fieldMask = 0xFFFFFFFF;
   ret->ctx = it;
 
   ret->Free = NR_Free;

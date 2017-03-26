@@ -1,20 +1,30 @@
-#include "offset_vector.h"  // must be included before redisearch.h!!!!
 #include "redisearch.h"
 #include "varint.h"
 #include "rmalloc.h"
 
+/* We have two types of offset vector iterators - for terms and for aggregates. For terms we simply
+ * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.
+ * They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
+ * callbacks and context matching the appropriate implementation.
+  */
+
+/* A raw offset vector iterator */
 typedef struct {
   Buffer buf;
   BufferReader br;
   uint32_t lastValue;
 } _RSOffsetVectorIterator;
 
+/* Get the next entry, or return RS_OFFSETVECTOR_EOF */
 uint32_t _ovi_Next(void *ctx);
+/* Rewind the iterator */
 void _ovi_Rewind(void *ctx);
+/* Free it */
 void _ovi_free(void *ctx) {
   rm_free(ctx);
 }
 
+/* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
   _RSOffsetVectorIterator *it = rm_new(_RSOffsetVectorIterator);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
@@ -24,23 +34,28 @@ RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
   return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
 }
 
+/* An aggregate offset iterator yielding offsets one by one */
 typedef struct {
   RSAggregateResult *res;
   RSOffsetIterator *iters;
   uint32_t *offsets;
+  // uint32_t lastOffset; - TODO: Avoid duplicate offsets
   RSResultType t;
   t_docId docId;
+
 } _RSAggregateOffsetIterator;
 
 uint32_t _aoi_Next(void *ctx);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
+/* Create an iterator from the aggregate offset iterators of the aggregate result */
 RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t, t_docId docId) {
   _RSAggregateOffsetIterator *it = rm_new(_RSAggregateOffsetIterator);
   it->res = agg;
   it->t = t;
   it->docId = docId;
+
   it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
   it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
 
@@ -52,6 +67,7 @@ RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }
 
+/* Create the appropriate iterator from a result based on its type */
 RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
 
   switch (res->type) {
@@ -108,8 +124,9 @@ uint32_t _aoi_Next(void *ctx) {
     it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx);
   }
   // return the minimal value - if we haven't found anything it should be EOF
-  printf("%p (%s %d, %d children) %d\n", it, it->t == RSResultType_Intersection ? "inter" : "union",
-         it->docId, it->res->numChildren, minVal);
+  // printf("%p (%s %d, %d children) %d\n", it, it->t == RSResultType_Intersection ? "inter" :
+  // "union",
+  //        it->docId, it->res->numChildren, minVal);
   return minVal;
 }
 
