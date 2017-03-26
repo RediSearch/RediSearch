@@ -104,6 +104,7 @@ int testDistance() {
     rc = it.Next(it.ctx);
     ASSERT_EQUAL(rc, (expected[i++]));
   } while (rc != RS_OFFSETVECTOR_EOF);
+  it.Free(it.ctx);
 
   IndexResult_Free(tr1);
   IndexResult_Free(tr2);

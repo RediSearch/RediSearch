@@ -302,9 +302,14 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     positions[i] = 0;
   }
 
+  int rc;
   // cal the relevant algorithm based on ordered/unordered condition
   if (inOrder)
-    return __indexResult_withinRangeInOrder(iters, positions, num, maxSlop);
+    rc = __indexResult_withinRangeInOrder(iters, positions, num, maxSlop);
   else
-    return __indexResult_withinRangeUnordered(iters, positions, num, maxSlop);
+    rc = __indexResult_withinRangeUnordered(iters, positions, num, maxSlop);
+  for (int i = 0; i < num; i++) {
+    iters[i].Free(iters[i].ctx);
+  }
+  return rc;
 }
