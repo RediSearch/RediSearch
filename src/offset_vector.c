@@ -1,6 +1,8 @@
 #include "redisearch.h"
 #include "varint.h"
 #include "rmalloc.h"
+#include "util/mempool.h"
+#include <sys/param.h>
 
 /* We have two types of offset vector iterators - for terms and for aggregates. For terms we simply
  * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.
@@ -15,28 +17,9 @@ typedef struct {
   uint32_t lastValue;
 } _RSOffsetVectorIterator;
 
-/* Get the next entry, or return RS_OFFSETVECTOR_EOF */
-uint32_t _ovi_Next(void *ctx);
-/* Rewind the iterator */
-void _ovi_Rewind(void *ctx);
-/* Free it */
-void _ovi_free(void *ctx) {
-  rm_free(ctx);
-}
-
-/* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
-  _RSOffsetVectorIterator *it = rm_new(_RSOffsetVectorIterator);
-  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
-  it->br = NewBufferReader(&it->buf);
-  it->lastValue = 0;
-
-  return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
-}
-
-/* An aggregate offset iterator yielding offsets one by one */
 typedef struct {
   RSAggregateResult *res;
+  size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
@@ -45,19 +28,66 @@ typedef struct {
 
 } _RSAggregateOffsetIterator;
 
+/* Get the next entry, or return RS_OFFSETVECTOR_EOF */
+uint32_t _ovi_Next(void *ctx);
+/* Rewind the iterator */
+void _ovi_Rewind(void *ctx);
+
+/* memor pool for buffer iterators */
+mempool_t *__offsetIters = NULL;
+mempool_t *__aggregateIters = NULL;
+
+/* Free it */
+void _ovi_free(void *ctx) {
+  mempool_release(__offsetIters, ctx);
+}
+
+void *newOffsetIterator() {
+  return malloc(sizeof(_RSOffsetVectorIterator));
+}
+/* Create an offset iterator interface  from a raw offset vector */
+RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
+  if (!__offsetIters) {
+    __offsetIters = mempool_new(8, newOffsetIterator, free);
+  }
+  _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
+  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
+  it->br = NewBufferReader(&it->buf);
+  it->lastValue = 0;
+
+  return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
+}
+
+/* An aggregate offset iterator yielding offsets one by one */
+
 uint32_t _aoi_Next(void *ctx);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
+void *_newAggregateIter() {
+  _RSAggregateOffsetIterator *it = malloc(sizeof(_RSAggregateOffsetIterator));
+  it->size = 0;
+  it->offsets = NULL;
+  it->iters = NULL;
+  return it;
+}
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t, t_docId docId) {
-  _RSAggregateOffsetIterator *it = rm_new(_RSAggregateOffsetIterator);
+  if (!__aggregateIters) {
+    __aggregateIters = mempool_new(8, _newAggregateIter, free);
+  }
+  _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;
   it->t = t;
   it->docId = docId;
 
-  it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
-  it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
+  if (agg->numChildren > it->size) {
+    it->size = agg->numChildren;
+    free(it->iters);
+    free(it->offsets);
+    it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
+    it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
+  }
 
   for (int i = 0; i < agg->numChildren; i++) {
     it->iters[i] = RSIndexResult_IterateOffsets(agg->children[i]);
@@ -136,9 +166,8 @@ void _aoi_Free(void *ctx) {
   for (int i = 0; i < it->res->numChildren; i++) {
     it->iters[i].Free(it->iters[i].ctx);
   }
-  rm_free(it->iters);
-  rm_free(it->offsets);
-  rm_free(it);
+
+  mempool_release(__aggregateIters, ctx);
 }
 
 void _aoi_Rewind(void *ctx) {
