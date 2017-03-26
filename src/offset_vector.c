@@ -138,6 +138,7 @@ void _aoi_Free(void *ctx) {
   }
   rm_free(it->iters);
   rm_free(it->offsets);
+  rm_free(it);
 }
 
 void _aoi_Rewind(void *ctx) {
