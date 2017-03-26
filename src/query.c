@@ -471,7 +471,8 @@ QueryResult *Query_Execute(Query *query) {
     } else if (rc == INDEXREAD_NOTFOUND) {
       continue;
     }
-    IndexResult_Print(r, 0);
+    // IndexResult_Print(r, 0);
+    // printf("\n-------------------\n");
 
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
