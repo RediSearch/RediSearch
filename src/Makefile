@@ -71,7 +71,7 @@ query_parser:
 
 test:
 	# low level redis-independant tests
-	$(MAKE) -C tests build test
+	$(MAKE) -C ./tests clean build test
 	# high level python integration tests
 	$(MAKE) -C pytest test
 	# Triemap tests
@@ -100,6 +100,5 @@ debug: util rmutil snowball libnu trie  triemap | module.so
 clean:
 	find . -type f -name '*.o' -delete -print
 
-test: tests
 
 rebuild: clean all

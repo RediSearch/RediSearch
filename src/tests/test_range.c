@@ -71,7 +71,7 @@ int testRangeIterator() {
   // ASSERT_EQUAL(it->Len(it->ctx), N);
   int count = 0;
 
-  RSIndexResult res = NewIndexResult();
+  RSIndexResult *res = NULL;
   while (it->HasNext(it->ctx)) {
 
     int rc = it->Read(it->ctx, &res);
@@ -79,15 +79,16 @@ int testRangeIterator() {
       break;
     }
 
-    ASSERT(res.docId > 0);
-    ASSERT(res.fieldMask = 0xff);
-    ASSERT(res.numRecords == 1)
+    ASSERT_EQUAL(res->type, RSResultType_Union);
+    ASSERT(res->docId > 0);
+    ASSERT_EQUAL(res->fieldMask, 0xffffffff);
+
     count++;
   }
   it->Free(it);
   free(flt);
   ASSERT_EQUAL(N, count);
-  IndexResult_Free(&res);
+  // IndexResult_Free(&res);
   NumericRangeTree_Free(t);
   return 0;
 }

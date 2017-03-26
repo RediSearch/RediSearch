@@ -95,7 +95,7 @@ int testQueryExpander() {
 
   ASSERT_EQUAL(q->numTokens, 2)
   Query_Expand(q);
-  __queryNode_Print(n, 0);
+  //__queryNode_Print(n, 0);
   ASSERT_EQUAL(q->numTokens, 4)
 
   ASSERT(n->pn.children[0]->type == QN_UNION);

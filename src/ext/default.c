@@ -53,7 +53,6 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (stemmed && strncasecmp(stemmed, token->str, token->len)) {
 
     int sl = sb_stemmer_length(sb);
-    printf("Extended token %s with stem %.*s\n", token->str, sl, stemmed);
     ctx->ExpandToken(ctx, strndup(stemmed, sl), sl, 0x0);  // TODO: Set proper flags here
   }
 
