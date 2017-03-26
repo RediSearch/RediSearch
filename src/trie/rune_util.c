@@ -19,7 +19,7 @@ rune runeFold(rune r) {
 
 char *runesToStr(rune *in, size_t len, size_t *utflen) {
 
-  uint32_t unicode[len];
+  uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
   }
@@ -37,7 +37,7 @@ char *runesToStr(rune *in, size_t len, size_t *utflen) {
 rune *strToFoldedRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
+  uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
   nu_readstr(str, decoded, nu_utf8_read);
 
@@ -54,7 +54,7 @@ rune *strToFoldedRunes(char *str, size_t *len) {
 rune *strToRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  uint32_t decoded[sizeof(uint32_t) * (rlen + 1)];
+  uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
   nu_readstr(str, decoded, nu_utf8_read);
 
