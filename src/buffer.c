@@ -113,6 +113,24 @@ inline size_t Buffer_Skip(BufferReader *br, int bytes) {
   return b->offset;
 }
 
+size_t BufferWriter_Seek(BufferWriter *b, size_t offset) {
+  if (offset > b->buf->cap) {
+    return b->buf->offset;
+  }
+  b->pos = b->buf->data + offset;
+  b->buf->offset = offset;
+
+  return offset;
+}
+
+size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len) {
+  size_t pos = b->buf->offset;
+  BufferWriter_Seek(b, offset);
+
+  size_t sz = Buffer_Write(b, data, len);
+  BufferWriter_Seek(b, pos);
+  return sz;
+}
 /**
 Seek to a specific offset. If offset is out of bounds we seek to the end.
 @return the effective seek position

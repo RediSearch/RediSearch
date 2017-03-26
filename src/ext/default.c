@@ -23,6 +23,7 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
   if (dmd->score == 0) return 0;
 
   double tfidf = _tfidfRecursive(h);
+
   tfidf *= dmd->score / (double)dmd->maxFreq;
 
   // no need to factor the distance if tfidf is already below minimal score
