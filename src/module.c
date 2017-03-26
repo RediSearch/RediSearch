@@ -760,7 +760,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, errMsg);
     free(errMsg);
     Query_Free(q);
-    if (numFilteredIds) IdFilter_Free(&idf);
     goto end;
   }
 
@@ -796,7 +795,6 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   QueryResult_Serialize(r, &sctx, nocontent, withscores, withpaylaods);
-  if (numFilteredIds) IdFilter_Free(&idf);
   QueryResult_Free(r);
   Query_Free(q);
 end:
