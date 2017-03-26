@@ -17,6 +17,9 @@ typedef struct idFilter {
  * be less than or equal to the length of args */
 IdFilter NewIdFilter(RedisModuleString **args, int count, DocTable *dt);
 
+/* Free the filter's internal data, but not the filter itself, that is allocated on the stack */
+void IdFilter_Free(IdFilter *f);
+
 /** Return a new id filter iterator from a filter. If no ids are in the filter, we return NULL */
 IndexIterator *NewIdFilterIterator(IdFilter *f);
 #endif

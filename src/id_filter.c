@@ -23,6 +23,13 @@ IdFilter NewIdFilter(RedisModuleString **args, int count, DocTable *dt) {
   return ret;
 }
 
+void IdFilter_Free(IdFilter *f) {
+  if (f->ids) {
+    rm_free(f->ids);
+    f->ids = NULL;
+  }
+}
+
 IndexIterator *NewIdFilterIterator(IdFilter *f) {
 
   if (f->ids == NULL || f->size == 0) {

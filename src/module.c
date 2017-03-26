@@ -737,7 +737,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // parse the id filter arguments
   long long numFilteredIds = 0;
-  IdFilter idf;
+  IdFilter idf = (IdFilter){.ids = NULL, .keys = NULL};
   RMUtil_ParseArgsAfter("INKEYS", &argv[2], argc - 2, "l", &numFilteredIds);
   if (numFilteredIds > 0 && numFilteredIds < argc - 3) {
 
@@ -760,6 +760,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, errMsg);
     free(errMsg);
     Query_Free(q);
+    if (numFilteredIds) IdFilter_Free(&idf);
     goto end;
   }
 
@@ -795,7 +796,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   QueryResult_Serialize(r, &sctx, nocontent, withscores, withpaylaods);
-
+  if (numFilteredIds) IdFilter_Free(&idf);
   QueryResult_Free(r);
   Query_Free(q);
 end:
