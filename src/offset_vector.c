@@ -56,8 +56,8 @@ RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t
   it->t = t;
   it->docId = docId;
 
-  it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
-  it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
+  it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
+  it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
 
   for (int i = 0; i < agg->numChildren; i++) {
     it->iters[i] = RSIndexResult_IterateOffsets(agg->children[i]);
