@@ -76,6 +76,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
 
     case RSResultType_Intersection:
     case RSResultType_Union:
+    default:
       return _aggregateResult_iterate(&res->agg, res->type, res->docId);
       break;
   }
