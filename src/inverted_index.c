@@ -131,9 +131,9 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
   *freq = ReadVarint(br);
 
   if (idxflags & Index_StoreFieldFlags) {
-    Buffer_ReadByte(br, (char *)flags);
+    *flags = (uint32_t)BUFFER_READ_BYTE(br);
   } else {
-    *flags = 0xFF;
+    *flags = 0xFFFFFFFF;
   }
 
   if (idxflags & Index_StoreTermOffsets) {
@@ -152,11 +152,12 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
 
 inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint32_t *fieldMask,
                           RSOffsetVector *offsets) {
-  if (!IR_HasNext(ir)) {
-    return INDEXREAD_EOF;
-  }
-  // if we're at the end of the block
+
+  // if we're at the end of the block - exit or advance
   if (BufferReader_AtEnd(&ir->br)) {
+    if (ir->currentBlock + 1 >= ir->idx->size) {
+      return INDEXREAD_EOF;
+    }
     indexReader_advanceBlock(ir);
   }
   BufferReader *br = &ir->br;
@@ -169,15 +170,19 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint3
 }
 
 inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
-  if (!IR_HasNext(ir)) {
-    return INDEXREAD_EOF;
-  }
-  // if we're at the end of the block
   if (BufferReader_AtEnd(&ir->br)) {
-
+    if (ir->currentBlock + 1 >= ir->idx->size) {
+      return INDEXREAD_EOF;
+    }
     *docId = expectedDocId + 1;
     return INDEXREAD_NOTFOUND;
   }
+  // // if we're at the end of the block
+  // if (BufferReader_AtEnd(&ir->br)) {
+
+  //   *docId = expectedDocId + 1;
+  //   return INDEXREAD_NOTFOUND;
+  // }
 
   BufferReader *br = &ir->br;
   *docId = ReadVarint(br) + ir->lastId;
@@ -187,7 +192,7 @@ inline int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId) {
 
   // pseudo-read flags
   if (ir->flags & Index_StoreFieldFlags) {
-    Buffer_ReadByte(br, (char *)&flags);
+    flags = BUFFER_READ_BYTE(br);
   }
 
   // pseudo read offsets
