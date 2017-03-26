@@ -94,6 +94,17 @@ int testDistance() {
   delta = IndexResult_MinOffsetDelta(res);
   ASSERT_EQUAL(53, delta);
 
+  // test merge iteration
+  RSOffsetIterator it = RSIndexResult_IterateOffsets(res);
+  uint32_t expected[] = {1, 4, 7, 9, 13, 16, 20, 22, 25, 32, RS_OFFSETVECTOR_EOF};
+
+  uint32_t rc;
+  int i = 0;
+  do {
+    rc = it.Next(it.ctx);
+    ASSERT_EQUAL(rc, (expected[i++]));
+  } while (rc != RS_OFFSETVECTOR_EOF);
+
   IndexResult_Free(tr1);
   IndexResult_Free(tr2);
   IndexResult_Free(tr3);
