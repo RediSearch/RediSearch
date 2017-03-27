@@ -23,8 +23,6 @@ typedef struct {
   RSOffsetIterator *iters;
   uint32_t *offsets;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
-  RSResultType t;
-  t_docId docId;
 
 } _RSAggregateOffsetIterator;
 
@@ -72,14 +70,12 @@ void *_newAggregateIter() {
   return it;
 }
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
-RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg, RSResultType t, t_docId docId) {
+RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
   if (!__aggregateIters) {
     __aggregateIters = mempool_new(8, _newAggregateIter, free);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;
-  it->t = t;
-  it->docId = docId;
 
   if (agg->numChildren > it->size) {
     it->size = agg->numChildren;
@@ -107,7 +103,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
     case RSResultType_Intersection:
     case RSResultType_Union:
     default:
-      return _aggregateResult_iterate(&res->agg, res->type, res->docId);
+      return _aggregateResult_iterate(&res->agg);
       break;
   }
 }
@@ -150,14 +146,11 @@ uint32_t _aoi_Next(void *ctx) {
     }
   }
 
-  // if we found a minimal iterator - advance it
+  // if we found a minimal iterator - advance it for the next round
   if (minIdx != -1) {
     it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx);
   }
-  // return the minimal value - if we haven't found anything it should be EOF
-  // printf("%p (%s %d, %d children) %d\n", it, it->t == RSResultType_Intersection ? "inter" :
-  // "union",
-  //        it->docId, it->res->numChildren, minVal);
+
   return minVal;
 }
 
