@@ -121,9 +121,7 @@ void testRandomWalk() {
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "key%d", i);
-    int *pi = malloc(sizeof(int));
-    *pi = i;
-    TrieMap_Add(tm, buf, strlen(buf), pi, NULL);
+    TrieMap_Add(tm, buf, strlen(buf), strdup(buf), NULL);
   }
   char *sbuf;
   tm_len_t len;
@@ -133,9 +131,24 @@ void testRandomWalk() {
     mu_check(rc);
     mu_check(ptr);
 
-    printf("%.*s\n", len, sbuf);
+    //printf("%.*s\n", len, sbuf);
     free(sbuf);
   }
+
+  for (int i = 1; i < 9; i++) {
+    char prefix[5];
+    sprintf(prefix, "key%d", i);
+    for (int x = 0; x < 5; x++) {
+      void *val = TrieMap_RandomValueByPrefix(tm, prefix, strlen(prefix));
+      
+      mu_check(val);
+      //printf("%d %s\n", i, (char*)val);
+      mu_check(!strncmp((char *)val, prefix, strlen(prefix)));
+    }
+  }
+
+  void *p = TrieMap_RandomValueByPrefix(tm, "x2x2x2", 6);
+  mu_check(p == NULL);
 
   TrieMap_Free(tm, NULL);
 }
