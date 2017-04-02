@@ -1155,7 +1155,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int RedisModule_OnLoad(RedisModuleCtx *ctx) {
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // LOGGING_INIT(0xFFFFFFFF);
   if (RedisModule_Init(ctx, "ft", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
@@ -1179,59 +1179,59 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
 
   if (NumericIndexType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom no-cluster", 1,
-                                1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom no-cluster", 1,
-                                1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  if (RedisModule_CreateCommand(ctx, "ft.dtadd", DTAddCommand, "write deny-oom no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write no-cluster", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write no-cluster", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom no-cluster", 1,
-                                1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.create", CreateIndexCommand, "write no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.optimize", OptimizeIndexCommand, "write no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write no-cluster", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, "ft.dtadd", DTAddCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.info", IndexInfoCommand, "readonly no-cluster", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand, "write no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
+  if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom", 1, 1, 1) ==
+      REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
+  if (RedisModule_CreateCommand(ctx, "ft.create", CreateIndexCommand, "write", 1, 1, 1) ==
+      REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand, "readonly no-cluster", 1, 1,
-                                1) == REDISMODULE_ERR)
+  if (RedisModule_CreateCommand(ctx, "ft.optimize", OptimizeIndexCommand, "write", 1, 1, 1) ==
+      REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand, "readonly no-cluster", 1,
-                                1, 1) == REDISMODULE_ERR)
+  if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.info", IndexInfoCommand, "readonly", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand, "readonly", 1, 1, 1) ==
+      REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
