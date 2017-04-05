@@ -273,6 +273,9 @@ int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   // skip all iterators to docId
   for (int i = 0; i < ic->num; i++) {
     IndexIterator *it = ic->its[i];
+
+    if (!it) return INDEXREAD_EOF;
+
     RSIndexResult *res = it->Current(it->ctx);
     rc = INDEXREAD_OK;
 

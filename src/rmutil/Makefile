@@ -3,7 +3,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS ?= -g -fPIC -lc -lm -O3 -std=gnu99 -Wall -Wno-unused-function
+CFLAGS ?= -g -fPIC -O3 -std=gnu99 -Wall -Wno-unused-function
 CFLAGS += -I$(RM_INCLUDE_DIR)
 CC=gcc
 

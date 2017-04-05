@@ -195,8 +195,8 @@ int rmutil_vparseArgs(RedisModuleString **argv, int argc, int offset, const char
 int RMUtil_ParseArgsAfter(const char *token, RedisModuleString **argv, int argc, const char *fmt,
                           ...) {
 
-  int pos = RMUtil_ArgExists(token, argv, argc, 0);
-  if (pos == 0) {
+  int pos = RMUtil_ArgIndex(token, argv, argc);
+  if (pos < 0) {
     return REDISMODULE_ERR;
   }
 
