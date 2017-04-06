@@ -5,7 +5,8 @@
 #include <math.h>
 #include "redismodule.h"
 
-#define NR_EXPONENT 2
+#define NR_EXPONENT 1.5
+#define NR_MAXRANGE_CARD 2000
 #define NR_MAX_DEPTH 2
 
 double qselect(double *v, int len, int k) {
@@ -75,8 +76,10 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   double split = qselect(scores, n->size, n->size / 2);
   // double split = (n->minVal + n->maxVal) / (double)2;
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split, 1 + n->splitCard * NR_EXPONENT);
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal, 1 + n->splitCard * NR_EXPONENT);
+  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split,
+                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal,
+                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   for (u_int32_t i = 0; i < n->size; i++) {
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
@@ -468,12 +471,12 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
-    //printf("Got no filter vector\n");
+    // printf("Got no filter vector\n");
     return NULL;
   }
 
   int n = Vector_Size(v);
-  //printf("Loaded %zd ranges for range filter!\n", n);
+  // printf("Loaded %zd ranges for range filter!\n", n);
   // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   IndexIterator **its = calloc(n, sizeof(IndexIterator *));
 
