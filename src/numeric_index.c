@@ -57,10 +57,10 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     }
   }
 
-  if (add) ++n->card;
+  if (value < n->minVal || n->card == 0) n->minVal = value;
+  if (value > n->maxVal || n->card == 0) n->maxVal = value;
 
-  if (value < n->minVal) n->minVal = value;
-  if (value > n->maxVal) n->maxVal = value;
+  if (add) ++n->card;
 
   n->entries[n->size++] = (NumericRangeEntry){.docId = docId, .value = value};
   return n->card;
@@ -468,11 +468,12 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
+    //printf("Got no filter vector\n");
     return NULL;
   }
 
   int n = Vector_Size(v);
-  // printf("Loaded %zd ranges for range filter!\n", n);
+  //printf("Loaded %zd ranges for range filter!\n", n);
   // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   IndexIterator **its = calloc(n, sizeof(IndexIterator *));
 
