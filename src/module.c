@@ -19,6 +19,7 @@
 #include "extension.h"
 #include "ext/default.h"
 #include <ctype.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -387,9 +388,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(
-      n, "inverted_cap_ovh",
-      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
+  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
+                                           (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
@@ -730,7 +730,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &expander);
   }
   if (!expander) {
-    expander = DEFAULT_EXPANDER_NAME;
+  expander = DEFAULT_EXPANDER_NAME;
   }
 
   // IF a payload exists, init it
@@ -1176,6 +1176,34 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int loadExtension(RedisModuleCtx *ctx, const char *path) {
+  int (*init)(struct RSExtensionCtx *);
+  void *handle;
+
+  handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  if (handle == NULL) {
+    RedisModule_Log(ctx, "warning", "Extension %s failed to load: %s", path, dlerror());
+    return REDISEARCH_ERR;
+  }
+  init = (int (*)(struct RSExtensionCtx *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
+  if (init == NULL) {
+    RedisModule_Log(ctx, "warning",
+                    "Extension %s does not export RS_ExtensionInit() "
+                    "symbol. Module not loaded.",
+                    path);
+    return REDISEARCH_ERR;
+  }
+
+  if (Extension_Load("", init) == REDISEARCH_ERR) {
+    RedisModule_Log(ctx, "error", "Could not register extension %s", path);
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(ctx, "notice", "Extension %s loaded OK", path);
+
+  return REDISEARCH_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // LOGGING_INIT(0xFFFFFFFF);
@@ -1185,11 +1213,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   // Init extension mechanism
   Extensions_Init();
 
+  // Load the extension so TODO: pass with param
+  loadExtension(ctx, "./ext-example/example.so");
+  
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
-    RedisModule_Log(ctx, "error", "Could not register default extension");
-    return REDISMODULE_ERR;
-  }
+      RedisModule_Log(ctx, "error", "Could not register default extension");
+      return REDISMODULE_ERR;
+    }
 
   // register trie type
   if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
