@@ -113,7 +113,7 @@ int benchmarkNumericRangeTree() {
 
   TimeSample ts;
 
-  NumericFilter *flt = NewNumericFilter(1000, 5000 0, 0, 0);
+  NumericFilter *flt = NewNumericFilter(1000, 5000, 0, 0);
   IndexIterator *it = NewNumericFilterIterator(t, flt);
   ASSERT(it->HasNext(it->ctx));
 
