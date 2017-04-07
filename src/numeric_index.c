@@ -337,7 +337,8 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   *  Returns INDEXREAD_EOF if at the end */
 int NR_Read(void *ctx, RSIndexResult **r) {
   NumericRangeIterator *it = ctx;
-  if (it->atEOF) {
+  if (it->atEOF || it->rng->size == 0) {
+    it->atEOF = 1;
     return INDEXREAD_EOF;
   }
 
@@ -374,7 +375,8 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
 
   // printf("nr %p skipto %d\n", ctx, docId);
   NumericRangeIterator *it = ctx;
-  if (it->atEOF) {
+  if (it->atEOF || it->rng->size == 0) {
+    it->atEOF = 1;
     return INDEXREAD_EOF;
   }
   if (docId > it->rng->entries[it->rng->size - 1].docId) {
@@ -382,26 +384,20 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
     it->atEOF = 1;
     return INDEXREAD_EOF;
   }
+  int top = (int)it->rng->size - 1, bottom = (int)it->offset;
+  int i = bottom;
 
-  u_int top = it->rng->size - 1, bottom = it->offset;
-  u_int i = bottom;
-  u_int newi;
-
-  while (bottom < top) {
+  while (bottom <= top) {
     t_docId did = it->rng->entries[i].docId;
     if (did == docId) {
       break;
     }
     if (docId <= did) {
-      top = i;
+      top = i - 1;
     } else {
-      bottom = i;
+      bottom = i + 1;
     }
-    newi = (bottom + top) / 2;
-    if (newi == i) {
-      break;
-    }
-    i = newi;
+    i = (bottom + top) / 2;
   }
 
   it->offset = i;
@@ -451,7 +447,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   it->lastDocId = 0;
   it->offset = 0;
   it->rng = nr;
-  it->rec = NewTokenRecord(NULL);
+  it->rec = NewVirtualResult();
   it->rec->fieldMask = 0xFFFFFFFF;
   ret->ctx = it;
 
@@ -476,6 +472,14 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
   }
 
   int n = Vector_Size(v);
+  // if we only selected one range - we can just iterate it without union or anything
+  if (n == 1) {
+    NumericRange *rng;
+    Vector_Get(v, 0, &rng);
+    IndexIterator *it = NewNumericRangeIterator(rng, f);
+    Vector_Free(v);
+    return it;
+  }
   // printf("Loaded %zd ranges for range filter!\n", n);
   // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   IndexIterator **its = calloc(n, sizeof(IndexIterator *));

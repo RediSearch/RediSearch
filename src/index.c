@@ -175,7 +175,11 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   }
 
   // copy our aggregate to the upstream hit
-  *hit = ui->current;
+  if (found == 1 && ui->current->agg.numChildren == 1) {
+    *hit = ui->current->agg.children[0];
+  } else {
+    *hit = ui->current;
+  }
   if (found > 0) {
     return INDEXREAD_OK;
   }

@@ -141,12 +141,14 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   return f;
 }
 
+
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
 of them with
 fulltext indexes.
 */
 inline int NumericFilter_Match(NumericFilter *f, double score) {
+  
   int rc = 0;
   // match min - -inf or x >/>= score
   int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);

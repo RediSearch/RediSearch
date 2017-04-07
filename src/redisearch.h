@@ -161,7 +161,20 @@ typedef struct {
 
 } RSTermRecord;
 
-typedef enum { RSResultType_Union, RSResultType_Intersection, RSResultType_Term } RSResultType;
+/* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
+ * records */
+typedef struct {
+
+} RSVirtualRecord;
+
+typedef enum {
+  RSResultType_Union = 0x1,
+  RSResultType_Intersection = 0x2,
+  RSResultType_Term = 0x4,
+  RSResultType_Virtual = 0x8,
+} RSResultType;
+
+#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)
 
 typedef struct {
   /* The number of child records */
@@ -171,6 +184,8 @@ typedef struct {
   /* An array of recods */
   struct RSIndexResult **children;
 
+  // A map of the aggregate type of the underlying results
+  RSResultType typeMask;
 } RSAggregateResult;
 
 typedef struct RSIndexResult {
@@ -186,12 +201,17 @@ typedef struct RSIndexResult {
   union {
     RSAggregateResult agg;
     RSTermRecord term;
+    RSVirtualRecord virt;
   };
   RSResultType type;
 } RSIndexResult;
 
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
 RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);
+
+int RSIndexResult_HasOffsets(RSIndexResult *res);
+
+int RSIndexResult_IsAggregate(RSIndexResult *r);
 
 /* The context given to a scoring function. It includes the payload set by the user or expander, the
  * private data set by the extensionm and callback functions */

@@ -120,7 +120,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   it->size = num;
   it->atEOF = 0;
   it->lastDocId = 0;
-  it->res = NewTokenRecord(NULL);
+  it->res = NewVirtualResult();
   it->res->fieldMask = 0xFFFFFFFF;
 
   it->offset = 0;

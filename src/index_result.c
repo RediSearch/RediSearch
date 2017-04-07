@@ -13,8 +13,10 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
       .docId = 0,
       .freq = 0,
       .fieldMask = 0,
+
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
+                                 .typeMask = 0x0000,
                                  .children = rm_calloc(cap, sizeof(RSIndexResult *))}};
   return res;
 }
@@ -43,6 +45,15 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   return res;
 }
 
+RSIndexResult *NewVirtualResult() {
+  RSIndexResult *res = rm_new(RSIndexResult);
+
+  *res = (RSIndexResult){
+      .type = RSResultType_Virtual, .docId = 0, .fieldMask = 0, .freq = 0,
+  };
+  return res;
+}
+
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
   RSAggregateResult *agg = &parent->agg;
@@ -53,6 +64,8 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
     agg->children = rm_realloc(agg->children, agg->childrenCap * sizeof(RSIndexResult *));
   }
   agg->children[agg->numChildren++] = child;
+  // update the parent's type mask
+  agg->typeMask |= child->type;
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
@@ -62,6 +75,10 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
   // for (int i = 0; i < depth; i++) printf("  ");
   if (r->type == RSResultType_Term) {
     printf("Term{%s}, ", r->term.term ? r->term.term->str : "nil");
+    return;
+  }
+  if (r->type == RSResultType_Virtual) {
+    printf("Virtual{}, ");
     return;
   }
   printf("%s { ", r->type == RSResultType_Intersection ? "Inter" : "Union");
@@ -108,9 +125,28 @@ void IndexResult_Init(RSIndexResult *h) {
   }
 }
 
+int RSIndexResult_HasOffsets(RSIndexResult *res) {
+  switch (res->type) {
+    case RSResultType_Term:
+      return 1;
+    case RSResultType_Intersection:
+    case RSResultType_Union:
+      // the intersection and union aggregates can have offsets if they are not purely made of
+      // virtual results
+      return res->agg.typeMask != RSResultType_Virtual;
+
+    // a virtual result doesn't have offsets!
+    case RSResultType_Virtual:
+    default:
+      return 0;
+  }
+}
+
 /* Reset the aggregate result's child vector */
 inline void AggregateResult_Reset(RSAggregateResult *r) {
   r->numChildren = 0;
+
+  r->typeMask = 0;
 }
 
 void IndexResult_Free(RSIndexResult *r) {
@@ -122,6 +158,9 @@ void IndexResult_Free(RSIndexResult *r) {
   rm_free(r);
 }
 
+inline int RSIndexResult_IsAggregate(RSIndexResult *r) {
+  return (r->type & RS_RESULT_AGGREGATE) != 0;
+}
 #define __absdelta(x, y) (x > y ? x - y : y - x)
 /**
 Find the minimal distance between members of the vectos.
@@ -130,7 +169,7 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(RSIndexResult *r) {
-  if (r->type == RSResultType_Term || r->agg.numChildren <= 1) {
+  if (!RSIndexResult_IsAggregate(r) || r->agg.numChildren <= 1) {
     return 1;
   }
 
@@ -139,10 +178,25 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   int num = agg->numChildren;
 
   RSOffsetIterator v1, v2;
-  for (int i = 1; i < num; i++) {
-    // if this is not the first iteration, we take v1 from v2 and rewind it
+  int i = 0;
+  while (i < num) {
+    // if either
+    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+      i++;
+      continue;
+    }
+    if (i == num) break;
+    v1 = RSIndexResult_IterateOffsets(agg->children[i]);
+    i++;
 
-    v1 = RSIndexResult_IterateOffsets(agg->children[i - 1]);
+    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+      i++;
+      continue;
+    }
+    if (i == num) {
+      v1.Free(v1.ctx);
+      break;
+    }
     v2 = RSIndexResult_IterateOffsets(agg->children[i]);
 
     uint32_t p1 = v1.Next(v1.ctx);
@@ -297,18 +351,23 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
   uint32_t positions[num];
+  int n = 0;
   for (int i = 0; i < num; i++) {
-    iters[i] = RSIndexResult_IterateOffsets(r->children[i]);
-    positions[i] = 0;
+    // collect only iterators for nodes that can have offsets
+    if (RSIndexResult_HasOffsets(r->children[i])) {
+      iters[n] = RSIndexResult_IterateOffsets(r->children[i]);
+      positions[n] = 0;
+      n++;
+    }
   }
 
   int rc;
   // cal the relevant algorithm based on ordered/unordered condition
   if (inOrder)
-    rc = __indexResult_withinRangeInOrder(iters, positions, num, maxSlop);
+    rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
   else
-    rc = __indexResult_withinRangeUnordered(iters, positions, num, maxSlop);
-  for (int i = 0; i < num; i++) {
+    rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
+  for (int i = 0; i < n; i++) {
     iters[i].Free(iters[i].ctx);
   }
   return rc;

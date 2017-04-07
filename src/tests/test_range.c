@@ -79,7 +79,10 @@ int testRangeIterator() {
       break;
     }
 
-    ASSERT_EQUAL(res->type, RSResultType_Union);
+    ASSERT_EQUAL(res->type, RSResultType_Virtual);
+    // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
+    ASSERT(!RSIndexResult_HasOffsets(res));
+    ASSERT(!RSIndexResult_IsAggregate(res));
     ASSERT(res->docId > 0);
     ASSERT_EQUAL(res->fieldMask, 0xffffffff);
 
@@ -107,6 +110,34 @@ int benchmarkNumericRangeTree() {
     // printf("%d\n", v->top);
     Vector_Free(v);
   });
+
+  TimeSample ts;
+
+  NumericFilter *flt = NewNumericFilter(1000, 5000 0, 0, 0);
+  IndexIterator *it = NewNumericFilterIterator(t, flt);
+  ASSERT(it->HasNext(it->ctx));
+
+  // ASSERT_EQUAL(it->Len(it->ctx), N);
+  count = 0;
+
+  RSIndexResult *res = NULL;
+  TimeSampler_Start(&ts);
+  while (it->HasNext(it->ctx)) {
+
+    int rc = it->Read(it->ctx, &res);
+    TimeSampler_Tick(&ts);
+    // IndexResult_Print(res, 0);
+    // if (rc == INDEXREAD_EOF) {
+    //   break;
+    // }
+    ++count;
+  }
+  TimeSampler_End(&ts);
+
+  printf("%d iteration of range iterators in %lld ns, %fns/iteration", count,
+         TimeSampler_DurationNS(&ts), TimeSampler_IterationMS(&ts) * 1000000);
+
+  it->Free(it);
 
   NumericRangeTree_Free(t);
   return 0;

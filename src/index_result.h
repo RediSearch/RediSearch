@@ -21,6 +21,8 @@ RSIndexResult *NewIntersectResult(size_t cap);
 /* Allocate a new union result with a given capacity*/
 RSIndexResult *NewUnionResult(size_t cap);
 
+RSIndexResult *NewVirtualResult();
+
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 

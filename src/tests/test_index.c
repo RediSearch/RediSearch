@@ -7,6 +7,7 @@
 #include "../tokenize.h"
 #include "../varint.h"
 #include "test_util.h"
+#include "time_sample.h"
 #include "../rmutil/alloc.h"
 #include <assert.h>
 #include <math.h>
@@ -306,22 +307,27 @@ int testIntersection() {
 
   int count = 0;
   IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, -1, 0);
-  struct timespec start_time, end_time;
-  clock_gettime(CLOCK_REALTIME, &start_time);
+
   RSIndexResult *h = NULL;
 
+  TimeSample ts;
+  TimeSampler_Start(&ts);
   float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
-    topFreq = topFreq > h->freq ? topFreq : h->freq;
+    // ASSERT(h->type == RSResultType_Intersection);
+    // ASSERT(RSIndexResult_IsAggregate(h));
+    // ASSERT(RSIndexResult_HasOffsets(h));
+     topFreq = topFreq > h->freq ? topFreq : h->freq;
     // printf("%d\n", h.docId);
+    TimeSampler_Tick(&ts);
     ++count;
   }
+  TimeSampler_End(&ts);
 
   // int count = IR_Intersect(r1, r2, onIntersect, &ctx);
-  clock_gettime(CLOCK_REALTIME, &end_time);
-  long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
 
-  printf("%d intersections in %ldns\n", count, diffInNanos);
+  printf("%d intersections in %lldms, %.0fns per iteration\n", count, TimeSampler_DurationMS(&ts),
+         1000000 * TimeSampler_IterationMS(&ts));
   printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
   ASSERT(topFreq == 475000.0);
