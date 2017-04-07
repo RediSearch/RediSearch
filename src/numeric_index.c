@@ -5,8 +5,8 @@
 #include <math.h>
 #include "redismodule.h"
 
-#define NR_EXPONENT 1.5
-#define NR_MAXRANGE_CARD 2000
+#define NR_EXPONENT 2
+#define NR_MAXRANGE_CARD 5000
 #define NR_MAX_DEPTH 2
 
 double qselect(double *v, int len, int k) {
