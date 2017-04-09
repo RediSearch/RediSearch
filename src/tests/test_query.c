@@ -43,6 +43,7 @@ int isValidQuery(char *qt) {
   }
 
 int testQueryParser() {
+
   // test some valid queries
   assertValidQuery("hello");
   assertValidQuery("hello world");
@@ -81,7 +82,7 @@ int testQueryParser() {
   ASSERT(n->type == QN_PHRASE);
   ASSERT(n->pn.exact == 0);
   ASSERT(n->pn.numChildren == 4);
-  ASSERT_EQUAL(n->fieldMask,RS_FIELDMASK_ALL);
+  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
@@ -163,7 +164,7 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
-  TESTFUNC(testFieldSpec);
-  benchmarkQueryParser();
+  // TESTFUNC(testFieldSpec);
+  // benchmarkQueryParser();
 
 });

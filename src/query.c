@@ -44,6 +44,7 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
 
 void QueryNode_Free(QueryNode *n) {
 
+  
   switch (n->type) {
     case QN_TOKEN:
       _queryTokenNode_Free(&n->tn);
@@ -97,6 +98,7 @@ QueryNode *NewUnionNode() {
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = __newQueryNode(QN_PHRASE);
   ret->fieldMask = 0;
+
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
 }

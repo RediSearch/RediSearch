@@ -4,6 +4,7 @@
 %left RP.
 %nonassoc QUOTE.
 %left TERM.
+%left AT.
 
 %token_type {QueryToken}  
 
@@ -30,14 +31,15 @@
 %extra_argument { parseCtx *ctx }
 %default_type { QueryNode *}
 %default_destructor { QueryNode_Free($$); }
-%type mofidier { QueryToken }
-%destructor modifier { ; }
+%type modifier { QueryToken }
+%type TERM { QueryToken }
+%destructor TERM { free($$.s); }
+%destructor modifier { free($$.s); }
 
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
 
 exprlist(A) ::= expr(B) expr(C). {
-    printf("NewPhraseNode");
     A = NewPhraseNode(0);
     QueryPhraseNode_AddChild(A, B);
     QueryPhraseNode_AddChild(A, C);
@@ -52,11 +54,14 @@ exprlist(A) ::= exprlist(B) expr(C). {
 expr(A) ::= union(B). {  A = B;}
 expr(A) ::= LP expr(B) RP .  { A = B; } 
 expr(A) ::= LP exprlist(B) RP .  { A = B; } 
-expr(A) ::= TERM(B). {  A = NewTokenNode(ctx->q, B.s, B.len);  }
+expr(A) ::= TERM(B). { 
+ A = NewTokenNode(ctx->q, B.s, B.len);  
+}
 
 // field modifier -- @foo:bar
-mofidier(A) ::= AT TERM(B). { A = B; }
-expr(A) ::= mofidier(B) COLON expr(C). {
+//modifier(A) ::= AT TERM(B). { A = B; }
+
+expr(A) ::= AT TERM(B) COLON expr(C). {
     // gets the field mask from the query's spec. 
     // TODO: Avoid leaky abstraction here
     if (ctx->q->ctx && ctx->q->ctx->spec) {
