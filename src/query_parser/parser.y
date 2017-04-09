@@ -33,8 +33,8 @@
 %default_destructor { QueryNode_Free($$); }
 %type modifier { QueryToken }
 %type TERM { QueryToken }
-%destructor TERM { free($$.s); }
-%destructor modifier { free($$.s); }
+%destructor TERM { free((char *)$$.s); }
+%destructor modifier { free((char *)$$.s); }
 
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
@@ -67,6 +67,7 @@ expr(A) ::= AT TERM(B) COLON expr(C). {
     if (ctx->q->ctx && ctx->q->ctx->spec) {
         C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
     }
+    free((char *)B.s);
     A = C; 
 } 
 

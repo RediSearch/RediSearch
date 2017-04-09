@@ -392,7 +392,7 @@ static void yy_destructor(
     case 9: /* modifier */
 {
 #line 37 "parser.y"
- free((yypminor->yy0).s); 
+ free((char *)(yypminor->yy0).s); 
 #line 397 "parser.c"
 }
       break;
@@ -699,47 +699,47 @@ static void yy_reduce(
       case 2: /* exprlist ::= expr expr */
 #line 42 "parser.y"
 {
-    printf("NewPhraseNode\n");
     yygotominor.yy17 = NewPhraseNode(0);
     QueryPhraseNode_AddChild(yygotominor.yy17, yymsp[-1].minor.yy17);
     QueryPhraseNode_AddChild(yygotominor.yy17, yymsp[0].minor.yy17);
 }
-#line 708 "parser.c"
+#line 707 "parser.c"
         break;
       case 3: /* exprlist ::= exprlist expr */
-#line 49 "parser.y"
+#line 48 "parser.y"
 {
     yygotominor.yy17 = yymsp[-1].minor.yy17;
     QueryPhraseNode_AddChild(yygotominor.yy17, yymsp[0].minor.yy17);
 }
-#line 716 "parser.c"
+#line 715 "parser.c"
         break;
       case 4: /* expr ::= union */
-#line 55 "parser.y"
+#line 54 "parser.y"
 {  yygotominor.yy17 = yymsp[0].minor.yy17;}
-#line 721 "parser.c"
+#line 720 "parser.c"
         break;
       case 5: /* expr ::= LP expr RP */
       case 6: /* expr ::= LP exprlist RP */ yytestcase(yyruleno==6);
-#line 56 "parser.y"
+#line 55 "parser.y"
 { yygotominor.yy17 = yymsp[-1].minor.yy17; }
-#line 727 "parser.c"
+#line 726 "parser.c"
         break;
       case 7: /* expr ::= TERM */
-#line 58 "parser.y"
-{  printf("New token node!\n");
- yygotominor.yy17 = NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);  }
+#line 57 "parser.y"
+{ 
+ yygotominor.yy17 = NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);  
+}
 #line 733 "parser.c"
         break;
       case 8: /* expr ::= AT TERM COLON expr */
 #line 64 "parser.y"
 {
-    printf("Adding expr to modifier %.*s\n", yymsp[-2].minor.yy0.len, yymsp[-2].minor.yy0.s);
     // gets the field mask from the query's spec. 
     // TODO: Avoid leaky abstraction here
     if (ctx->q->ctx && ctx->q->ctx->spec) {
         yymsp[0].minor.yy17->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
+    free((char *)yymsp[-2].minor.yy0.s);
     yygotominor.yy17 = yymsp[0].minor.yy17; 
 }
 #line 746 "parser.c"

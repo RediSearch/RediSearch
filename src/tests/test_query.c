@@ -164,7 +164,7 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
-  // TESTFUNC(testFieldSpec);
-  // benchmarkQueryParser();
+  TESTFUNC(testFieldSpec);
+  benchmarkQueryParser();
 
 });
