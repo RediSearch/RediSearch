@@ -22,7 +22,7 @@ If a field modifier preceds an expression in parentheses, it applies only to the
 Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:
 
 ```
-FT.SEARCH cars "@country:korea @engine:(diesel|hybrid) class:suv"
+FT.SEARCH cars "@country:korea @engine:(diesel|hybrid) @class:suv"
 ```
 
 ## A few examples
