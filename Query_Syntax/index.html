@@ -278,6 +278,13 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
+    Field modifiers
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-few-examples" title="A few examples" class="md-nav__link">
     A few examples
   </a>
@@ -385,6 +392,13 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
+    Field modifiers
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-few-examples" title="A few examples" class="md-nav__link">
     A few examples
   </a>
@@ -425,9 +439,20 @@
 <li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
 <li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
 <li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
+<li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
+<h2 id="field-modifiers">Field modifiers<a class="headerlink" href="#field-modifiers" title="Permanent link">&para;</a></h2>
+<p>As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword. </p>
+<p>Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the <code>@</code> symbol, the field name and a <code>:</code> (colon) symbol. </p>
+<p>If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier. </p>
+<p>If a field modifier preceds an expression in parentheses, it applies only to the expression inside the parentheses.</p>
+<p>Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH cars &quot;@country:korea @engine:(diesel|hybrid) class:suv&quot;
+</pre></div>
+
+
 <h2 id="a-few-examples">A few examples<a class="headerlink" href="#a-few-examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
@@ -461,6 +486,20 @@
 <li>
 <p>Union inside phrase</p>
 <div class="codehilite"><pre><span></span>(barack|barrack) obama
+</pre></div>
+
+
+</li>
+<li>
+<p>Exact phrase in one field, one word in aonther field:</p>
+<div class="codehilite"><pre><span></span>@title:&quot;barack obama&quot; @job:president
+</pre></div>
+
+
+</li>
+<li>
+<p>Combined AND, OR with field specifiers:</p>
+<div class="codehilite"><pre><span></span>@title:hello world @body:(foo bar) @category:(articles|biographies)
 </pre></div>
 
 
