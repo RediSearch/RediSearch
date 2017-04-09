@@ -269,7 +269,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
 
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryPhraseNode *pn = &parent->pn;
-  if (pn->numChildren == 0 || child->fieldMask != 0xFFFFFFFF) {
+  if (child != NULL && (pn->numChildren == 0 || child->fieldMask != 0xFFFFFFFF)) {
     parent->fieldMask |= child->fieldMask;
   }
 
@@ -278,7 +278,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 }
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryUnionNode *un = &parent->un;
-  if (un->numChildren == 0 || child->fieldMask != 0xFFFFFFFF) {
+  if (child != NULL && (un->numChildren == 0 || child->fieldMask != 0xFFFFFFFF)) {
     parent->fieldMask |= child->fieldMask;
   }
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
@@ -468,7 +468,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query, query->root, 0);
+  //__queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

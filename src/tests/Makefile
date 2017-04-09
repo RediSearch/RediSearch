@@ -44,7 +44,7 @@ test_trie:
 .PHONY: test_trie
 
 query: test_query.o
-	$(CC) $(CFLAGS)  -o test_query test_query.o $ $(DEPS) -lc -lm
+	$(CC) $(CFLAGS) -o test_query test_query.o $ $(DEPS) -lc -lm
 
 test_query: query 	 
 	@(sh -c ./test_query)

@@ -28,6 +28,7 @@ int isValidQuery(char *qt) {
   ASSERT(n != NULL);
   __queryNode_Print(q, n, 0);
   Query_Free(q);
+  IndexSpec_Free(ctx.spec);
   return 0;
 }
 
@@ -80,6 +81,7 @@ int testQueryParser() {
   ASSERT(n->type == QN_PHRASE);
   ASSERT(n->pn.exact == 0);
   ASSERT(n->pn.numChildren == 4);
+  ASSERT_EQUAL(n->fieldMask, 0xFFFFFFFF);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
@@ -97,9 +99,56 @@ int testQueryParser() {
   ASSERT(n->pn.children[3]->type == QN_TOKEN);
   ASSERT_STRING_EQ("baz", n->pn.children[3]->tn.str);
   Query_Free(q);
+
   return 0;
 }
 
+int testFieldSpec() {
+  char *err = NULL;
+
+  static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
+                               "text",   "weight", "2.0",  "bar",    "numeric"};
+  RedisSearchCtx ctx = {
+      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  char *qt = "@title:hello world";
+  Query *q =
+      NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+
+  QueryNode *n = Query_Parse(q, &err);
+
+  if (err) FAIL("Error parsing query: %s", err);
+  __queryNode_Print(q, n, 0);
+  ASSERT(err == NULL);
+  ASSERT(n != NULL);
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->fieldMask, 0x01)
+  Query_Free(q);
+
+  qt = "@title:hello @body:world";
+  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  n = Query_Parse(q, &err);
+  if (err) FAIL("Error parsing query: %s", err);
+  ASSERT(n != NULL);
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
+  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  Query_Free(q);
+
+  qt = "@title:(hello world) @body:world @adasdfsd:fofofof";
+  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  n = Query_Parse(q, &err);
+  if (err) FAIL("Error parsing query: %s", err);
+  ASSERT(n != NULL);
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
+  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
+  Query_Free(q);
+
+  return 0;
+}
 void benchmarkQueryParser() {
   char *qt = "(hello|world) \"another world\"";
   RedisSearchCtx ctx;
@@ -114,7 +163,7 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
-
-  //  benchmarkQueryParser();
+  TESTFUNC(testFieldSpec);
+  benchmarkQueryParser();
 
 });
