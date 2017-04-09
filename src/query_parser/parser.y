@@ -37,6 +37,7 @@ query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
 
 exprlist(A) ::= expr(B) expr(C). {
+    printf("NewPhraseNode");
     A = NewPhraseNode(0);
     QueryPhraseNode_AddChild(A, B);
     QueryPhraseNode_AddChild(A, C);

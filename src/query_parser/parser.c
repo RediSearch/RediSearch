@@ -4,7 +4,7 @@
 /* First off, code is included that follows the "include" declaration
 ** in the input grammar file. */
 #include <stdio.h>
-#line 20 "parser.y"
+#line 20 "query_parser/parser.y"
    
 
 #include <stdlib.h>
@@ -13,7 +13,7 @@
 #include "parse.h"
 #include "../query_node.h"
    
-#line 17 "parser.c"
+#line 17 "query_parser/parser.c"
 /* Next is all token values, in a form suitable for use by makeheaders.
 ** This section will be null unless lemon is run with the -m switch.
 */
@@ -386,16 +386,16 @@ static void yy_destructor(
     case 14: /* union */
     case 15: /* exact */
 {
-#line 32 "parser.y"
+#line 32 "query_parser/parser.y"
  QueryNode_Free((yypminor->yy19)); 
-#line 392 "parser.c"
+#line 392 "query_parser/parser.c"
 }
       break;
     case 10: /* modifier */
 {
-#line 34 "parser.y"
+#line 34 "query_parser/parser.y"
  ; 
-#line 399 "parser.c"
+#line 399 "query_parser/parser.c"
 }
       break;
     default:  break;   /* If no destructor action specified: do nothing */
@@ -695,50 +695,51 @@ static void yy_reduce(
   */
       case 0: /* query ::= exprlist */
       case 1: /* query ::= expr */ yytestcase(yyruleno==1);
-#line 36 "parser.y"
+#line 36 "query_parser/parser.y"
 { ctx->root = yymsp[0].minor.yy19; }
-#line 701 "parser.c"
+#line 701 "query_parser/parser.c"
         break;
       case 2: /* exprlist ::= expr expr */
-#line 39 "parser.y"
+#line 39 "query_parser/parser.y"
 {
+    printf("NewPhraseNode");
     yygotominor.yy19 = NewPhraseNode(0);
     QueryPhraseNode_AddChild(yygotominor.yy19, yymsp[-1].minor.yy19);
     QueryPhraseNode_AddChild(yygotominor.yy19, yymsp[0].minor.yy19);
 }
-#line 710 "parser.c"
+#line 711 "query_parser/parser.c"
         break;
       case 3: /* exprlist ::= exprlist expr */
-#line 45 "parser.y"
+#line 46 "query_parser/parser.y"
 {
     yygotominor.yy19 = yymsp[-1].minor.yy19;
     QueryPhraseNode_AddChild(yygotominor.yy19, yymsp[0].minor.yy19);
 }
-#line 718 "parser.c"
+#line 719 "query_parser/parser.c"
         break;
       case 4: /* expr ::= union */
-#line 51 "parser.y"
+#line 52 "query_parser/parser.y"
 {  yygotominor.yy19 = yymsp[0].minor.yy19;}
-#line 723 "parser.c"
+#line 724 "query_parser/parser.c"
         break;
       case 5: /* expr ::= LP expr RP */
       case 6: /* expr ::= LP exprlist RP */ yytestcase(yyruleno==6);
-#line 52 "parser.y"
+#line 53 "query_parser/parser.y"
 { yygotominor.yy19 = yymsp[-1].minor.yy19; }
-#line 729 "parser.c"
+#line 730 "query_parser/parser.c"
         break;
       case 7: /* expr ::= TERM */
-#line 54 "parser.y"
+#line 55 "query_parser/parser.y"
 {  yygotominor.yy19 = NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);  }
-#line 734 "parser.c"
+#line 735 "query_parser/parser.c"
         break;
       case 8: /* mofidier ::= AT TERM */
-#line 57 "parser.y"
+#line 58 "query_parser/parser.y"
 { yygotominor.yy0 = yymsp[0].minor.yy0; }
-#line 739 "parser.c"
+#line 740 "query_parser/parser.c"
         break;
       case 9: /* expr ::= mofidier COLON expr */
-#line 58 "parser.y"
+#line 59 "query_parser/parser.y"
 {
     // gets the field mask from the query's spec. 
     // TODO: Avoid leaky abstraction here
@@ -747,47 +748,47 @@ static void yy_reduce(
     }
     yygotominor.yy19 = yymsp[0].minor.yy19; 
 }
-#line 751 "parser.c"
+#line 752 "query_parser/parser.c"
         break;
       case 10: /* exact ::= QUOTE TERM */
-#line 67 "parser.y"
+#line 68 "query_parser/parser.y"
 {
     yygotominor.yy19 = NewPhraseNode(1);
     QueryPhraseNode_AddChild(yygotominor.yy19, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
-#line 759 "parser.c"
+#line 760 "query_parser/parser.c"
         break;
       case 11: /* exact ::= exact TERM */
-#line 72 "parser.y"
+#line 73 "query_parser/parser.y"
 {
     QueryPhraseNode_AddChild(yymsp[-1].minor.yy19, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
     yygotominor.yy19 = yymsp[-1].minor.yy19;
 }
-#line 767 "parser.c"
+#line 768 "query_parser/parser.c"
         break;
       case 12: /* expr ::= exact QUOTE */
-#line 77 "parser.y"
+#line 78 "query_parser/parser.y"
 {
     yygotominor.yy19 = yymsp[-1].minor.yy19;
 }
-#line 774 "parser.c"
+#line 775 "query_parser/parser.c"
         break;
       case 13: /* union ::= union OR TERM */
-#line 81 "parser.y"
+#line 82 "query_parser/parser.y"
 {
     QueryUnionNode_AddChild(yymsp[-2].minor.yy19, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
     yygotominor.yy19 = yymsp[-2].minor.yy19;
 }
-#line 782 "parser.c"
+#line 783 "query_parser/parser.c"
         break;
       case 14: /* union ::= TERM OR TERM */
-#line 87 "parser.y"
+#line 88 "query_parser/parser.y"
 {
     yygotominor.yy19 = NewUnionNode();
     QueryUnionNode_AddChild(yygotominor.yy19, NewTokenNode(ctx->q, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
     QueryUnionNode_AddChild(yygotominor.yy19, NewTokenNode(ctx->q, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
-#line 791 "parser.c"
+#line 792 "query_parser/parser.c"
         break;
       default:
         break;
@@ -849,7 +850,7 @@ static void yy_syntax_error(
 ){
   ParseARG_FETCH;
 #define TOKEN (yyminor.yy0)
-#line 10 "parser.y"
+#line 10 "query_parser/parser.y"
   
 
     int len = TOKEN.len + 100;
@@ -858,7 +859,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 862 "parser.c"
+#line 863 "query_parser/parser.c"
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 

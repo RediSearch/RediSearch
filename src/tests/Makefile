@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
+CFLAGS = -g -O0 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o\
