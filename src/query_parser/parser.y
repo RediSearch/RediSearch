@@ -31,6 +31,7 @@
 %default_type { QueryNode *}
 %default_destructor { QueryNode_Free($$); }
 %type mofidier { QueryToken }
+%destructor modifier { ; }
 
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
