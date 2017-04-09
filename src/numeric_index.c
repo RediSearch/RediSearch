@@ -228,8 +228,9 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
       if (vmin->range->maxVal > min) {
         __pushRange(leaves, vmin->range, "vmin edge");
       } else {  // we're out of range - no need to return anything
-        Vector_Resize(leaves, 0);
-        return leaves;
+        // TODO: Vector_Clear
+        Vector_Free(leaves);
+        return NULL;
       }
       break;
     }
