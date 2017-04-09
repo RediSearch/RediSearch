@@ -84,7 +84,7 @@ int testRangeIterator() {
     ASSERT(!RSIndexResult_HasOffsets(res));
     ASSERT(!RSIndexResult_IsAggregate(res));
     ASSERT(res->docId > 0);
-    ASSERT_EQUAL(res->fieldMask, 0xffffffff);
+    ASSERT_EQUAL(res->fieldMask, RS_FIELDMASK_ALL);
 
     count++;
   }

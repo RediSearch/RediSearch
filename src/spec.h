@@ -31,7 +31,10 @@ typedef struct fieldSpec {
   char *name;
   FieldType type;
   double weight;
-  uint32_t id;
+  t_fieldMask id;
+
+  // TODO: const char **separators;
+  // size_t numSeparators;
   // TODO: More options here..
 } FieldSpec;
 
@@ -113,6 +116,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 * Parse the field mask passed to a query, map field names to a bit mask passed down to the
 * execution engine, detailing which fields the query works on. See FT.SEARCH for API details
 */
-u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
+t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 #endif

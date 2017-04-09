@@ -46,7 +46,7 @@ typedef struct indexReadCtx {
   // u_int skipIdxPos;
   DocTable *docTable;
 
-  uint32_t fieldMask;
+  t_fieldMask fieldMask;
 
   IndexFlags flags;
 
@@ -67,13 +67,13 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, uint32_t fieldMask,
+IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
                             IndexFlags flags, RSQueryTerm *term, int singleWordMode);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, uint32_t *flags,
+int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, t_fieldMask *fieldMask,
                    RSOffsetVector *offsets);
 
 int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);

@@ -12,7 +12,7 @@ typedef struct {
   size_t len;
   uint32_t freq;
   float docScore;
-  u_char flags;
+  t_fieldMask fieldMask;
   VarintVectorWriter *vw;
   int stringFreeable;
 } ForwardIndexEntry;

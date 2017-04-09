@@ -28,7 +28,7 @@ typedef struct {
   float score;
 
   // Field id - used later for filtering.
-  u_char fieldId;
+  t_fieldMask fieldId;
 
   int stringFreeable;
 
@@ -69,8 +69,8 @@ int _tokenize(TokenizerCtx *ctx);
 TokenFunc is a callback that will be called for each token found
 if doStem is 1, we will add stemming extraction for the text
 */
-int tokenize(const char *text, float fieldScore, u_char fieldId, void *ctx, TokenFunc f, Stemmer *s,
-             u_int offset);
+int tokenize(const char *text, float fieldScore, t_fieldMask fieldId, void *ctx, TokenFunc f,
+             Stemmer *s, u_int offset);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents.
 Does NOT normalize unicode */

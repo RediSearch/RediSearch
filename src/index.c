@@ -232,8 +232,8 @@ void IntersectIterator_Free(IndexIterator *it) {
   free(it);
 }
 
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt, u_char fieldMask,
-                                   int maxSlop, int inOrder) {
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
+                                   t_fieldMask fieldMask, int maxSlop, int inOrder) {
 
   IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
   ctx->its = its;

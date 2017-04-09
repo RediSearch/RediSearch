@@ -130,7 +130,7 @@ int testIndexReadWrite() {
 
     ForwardIndexEntry h;
     h.docId = i;
-    h.flags = 0xff;
+    h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
     h.docScore = (1 + (i + 2) % 30) / (float)31;
 
@@ -163,7 +163,7 @@ int testIndexReadWrite() {
   for (int xx = 0; xx < 1; xx++) {
 
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewIndexReader(idx, NULL, 0xff, INDEX_DEFAULT_FLAGS, NULL, 1);  //
+    IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 1);  //
     RSIndexResult *h = NULL;
 
     struct timespec start_time, end_time;
@@ -206,7 +206,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     // }
     ForwardIndexEntry h;
     h.docId = id;
-    h.flags = 0xff;
+    h.fieldMask = 1;
     h.freq = i % 10;
     h.docScore = 1;
     h.stringFreeable = 0;
@@ -242,7 +242,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 int testReadIterator() {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewIndexReader(idx, NULL, 0xff, INDEX_DEFAULT_FLAGS, NULL, 0);
+  IndexReader *r1 = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 0);
   RSIndexResult *h = NULL;
 
   IndexIterator *it = NewReadIterator(r1);
@@ -267,8 +267,8 @@ int testReadIterator() {
 int testUnion() {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewIndexReader(w, NULL, 0xff, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, 0xff, w2->flags, NULL, 0);
+  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
+  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -296,8 +296,8 @@ int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewIndexReader(w, NULL, 0xff, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, 0xff, w2->flags, NULL, 0);
+  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
+  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -306,7 +306,7 @@ int testIntersection() {
   printf("Intersecting...\n");
 
   int count = 0;
-  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, 0xff, -1, 0);
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
 
   RSIndexResult *h = NULL;
 
@@ -314,10 +314,10 @@ int testIntersection() {
   TimeSampler_Start(&ts);
   float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
-     ASSERT(h->type == RSResultType_Intersection);
-     ASSERT(RSIndexResult_IsAggregate(h));
-     ASSERT(RSIndexResult_HasOffsets(h));
-     topFreq = topFreq > h->freq ? topFreq : h->freq;
+    ASSERT(h->type == RSResultType_Intersection);
+    ASSERT(RSIndexResult_IsAggregate(h));
+    ASSERT(RSIndexResult_HasOffsets(h));
+    topFreq = topFreq > h->freq ? topFreq : h->freq;
     // printf("%d\n", h.docId);
     TimeSampler_Tick(&ts);
     ++count;
@@ -508,7 +508,7 @@ int testIndexFlags() {
 
   ForwardIndexEntry h;
   h.docId = 1234;
-  h.flags = 0xff;
+  h.fieldMask = 0x01;
   h.freq = 1;
   h.docScore = 100;
   h.vw = NewVarintVectorWriter(8);

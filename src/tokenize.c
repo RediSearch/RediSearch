@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <strings.h>
 
-int tokenize(const char *text, float score, u_char fieldId, void *ctx, TokenFunc f, Stemmer *s,
+int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, TokenFunc f, Stemmer *s,
              u_int offset) {
   TokenizerCtx tctx;
   tctx.text = text;

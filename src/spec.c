@@ -149,7 +149,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags &= ~Index_StoreScoreIndexes;
   }
 
-  int id = 1;
+  t_fieldMask id = 1;
 
   int i = schemaOffset + 1;
   while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
@@ -205,8 +205,8 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) 
   return ret;
 }
 
-u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
-  u_char ret = 0;
+t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
+  t_fieldMask ret = 0;
 
   for (int i = 0; i < argc; i++) {
     size_t len;
@@ -215,7 +215,7 @@ u_char IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int arg
     FieldSpec *fs = IndexSpec_GetField(sp, p, len);
     if (fs != NULL) {
       LG_DEBUG("Found mask for %s: %d\n", p, fs->id);
-      ret |= (fs->id & 0xff);
+      ret |= (fs->id & RS_FIELDMASK_ALL);
     }
   }
 

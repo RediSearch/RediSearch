@@ -67,7 +67,7 @@ void QueryNode_Free(QueryNode *n) {
 QueryNode *__newQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
-  s->fieldMask = 0xFFFFFFFF;
+  s->fieldMask = RS_FIELDMASK_ALL;
   return s;
 }
 
@@ -269,7 +269,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
 
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryPhraseNode *pn = &parent->pn;
-  if (child != NULL && (pn->numChildren == 0 || child->fieldMask != 0xFFFFFFFF)) {
+  if (child != NULL && (pn->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
   }
 
@@ -278,7 +278,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 }
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryUnionNode *un = &parent->un;
-  if (child != NULL && (un->numChildren == 0 || child->fieldMask != 0xFFFFFFFF)) {
+  if (child != NULL && (un->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
   }
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
@@ -288,7 +288,7 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
                 const char *expander, int slop, int inOrder, const char *scorer) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
@@ -365,7 +365,7 @@ void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
     printf("  ");
   }
 
-  if (qs->fieldMask && qs->fieldMask != 0xFFFFFFFF) {
+  if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL) {
     if (!q->ctx) {
       printf("@%x", qs->fieldMask);
     } else {

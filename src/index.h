@@ -69,7 +69,7 @@ typedef struct {
 
   // RSIndexResult *result;
   DocTable *docTable;
-  uint32_t fieldMask;
+  t_fieldMask fieldMask;
   int atEnd;
 } IntersectContext;
 
@@ -77,7 +77,7 @@ typedef struct {
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
  * maxSlop is set and inOrder is 1, we assert that the terms are in
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, u_char fieldMask,
+IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, t_fieldMask fieldMask,
                                    int maxSlop, int inOrder);
 
 int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);

@@ -121,7 +121,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   it->atEOF = 0;
   it->lastDocId = 0;
   it->res = NewVirtualResult();
-  it->res->fieldMask = 0xFFFFFFFF;
+  it->res->fieldMask = RS_FIELDMASK_ALL;
 
   it->offset = 0;
 

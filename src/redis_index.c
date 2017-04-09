@@ -152,7 +152,7 @@ InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, si
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
-                              u_char fieldMask) {
+                              t_fieldMask fieldMask) {
 
   RedisModuleString *termKey = fmtRedisTermKey(ctx, tok->str, tok->len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);

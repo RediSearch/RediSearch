@@ -31,7 +31,7 @@ typedef struct RSQuery {
   size_t limit;
 
   // field Id bitmask
-  uint32_t fieldMask;
+  t_fieldMask fieldMask;
 
   // the query execution stage at the root of the query
   QueryNode *root;
@@ -103,7 +103,7 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
 /* Initialize a new query object from user input. This does not parse the query
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                u_char fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
                 const char *expander, int maxSlop, int inOrder, const char *scorer);
 void Query_Expand(Query *q);
 /* Free a query object */

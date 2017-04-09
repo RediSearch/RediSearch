@@ -30,8 +30,8 @@
 %extra_argument { parseCtx *ctx }
 %default_type { QueryNode *}
 %default_destructor { QueryNode_Free($$); }
-%type mofidier { char * }
-%destructor modifier {free ($$); }
+%type mofidier { QueryToken }
+
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
 
@@ -46,14 +46,19 @@ exprlist(A) ::= exprlist(B) expr(C). {
     QueryPhraseNode_AddChild(A, C);
 }
 
+
 expr(A) ::= union(B). {  A = B;}
 expr(A) ::= LP expr(B) RP .  { A = B; } 
 expr(A) ::= LP exprlist(B) RP .  { A = B; } 
 expr(A) ::= TERM(B). {  A = NewTokenNode(ctx->q, B.s, B.len);  }
-mofidier(A) ::= AT TERM(B). { A = strndup(B.s, B.len); }
+
+// field modifier -- @foo:bar
+mofidier(A) ::= AT TERM(B). { A = B; }
 expr(A) ::= mofidier(B) COLON expr(C). {
+    // gets the field mask from the query's spec. 
+    // TODO: Avoid leaky abstraction here
     if (ctx->q->ctx && ctx->q->ctx->spec) {
-     C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B, strlen(B)); 
+        C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
     }
     A = C; 
 } 

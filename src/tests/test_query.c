@@ -81,7 +81,7 @@ int testQueryParser() {
   ASSERT(n->type == QN_PHRASE);
   ASSERT(n->pn.exact == 0);
   ASSERT(n->pn.numChildren == 4);
-  ASSERT_EQUAL(n->fieldMask, 0xFFFFFFFF);
+  ASSERT_EQUAL(n->fieldMask,RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);

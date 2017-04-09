@@ -662,7 +662,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // if INFIELDS exists, parse the field mask
   int inFieldsIdx = RMUtil_ArgExists("INFIELDS", argv, argc, 3);
   long long numFields = 0;
-  u_char fieldMask = 0xff;
+  t_fieldMask fieldMask = RS_FIELDMASK_ALL;
   if (inFieldsIdx > 0) {
     RMUtil_ParseArgs(argv, argc, inFieldsIdx + 1, "l", &numFields);
     if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {

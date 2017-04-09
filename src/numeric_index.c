@@ -448,7 +448,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   it->offset = 0;
   it->rng = nr;
   it->rec = NewVirtualResult();
-  it->rec->fieldMask = 0xFFFFFFFF;
+  it->rec->fieldMask = RS_FIELDMASK_ALL;
   ret->ctx = it;
 
   ret->Free = NR_Free;

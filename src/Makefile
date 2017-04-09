@@ -33,8 +33,12 @@ TESTS=test.o
 
 MODULE=$(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) \
 	$(EXTOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP)
-
-CC=gcc
+%.c: %.y
+	
+YACC=lemon
+CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
+export CC
+export YACC
 .SUFFIXES: .c .so .xo .o
 
 UTIL = util

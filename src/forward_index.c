@@ -9,7 +9,6 @@
 ForwardIndex *NewForwardIndex(Document doc) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
-
   idx->hits = kh_init(32);
   idx->docScore = doc.score;
   idx->docId = doc.docId;
@@ -62,12 +61,11 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
     h = rm_calloc(1, sizeof(ForwardIndexEntry));
     h->docId = idx->docId;
-    h->flags = 0;
+    h->fieldMask = 0;
     h->term = t.s;
     h->len = t.len;
     h->stringFreeable = t.stringFreeable;
     h->freq = 0;
-    
 
     h->vw = NewVarintVectorWriter(4);
     h->docScore = idx->docScore;
@@ -79,7 +77,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h = kh_val(idx->hits, k);
   }
 
-  h->flags |= (t.fieldId & 0xff);
+  h->fieldMask |= (t.fieldId & RS_FIELDMASK_ALL);
   float score = (float)t.score;
 
   // stem tokens get lower score

@@ -4,11 +4,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef u_int32_t t_docId;
-typedef u_int32_t t_offset;
+typedef uint32_t t_docId;
+typedef uint32_t t_offset;
+typedef uint32_t t_fieldMask;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
+
+#define RS_FIELDMASK_ALL 0xFFFFFFFF
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
@@ -196,7 +199,7 @@ typedef struct RSIndexResult {
   uint32_t freq;
 
   /* The aggregate field mask of all the records in this result */
-  uint32_t fieldMask;
+  t_fieldMask fieldMask;
 
   union {
     RSAggregateResult agg;
