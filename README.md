@@ -6,7 +6,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.11.1 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.11.1)
+### Latest Release: [0.12 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.12)
 
 # Client Libraries
 
