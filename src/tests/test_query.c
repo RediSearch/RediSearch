@@ -7,13 +7,17 @@
 #include "../ext/default.h"
 #include <stdio.h>
 
-void __queryNode_Print(QueryNode *qs, int depth);
+void __queryNode_Print(Query *q, QueryNode *qs, int depth);
 
 int isValidQuery(char *qt) {
   char *err = NULL;
   RedisSearchCtx ctx;
+  static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
+                               "text",   "weight", "2.0",  "bar",    "numeric"};
+
+  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+      NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -22,7 +26,7 @@ int isValidQuery(char *qt) {
     FAIL("Error parsing query '%s': %s", qt, err);
   }
   ASSERT(n != NULL);
-  __queryNode_Print(n, 0);
+  __queryNode_Print(q, n, 0);
   Query_Free(q);
   return 0;
 }
@@ -49,9 +53,13 @@ int testQueryParser() {
   assertValidQuery("(hello|world|foo) bar baz");
   assertValidQuery("(hello|world|foo) (bar baz)");
   assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
-  assertValidQuery("(barack|barrack) obama");
-  // assertValidQuery("(hello world)|(goodbye moon)");
+  assertValidQuery("@title:(barack obama)  @body:us|president");
+  assertValidQuery("@title:barack obama  @body:us");
+  assertValidQuery("@title:barack @body:obama");
 
+  // assertValidQuery("(hello world)|(goodbye moon)");
+  assertInvalidQuery("@title:");
+  assertInvalidQuery("@body:@title:");
   assertInvalidQuery("(foo");
   assertInvalidQuery("\"foo");
   assertInvalidQuery("");
@@ -66,7 +74,7 @@ int testQueryParser() {
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
-  __queryNode_Print(n, 0);
+  __queryNode_Print(q, n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT(n->type == QN_PHRASE);
@@ -103,7 +111,7 @@ void benchmarkQueryParser() {
 }
 
 TEST_MAIN({
-
+  RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
 

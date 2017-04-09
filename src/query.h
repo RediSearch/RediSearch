@@ -31,7 +31,7 @@ typedef struct RSQuery {
   size_t limit;
 
   // field Id bitmask
-  u_char fieldMask;
+  uint32_t fieldMask;
 
   // the query execution stage at the root of the query
   QueryNode *root;

@@ -31,7 +31,7 @@ typedef struct fieldSpec {
   char *name;
   FieldType type;
   double weight;
-  int id;
+  uint32_t id;
   // TODO: More options here..
 } FieldSpec;
 
@@ -76,6 +76,10 @@ extern RedisModuleType *IndexSpecType;
 */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
+char *GetFieldNameByBit(IndexSpec *sp, uint32_t id);
+/* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
+ * text field */
+uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.

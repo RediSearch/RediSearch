@@ -14,19 +14,19 @@
 #include "extension.h"
 #include "ext/default.h"
 
-void __queryNode_Print(QueryNode *qs, int depth);
+void __queryNode_Print(Query *q, QueryNode *qs, int depth);
 
 void _queryTokenNode_Free(QueryTokenNode *tn) {
-
-  free(tn->str);
+  if (tn->str) free(tn->str);
 }
 
 void _queryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children) {
+  if (pn->children && pn->numChildren) {
     free(pn->children);
+    pn->children = NULL;
   }
 }
 
@@ -34,8 +34,9 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children) {
+  if (pn->children && pn->numChildren) {
     free(pn->children);
+    pn->children = NULL;
   }
 }
 
@@ -66,6 +67,7 @@ void QueryNode_Free(QueryNode *n) {
 QueryNode *__newQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
+  s->fieldMask = 0xFFFFFFFF;
   return s;
 }
 
@@ -87,12 +89,14 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
 
 QueryNode *NewUnionNode() {
   QueryNode *ret = __newQueryNode(QN_UNION);
+  ret->fieldMask = 0;
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
   return ret;
 }
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = __newQueryNode(QN_PHRASE);
+  ret->fieldMask = 0;
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
 }
@@ -118,7 +122,7 @@ void _query_SetFilterNode(Query *q, QueryNode *n) {
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
     // TODO: do this in a smart manner
-    QueryPhraseNode_AddChild(&q->root->pn, NULL);
+    QueryPhraseNode_AddChild(q->root, NULL);
     for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
       q->root->pn.children[i] = q->root->pn.children[i - 1];
     }
@@ -126,8 +130,8 @@ void _query_SetFilterNode(Query *q, QueryNode *n) {
     q->numTokens++;
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(&nr->pn, n);
-    QueryPhraseNode_AddChild(&nr->pn, q->root);
+    QueryPhraseNode_AddChild(nr, n);
+    QueryPhraseNode_AddChild(nr, q->root);
     q->numTokens++;
     q->root = nr;
   }
@@ -263,13 +267,22 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
   return NULL;
 }
 
-void QueryPhraseNode_AddChild(QueryPhraseNode *parent, QueryNode *child) {
-  parent->children = realloc(parent->children, sizeof(QueryNode *) * (parent->numChildren + 1));
-  parent->children[parent->numChildren++] = child;
+void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
+  QueryPhraseNode *pn = &parent->pn;
+  if (pn->numChildren == 0 || child->fieldMask != 0xFFFFFFFF) {
+    parent->fieldMask |= child->fieldMask;
+  }
+
+  pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
+  pn->children[pn->numChildren++] = child;
 }
-void QueryUnionNode_AddChild(QueryUnionNode *parent, QueryNode *child) {
-  parent->children = realloc(parent->children, sizeof(QueryNode *) * (parent->numChildren + 1));
-  parent->children[parent->numChildren++] = child;
+void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
+  QueryUnionNode *un = &parent->un;
+  if (un->numChildren == 0 || child->fieldMask != 0xFFFFFFFF) {
+    parent->fieldMask |= child->fieldMask;
+  }
+  un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
+  un->children[un->numChildren++] = child;
 }
 
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
@@ -347,16 +360,39 @@ void Query_Expand(Query *q) {
   }
 }
 
-void __queryNode_Print(QueryNode *qs, int depth) {
+void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
+  }
+
+  if (qs->fieldMask && qs->fieldMask != 0xFFFFFFFF) {
+    if (!q->ctx) {
+      printf("@%x", qs->fieldMask);
+    } else {
+      uint32_t fm = qs->fieldMask;
+      int i = 0, n = 0;
+      while (fm) {
+        uint32_t bit = (fm & 1) << i;
+        if (bit) {
+          char *f = GetFieldNameByBit(q->ctx->spec, bit);
+          printf("%s%s", n ? "," : "", f ? f : "n/a");
+          n++;
+        }
+        fm = fm >> 1;
+        i++;
+      }
+    }
+    printf(":");
   }
 
   switch (qs->type) {
     case QN_PHRASE:
       printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
       for (int i = 0; i < qs->pn.numChildren; i++) {
-        __queryNode_Print(qs->pn.children[i], depth + 1);
+        __queryNode_Print(q, qs->pn.children[i], depth + 1);
+      }
+      for (int i = 0; i < depth; i++) {
+        printf("  ");
       }
 
       break;
@@ -372,7 +408,10 @@ void __queryNode_Print(QueryNode *qs, int depth) {
     case QN_UNION:
       printf("UNION {\n");
       for (int i = 0; i < qs->un.numChildren; i++) {
-        __queryNode_Print(qs->un.children[i], depth + 1);
+        __queryNode_Print(q, qs->un.children[i], depth + 1);
+      }
+      for (int i = 0; i < depth; i++) {
+        printf("  ");
       }
       break;
     case QN_GEO:
@@ -429,7 +468,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query->root, 0);
+  __queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

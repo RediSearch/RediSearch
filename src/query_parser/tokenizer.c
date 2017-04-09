@@ -17,7 +17,8 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords)
 
   return ret;
 }
-static char ctrls[255] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP, [')'] = RP};
+static char ctrls[256] = {['\"'] = QUOTE, ['|'] = OR,    ['('] = LP,
+                          [')'] = RP,     [':'] = COLON, ['@'] = AT};
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
 start:
@@ -25,6 +26,7 @@ start:
   if (t->pos >= t->text + t->len) {
     goto end;
   }
+  
   char *end = (char *)t->text + t->len;
   char *currentTok = t->pos;
   size_t toklen = 0;
@@ -41,7 +43,8 @@ start:
       }
     }
 
-    if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|') {
+    if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|' || *t->pos == ':' ||
+        *t->pos == '@') {
       if (t->pos > currentTok) {
         goto word;
       }

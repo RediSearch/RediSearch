@@ -25,10 +25,11 @@ typedef struct {
   const char *s;
   int len;
   int pos;
+  char *field;
   // QueryTokenType ;
 } QueryToken;
 
-#define QUERY_SEPARATORS " \t,./{}[]:;/\\~!@#$%^&*-=+<>?";
+#define QUERY_SEPARATORS " \t,./{}[];/\\~!#$%^&*-=+<>?";
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

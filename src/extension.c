@@ -100,11 +100,11 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
     QueryNode *un = NewUnionNode();
 
     /* Append current node to the new union node as a child */
-    QueryUnionNode_AddChild(&un->un, qn);
+    QueryUnionNode_AddChild(un, qn);
     *ctx->currentNode = un;
   }
   /* Now the current node must be a union node - so we just add a new token node to it */
-  QueryUnionNode_AddChild(&(*ctx->currentNode)->un, NewTokenNodeExpanded(q, str, len, flags));
+  QueryUnionNode_AddChild(*ctx->currentNode, NewTokenNodeExpanded(q, str, len, flags));
   // q->numTokens++;
 }
 

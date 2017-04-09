@@ -33,6 +33,7 @@ typedef struct {
   struct RSQueryNode **children;
   int numChildren;
   int exact;
+
 } QueryPhraseNode;
 
 /* A Union node represents a set of child nodes where the index unions the result between them */
@@ -64,15 +65,15 @@ typedef struct RSQueryNode {
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
   };
-
+  uint32_t fieldMask;
   /* The node type, for resolving the union access */
   QueryNodeType type;
 } QueryNode;
 
 /* Add a child to a phrase node */
-void QueryPhraseNode_AddChild(QueryPhraseNode *parent, QueryNode *child);
+void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);
 
 /* Add a child to a union node  */
-void QueryUnionNode_AddChild(QueryUnionNode *parent, QueryNode *child);
+void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child);
 
 #endif

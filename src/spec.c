@@ -12,7 +12,7 @@ RedisModuleType *IndexSpecType;
 * Get a field spec by field name. Case insensitive!
 * Return the field spec if found, NULL if not
 */
-FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
+inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
   for (int i = 0; i < spec->numFields; i++) {
     if (!strncmp(spec->fields[i].name, name, len)) {
       return &spec->fields[i];
@@ -21,6 +21,22 @@ FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
 
   return NULL;
 };
+
+uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
+  FieldSpec *sp = IndexSpec_GetField(spec, name, len);
+  if (!sp) return 0;
+
+  return sp->id;
+}
+
+char *GetFieldNameByBit(IndexSpec *sp, uint32_t id) {
+  for (int i = 0; i < sp->numFields; i++) {
+    if (sp->fields[i].id == id) {
+      return sp->fields[i].name;
+    }
+  }
+  return NULL;
+}
 
 /*
 * Parse an index spec from redis command arguments.
