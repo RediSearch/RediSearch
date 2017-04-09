@@ -4,7 +4,7 @@ RediSearch is a Full-Text search over Redis, developed by RedisLabs.
 
 The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
 
-### Latest Release: [0.12 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.11)
+### Latest Release: [0.12 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.12.1)
 
 ## Overview
 
