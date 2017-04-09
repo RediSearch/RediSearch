@@ -59,9 +59,9 @@ expr(A) ::= TERM(B). {
 }
 
 // field modifier -- @foo:bar
-//modifier(A) ::= AT TERM(B). { A = B; }
+modifier(A) ::= AT TERM(B). { A = B; }
 
-expr(A) ::= AT TERM(B) COLON expr(C). {
+expr(A) ::= modifier(B) COLON expr(C). {
     // gets the field mask from the query's spec. 
     // TODO: Avoid leaky abstraction here
     if (ctx->q->ctx && ctx->q->ctx->spec) {
