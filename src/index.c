@@ -175,6 +175,9 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   }
 
   // copy our aggregate to the upstream hit
+
+  // if we only have one record, we cane just push it upstream not wrapped in our own record,
+  // this will speed up evaluating offsets
   if (found == 1 && ui->current->agg.numChildren == 1) {
     *hit = ui->current->agg.children[0];
   } else {

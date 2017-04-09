@@ -314,9 +314,9 @@ int testIntersection() {
   TimeSampler_Start(&ts);
   float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
-    // ASSERT(h->type == RSResultType_Intersection);
-    // ASSERT(RSIndexResult_IsAggregate(h));
-    // ASSERT(RSIndexResult_HasOffsets(h));
+     ASSERT(h->type == RSResultType_Intersection);
+     ASSERT(RSIndexResult_IsAggregate(h));
+     ASSERT(RSIndexResult_HasOffsets(h));
      topFreq = topFreq > h->freq ? topFreq : h->freq;
     // printf("%d\n", h.docId);
     TimeSampler_Tick(&ts);

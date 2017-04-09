@@ -1,11 +1,12 @@
+from contextlib import contextmanager
 import subprocess
 import socket
 import tempfile
 import redis
 import time
 import os
+import sys
 import itertools
-from contextlib import contextmanager
 
 
 def get_random_port():
@@ -32,31 +33,46 @@ class Client(redis.StrictRedis):
 
 
 class DisposableRedis(object):
+    """
+    Disposable redis loader
+    """
 
     def __init__(self, port=None, path='redis-server', **extra_args):
         """
-        :param port: port number to start the redis server on. Specify none to automatically generate
+        :param port: port number to start the redis server on. Specify none to automatically
+        generate
         :type port: int|None
         :param extra_args: any extra arguments kwargs will be passed to redis server as --key val
         """
 
-        self._port = port
+        self.port = port if port is not None else get_random_port()
+        self.dumpfile = 'dump.%s.rdb' % self.port
 
-        # this will hold the actual port the redis is listening on. It's equal to `_port` unless `_port` is None
-        # in that case `port` is randomly generated
-        self.port = None
+
         self.extra_args = list(itertools.chain(
             *(('--%s' % k, v) for k, v in extra_args.items())
         ))
         self.path = path
         self.dumped = False
+        self.errored = False
+        self.process = None
+        self.args = [self.path,
+                     '--port', str(self.port),
+                     '--dir', tempfile.gettempdir(),
+                     '--save', '',
+                     '--dbfilename', self.dumpfile] + self.extra_args
 
-    def _startProcess(self):
+
+    def _start_rocess(self):
+        """
+        Start the actual redis subprocess
+        """
 
         self.process = subprocess.Popen(
             self.args,
             stdin=subprocess.PIPE,
-            stdout=open(os.devnull, 'w')
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE, #open(os.devnull, 'w')
         )
 
         while True:
@@ -66,29 +82,20 @@ class DisposableRedis(object):
             except redis.ConnectionError:
                 self.process.poll()
                 if self.process.returncode is not None:
-                    
+                    #print "Error:" self.process.communicate()[1]
                     raise RuntimeError(
-                        "Process has exited with code {}".format(self.process.returncode))
+                        "Process has exited with code {}\n. Redis output: {}"
+                        .format(self.process.returncode, self.process.stdout.read()))
                 time.sleep(0.1)
 
     def __enter__(self):
-        if self._port is None:
-            self.port = get_random_port()
-        else:
-            self.port = self._port
-
-        self.dumpfile = 'dump.%s.rdb' % self.port
-        self.args = [self.path,
-                     '--port', str(self.port),
-                     '--dir', tempfile.gettempdir(),
-                     '--save', '',
-                     '--dbfilename', self.dumpfile] + self.extra_args
-
-        self._startProcess()
+        self._start_rocess()
         return self.client()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.process.terminate()
+        if exc_val or self.errored:
+            sys.stderr.write("Redis output: {}\n".format(self.process.stdout.read()))
         if self.dumped:
             try:
                 os.unlink(os.path.join(tempfile.gettempdir(), self.dumpfile))
@@ -103,7 +110,11 @@ class DisposableRedis(object):
         conn = self.client()
         conn.save()
         self.dumped = True
-        conn.execute_command('DEBUG', 'RELOAD')
+        try:
+            conn.execute_command('DEBUG', 'RELOAD')
+        except redis.RedisError as err:
+            self.errored = True
+            raise err
 
     def client(self):
         """

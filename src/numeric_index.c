@@ -480,8 +480,9 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
     Vector_Free(v);
     return it;
   }
-  // printf("Loaded %zd ranges for range filter!\n", n);
-  // NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
+
+  // We create a  union iterator, advancing a union on all the selected range,
+  // treating them as one consecutive range
   IndexIterator **its = calloc(n, sizeof(IndexIterator *));
 
   for (size_t i = 0; i < n; i++) {
