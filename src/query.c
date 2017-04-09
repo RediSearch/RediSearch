@@ -156,14 +156,18 @@ void Query_SetIdFilter(Query *q, IdFilter *f) {
   _query_SetFilterNode(q, NewIdFilterNode(f));
 }
 
-IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
+IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_TOKEN) {
+    return NULL;
+  }
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
 
   int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
 
-  IndexReader *ir = Redis_OpenReader(q->ctx, node, q->docTable, isSingleWord, q->fieldMask);
+  IndexReader *ir =
+      Redis_OpenReader(q->ctx, &qn->tn, q->docTable, isSingleWord, q->fieldMask & qn->fieldMask);
 
   if (ir == NULL) {
     return NULL;
@@ -171,24 +175,31 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryTokenNode *node) {
   return NewReadIterator(ir);
 }
 
-IndexIterator *query_EvalPhraseNode(Query *q, QueryPhraseNode *node) {
+IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_PHRASE) {
+    return NULL;
+  }
+  QueryPhraseNode *node = &qn->pn;
   // an intersect stage with one child is the same as the child, so we just
   // return it
   if (node->numChildren == 1) {
+    node->children[0]->fieldMask &= qn->fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   for (int i = 0; i < node->numChildren; i++) {
+    node->children[i]->fieldMask &= qn->fieldMask;
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
   IndexIterator *ret;
   if (node->exact) {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask, 0, 1);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
+                              0, 1);
   } else {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask, q->maxSlop,
-                              q->inOrder);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
+                              q->maxSlop, q->inOrder);
   }
   return ret;
 }
@@ -224,9 +235,15 @@ IndexIterator *query_EvalIdFilterNode(Query *q, QueryIdFilterNode *node) {
   return NewIdFilterIterator(node->f);
 }
 
-IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
+IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_UNION) {
+    return NULL;
+  }
+  QueryUnionNode *node = &qn->un;
+
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
+    node->children[0]->fieldMask &= qn->fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }
 
@@ -234,6 +251,7 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   int n = 0;
   for (int i = 0; i < node->numChildren; i++) {
+    node->children[i]->fieldMask &= qn->fieldMask;
     IndexIterator *it = Query_EvalNode(q, node->children[i]);
     if (it) {
       iters[n++] = it;
@@ -251,11 +269,11 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryUnionNode *node) {
 IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
-      return query_EvalTokenNode(q, &n->tn);
+      return query_EvalTokenNode(q, n);
     case QN_PHRASE:
-      return query_EvalPhraseNode(q, &n->pn);
+      return query_EvalPhraseNode(q, n);
     case QN_UNION:
-      return query_EvalUnionNode(q, &n->un);
+      return query_EvalUnionNode(q, n);
     case QN_NUMERIC:
       return query_EvalNumericNode(q, &n->nn);
     case QN_GEO:
@@ -272,6 +290,10 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   if (child != NULL && (pn->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
   }
+  // Child nodes inherit the field mask from their parent if they are
+  if (child) {
+    child->fieldMask &= parent->fieldMask;
+  }
 
   pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
   pn->children[pn->numChildren++] = child;
@@ -280,6 +302,9 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryUnionNode *un = &parent->un;
   if (child != NULL && (un->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
+  }
+  if (child) {
+    child->fieldMask &= parent->fieldMask;
   }
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
   un->children[un->numChildren++] = child;

@@ -435,6 +435,35 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual("doc2", res[1])
             self.assertEqual("doc1", res[2])
 
+    
+    def testFieldSelectors(self):
+
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
+                                            'title', 'hello world', 'body', 'foo bar'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 0.5, 'fields',
+                                            'body', 'hello world', 'title', 'foo bar'))
+
+            res = r.execute_command('ft.search', 'idx', '@title:hello world', 'nocontent')
+            self.assertEqual(res, [1, 'doc1'])
+            res = r.execute_command('ft.search', 'idx', '@body:hello world', 'nocontent')
+            self.assertEqual(res, [1, 'doc2'])
+
+            res = r.execute_command('ft.search', 'idx', '@body:hello @title:world', 'nocontent')
+            self.assertEqual(res, [0])
+
+            res = r.execute_command('ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
+            self.assertEqual(res, [0])
+            res = r.execute_command('ft.search', 'idx', '@body:(hello|foo) @title:(world|bar)', 'nocontent')
+            self.assertEqual(res, [2, 'doc1', 'doc2'])
+
+            res = r.execute_command('ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
+            self.assertEqual(res, [2, 'doc1', 'doc2'])
+
+
     def testStemming(self):
         with self.redis() as r:
             r.flushdb()
