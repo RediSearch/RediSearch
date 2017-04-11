@@ -435,7 +435,19 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual("doc2", res[1])
             self.assertEqual("doc1", res[2])
 
-    
+    def testScorerSelection(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+            
+            # this is the default scorer
+            res = r.execute_command('ft.search', 'idx', 'foo', 'scorer', 'TFIDF')
+            self.assertEqual(res, [0])
+            with self.assertResponseError():
+                res = r.execute_command('ft.search', 'idx', 'foo', 'scorer', 'NOSUCHSCORER')
+            
+            
     def testFieldSelectors(self):
 
         with self.redis() as r:

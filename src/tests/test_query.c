@@ -16,8 +16,8 @@ int isValidQuery(char *qt) {
                                "text",   "weight", "2.0",  "bar",    "numeric"};
 
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  Query *q =
-      NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
+                      NULL, (RSPayload){});
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -70,8 +70,8 @@ int testQueryParser() {
   char *err = NULL;
   char *qt = "(hello|world) and \"another world\" (foo is bar) baz ";
   RedisSearchCtx ctx;
-  Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0,
+                      NULL, (RSPayload){});
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -112,8 +112,8 @@ int testFieldSpec() {
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@title:hello world";
-  Query *q =
-      NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
+                      NULL, (RSPayload){});
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -126,7 +126,8 @@ int testFieldSpec() {
   Query_Free(q);
 
   qt = "@title:hello @body:world";
-  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
+               (RSPayload){});
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -137,7 +138,8 @@ int testFieldSpec() {
   Query_Free(q);
 
   qt = "@title:(hello world) @body:world @adasdfsd:fofofof";
-  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
+               (RSPayload){});
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -155,8 +157,8 @@ void benchmarkQueryParser() {
   RedisSearchCtx ctx;
   char *err = NULL;
 
-  Query *q =
-      NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
+                      NULL, (RSPayload){});
   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
 }
 

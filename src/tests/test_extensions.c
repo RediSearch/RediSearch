@@ -45,6 +45,7 @@ int myRegisterFunc(RSExtensionCtx *ctx) {
 
   return REDISEARCH_OK;
 }
+
 int testExtenionRegistration() {
 
   Extensions_Init();
@@ -84,7 +85,7 @@ int testQueryExpander() {
   char *err = NULL;
 
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, "myExpander",
-                      -1, 0, "myScorer");
+                      -1, 0, "myScorer", (RSPayload){});
 
   ASSERT(q->expander = myExpander);
   ASSERT(q->expanderFree = myFreeFunc);

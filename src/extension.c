@@ -79,8 +79,11 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, 
   /* lookup the scorer by name (case sensitive) */
   ExtScoringFunctionCtx *p = TrieMap_Find(__scorers, (char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    ctx->privdata = p->privdata;
-    ctx->GetSlop = IndexResult_MinOffsetDelta;
+    /* if no ctx was given, we just return the scorer */
+    if (ctx) {
+      ctx->privdata = p->privdata;
+      ctx->GetSlop = IndexResult_MinOffsetDelta;
+    }
     return p;
   }
   return NULL;

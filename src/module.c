@@ -740,7 +740,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleString *ps = NULL;
     RMUtil_ParseArgsAfter("PAYLOAD", &argv[2], argc - 2, "s", &ps);
     if (ps) {
-      payload.data = RedisModule_StringPtrLen(ps, &payload.len);
+      payload.data = (char*)RedisModule_StringPtrLen(ps, &payload.len);
     }
   }
 
