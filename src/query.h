@@ -104,7 +104,8 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int maxSlop, int inOrder, const char *scorer);
+                const char *expander, int maxSlop, int inOrder, const char *scorer,
+                RSPayload payload);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

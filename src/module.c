@@ -733,6 +733,26 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     expander = DEFAULT_EXPANDER_NAME;
   }
 
+  // IF a payload exists, init it
+  RSPayload payload = {.data = NULL, .len = 0};
+
+  if (argc > 3) {
+    RedisModuleString *ps = NULL;
+    RMUtil_ParseArgsAfter("PAYLOAD", &argv[2], argc - 2, "s", &ps);
+    if (ps) {
+      payload.data = RedisModule_StringPtrLen(ps, &payload.len);
+    }
+  }
+
+  // parse SCORER argument
+  char *scorer = NULL;
+  RMUtil_ParseArgsAfter("SCORER", &argv[3], argc - 3, "c", &scorer);
+  if (scorer) {
+    if (Extensions_GetScoringFunction(NULL, scorer) == NULL) {
+      return RedisModule_ReplyWithError(ctx, "Invalid scorer name");
+    }
+  }
+
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // parse the id filter arguments
@@ -750,8 +770,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, NULL);
+  Query *q =
+      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
+               nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer, payload);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

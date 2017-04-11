@@ -44,7 +44,6 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
 
 void QueryNode_Free(QueryNode *n) {
 
-  
   switch (n->type) {
     case QN_TOKEN:
       _queryTokenNode_Free(&n->tn);
@@ -316,7 +315,8 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int slop, int inOrder, const char *scorer) {
+                const char *expander, int slop, int inOrder, const char *scorer,
+                RSPayload payload) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -329,12 +329,14 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->root = NULL;
   ret->numTokens = 0;
   ret->stopwords = stopwords;
+  ret->payload = payload;
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
   /* Get the scorer - falling back to TF-IDF scoring if not found */
   ret->scorer = NULL;
   ret->scorerCtx.privdata = NULL;
+  ret->scorerCtx.payload = payload;
   ret->scorerFree = NULL;
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
@@ -342,6 +344,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
     scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
   }
   if (scx) {
+
     ret->scorer = scx->sf;
     ret->scorerFree = scx->ff;
   }
