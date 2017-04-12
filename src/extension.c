@@ -1,3 +1,4 @@
+#include <dlfcn.h>
 #include "extension.h"
 #include "redisearch.h"
 #include "rmalloc.h"
@@ -69,6 +70,33 @@ int Extension_Load(const char *name, RSExtensionInitFunc func) {
   };
 
   return func(&ctx);
+}
+
+/* Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR */
+int Extension_LoadDynamic(const char *path, char **errMsg) {
+  int (*init)(struct RSExtensionCtx *);
+  void *handle;
+  *errMsg = NULL;
+  handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  if (handle == NULL) {
+    asprintf(errMsg, "Extension %s failed to load: %s", path, dlerror());
+    return REDISMODULE_ERR;
+  }
+  init = (int (*)(struct RSExtensionCtx *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
+  if (init == NULL) {
+    asprintf(errMsg,
+             "Extension %s does not export RS_ExtensionInit() "
+             "symbol. Module not loaded.",
+             path);
+    return REDISMODULE_ERR;
+  }
+
+  if (Extension_Load(path, init) == REDISEARCH_ERR) {
+    asprintf(errMsg, "Could not register extension %s", path);
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
 }
 
 /* Get a scoring function by name */

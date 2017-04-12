@@ -19,32 +19,36 @@ TESTS=test.o
 
 SRCDIR := $(shell pwd)
 DEPS := $(patsubst %, ../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) $(LIBTRIEMAP) )
-
+LDFLAGS :=  -lc -lm -ldl
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
 
+ext_example:
+	$(MAKE) -C ./ext-example clean all
+.PHONY: ext_example
+
 
 stemmer: test_stemmer.o
-	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm
+	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) $(LDFLAGS)
 test_stemmer: 
 	@(sh -c ./test_stemmer)
 .PHONY: test_stemmer
 
-extensions: test_extensions.o
-	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) -lc -lm
+extensions: ext_example test_extensions.o
+	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) $(LDFLAGS)
 test_extensions:
 	@(sh -c ./test_extensions)
 .PHONY: test_extensions
 
 trie: test_trie.o
-	$(CC) $(CFLAGS)  -o test_trie test_trie.o $ $(DEPS) -lc -lm
+	$(CC) $(CFLAGS)  -o test_trie test_trie.o $ $(DEPS) $(LDFLAGS)
 test_trie: 	 
 	@(sh -c ./test_trie)
 .PHONY: test_trie
 
 query: test_query.o
-	$(CC) $(CFLAGS) -o test_query test_query.o $ $(DEPS) -lc -lm
+	$(CC) $(CFLAGS) -o test_query test_query.o $ $(DEPS) $(LDFLAGS)
 
 test_query: query 	 
 	@(sh -c ./test_query)
@@ -52,14 +56,14 @@ test_query: query
 .PHONY: test_query
 
 index: test_index.o
-	$(CC) $(CFLAGS)  -o test_index test_index.o $ $(DEPS) -lc -lm
+	$(CC) $(CFLAGS)  -o test_index test_index.o $ $(DEPS) $(LDFLAGS)
 
 test_index: 	
 	@(sh -c ./test_index)
 .PHONY: test_index
 
 range: test_range.o
-	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) -lc -lm
+	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) $(LDFLAGS)
 
 test_range: range
 	@(sh -c ./test_range)

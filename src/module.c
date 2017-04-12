@@ -1,3 +1,9 @@
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+#include <time.h>
 
 #include "forward_index.h"
 #include "geo_index.h"
@@ -18,12 +24,6 @@
 #include "varint.h"
 #include "extension.h"
 #include "ext/default.h"
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/param.h>
-#include <time.h>
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
  * version of it first */
@@ -1184,6 +1184,22 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   // Init extension mechanism
   Extensions_Init();
+
+  if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
+    const char *ext = NULL;
+    RMUtil_ParseArgsAfter("EXTLOAD", argv, argc, "c", &ext);
+
+    if (ext) {
+      char *errMsg = NULL;
+      // Load the extension so TODO: pass with param
+      if (Extension_LoadDynamic(ext, &errMsg) == REDISMODULE_ERR) {
+        RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", ext, errMsg);
+        free(errMsg);
+        return REDISMODULE_ERR;
+      }
+      RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", ext);
+    }
+  }
 
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {

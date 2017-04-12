@@ -76,6 +76,26 @@ int testExtenionRegistration() {
   return 0;
 }
 
+int testDynamicLoading() {
+  Extensions_Init();
+
+  char *errMsg = NULL;
+  int rc = Extension_LoadDynamic("./ext-example/example.so", &errMsg);
+  ASSERT_EQUAL(rc, REDISMODULE_OK);
+  if (errMsg != NULL) {
+    FAIL("Error loading extension: %s", errMsg);
+  }
+
+  RSScoringFunctionCtx scxp;
+  ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, "example_scorer");
+  ASSERT(sx != NULL);
+
+  RSQueryExpanderCtx qxcp;
+  ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qxcp, "example_expander");
+  ASSERT(qx != NULL)
+  return 0;
+}
+
 int testQueryExpander() {
   Extensions_Init();
   numFreed = 0;
@@ -126,4 +146,5 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testExtenionRegistration);
   TESTFUNC(testQueryExpander);
+  TESTFUNC(testDynamicLoading);
 });
