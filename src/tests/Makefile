@@ -36,7 +36,7 @@ test_stemmer:
 .PHONY: test_stemmer
 
 extensions: ext_example test_extensions.o
-	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) -lc -lm
+	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) -lc -lm -ldl
 test_extensions:
 	@(sh -c ./test_extensions)
 .PHONY: test_extensions

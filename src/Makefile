@@ -6,11 +6,11 @@ CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-pointer-sign -fPIC 
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
-	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions
+	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl
 else
 	CFLAGS += -mmacosx-version-min=10.6
-	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
-	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup 
+	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb 
+	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl
 endif
 export CFLAGS
 
