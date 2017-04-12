@@ -1,7 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include "../redisearch.h"
+#include <redisearch.h>
 #include "example.h"
 
 struct privdata {
@@ -30,14 +30,15 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
   struct privdata *spd = malloc(sizeof(struct privdata));
   spd->freed = 0;
-  if (ctx->RegisterScoringFunction("myScorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
+  if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
   spd = malloc(sizeof(struct privdata));
   spd->freed = 0;
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander("myExpander", myExpander, myFreeFunc, spd) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander("example_expander", myExpander, myFreeFunc, spd) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

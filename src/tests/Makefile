@@ -24,6 +24,10 @@ DEPS := $(patsubst %, ../%, $(TEXT) $(LIBTRIE) $(LIBNU) $(VARINT) $(INDEX) $(UTI
 CC=gcc
 .SUFFIXES: .c .so .xo .o
 
+ext_example:
+	$(MAKE) -C ./ext-example clean all
+.PHONY: ext_example
+
 
 stemmer: test_stemmer.o
 	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) -lc -lm
@@ -31,7 +35,7 @@ test_stemmer:
 	@(sh -c ./test_stemmer)
 .PHONY: test_stemmer
 
-extensions: test_extensions.o
+extensions: ext_example test_extensions.o
 	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) -lc -lm
 test_extensions:
 	@(sh -c ./test_extensions)
