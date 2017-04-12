@@ -144,7 +144,7 @@ int testQueryExpander() {
 
 TEST_MAIN({
   RMUTil_InitAlloc();
-  // TESTFUNC(testExtenionRegistration);
-  // TESTFUNC(testQueryExpander);
+  TESTFUNC(testExtenionRegistration);
+  TESTFUNC(testQueryExpander);
   TESTFUNC(testDynamicLoading);
 });
