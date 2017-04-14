@@ -22,7 +22,7 @@ int testNumericRangeTree() {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQUAL(t->numRanges, 44);
+  ASSERT_EQUAL(t->numRanges, 36);
   ASSERT_EQUAL(t->numEntries, 50000);
 
   struct {
