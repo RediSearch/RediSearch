@@ -32,13 +32,25 @@ double qselect(double *v, int len, int k) {
 /* Returns 1 if the entire numeric range is contained between min and max */
 int NumericRange_Within(NumericRange *n, double min, double max) {
   if (!n) return 0;
-  return (n->minVal >= min && n->maxVal < max);
+  int rc = (n->minVal >= min && n->maxVal < max);
+  printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
+  return rc;
 }
 
 /* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
 int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
-  return (n->minVal <= min && n->maxVal > max);
+  int rc = (n->minVal <= min && n->maxVal > max);
+  printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
+  return rc;
+}
+
+/* Returns 1 if there is any overlap between the range and min/max */
+int NumericRange_Overlaps(NumericRange *n, double min, double max) {
+  if (!n) return 0;
+  int rc = (min >= n->minVal && min < n->maxVal) || (max >= n->minVal && max < n->maxVal);
+  printf("range %f..%f, min %f max %f, overlaps? %d\n", n->minVal, n->maxVal, min, max, rc);
+  return rc;
 }
 
 int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
@@ -165,8 +177,8 @@ void __pushRange(Vector *v, NumericRange *rng, const char *ctx) {
       return;
     }
   }
-  // printf("%s Pushing range %f..%f size %d, card %d, cap %d, splitCard %d\n", ctx, rng->minVal,
-  //        rng->maxVal, rng->size, rng->card, rng->cap, rng->splitCard);
+  printf("%s Pushing range %f..%f size %d, card %d, cap %d, splitCard %d\n", ctx, rng->minVal,
+         rng->maxVal, rng->size, rng->card, rng->cap, rng->splitCard);
   Vector_Push(v, rng);
 }
 
@@ -206,7 +218,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
     }
 
     // if vmin is within min and max, no need to go down further
-    if (NumericRange_Within(vmin->range, min, max)) {
+    if (NumericRange_Overlaps(vmin->range, min, max)) {
       __pushRange(leaves, vmin->range, "vmin");
       break;
     }
@@ -258,19 +270,19 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
     } else {
 
-      if (vmax != vmin && vmax->range && vmax->range->minVal <= max) {
+      if (vmax != vmin && vmax->range && NumericRange_Overlaps(vmax->range, min, max)) {
         __pushRange(leaves, vmax->range, "vmax");
       }
       break;
     }
   }
 
-  // printf("Found %zd ranges\n", leaves->top);
-  // for (int i = 0; i < leaves->top; i++) {
-  //   NumericRange *rng;
-  //   Vector_Get(leaves, i, &rng);
-  //   printf("%f...%f\n", rng->minVal, rng->maxVal);
-  // }
+  printf("Found %zd ranges\n", leaves->top);
+  for (int i = 0; i < leaves->top; i++) {
+    NumericRange *rng;
+    Vector_Get(leaves, i, &rng);
+    printf("%f...%f\n", rng->minVal, rng->maxVal);
+  }
 
   return leaves;
 }

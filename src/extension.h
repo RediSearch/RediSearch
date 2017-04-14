@@ -29,7 +29,7 @@ ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const 
 /* Load an extension explicitly with its name and an init function */
 int Extension_Load(const char *name, RSExtensionInitFunc func);
 
-/* Dynamically load a RediSearch extension by .so file path. Returns  _OK or ERR. errMsg
+/* Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR. errMsg
  * is set to NULL on success or an error message on failure */
 int Extension_LoadDynamic(const char *path, char **errMsg);
 
