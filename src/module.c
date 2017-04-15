@@ -306,31 +306,33 @@ cleanup:
  */
 int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc < 2 || argc > 4) return RedisModule_WrongArity(ctx);
+  if (argc != 1 && argc != 4) return RedisModule_WrongArity(ctx);
 
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-  RedisSearchCtx sctx = {ctx, sp};
-
+  const char *term = NULL;
+  size_t len = 0;
   long long startBlock = 0;
-  if (argc == 4) {
+  RedisSearchCtx sctx = {ctx, NULL};
+
+  if (argc != 4) {
+    term = Redis_SelectRandomTerm(&sctx, &len);
+  } else {
+
+    sctx.spec = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+    if (sctx.spec == NULL) {
+      return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    }
+
+    term = RedisModule_StringPtrLen(argv[2], &len);
+
     if (RedisModule_StringToLongLong(argv[3], &startBlock) == REDISMODULE_ERR || startBlock < 0) {
       return RedisModule_ReplyWithError(ctx, "Invalid start offset");
     }
   }
-  size_t len = 0;
-  const char *term = NULL;
-  if (argc > 2) {
-    term = RedisModule_StringPtrLen(argv[2], &len);
-  } else {
-    term = Redis_SelectRandomTerm(&sctx, &len);
-  }
-  printf("Selected term %.*s\n", (int)len, term);
-  if (!term) {
+  if (!term || sctx.spec == NULL) {
     return RedisModule_ReplyWithError(ctx, "Could not find a term");
   }
+  // printf("Selected idx %s term %.*s\n", sctx.spec->name, (int)len, term);
+
   RedisModule_Log(ctx, "debug", "Repairing term %.*s", (int)len, term);
 
   InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, term, len, 1);
@@ -338,8 +340,9 @@ int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Could not open term index");
   }
 
-  int rc = InvertedIndex_Repair(idx, &sp->docs, startBlock, 10);
-  RedisModule_ReplyWithArray(ctx, 2);
+  int rc = InvertedIndex_Repair(idx, &sctx.spec->docs, startBlock, 10);
+  RedisModule_ReplyWithArray(ctx, 3);
+  RedisModule_ReplyWithStringBuffer(ctx, sctx.spec->name, strlen(sctx.spec->name));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
@@ -387,9 +390,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(
-      n, "inverted_cap_ovh",
-      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
+  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
+                                           (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
@@ -740,7 +742,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleString *ps = NULL;
     RMUtil_ParseArgsAfter("PAYLOAD", &argv[2], argc - 2, "s", &ps);
     if (ps) {
-      payload.data = (char*)RedisModule_StringPtrLen(ps, &payload.len);
+      payload.data = (char *)RedisModule_StringPtrLen(ps, &payload.len);
     }
   }
 
@@ -1231,7 +1233,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write", 0, 0, -1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 

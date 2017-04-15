@@ -1,5 +1,6 @@
 #include "redis_index.h"
 #include "doc_table.h"
+#include "redismodule.h"
 #include "inverted_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -90,7 +91,7 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
  * Select a random term from the index that matches the index prefix and inveted key format.
  * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
  */
-const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
+const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
 
   RedisModuleString *pf = fmtRedisTermKey(ctx, "", 0);
   size_t pflen;
@@ -114,6 +115,50 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
   return NULL;
 }
 
+const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
+
+  for (int i = 0; i < 5; i++) {
+    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
+    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
+      break;
+    }
+
+    // get the key and see if it matches the prefix
+    size_t len;
+    RedisModuleString *krstr = RedisModule_CreateStringFromCallReply(rep);
+    char *kstr = (char *)RedisModule_StringPtrLen(krstr, &len);
+    if (!strncmp(kstr, TERM_KEY_PREFIX, strlen(TERM_KEY_PREFIX))) {
+      // check to see that the key is indeed an inverted index record
+      RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, krstr, REDISMODULE_READ);
+      if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+                        RedisModule_ModuleTypeGetType(k) != InvertedIndexType)) {
+        continue;
+      }
+      RedisModule_CloseKey(k);
+      size_t offset = strlen(TERM_KEY_PREFIX);
+      char *idx = kstr + offset;
+      while (offset < len && kstr[offset] != '/') {
+        offset++;
+      }
+      if (offset < len) {
+        kstr[offset++] = '\0';
+      }
+      char *term = kstr + offset;
+      *tlen = len - offset;
+      // printf("Found index %s and term %sm len %zd\n", idx, term, *tlen);
+      IndexSpec *sp = IndexSpec_Load(ctx->redisCtx, idx, 1);
+      // printf("Spec: %p\n", sp);
+
+      if (sp == NULL) {
+        continue;
+      }
+      ctx->spec = sp;
+      return term;
+    }
+  }
+
+  return NULL;
+}
 // ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
 //   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len), BUFFER_READ);
 //   if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {

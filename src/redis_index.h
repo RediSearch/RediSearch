@@ -24,6 +24,7 @@ void Redis_CloseReader(IndexReader *r);
 const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 
 #define TERM_KEY_FORMAT "ft:%s/%.*s"
+#define TERM_KEY_PREFIX "ft:"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
 

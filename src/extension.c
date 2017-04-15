@@ -1,4 +1,5 @@
 #include <dlfcn.h>
+#include <stdio.h>
 #include "extension.h"
 #include "redisearch.h"
 #include "rmalloc.h"
