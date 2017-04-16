@@ -4,7 +4,7 @@
 #include "index.h"
 #include <math.h>
 #include "redismodule.h"
-
+//#include "tests/time_sample.h"
 #define NR_EXPONENT 2
 #define NR_MAXRANGE_CARD 1000
 #define NR_MAXRANGE_SIZE 5000
@@ -81,7 +81,8 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
-
+  // TimeSample ts;
+  // TimeSampler_Start(&ts);
   double scores[n->size];
   for (size_t i = 0; i < n->size; i++) {
     scores[i] = n->entries[i].value;
@@ -100,6 +101,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
                      n->entries[i].value, 1);
   }
+  // TimeSampler_End(&ts);
 
   // printf("Splitting node %p %f..%f, card %d size %d took %.04fus\n", n, n->minVal, n->maxVal,
   //        n->card, n->size, (double)TimeSampler_DurationNS(&ts) / 1000.0F);
@@ -206,6 +208,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
   Vector *leaves = NewVector(NumericRange *, 8);
 
   NumericRangeNode *vmin = n, *vmax = n;
+  double minRange = NF_INFINITY;
+  double maxRange = NF_NEGATIVE_INFINITY;
 
   while (vmin) {
 
@@ -224,7 +228,14 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
     }
 
     // if vmin is within min and max, no need to go down further
-    if (NumericRange_Within(vmin->range, min, max)) {
+    if (NumericRange_Within(vmin->range, min, max) ||
+        NumericRange_Overlaps(vmin->range, min, max)) {
+      if (minRange > vmin->range->minVal) {
+        minRange = vmin->range->minVal;
+      }
+      if (maxRange < vmin->range->maxVal) {
+        maxRange = vmin->range->maxVal;
+      }
       __pushRange(leaves, vmin->range, "vmin");
       break;
     }
@@ -244,6 +255,12 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
     } else {
       // we're at a leaf. either it fits the minimum or the minimum is out of range
       if (vmin->range->maxVal > min) {
+        if (minRange > vmin->range->minVal) {
+          minRange = vmin->range->minVal;
+        }
+        if (maxRange < vmin->range->maxVal) {
+          maxRange = vmin->range->maxVal;
+        }
         __pushRange(leaves, vmin->range, "vmin edge");
       } else {  // we're out of range - no need to return anything
         // TODO: Vector_Clear
@@ -255,9 +272,10 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
   }
 
   while (vmax) {
-
+    //printf("minVal %f maxVal %f\n", minRange, maxRange);
     // if vmax is fully contained within min and max - no need to go down further
-    if (NumericRange_Within(vmax->range, min, max)) {
+    if (NumericRange_Within(vmax->range, min, max) && vmax->range->maxVal > maxRange) {
+      maxRange = vmax->range->maxVal;
       __pushRange(leaves, vmax->range, "vmax");
       break;
     }
@@ -276,7 +294,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
     } else {
 
-      if (vmax != vmin && vmax->range && vmax->range->minVal <= max) {
+      if (vmax != vmin && vmax->range && vmax->range->minVal <= max &&
+          vmax->range->maxVal > maxRange) {
         __pushRange(leaves, vmax->range, "vmax");
       }
       break;
