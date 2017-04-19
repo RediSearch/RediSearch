@@ -223,6 +223,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
         rn = rn->right;
       } else {
         __pushRange(leaves, rn->range, "vmin contains");
+
         return leaves;
       }
     }
@@ -264,6 +265,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
         __pushRange(leaves, vmin->range, "vmin edge");
       } else {  // we're out of range - no need to return anything
         // TODO: Vector_Clear
+        // printf("Returning nothing...\n");
         Vector_Free(leaves);
         return NULL;
       }
@@ -272,7 +274,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
   }
 
   while (vmax) {
-    //printf("minVal %f maxVal %f\n", minRange, maxRange);
+    // printf("minVal %f maxVal %f\n", minRange, maxRange);
     // if vmax is fully contained within min and max - no need to go down further
     if (NumericRange_Within(vmax->range, min, max) && vmax->range->maxVal > maxRange) {
       maxRange = vmax->range->maxVal;
@@ -399,8 +401,8 @@ int NR_Read(void *ctx, RSIndexResult **r) {
   if (it->atEOF && !match) {
     return INDEXREAD_EOF;
   }
-  /// printf("match after read loop: %d\n", match);
-  // TODO: Filter here
+
+  // match must be true here
   it->rec->docId = it->lastDocId;
   *r = it->rec;
 
@@ -418,8 +420,8 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
     return INDEXREAD_EOF;
   }
   if (docId > it->rng->entries[it->rng->size - 1].docId) {
-    //   / printf("nr got to eof\n");
     it->atEOF = 1;
+    it->rec->docId = 0;
     return INDEXREAD_EOF;
   }
   int top = (int)it->rng->size - 1, bottom = (int)it->offset;
@@ -439,7 +441,12 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
   }
 
   it->offset = i;
-  // it->lastDocId = it->rng->entries[i].docId;
+  it->lastDocId = it->rng->entries[i].docId;
+  it->rec->docId = it->lastDocId;
+
+  if (it->lastDocId != docId) {
+    return INDEXREAD_NOTFOUND;
+  }
   return NR_Read(it, r);
 }
 /* the last docId read */
