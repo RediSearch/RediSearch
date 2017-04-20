@@ -43,7 +43,7 @@ start:
       }
     }
 
-    if (ctrls[*t->pos]) {
+    if (ctrls[(int)*t->pos]) {
       if (t->pos > currentTok) {
         goto word;
       }
