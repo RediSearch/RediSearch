@@ -25,6 +25,14 @@ Multiple modifiers can be combined to create complex filtering on several fields
 FT.SEARCH cars "@country:korea @engine:(diesel|hybrid) @class:suv"
 ```
 
+Multiple modifiers can be applied to the same term or grouped terms. e.g.:
+
+```
+FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
+```
+
+This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.
+
 ## A few examples
 
 
