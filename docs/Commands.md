@@ -221,9 +221,10 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [INKEYS {num} {key} ... ]
   [INFIELDS {num {field} ... ]
   [SLOP {slop}] [INORDER]
-	[LANGUAGE {language}]
-	[EXPANDER {expander}]
+  [LANGUAGE {language}]
+  [EXPANDER {expander}]
   [SCORER {scorer}]
+  [PAYLOAD {payload}]
   [LIMIT offset num]
 ```
 
