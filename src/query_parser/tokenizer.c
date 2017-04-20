@@ -26,7 +26,7 @@ start:
   if (t->pos >= t->text + t->len) {
     goto end;
   }
-  
+
   char *end = (char *)t->text + t->len;
   char *currentTok = t->pos;
   size_t toklen = 0;
@@ -43,8 +43,7 @@ start:
       }
     }
 
-    if (*t->pos == '\"' || *t->pos == '(' || *t->pos == ')' || *t->pos == '|' || *t->pos == ':' ||
-        *t->pos == '@') {
+    if (ctrls[*t->pos]) {
       if (t->pos > currentTok) {
         goto word;
       }

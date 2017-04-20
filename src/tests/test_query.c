@@ -58,10 +58,14 @@ int testQueryParser() {
   assertValidQuery("@title:(barack obama)  @body:us|president");
   assertValidQuery("@title:barack obama  @body:us");
   assertValidQuery("@title:barack @body:obama");
+  assertValidQuery("@title|body:barack @body|title|url|something|else:obama");
 
   // assertValidQuery("(hello world)|(goodbye moon)");
   assertInvalidQuery("@title:");
   assertInvalidQuery("@body:@title:");
+  assertInvalidQuery("@body|title:@title:");
+  assertInvalidQuery("@body|title");
+
   assertInvalidQuery("(foo");
   assertInvalidQuery("\"foo");
   assertInvalidQuery("");
@@ -137,7 +141,7 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
   Query_Free(q);
 
-  qt = "@title:(hello world) @body:world @adasdfsd:fofofof";
+  qt = "@title:(hello world) @body|title:(world apart) @adasdfsd:fofofof";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){});
   n = Query_Parse(q, &err);
@@ -146,7 +150,7 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
 

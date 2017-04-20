@@ -475,6 +475,9 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             res = r.execute_command('ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
 
+            res = r.execute_command('ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
+            self.assertEqual(res, [2, 'doc1', 'doc2'])
+
 
     def testStemming(self):
         with self.redis() as r:

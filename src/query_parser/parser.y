@@ -24,6 +24,7 @@
 #include <string.h>
 #include <assert.h>
 #include "parse.h"
+#include "../rmutil/vector.h"
 #include "../query_node.h"
    
 } // END %include  
@@ -31,11 +32,12 @@
 %extra_argument { parseCtx *ctx }
 %default_type { QueryNode *}
 %default_destructor { QueryNode_Free($$); }
+%type modifierlist { Vector* }
 %type modifier { QueryToken }
 %type TERM { QueryToken }
 %destructor TERM { free((char *)$$.s); }
 %destructor modifier { free((char *)$$.s); }
-
+%destructor modifierlist { Vector_Free($$); }
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
 
@@ -60,6 +62,32 @@ expr(A) ::= TERM(B). {
 
 // field modifier -- @foo:bar
 modifier(A) ::= AT TERM(B). { A = B; }
+
+modifierlist(A) ::= modifier(B) OR TERM(C). { 
+    A = NewVector(char *, 2);
+    Vector_Push(A, B.s);
+    Vector_Push(A, C.s);
+}
+modifierlist(A) ::= modifierlist(B) OR TERM(C). {
+    Vector_Push(B, C.s);
+    A = B;
+}
+
+expr(A) ::= modifierlist(B) COLON expr(C). {
+    C->fieldMask = 0;
+    for (int i = 0; i < Vector_Size(B); i++) {
+        char *p;
+        Vector_Get(B, i, &p);
+
+        if (ctx->q->ctx && ctx->q->ctx->spec) {
+            C->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+        }
+        free(p);
+    }
+    Vector_Free(B);
+    A=C;
+    
+}
 
 expr(A) ::= modifier(B) COLON expr(C). {
     // gets the field mask from the query's spec. 
