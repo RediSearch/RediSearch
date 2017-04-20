@@ -30,6 +30,36 @@ inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
 t_docId DocTable_GetId(DocTable *dt, const char *key) {
   return DocIdMap_Get(&dt->dim, key);
 }
+
+/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
+ * document */
+int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len) {
+  /* Get the metadata */
+  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  if (!dmd || !data) {
+    return 0;
+  }
+
+  /* If we already have metadata - clean up the old data */
+  if (dmd->payload) {
+    /* Free the old payload */
+    if (dmd->payload->data) {
+      rm_free(dmd->payload->data);
+    }
+    t->memsize -= dmd->payload->len;
+  } else {
+    dmd->payload = rm_malloc(sizeof(RSPayload));
+  }
+  /* Copy it... */
+  dmd->payload->data = rm_calloc(1, len + 1);
+  dmd->payload->len = len;
+  memcpy(dmd->payload->data, data, len);
+
+  dmd->flags |= Document_HasPayload;
+  t->memsize += len;
+  return 1;
+}
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
 * table.
 *

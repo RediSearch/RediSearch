@@ -59,6 +59,10 @@ const char *DocTable_GetKey(DocTable *t, t_docId docId);
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 float DocTable_GetScore(DocTable *t, t_docId docId);
 
+/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
+ * document */
+int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
+
 /* Get the payload for a document, if any was set. If no payload has been set or the document id is
  * not found, we return NULL */
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);

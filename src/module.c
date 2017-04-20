@@ -24,6 +24,7 @@
 #include "varint.h"
 #include "extension.h"
 #include "ext/default.h"
+#include "rmalloc.h"
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
  * version of it first */
@@ -288,6 +289,43 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   free(doc.fields);
 
+cleanup:
+
+  return REDISMODULE_OK;
+}
+
+/* FT.SETPAYLOAD {index} {docId} {payload} */
+int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  // nosave must be at place 4 and we must have at least 7 fields
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    goto cleanup;
+  }
+
+  /* Find the document by its key */
+  t_docId docId = DocTable_GetId(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
+  if (docId == 0) {
+    RedisModule_ReplyWithError(ctx, "Document not in index");
+    goto cleanup;
+  }
+
+  size_t mdlen;
+  const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
+
+  if (DocTable_SetPayload(&sp->docs, docId, md, mdlen) == 0) {
+    RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
+    goto cleanup;
+  }
+
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
 cleanup:
 
   return REDISMODULE_OK;
@@ -1180,7 +1218,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // LOGGING_INIT(0xFFFFFFFF);
-  if (RedisModule_Init(ctx, "ft", 3, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+  if (RedisModule_Init(ctx, "ft", 4, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   // Init extension mechanism
@@ -1219,6 +1257,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "FT.SETPAYLOAD", SetPayloadCommand, "write deny-oom", 1, 1,
+                                1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom", 1, 1, 1) ==
