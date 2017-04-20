@@ -390,8 +390,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(n, "inverted_cap_ovh", (float)(sp->stats.invertedCap - sp->stats.invertedSize) /
-                                           (float)sp->stats.invertedCap);
+  __reply_kvnum(
+      n, "inverted_cap_ovh",
+      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
@@ -595,8 +596,9 @@ results to the offset and number of results given. The default is 0 10
    - FILTER: Apply a numeric filter to a numeric field, with a minimum and maximum
 
    - GEOFILTER: Apply a radius filter to a geo field, with a given lon, lat, radius and radius
-units
-(m, km, mi, or ft)
+units (m, km, mi, or ft)
+
+   - PAYLOAD: Add a payload to the query that will be exposed to custrom scoring functions.
 
    - INFIELDS num field1 field2 ...: If set, filter the results to ones
 appearing only in specific
@@ -604,16 +606,13 @@ appearing only in specific
 field arguments
 
    - VERBATIM: If set, we turn off stemming for the query processing. Faster
-but
-will yield less
-    results
+    but will yield less results
 
    - WITHSCORES: If set, we also return the relative internal score of each
-document. this can be
-   used to merge results from multiple instances
+    document. this can be used to merge results from multiple instances
 
    - WITHPAYLOADS: If set, we return document payloads as they were inserted, or nil if no payload
-exists.
+    exists.
 
    - NOSTOPWORDS: If set, we do not check the query for stopwords
 
