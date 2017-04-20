@@ -453,6 +453,12 @@
 </pre></div>
 
 
+<p>Multiple modifiers can be applied to the same term or grouped terms. e.g.:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH idx &quot;@title|body:(hello world) @url|image:mydomain&quot;
+</pre></div>
+
+
+<p>This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.</p>
 <h2 id="a-few-examples">A few examples<a class="headerlink" href="#a-few-examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
