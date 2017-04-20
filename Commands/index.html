@@ -1654,6 +1654,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.</li>
 <li><strong>EXPANDER {expander}</strong>: If set, we will use a custom query expander instead of the stemmer. <a href="../Extensions">See Extensions</a>.</li>
 <li><strong>SCORER {scorer}</strong>: If set, we will use a custom scoring function defined by the user. <a href="../Extensions">See Extensions</a>.</li>
+<li><strong>PAYLOAD {payload}</strong>: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. <a href="../Extensions">See Extensions</a>.</li>
 <li><strong>WITHPAYLOADS</strong>: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if <code>WITHSCORES</code> was set, follow the scores.</li>
 </ul>
