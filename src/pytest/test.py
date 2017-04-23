@@ -2,7 +2,7 @@ from rmtest import ModuleTestCase
 import redis
 import unittest
 from hotels import hotels
-
+import random
 
 class SearchTestCase(ModuleTestCase('../module.so')):
 
@@ -214,6 +214,37 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
+
+
+    def testNot(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
+            N = 100
+            for i in range(N):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'foo', 'constant term%d' % (random.randrange(0, 5))))
+
+            for i in range(5):
+                inclusive = r.execute_command('ft.search', 'idx', 'constant term%d' % i, 'nocontent', 'limit', 0, N)
+                
+                exclusive = r.execute_command('ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
+                #print inclusive, exclusive
+                self.assertNotEqual(inclusive[0], N)
+                self.assertTrue(inclusive[0] + exclusive[0] == N)
+
+                s1, s2 = set(inclusive[1:]), set(exclusive[1:])
+                self.assertTrue(s1.difference(s2) == s1)
+                self.assertTrue(s2.intersection(s1) == set())
+            
+            # NOT on a non existing term
+            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -dasdfasdf', 'nocontent')[0], N)
+            #not on self term
+            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
+
+            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
+            #self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
 
     def testInKeys(self):
         with self.redis() as r:

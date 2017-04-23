@@ -72,7 +72,7 @@ int testQueryParser() {
   assertInvalidQuery("()");
 
   char *err = NULL;
-  char *qt = "(hello|world) and \"another world\" (foo is bar) baz ";
+  char *qt = "(hello|world) and \"another world\" (foo is bar) -baz ";
   RedisSearchCtx ctx;
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0,
                       NULL, (RSPayload){});
@@ -101,8 +101,9 @@ int testQueryParser() {
   ASSERT_STRING_EQ("foo", n->pn.children[2]->pn.children[0]->tn.str);
   ASSERT_STRING_EQ("bar", n->pn.children[2]->pn.children[1]->tn.str);
 
-  ASSERT(n->pn.children[3]->type == QN_TOKEN);
-  ASSERT_STRING_EQ("baz", n->pn.children[3]->tn.str);
+  ASSERT(n->pn.children[3]->type == QN_NOT);
+  ASSERT_EQUAL(QN_TOKEN, n->pn.children[3]->not.child->type);
+  ASSERT_STRING_EQ("baz", n->pn.children[3]->not.child->tn.str);
   Query_Free(q);
 
   return 0;

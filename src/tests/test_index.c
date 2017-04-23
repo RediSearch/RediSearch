@@ -292,6 +292,35 @@ int testUnion() {
   return 0;
 }
 
+int testNot() {
+  InvertedIndex *w = createIndex(16, 1);
+  // not all numbers that divide by 3
+  InvertedIndex *w2 = createIndex(10, 3);
+  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
+  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+
+  // printf("Reading!\n");
+  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r1);
+  irs[1] = NewNotIterator(NewReadIterator(r2));
+
+  IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
+  RSIndexResult *h = NULL;
+  int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
+  int i = 0;
+  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    // printf("%d <=> %d\n", h->docId, expected[i]);
+    ASSERT(h->docId == expected[i++]);
+    // printf("%d, ", h.docId);
+  }
+
+  ui->Free(ui);
+  // IndexResult_Free(&h);
+  InvertedIndex_Free(w);
+  InvertedIndex_Free(w2);
+  return 0;
+}
+
 int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
@@ -609,7 +638,7 @@ TEST_MAIN({
 
   TESTFUNC(testReadIterator);
   TESTFUNC(testIntersection);
-
+  TESTFUNC(testNot);
   TESTFUNC(testUnion);
 
   TESTFUNC(testBuffer);
