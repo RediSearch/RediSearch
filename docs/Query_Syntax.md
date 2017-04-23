@@ -5,6 +5,7 @@ We support a simple syntax for complex queries with the following rules:
 * Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
+* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
 * Selection of specific fields using the syntax `@field:hello world`.
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
@@ -48,9 +49,17 @@ This will search for documents that have "hello world" either in the body or the
 
         hello|world
 
+* Not: documents containing **hello** but not **world**
+
+        hello -world
+
 * Intersection of unions
 
         (hello|halo) (world|werld)
+
+* Negation of union
+
+        hello -(world|werld)
 
 * Union inside phrase
 

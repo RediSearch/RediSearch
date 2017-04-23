@@ -6,7 +6,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.12.1 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.12.1)
+### Latest Release: [0.13 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.13)
 
 # Client Libraries
 
@@ -32,10 +32,11 @@ traditional redis search approaches.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
+* Complex boolean queries with AND, OR, NOT operators between sub-queries.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
-* Exact Phrase Search of up to 8 words.
+* Exact Phrase Search.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
-* Limiting searches to specific document fields (up to 8 fields supported).
+* Limiting searches to specific document fields (up to 32 fields supported).
 * Numeric filters and ranges.
 * Geographical search utlizing redis' own GEO commands.
 * Supports any utf-8 encoded text.
@@ -45,14 +46,13 @@ traditional redis search approaches.
 
 ### Not *yet* supported:
 
-* NOT queries (foo -bar).
 * Spelling correction
 * Aggregations
 
 ### License: AGPL
 
 Which basically means you can freely use this for your own projects without "virality" to your code,
-as long as you're not modifying the module itself.
+as long as you're not modifying the module itself. See [This Blog Post](https://redislabs.com/blog/why-redis-labs-modules-are-agpl/) for more details.
 
 ### Note About Stability
 

@@ -4,7 +4,7 @@ RediSearch is a Full-Text search over Redis, developed by RedisLabs.
 
 The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
 
-### Latest Release: [0.12 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.12.1)
+### Latest Release: [0.13 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.13)
 
 ## Overview
 
@@ -29,9 +29,10 @@ traditional redis search approaches.
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
+* Complex boolean queries with AND, OR, NOT operators between sub-queries.
 * Field weights.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
-* Exact Phrase Search of up to 8 words.
+* Exact Phrase Search, Slop based search.
 * Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
 * Limiting searches to specific document fields (up to 8 fields supported).
