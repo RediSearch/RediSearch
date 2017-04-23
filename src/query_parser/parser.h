@@ -4,4 +4,5 @@
 #define QUOTE                           4
 #define TERM                            5
 #define AT                              6
-#define COLON                           7
+#define MINUS                           7
+#define COLON                           8

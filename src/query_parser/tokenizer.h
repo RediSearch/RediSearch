@@ -29,7 +29,7 @@ typedef struct {
   // QueryTokenType ;
 } QueryToken;
 
-#define QUERY_SEPARATORS " \t,./{}[];/\\~!#$%^&*-=+<>?";
+#define QUERY_SEPARATORS " \t,./{}[];/\\~!#$%^&*=+<>?";
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

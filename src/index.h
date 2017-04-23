@@ -88,4 +88,15 @@ RSIndexResult *II_Current(void *ctx);
 size_t II_Len(void *ctx);
 t_docId II_LastDocId(void *ctx);
 
+/* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND for
+ * hits */
+typedef struct {
+  IndexIterator *child;
+  RSIndexResult *current;
+  t_docId lastDocId;
+} NotContext;
+
+/* Create a NOT iterator by wrapping another index iterator */
+IndexIterator *NewNotIterator(IndexIterator *it);
+
 #endif

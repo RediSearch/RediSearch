@@ -60,6 +60,10 @@ expr(A) ::= TERM(B). {
  A = NewTokenNode(ctx->q, B.s, B.len);  
 }
 
+expr(A) ::= MINUS expr(B). {
+    A = NewNotNode(B);
+}
+
 // field modifier -- @foo:bar
 modifier(A) ::= AT TERM(B). { A = B; }
 

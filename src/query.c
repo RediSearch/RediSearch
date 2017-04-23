@@ -43,7 +43,7 @@ void _queryUnionNode_Free(QueryUnionNode *pn) {
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
-
+  if (!n) return;
   switch (n->type) {
     case QN_TOKEN:
       _queryTokenNode_Free(&n->tn);
@@ -57,6 +57,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_NUMERIC:
       free(n->nn.nf);
       break;  //
+    case QN_NOT:
+      QueryNode_Free(n->not.child);
+      break;
     case QN_GEO:
     case QN_IDS:
       break;
@@ -99,6 +102,12 @@ QueryNode *NewPhraseNode(int exact) {
   ret->fieldMask = 0;
 
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  return ret;
+}
+
+QueryNode *NewNotNode(QueryNode *n) {
+  QueryNode *ret = __newQueryNode(QN_NOT);
+  ret->not.child = n;
   return ret;
 }
 
@@ -205,6 +214,14 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
   return ret;
 }
 
+IndexIterator *query_EvalNotNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_NOT) {
+    return NULL;
+  }
+  QueryNotNode *node = &qn->not;
+
+  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
+}
 IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 
   FieldSpec *fs =
@@ -275,6 +292,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return query_EvalPhraseNode(q, n);
     case QN_UNION:
       return query_EvalUnionNode(q, n);
+    case QN_NOT:
+      return query_EvalNotNode(q, n);
     case QN_NUMERIC:
       return query_EvalNumericNode(q, &n->nn);
     case QN_GEO:
@@ -428,6 +447,14 @@ void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
       break;
     case QN_TOKEN:
       printf("{%s%s", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
+      break;
+
+    case QN_NOT:
+      printf("NOT{\n");
+      __queryNode_Print(q, qs->not.child, depth + 1);
+      for (int i = 0; i < depth; i++) {
+        printf("  ");
+      }
       break;
 
     case QN_NUMERIC: {

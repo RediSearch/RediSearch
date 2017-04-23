@@ -59,7 +59,7 @@ int testQueryParser() {
   assertValidQuery("@title:barack obama  @body:us");
   assertValidQuery("@title:barack @body:obama");
   assertValidQuery("@title|body:barack @body|title|url|something|else:obama");
-
+  assertValidQuery("foo -bar -(bar baz)");
   // assertValidQuery("(hello world)|(goodbye moon)");
   assertInvalidQuery("@title:");
   assertInvalidQuery("@body:@title:");

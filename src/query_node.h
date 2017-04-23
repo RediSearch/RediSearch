@@ -20,6 +20,9 @@ typedef enum {
   /* Numeric filter node */
   QN_NUMERIC,
 
+  /* NOT operator node */
+  QN_NOT,
+
   /* Geo filter node */
   QN_GEO,
 
@@ -41,6 +44,8 @@ typedef struct {
   struct RSQueryNode **children;
   int numChildren;
 } QueryUnionNode;
+
+typedef struct { struct RSQueryNode *child; } QueryNotNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
@@ -64,6 +69,7 @@ typedef struct RSQueryNode {
     QueryNumericNode nn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
+    QueryNotNode not;
   };
   uint32_t fieldMask;
   /* The node type, for resolving the union access */

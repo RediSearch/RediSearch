@@ -91,6 +91,7 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
+QueryNode *NewNotNode(QueryNode *n);
 QueryNode *NewNumericNode(NumericFilter *flt);
 QueryNode *NewIdFilterNode(IdFilter *flt);
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
