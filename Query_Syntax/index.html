@@ -439,6 +439,7 @@
 <li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
 <li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
 <li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
+<li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>.</li>
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
@@ -483,8 +484,22 @@
 
 </li>
 <li>
+<p>Not: documents containing <strong>hello</strong> but not <strong>world</strong></p>
+<div class="codehilite"><pre><span></span>hello -world
+</pre></div>
+
+
+</li>
+<li>
 <p>Intersection of unions</p>
 <div class="codehilite"><pre><span></span>(hello|halo) (world|werld)
+</pre></div>
+
+
+</li>
+<li>
+<p>Negation of union</p>
+<div class="codehilite"><pre><span></span>hello -(world|werld)
 </pre></div>
 
 
