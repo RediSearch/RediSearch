@@ -18,7 +18,7 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords)
   return ret;
 }
 static char ctrls[256] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP,   [')'] = RP,
-                          [':'] = COLON,  ['@'] = AT, ['-'] = MINUS};
+                          [':'] = COLON,  ['@'] = AT, ['-'] = MINUS, ['~'] = TILDE};
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
 start:

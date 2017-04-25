@@ -96,7 +96,19 @@ typedef struct {
   t_docId lastDocId;
 } NotContext;
 
-/* Create a NOT iterator by wrapping another index iterator */
+/* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
+ * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
 IndexIterator *NewNotIterator(IndexIterator *it);
+
+typedef struct {
+  IndexIterator *child;
+  RSIndexResult *virt;
+  RSIndexResult *current;
+  t_fieldMask fieldMask;
+  t_docId lastDocId;
+} OptionalMatchContext;
+
+/* Create a NOT iterator by wrapping another index iterator */
+IndexIterator *NewOptionalIterator(IndexIterator *it);
 
 #endif

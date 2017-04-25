@@ -5,4 +5,5 @@
 #define TERM                            5
 #define AT                              6
 #define MINUS                           7
-#define COLON                           8
+#define TILDE                           8
+#define COLON                           9

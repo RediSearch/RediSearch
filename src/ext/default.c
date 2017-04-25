@@ -20,9 +20,11 @@ double _tfidfRecursive(RSIndexResult *r) {
 /* Calculate sum(TF-IDF)*document score for each result */
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
+  printf("score for %d: %f\n", h->docId, dmd->score);
   if (dmd->score == 0) return 0;
 
   double tfidf = _tfidfRecursive(h);
+  printf("tfidf: for %d: %f\n", h->docId, tfidf);
 
   tfidf *= dmd->score / (double)dmd->maxFreq;
 
@@ -30,8 +32,8 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
   if (tfidf < minScore) {
     return 0;
   }
-  tfidf /= (double)ctx->GetSlop(h);
-  // printf("tfidf: %f\n", tfidf);
+  // tfidf /= (double)ctx->GetSlop(h);
+  // printf("tfidf: for %d: %f\n", h->docId, tfidf);
   return tfidf;
 }
 

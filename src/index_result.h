@@ -13,7 +13,7 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
-void AggregateResult_Reset(RSAggregateResult *r);
+void AggregateResult_Reset(RSIndexResult *r);
 
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap);

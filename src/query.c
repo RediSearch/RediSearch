@@ -60,6 +60,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_NOT:
       QueryNode_Free(n->not.child);
       break;
+    case QN_OPTIONAL:
+      QueryNode_Free(n->opt.child);
+      break;
     case QN_GEO:
     case QN_IDS:
       break;
@@ -107,6 +110,12 @@ QueryNode *NewPhraseNode(int exact) {
 
 QueryNode *NewNotNode(QueryNode *n) {
   QueryNode *ret = __newQueryNode(QN_NOT);
+  ret->not.child = n;
+  return ret;
+}
+
+QueryNode *NewOptionalNode(QueryNode *n) {
+  QueryNode *ret = __newQueryNode(QN_OPTIONAL);
   ret->not.child = n;
   return ret;
 }
@@ -222,6 +231,16 @@ IndexIterator *query_EvalNotNode(Query *q, QueryNode *qn) {
 
   return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
 }
+
+IndexIterator *query_EvalOptionalNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_OPTIONAL) {
+    return NULL;
+  }
+  QueryOptionalNode *node = &qn->opt;
+
+  return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
+}
+
 IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 
   FieldSpec *fs =
@@ -296,6 +315,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return query_EvalNotNode(q, n);
     case QN_NUMERIC:
       return query_EvalNumericNode(q, &n->nn);
+    case QN_OPTIONAL:
+      return query_EvalOptionalNode(q, n);
     case QN_GEO:
       return query_EvalGeofilterNode(q, &n->gn);
     case QN_IDS:
@@ -457,6 +478,14 @@ void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
       }
       break;
 
+    case QN_OPTIONAL:
+      printf("OPTIONAL{\n");
+      __queryNode_Print(q, qs->not.child, depth + 1);
+      for (int i = 0; i < depth; i++) {
+        printf("  ");
+      }
+      break;
+
     case QN_NUMERIC: {
       NumericFilter *f = qs->nn.nf;
       printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
@@ -525,7 +554,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query, query->root, 0);
+  __queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
@@ -574,8 +603,11 @@ QueryResult *Query_Execute(Query *query) {
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
+      // printf("No dmd for %d\n", r->docId);
       ++numDeleted;
       continue;
+    } else {
+      printf("key for %d: %s\n", r->docId, dmd->key);
     }
 
     /* Call the query scoring function to calculate the score */

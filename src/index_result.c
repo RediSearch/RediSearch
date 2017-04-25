@@ -56,6 +56,9 @@ RSIndexResult *NewVirtualResult() {
 
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
+  // printf("adding child %d to ", child->docId);
+  // IndexResult_Print(parent, 0);
+
   RSAggregateResult *agg = &parent->agg;
 
   /* Increase capacity if needed */
@@ -69,19 +72,23 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
+  // printf("\nAfter: ");
+  // IndexResult_Print(parent, 0);
+  // printf("\n");
 }
 
 void IndexResult_Print(RSIndexResult *r, int depth) {
+  printf("*");
   // for (int i = 0; i < depth; i++) printf("  ");
   if (r->type == RSResultType_Term) {
-    printf("Term{%s}, ", r->term.term ? r->term.term->str : "nil");
+    printf("Term{%s => %d}, ", r->term.term ? r->term.term->str : "nil", r->docId);
     return;
   }
   if (r->type == RSResultType_Virtual) {
-    printf("Virtual{}, ");
+    printf("Virtual{%d}, ", r->docId);
     return;
   }
-  printf("%s { ", r->type == RSResultType_Intersection ? "Inter" : "Union");
+  printf("%s => %d{ ", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
 
   for (int i = 0; i < r->agg.numChildren; i++) {
 
@@ -143,10 +150,13 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
 }
 
 /* Reset the aggregate result's child vector */
-inline void AggregateResult_Reset(RSAggregateResult *r) {
-  r->numChildren = 0;
-
-  r->typeMask = 0;
+inline void AggregateResult_Reset(RSIndexResult *r) {
+  printf("Resetting ");
+  IndexResult_Print(r, 0);
+  printf("\n");
+  r->docId = 0;
+  r->agg.numChildren = 0;
+  r->agg.typeMask = 0;
 }
 
 void IndexResult_Free(RSIndexResult *r) {
@@ -367,6 +377,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
+  printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
     iters[i].Free(iters[i].ctx);
   }

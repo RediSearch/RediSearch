@@ -191,7 +191,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, t_fie
   uint32_t dummyFreq;
   __readEntry(br, ir->flags, ir->lastId, docId, freq ? freq : &dummyFreq, fieldMask, offsets,
               ir->singleWordMode);
-
+  printf("IR %s read docId %d\n", ir->term->str, *docId);
   ir->lastId = *docId;
   return INDEXREAD_OK;
 }

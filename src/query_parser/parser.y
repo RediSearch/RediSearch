@@ -66,6 +66,10 @@ expr(A) ::= MINUS expr(B). {
     A = NewNotNode(B);
 }
 
+expr(A) ::= TILDE expr(B). {
+    A = NewOptionalNode(B);
+}
+
 // field modifier -- @foo:bar
 modifier(A) ::= AT TERM(B). { A = B; }
 
