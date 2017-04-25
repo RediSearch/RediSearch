@@ -190,7 +190,6 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   // not found...
   ui->minDocId = minDocId;
   AggregateResult_Reset(&(*hit)->agg);
-  (*hit)->docId = minDocId;
   // printf("UI %p skipped to docId %d NOT FOUND, minDocId now %d\n", ui, docId, ui->minDocId);
   return INDEXREAD_NOTFOUND;
 }
@@ -319,7 +318,7 @@ int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   // we add the actual last doc id we read, so if anyone is looking at what we returned it would
   // look sane
   if (hit) {
-    (*hit)->docId = ic->lastDocId;
+    (*hit)->docId = 0;  // ic->lastDocId;
   }
 
   return INDEXREAD_NOTFOUND;
