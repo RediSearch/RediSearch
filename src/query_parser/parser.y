@@ -40,6 +40,8 @@
 %destructor modifierlist { Vector_Free($$); }
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
+// empty query rule
+query ::= . { ctx->root = NULL; }
 
 exprlist(A) ::= expr(B) expr(C). {
     A = NewPhraseNode(0);

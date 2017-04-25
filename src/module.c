@@ -816,9 +816,15 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
 
-    RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
-    RedisModule_ReplyWithError(ctx, errMsg);
-    free(errMsg);
+    if (errMsg) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
+      RedisModule_ReplyWithError(ctx, errMsg);
+      free(errMsg);
+    }  else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
     Query_Free(q);
     goto end;
   }
