@@ -133,7 +133,7 @@ void testRandomWalk() {
     mu_check(rc);
     mu_check(ptr);
 
-    printf("%.*s\n", len, sbuf);
+    //printf("%.*s\n", len, sbuf);
     free(sbuf);
   }
 

@@ -85,7 +85,7 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
     // take the minimum entry and collect all results matching to it
     if (minIdx != -1) {
 
-      printf("UI %p read docId %d OK\n", ui, ui->docIds[minIdx]);
+      // printf("UI %p read docId %d OK\n", ui, ui->docIds[minIdx]);
       UI_SkipTo(ui, ui->docIds[minIdx], hit);
       // return INDEXREAD_OK;
 
@@ -125,7 +125,7 @@ at EOF
 int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   UnionContext *ui = ctx;
 
-  printf("UI %p skipto %d\n", ui, docId);
+  // printf("UI %p skipto %d\n", ui, docId);
 
   if (docId == 0) {
     return UI_Read(ctx, hit);

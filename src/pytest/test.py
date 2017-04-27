@@ -216,6 +216,25 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertEqual(0, len(keys))
 
 
+    def testOptional(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'hello wat woot'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields', 'foo', 'hello world woot'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields', 'foo', 'hello world werld'))
+
+            res  = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+            self.assertEqual([3L, 'doc1', 'doc2', 'doc3'], res)
+            res  = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
+            self.assertEqual([2L, 'doc2', 'doc3'], res)
+            res  = r.execute_command('ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
+            self.assertEqual([3L, 'doc2', 'doc3', 'doc1'], res)
+            res  = r.execute_command('ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
+            self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
+
+    
     def testNot(self):
         with self.redis() as r:
             r.flushdb()

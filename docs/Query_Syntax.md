@@ -7,6 +7,7 @@ We support a simple syntax for complex queries with the following rules:
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
 * Selection of specific fields using the syntax `@field:hello world`.
+* Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
@@ -64,6 +65,10 @@ This will search for documents that have "hello world" either in the body or the
 * Union inside phrase
 
         (barack|barrack) obama
+
+* Optional terms with higher priority to ones containing more matches:
+
+        obama ~barack ~michelle
 
 * Exact phrase in one field, one word in aonther field:
 

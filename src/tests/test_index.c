@@ -207,7 +207,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     ForwardIndexEntry h;
     h.docId = id;
     h.fieldMask = 1;
-    h.freq = i % 10;
+    h.freq = 1;
     h.docScore = 1;
     h.stringFreeable = 0;
     h.term = "hello";
@@ -321,6 +321,40 @@ int testNot() {
   return 0;
 }
 
+int testOptional() {
+  InvertedIndex *w = createIndex(16, 1);
+  // not all numbers that divide by 3
+  InvertedIndex *w2 = createIndex(10, 3);
+  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
+  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+
+  // printf("Reading!\n");
+  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r1);
+  irs[1] = NewOptionalIterator(NewReadIterator(r2));
+
+  IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
+  RSIndexResult *h = NULL;
+
+  int i = 1;
+  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    // printf("%d <=> %d\n", h->docId, expected[i]);
+    ASSERT(h->docId == i);
+    if (i > 0 && i % 3 == 0) {
+      ASSERT(h->agg.children[1]->freq == 1)
+    } else {
+      ASSERT(h->agg.children[1]->freq == 0)
+    }
+    // printf("%d, ", h.docId);
+  }
+
+  ui->Free(ui);
+  // IndexResult_Free(&h);
+  InvertedIndex_Free(w);
+  InvertedIndex_Free(w2);
+  return 0;
+}
+
 int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
@@ -359,7 +393,7 @@ int testIntersection() {
          1000000 * TimeSampler_IterationMS(&ts));
   printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
-  ASSERT(topFreq == 475000.0);
+  ASSERT(topFreq == 100000.0);
 
   ii->Free(ii);
   // IndexResult_Free(&h);
