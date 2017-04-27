@@ -29,6 +29,9 @@ typedef enum {
   /* Geo filter node */
   QN_GEO,
 
+  /* Prefix selection node */
+  QN_PREFX,
+
   /* Id Filter node */
   QN_IDS,
 } QueryNodeType;
@@ -57,6 +60,8 @@ typedef struct { struct RSQueryNode *child; } QueryOptionalNode;
  * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
 typedef RSToken QueryTokenNode;
 
+typedef RSToken QueryPrefixNode;
+
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;
 
@@ -76,6 +81,7 @@ typedef struct RSQueryNode {
     QueryIdFilterNode fn;
     QueryNotNode not;
     QueryOptionalNode opt;
+    QueryPrefixNode pfx;
   };
   uint32_t fieldMask;
   /* The node type, for resolving the union access */

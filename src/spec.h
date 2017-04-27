@@ -2,6 +2,8 @@
 #define __SPEC_H__
 #include "redismodule.h"
 #include "doc_table.h"
+#include "trie/trie_type.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -68,6 +70,8 @@ typedef struct {
   IndexStats stats;
   IndexFlags flags;
 
+  Trie *terms;
+  
   DocTable docs;
 } IndexSpec;
 

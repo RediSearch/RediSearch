@@ -125,6 +125,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
     while (entry != NULL) {
       // ForwardIndex_NormalizeFreq(idx, entry);
+      Trie_InsertStringBuffer(ctx->spec->terms, entry->term, entry->len, 1, 0);
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
       // IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
       int isNew = invidx->lastId == 0;

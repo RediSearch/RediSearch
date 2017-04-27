@@ -63,6 +63,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_OPTIONAL:
       QueryNode_Free(n->opt.child);
       break;
+    case QN_PREFX:
+      _queryTokenNode_Free(&n->pfx);
+      break;
     case QN_GEO:
     case QN_IDS:
       break;
@@ -90,6 +93,14 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
   q->numTokens++;
 
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode *NewPrefixNode(Query *q, const char *s, size_t len) {
+  QueryNode *ret = __newQueryNode(QN_PREFX);
+  q->numTokens++;
+
+  ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
   return ret;
 }
 
@@ -192,6 +203,45 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
     return NULL;
   }
   return NewReadIterator(ir);
+}
+
+IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_PREFX) {
+    return NULL;
+  }
+  Trie *terms = q->ctx->spec->terms;
+
+  if (!terms) return NULL;
+  printf("eval prefix node %s\n", qn->pfx.str);
+
+  TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
+  size_t itsSz = 0, itsCap = 8;
+  IndexIterator **its = calloc(itsCap, sizeof(*its));
+
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+
+  while (TrieIterator_Next(it, &rstr, &slen, &score, &dist)) {
+    RSToken *tok = malloc(sizeof(*tok));
+    tok->expanded = 0;
+    tok->flags = 0;
+    tok->len = 0;
+    tok->str = runesToStr(rstr, slen, &tok->len);
+
+    printf("Opening reader for %.*s\n", (int)tok->len, tok->str);
+    IndexReader *ir = Redis_OpenReader(q->ctx, tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
+    if (!ir) continue;
+
+    its[itsSz++] = NewReadIterator(ir);
+    if (itsSz == itsCap) {
+      itsCap *= 2;
+      its = realloc(its, itsCap * sizeof(*its));
+    }
+  }
+  TrieIterator_Free(it);
+  return NewUnionIterator(its, itsSz, q->docTable);
 }
 
 IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
@@ -313,6 +363,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return query_EvalUnionNode(q, n);
     case QN_NOT:
       return query_EvalNotNode(q, n);
+    case QN_PREFX:
+      return query_EvalPrefixNode(q, n);
     case QN_NUMERIC:
       return query_EvalNumericNode(q, &n->nn);
     case QN_OPTIONAL:
@@ -470,6 +522,10 @@ void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
       printf("{%s%s", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
       break;
 
+    case QN_PREFX:
+      printf("PREFIX{%s", (char *)qs->pfx.str);
+      break;
+
     case QN_NOT:
       printf("NOT{\n");
       __queryNode_Print(q, qs->not.child, depth + 1);
@@ -554,7 +610,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query, query->root, 0);
+  __queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

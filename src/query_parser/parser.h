@@ -6,4 +6,5 @@
 #define AT                              6
 #define MINUS                           7
 #define TILDE                           8
-#define COLON                           9
+#define STAR                            9
+#define COLON                          10

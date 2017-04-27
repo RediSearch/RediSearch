@@ -57,6 +57,17 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
+TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist) {
+  size_t rlen;
+  rune *runes = strToFoldedRunes(prefix, &rlen);
+  printf("Expanded runes for %.*s, rlen %d\n", len, prefix, rlen);
+  DFAFilter *fc = malloc(sizeof(*fc));
+  *fc = NewDFAFilter(runes, rlen, maxDist, 1);
+
+  TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
+  return it;
+}
+
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize) {
   heap_t *pq = malloc(heap_sizeof(num));

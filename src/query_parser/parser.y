@@ -83,6 +83,10 @@ modifierlist(A) ::= modifierlist(B) OR TERM(C). {
     A = B;
 }
 
+expr(A) ::= TERM(B) STAR. {
+    A = NewPrefixNode(ctx->q, B.s, B.len);
+}
+
 expr(A) ::= modifierlist(B) COLON expr(C). {
     C->fieldMask = 0;
     for (int i = 0; i < Vector_Size(B); i++) {

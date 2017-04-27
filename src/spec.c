@@ -229,6 +229,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(1000);
+  sp->terms = NewTrie();
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
