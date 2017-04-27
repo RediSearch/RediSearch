@@ -62,7 +62,7 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
 
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
-      printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
+      // printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
       while (ui->docIds[i] <= ui->minDocId && rc != INDEXREAD_EOF) {
         rc = INDEXREAD_NOTFOUND;
         // read while we're not at the end and perhaps the flags do not match
@@ -77,9 +77,6 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
       }
 
       if (rc == INDEXREAD_OK && res->docId <= minDocId) {
-        printf("UI %p read docid %d\n", ui, res->docId);
-        IndexResult_Print(res, 0);
-        printf("\n\n");
         minDocId = res->docId;
         minIdx = i;
       }
@@ -354,9 +351,6 @@ int II_Read(void *ctx, RSIndexResult **hit) {
 
       RSIndexResult *h = it->Current(it->ctx);
       // skip to the next
-      printf("it current: ");
-      IndexResult_Print(h, 0);
-      printf("---\n");
       int rc = INDEXREAD_OK;
       if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
 
@@ -385,7 +379,7 @@ int II_Read(void *ctx, RSIndexResult **hit) {
     }
 
     if (nh == ic->num) {
-      printf("II %p HIT @ %d\n", ic, ic->current->docId);
+      // printf("II %p HIT @ %d\n", ic, ic->current->docId);
       // sum up all hits
       if (hit != NULL) {
         *hit = ic->current;
@@ -401,9 +395,6 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       // If we need to match slop and order, we do it now, and possibly skip the result
       if (ic->maxSlop >= 0) {
         if (!IndexResult_IsWithinRange(ic->current, ic->maxSlop, ic->inOrder)) {
-          IndexResult_Print(ic->current, 0);
-          printf("\n-------------------\n");
-
           continue;
         }
       }
@@ -554,14 +545,18 @@ int OI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   if (!nc->child) {
     goto ok;
   }
-  nc->lastDocId = nc->child->LastDocId(nc->child->ctx);
-  // read the next entry
+  RSIndexResult *res = nc->child->Current(nc->child->ctx);
+  // if the child's current is already at our docId - just copy it to our current and hit's
+  if (docId == (nc->lastDocId = res->docId)) {
+    *hit = nc->current = res;
+    return INDEXREAD_OK;
+  }
+  // read the next entry from the child
   int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->current);
 
-  // OK means not found
+  // OK means ok - pass the entry with the value
   if (rc == INDEXREAD_OK) {
     *hit = nc->current;
-    nc->lastDocId = nc->current->docId;
     return INDEXREAD_OK;
   }
 
@@ -573,8 +568,18 @@ ok:
   return INDEXREAD_OK;
 }
 
-/* Read has no meaning in the sense of a NOT iterator, so we just return EOF */
+/* Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
+ * our child */
 int OI_Read(void *ctx, RSIndexResult **hit) {
+  OptionalMatchContext *nc = ctx;
+  if (nc->child) {
+    if (nc->child->Read(nc->child->ctx, &nc->current) == INDEXREAD_OK) {
+      if (hit) {
+        *hit = nc->current;
+      }
+      return INDEXREAD_OK;
+    }
+  }
   return INDEXREAD_EOF;
 }
 

@@ -554,7 +554,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query, query->root, 0);
+  //__queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
@@ -606,8 +606,6 @@ QueryResult *Query_Execute(Query *query) {
       // printf("No dmd for %d\n", r->docId);
       ++numDeleted;
       continue;
-    } else {
-      printf("key for %d: %s\n", r->docId, dmd->key);
     }
 
     /* Call the query scoring function to calculate the score */

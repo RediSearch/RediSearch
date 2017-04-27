@@ -78,7 +78,6 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 }
 
 void IndexResult_Print(RSIndexResult *r, int depth) {
-  printf("*");
   // for (int i = 0; i < depth; i++) printf("  ");
   if (r->type == RSResultType_Term) {
     printf("Term{%s => %d}, ", r->term.term ? r->term.term->str : "nil", r->docId);
@@ -151,9 +150,7 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
 
 /* Reset the aggregate result's child vector */
 inline void AggregateResult_Reset(RSIndexResult *r) {
-  printf("Resetting ");
-  IndexResult_Print(r, 0);
-  printf("\n");
+
   r->docId = 0;
   r->agg.numChildren = 0;
   r->agg.typeMask = 0;
@@ -205,6 +202,7 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
     }
     if (i == num) {
       v1.Free(v1.ctx);
+      dist = dist ? dist : 100;
       break;
     }
     v2 = RSIndexResult_IterateOffsets(agg->children[i]);
@@ -377,7 +375,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
-  printf("slop result for %d: %d\n", ir->docId, rc);
+  // printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
     iters[i].Free(iters[i].ctx);
   }

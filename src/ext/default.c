@@ -20,11 +20,11 @@ double _tfidfRecursive(RSIndexResult *r) {
 /* Calculate sum(TF-IDF)*document score for each result */
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
-  printf("score for %d: %f\n", h->docId, dmd->score);
+  // printf("score for %d: %f\n", h->docId, dmd->score);
   if (dmd->score == 0) return 0;
 
   double tfidf = _tfidfRecursive(h);
-  printf("tfidf: for %d: %f\n", h->docId, tfidf);
+  // printf("tfidf: for %d: %f\n", h->docId, tfidf);
 
   tfidf *= dmd->score / (double)dmd->maxFreq;
 
@@ -32,9 +32,41 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
   if (tfidf < minScore) {
     return 0;
   }
-  // tfidf /= (double)ctx->GetSlop(h);
+
+  tfidf /= (double)ctx->GetSlop(h);
   // printf("tfidf: for %d: %f\n", h->docId, tfidf);
   return tfidf;
+}
+
+double _dismaxRecursive(RSIndexResult *r) {
+  // for terms - we return the term frequency
+  double ret = 0;
+  switch (r->type) {
+    case RSResultType_Term:
+    case RSResultType_Virtual:
+      ret = r->freq;
+      break;
+    // for intersections - we sum up the term scores
+    case RSResultType_Intersection:
+      for (int i = 0; i < r->agg.numChildren; i++) {
+        ret += _dismaxRecursive(r->agg.children[i]);
+      }
+      break;
+    // for unions - we take the max frequency
+    case RSResultType_Union:
+      for (int i = 0; i < r->agg.numChildren; i++) {
+        ret = MAX(ret, _dismaxRecursive(r->agg.children[i]));
+      }
+      break;
+  }
+  return ret;
+}
+/* Calculate sum(TF-IDF)*document score for each result */
+double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+                    double minScore) {
+  // printf("score for %d: %f\n", h->docId, dmd->score);
+  // if (dmd->score == 0 || h == NULL) return 0;
+  return _dismaxRecursive(h);
 }
 
 void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
@@ -74,6 +106,12 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* TF-IDF scorer is the default scorer */
   if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* DisMax-alike scorer */
+  if (ctx->RegisterScoringFunction(DISMAX_SCORER_NAME, DisMaxScorer, NULL, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

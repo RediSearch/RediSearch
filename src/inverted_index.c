@@ -191,7 +191,7 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, t_fie
   uint32_t dummyFreq;
   __readEntry(br, ir->flags, ir->lastId, docId, freq ? freq : &dummyFreq, fieldMask, offsets,
               ir->singleWordMode);
-  printf("IR %s read docId %d\n", ir->term->str, *docId);
+  // printf("IR %s read docId %d\n", ir->term->str, *docId);
   ir->lastId = *docId;
   return INDEXREAD_OK;
 }
@@ -430,12 +430,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
     lastReadId = docId;
     if (md->flags & Document_Deleted) {
       frags += 1;
-      printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
+      // printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
     } else {
 
       if (frags) {
-        printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
-               blk->lastId);
+        // printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
+        //        blk->lastId);
         __writeEntry(&bw, flags, docId - blk->lastId, fieldMask, qscore, offsets.len, &offsets);
       } else {
         bw.buf->offset += sz;
@@ -458,7 +458,7 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
     if (rep) {
-      printf("Repaired %d holes in block %d\n", rep, startBlock);
+      // printf("Repaired %d holes in block %d\n", rep, startBlock);
     }
     n++;
     startBlock++;
