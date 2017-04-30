@@ -14,6 +14,8 @@
 #include "extension.h"
 #include "ext/default.h"
 
+#define MAX_PREFIX_EXPANSIONS 200
+
 void __queryNode_Print(Query *q, QueryNode *qs, int depth);
 
 void _queryTokenNode_Free(QueryTokenNode *tn) {
@@ -205,14 +207,19 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
   return NewReadIterator(ir);
 }
 
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all of
+ * them */
 IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_PREFX) {
+    return NULL;
+  }
+  // we allow a minimum of 2 letters in the prefx
+  if (qn->pfx.len < 3) {
     return NULL;
   }
   Trie *terms = q->ctx->spec->terms;
 
   if (!terms) return NULL;
-  printf("eval prefix node %s\n", qn->pfx.str);
 
   TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
   size_t itsSz = 0, itsCap = 8;
@@ -223,24 +230,37 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
   float score = 0;
   int dist = 0;
 
-  while (TrieIterator_Next(it, &rstr, &slen, &score, &dist)) {
+  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+
+  while (TrieIterator_Next(it, &rstr, &slen, &score, &dist) && itsSz < MAX_PREFIX_EXPANSIONS) {
+
+    // Create a token for the reader
     RSToken *tok = malloc(sizeof(*tok));
     tok->expanded = 0;
     tok->flags = 0;
     tok->len = 0;
     tok->str = runesToStr(rstr, slen, &tok->len);
 
-    printf("Opening reader for %.*s\n", (int)tok->len, tok->str);
+    // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->ctx, tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
     if (!ir) continue;
 
+    // Add the reader to the iterator array
     its[itsSz++] = NewReadIterator(ir);
     if (itsSz == itsCap) {
       itsCap *= 2;
       its = realloc(its, itsCap * sizeof(*its));
     }
   }
+
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
   TrieIterator_Free(it);
+  // printf("Expanded %d terms!\n", itsSz);
+  if (itsSz == 0) {
+    free(its);
+    return NULL;
+  }
   return NewUnionIterator(its, itsSz, q->docTable);
 }
 
@@ -610,7 +630,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  __queryNode_Print(query, query->root, 0);
+  //__queryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;

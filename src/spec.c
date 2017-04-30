@@ -173,9 +173,16 @@ failure:  // on failure free the spec fields array and return an error
   return NULL;
 }
 
+int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
+  return Trie_InsertStringBuffer(sp->terms, term, len, 1, 1);
+}
+
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
+  if (spec->terms) {
+    TrieType_Free(spec->terms);
+  }
   DocTable_Free(&spec->docs);
   if (spec->fields != NULL) {
     for (int i = 0; i < spec->numFields; i++) {
@@ -280,6 +287,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  sp->terms = NULL;
   sp->docs = NewDocTable(1000);
 
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
@@ -294,6 +302,12 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   __indexStats_rdbLoad(rdb, &sp->stats);
 
   DocTable_RdbLoad(&sp->docs, rdb, encver);
+  /* For version 3 or up - load the generic trie */
+  if (encver >= 3) {
+    sp->terms = TrieType_GenericLoad(rdb);
+  } else {
+    sp->terms = NewTrie();
+  }
   return sp;
 }
 
@@ -311,6 +325,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
   __indexStats_rdbSave(rdb, &sp->stats);
   DocTable_RdbSave(&sp->docs, rdb);
+  // save trie of terms
+  TrieType_RdbSave(rdb, sp->terms);
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
@@ -325,7 +341,7 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
   Vector *args = NewVector(RedisModuleString *, 4 + 4 * sp->numFields);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
 
-  printf("sp->fags:%x\n", sp->flags);
+  // printf("sp->fags:%x\n", sp->flags);
   // serialize flags
   if (!(sp->flags & Index_StoreTermOffsets)) {
     __vpushStr(args, ctx, SPEC_NOOFFSETS_STR);
@@ -369,6 +385,7 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
                       Vector_Size(args));
 
   DocTable_AOFRewrite(&sp->docs, key, aof);
+
   Vector_Free(args);
 }
 

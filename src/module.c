@@ -123,16 +123,15 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     ForwardIndexIterator it = ForwardIndex_Iterate(idx);
 
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+
     while (entry != NULL) {
       // ForwardIndex_NormalizeFreq(idx, entry);
-      Trie_InsertStringBuffer(ctx->spec->terms, entry->term, entry->len, 1, 0);
+      int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
-      // IndexWriter *w = Redis_OpenWriter(ctx, entry->term, entry->len);
-      int isNew = invidx->lastId == 0;
-
-      // size_t cap = isNew ? 0 : w->bw.buf->cap;
-      // size_t skcap = isNew ? 0 : w->skipIndexWriter.buf->cap;
-      // size_t sccap = isNew ? 0 : w->scoreWriter.bw.buf->cap;
+      if (isNew) {
+        ctx->spec->stats.numTerms += 1;
+        ctx->spec->stats.termsSize += entry->len;
+      }
       size_t sz = InvertedIndex_WriteEntry(invidx, entry);
 
       /*******************************************
@@ -148,10 +147,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
       ctx->spec->stats.numRecords++;
       /* increment the number of terms if this is a new term*/
-      if (isNew) {
-        ctx->spec->stats.numTerms++;
-        ctx->spec->stats.termsSize += entry->len;
-      }
+
       /* Record the space saved for offset vectors */
       if (ctx->spec->flags & Index_StoreTermOffsets) {
         ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
@@ -429,9 +425,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(
-      n, "inverted_cap_ovh",
-      (float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
+  __reply_kvnum(n, "inverted_cap_ovh", 0);
+  //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
   __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
@@ -821,7 +816,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
       RedisModule_ReplyWithError(ctx, errMsg);
       free(errMsg);
-    }  else {
+    } else {
       /* Simulate an empty response - this means an empty query */
       RedisModule_ReplyWithArray(ctx, 1);
       RedisModule_ReplyWithLongLong(ctx, 0);

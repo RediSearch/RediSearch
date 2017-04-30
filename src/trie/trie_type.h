@@ -27,8 +27,8 @@ typedef struct {
 #define TRIE_DEL_CMD "FT.SUGDEL"
 
 Trie *NewTrie();
-void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr);
-void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr);
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr);
+int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr);
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
 int Trie_Delete(Trie *t, char *s, size_t len);
 
@@ -42,6 +42,7 @@ TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist)
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
+void *TrieType_GenericLoad(RedisModuleIO *rdb);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);

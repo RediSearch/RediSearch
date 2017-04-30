@@ -60,7 +60,7 @@ typedef enum {
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
-#define INDEX_CURRENT_VERSION 2
+#define INDEX_CURRENT_VERSION 3
 
 typedef struct {
   char *name;
@@ -71,7 +71,7 @@ typedef struct {
   IndexFlags flags;
 
   Trie *terms;
-  
+
   DocTable docs;
 } IndexSpec;
 
@@ -102,6 +102,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
+int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 /*
 * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
 * and should be on the request's stack

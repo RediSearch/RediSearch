@@ -234,7 +234,30 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             res  = r.execute_command('ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
 
-    
+    def testPrefix(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
+            N = 100
+            for i in range(N):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'foo', 'constant term%d' % (random.randrange(0, 5))))
+            for _ in r.retry_with_rdb_reload():
+                res = r.execute_command('ft.search', 'idx', 'constant term', 'nocontent')
+                self.assertEqual([0], res)
+                res = r.execute_command('ft.search', 'idx', 'constant term*', 'nocontent')
+                self.assertEqual(N, res[0])
+                res = r.execute_command('ft.search', 'idx', 'const* term*', 'nocontent')
+                self.assertEqual(N, res[0])
+                res = r.execute_command('ft.search', 'idx', 'constant term1*', 'nocontent')
+                self.assertGreater(res[0], 2)
+                res = r.execute_command('ft.search', 'idx', 'const* -term*', 'nocontent')
+                self.assertEqual([0], res)
+                res = r.execute_command('ft.search', 'idx', 'constant term9*', 'nocontent')
+                self.assertEqual([0], res)
+
+
     def testNot(self):
         with self.redis() as r:
             r.flushdb()

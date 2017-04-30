@@ -33,6 +33,7 @@ traditional redis search approaches.
 * Document ranking (provided manually by the user at index time).
 * Field weights.
 * Complex boolean queries with AND, OR, NOT operators between sub-queries.
+* Prefix matching in full-text queries.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).

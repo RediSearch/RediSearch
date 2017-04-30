@@ -17,16 +17,19 @@ Trie *NewTrie() {
   return tree;
 }
 
-void Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
   size_t len;
   char *str = (char *)RedisModule_StringPtrLen(s, &len);
-  Trie_InsertStringBuffer(t, str, len, score, incr);
+  return Trie_InsertStringBuffer(t, str, len, score, incr);
 }
-void Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
+
+int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
 
   rune *runes = strToRunes(s, &len);
-  t->size += TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+  int rc = TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
   free(runes);
+  t->size += rc;
+  return rc;
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
@@ -60,7 +63,6 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist) {
   size_t rlen;
   rune *runes = strToFoldedRunes(prefix, &rlen);
-  printf("Expanded runes for %.*s, rlen %d\n", len, prefix, rlen);
   DFAFilter *fc = malloc(sizeof(*fc));
   *fc = NewDFAFilter(runes, rlen, maxDist, 1);
 
@@ -191,10 +193,8 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
 /* declaration of the type for redis registration. */
 RedisModuleType *TrieType;
 
-void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != 0) {
-    return NULL;
-  }
+void *TrieType_GenericLoad(RedisModuleIO *rdb) {
+
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
   Trie *tree = NewTrie();
 
@@ -207,6 +207,13 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   // TrieNode_Print(tree->root, 0, 0);
   return tree;
+}
+
+void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
+  if (encver != 0) {
+    return NULL;
+  }
+  return TrieType_GenericLoad(rdb);
 }
 
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {

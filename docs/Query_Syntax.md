@@ -6,6 +6,7 @@ We support a simple syntax for complex queries with the following rules:
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
+* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
 * Selection of specific fields using the syntax `@field:hello world`.
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
@@ -35,8 +36,35 @@ FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
 
 This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.
 
-## A few examples
+## Prefix Matching (>=0.14)
 
+On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
+
+```
+hel* world
+```
+
+Will be expanded to cover `(hello|help|helm|...) world`. 
+
+
+
+### A few notes on prefix searches:
+
+1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.
+
+2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
+
+  * Prefixes are limited to 3 letters or more. 
+
+  * Expansion is limited to 200 terms or less. 
+
+3. Prefix matching fully supports unicode and is case insensitive.
+
+4. Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. 
+
+
+
+## A Few Query Examples
 
 * Simple phrase query - hello AND world
 
@@ -77,6 +105,14 @@ This will search for documents that have "hello world" either in the body or the
 * Combined AND, OR with field specifiers:
 
         @title:hello world @body:(foo bar) @category:(articles|biographies)
+
+* Prefix Queries:
+
+        hello worl*
+
+        hel* worl*
+
+        hello -worl*
 
 
 ### Technical Note

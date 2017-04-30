@@ -30,6 +30,8 @@ traditional redis search approaches.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
 * Complex boolean queries with AND, OR, NOT operators between sub-queries.
+* Optional query clauses.
+* Prefix based searches.
 * Field weights.
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search, Slop based search.

@@ -46,6 +46,8 @@ int testQueryParser() {
 
   // test some valid queries
   assertValidQuery("hello");
+
+  assertValidQuery("hello wor*");
   assertValidQuery("hello world");
   assertValidQuery("hello (world)");
   assertValidQuery("\"hello world\"");
@@ -72,7 +74,7 @@ int testQueryParser() {
   assertInvalidQuery("()");
 
   char *err = NULL;
-  char *qt = "(hello|world) and \"another world\" (foo is bar) -baz ";
+  char *qt = "(hello|world) and \"another world\" (foo is bar) -baz boo*";
   RedisSearchCtx ctx;
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0,
                       NULL, (RSPayload){});
@@ -85,7 +87,7 @@ int testQueryParser() {
   ASSERT(n != NULL);
   ASSERT(n->type == QN_PHRASE);
   ASSERT(n->pn.exact == 0);
-  ASSERT(n->pn.numChildren == 4);
+  ASSERT(n->pn.numChildren == 5);
   ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
@@ -104,6 +106,9 @@ int testQueryParser() {
   ASSERT(n->pn.children[3]->type == QN_NOT);
   ASSERT_EQUAL(QN_TOKEN, n->pn.children[3]->not.child->type);
   ASSERT_STRING_EQ("baz", n->pn.children[3]->not.child->tn.str);
+  
+  ASSERT_EQUAL(QN_PREFX, n->pn.children[4]->type);
+  ASSERT_STRING_EQ("boo", n->pn.children[4]->pfx.str);
   Query_Free(q);
 
   return 0;
