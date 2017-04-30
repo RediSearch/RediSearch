@@ -285,8 +285,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-few-examples" title="A few examples" class="md-nav__link">
-    A few examples
+  <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
+    Prefix Matching (&gt;=0.14)
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+    A few notes on prefix searches:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+    A Few Query Examples
   </a>
   
     <nav class="md-nav">
@@ -399,8 +419,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-few-examples" title="A few examples" class="md-nav__link">
-    A few examples
+  <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
+    Prefix Matching (&gt;=0.14)
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+    A few notes on prefix searches:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+    A Few Query Examples
   </a>
   
     <nav class="md-nav">
@@ -440,7 +480,9 @@
 <li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
 <li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
 <li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>.</li>
+<li>Prefix matches (all terms starting with a prefix) are expressed with a <code>*</code> following a 3-letter or longer prefix.</li>
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
+<li>Optional terms or clauses: <code>foo ~bar</code> means bar is optional but documents with bar in them will rank higher. </li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
@@ -460,7 +502,35 @@
 
 
 <p>This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.</p>
-<h2 id="a-few-examples">A few examples<a class="headerlink" href="#a-few-examples" title="Permanent link">&para;</a></h2>
+<h2 id="prefix-matching-014">Prefix Matching (&gt;=0.14)<a class="headerlink" href="#prefix-matching-014" title="Permanent link">&para;</a></h2>
+<p>On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending <code>*</code> to a prefix token. For example:</p>
+<div class="codehilite"><pre><span></span>hel* world
+</pre></div>
+
+
+<p>Will be expanded to cover <code>(hello|help|helm|...) world</code>. </p>
+<h3 id="a-few-notes-on-prefix-searches">A few notes on prefix searches:<a class="headerlink" href="#a-few-notes-on-prefix-searches" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.</p>
+</li>
+<li>
+<p>As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:</p>
+</li>
+<li>
+<p>Prefixes are limited to 3 letters or more. </p>
+</li>
+<li>
+<p>Expansion is limited to 200 terms or less. </p>
+</li>
+<li>
+<p>Prefix matching fully supports unicode and is case insensitive.</p>
+</li>
+<li>
+<p>Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. </p>
+</li>
+</ol>
+<h2 id="a-few-query-examples">A Few Query Examples<a class="headerlink" href="#a-few-query-examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
 <p>Simple phrase query - hello AND world</p>
@@ -512,6 +582,13 @@
 
 </li>
 <li>
+<p>Optional terms with higher priority to ones containing more matches:</p>
+<div class="codehilite"><pre><span></span>obama ~barack ~michelle
+</pre></div>
+
+
+</li>
+<li>
 <p>Exact phrase in one field, one word in aonther field:</p>
 <div class="codehilite"><pre><span></span>@title:&quot;barack obama&quot; @job:president
 </pre></div>
@@ -521,6 +598,17 @@
 <li>
 <p>Combined AND, OR with field specifiers:</p>
 <div class="codehilite"><pre><span></span>@title:hello world @body:(foo bar) @category:(articles|biographies)
+</pre></div>
+
+
+</li>
+<li>
+<p>Prefix Queries:</p>
+<div class="codehilite"><pre><span></span>hello worl*
+
+hel* worl*
+
+hello -worl*
 </pre></div>
 
 
