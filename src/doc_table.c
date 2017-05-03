@@ -212,7 +212,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->cap = sz;
     t->docs = rm_realloc(t->docs, t->cap * sizeof(RSDocumentMetadata));
   }
-  t->size = t->cap;
+  t->size = sz;
   for (size_t i = 1; i < sz; i++) {
     size_t len;
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);

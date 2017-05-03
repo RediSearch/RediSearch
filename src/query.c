@@ -640,7 +640,8 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
   const Query *q = udata;
   const heapResult *h1 = e1, *h2 = e2;
   if (!h1->sv || !h2->sv) {
-    return 0;
+    printf("No sorting vectors, sorry!\n");
+    return h1->docId - h2->docId;
   }
   return RSSortingVector_Cmp(h1->sv, h2->sv, q->sortIndex);
 }
@@ -705,7 +706,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    if (query->sortIndex) {
+    if (query->sortIndex >= 0) {
       h->sv = dmd->sortVector;
       h->score = 0;
     } else {

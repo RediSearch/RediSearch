@@ -33,6 +33,12 @@ typedef struct {
   const char *fields[];
 } RSSortingTable;
 
+typedef struct {
+  int index : 8;
+  const char *field;
+  int ascending;
+} RSSortingKey;
+
 RSSortingTable *NewSortingTable(int len);
 void SortingTable_Free(RSSortingTable *t);
 void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name);

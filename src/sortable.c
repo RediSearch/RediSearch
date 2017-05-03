@@ -28,16 +28,26 @@ int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, int idx) 
   RSSortableValue v1 = self->values[idx];
   RSSortableValue v2 = other->values[idx];
   if (v2.type == RS_SORTABLE_NIL) {
+    printf("v2 is nil\n");
     return v1.type == RS_SORTABLE_NIL ? 0 : 1;
   }
 
   assert(v1.type == v2.type || v1.type == RS_SORTABLE_NIL);
   switch (v1.type) {
-    case RS_SORTABLE_NUM:
-      return v1.num > v2.num ? 1 : (v2.num > v1.num ? -1 : 0);
-    case RS_SORTABLE_STR:
-      return -1 * strcmp(v1.str, v2.str);
+    case RS_SORTABLE_NUM: {
+      int rc = v1.num < v2.num ? 1 : (v2.num < v1.num ? -1 : 0);
+      printf("v1: %f, v2: %f, rc: %d\n", v1.num, v2.num, rc);
+      return rc;
+    }
+    case RS_SORTABLE_STR: {
+      int rc = -1 * strcmp(v1.str, v2.str);
+      printf("v1: %s, v2: %s, rc: %d\n", v1.str, v2.str, rc);
+      return rc;
+    }
+
     case RS_SORTABLE_NIL:
+      printf("v1 is nul, returning -1\n");
+
       // we've already checked that v2 is not nil so v1 must be smaller than it
       return -1;
   }
