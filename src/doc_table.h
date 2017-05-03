@@ -5,6 +5,7 @@
 #include "redismodule.h"
 #include "dep/triemap/triemap.h"
 #include "redisearch.h"
+#include "sortable.h"
 
 /* Map between external id an incremental id */
 typedef struct { TrieMap *tm; } DocIdMap;
@@ -62,6 +63,10 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
 int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
+
+/* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
+ * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
+int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
 
 /* Get the payload for a document, if any was set. If no payload has been set or the document id is
  * not found, we return NULL */

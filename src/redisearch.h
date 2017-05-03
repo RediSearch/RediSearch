@@ -27,7 +27,8 @@ typedef struct {
 typedef enum {
   Document_DefaultFlags = 0x00,
   Document_Deleted = 0x01,
-  Document_HasPayload = 0x02
+  Document_HasPayload = 0x02,
+  Document_HasSortVector = 0x04,
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
@@ -60,7 +61,7 @@ typedef struct {
   RSPayload *payload;
 
   struct RSSortingVector *sortVector;
-  
+
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */

@@ -80,7 +80,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
       case F_FULLTEXT:
         if (sv && fs->sortable) {
           printf("Putting value %s in sorting vector at %d\n", c, fs->sortIdx);
-          RSSortingVector_Put(sv, fs->sortIdx, rm_strdup(c), RS_SORTABLE_STR);
+          RSSortingVector_Put(sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
         }
 
         totalTokens =
@@ -131,7 +131,9 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
   md->maxFreq = idx->maxFreq;
-  md->sortVector = sv;
+  if (sv) {
+    DocTable_SetSortingVector(&ctx->spec->docs, doc.docId, sv);
+  }
 
   // printf("totaltokens :%d\n", totalTokens);
   if (totalTokens > 0) {
@@ -419,17 +421,25 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int n = 0, _ = 0;
+  int n = 0;
 
   __reply_kvstr(n, "index_name", sp->name);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    __reply_kvstr(_, "type", SpecTypeNames[sp->fields[i].type]);
-    __reply_kvnum(_, "weight", sp->fields[i].weight);
+    int nn = 1;
+    __reply_kvstr(nn, "type", SpecTypeNames[sp->fields[i].type]);
+    if (sp->fields[i].type == F_FULLTEXT) {
+      __reply_kvnum(nn, "weight", sp->fields[i].weight);
+    }
+    if (sp->fields[i].sortable) {
+      RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
+      ++nn;
+    }
+    RedisModule_ReplySetArrayLength(ctx, nn);
   }
   n += 2;
 

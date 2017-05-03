@@ -1,6 +1,6 @@
 #ifndef __RS_SORTABLE_H__
 #define __RS_SORTABLE_H__
-
+#include "redismodule.h"
 #pragma pack(1)
 
 #define RS_SORTABLE_NUM 1
@@ -34,7 +34,7 @@ typedef struct {
 } RSSortingTable;
 
 RSSortingTable *NewSortingTable(int len);
-
+void SortingTable_Free(RSSortingTable *t);
 void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name);
 
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
@@ -44,6 +44,9 @@ int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, int idx);
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
 
 RSSortingVector *NewSortingVector(int len);
+void SortingVector_Free(RSSortingVector *v);
+void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
+RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
 
 #pragma pack()
 

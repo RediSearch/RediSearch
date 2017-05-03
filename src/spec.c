@@ -83,7 +83,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
-  sp->sortIdx = 0;
+  sp->sortIdx = -1;
   sp->sortable = 0;
   // the field name comes here
   sp->name = rm_strdup(argv[*offset]);
@@ -138,6 +138,15 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   return 1;
 }
 
+void _spec_buildSortingTable(IndexSpec *spec, int len) {
+  spec->sortables = NewSortingTable(len);
+  for (int i = 0; i < spec->numFields; i++) {
+    if (spec->fields[i].sortable) {
+      printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
+      SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
+    }
+  }
+}
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -190,13 +199,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
   /* If we have sortable fields, create a sorting lookup table */
   if (sortIdx > 0) {
-    spec->sortables = NewSortingTable(sortIdx);
-    for (int i = 0; i < spec->numFields; i++) {
-      if (spec->fields[i].sortable) {
-        printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
-        SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
-      }
-    }
+    _spec_buildSortingTable(spec, sortIdx);
   }
 
   return spec;
@@ -225,7 +228,9 @@ void IndexSpec_Free(void *ctx) {
     rm_free(spec->fields);
   }
   rm_free(spec->name);
-
+  if (spec->sortables) {
+    rm_free(spec->sortables);
+  }
   rm_free(spec);
 }
 
@@ -281,14 +286,20 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveUnsigned(rdb, f->id);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveDouble(rdb, f->weight);
+  RedisModule_SaveUnsigned(rdb, f->sortable);
+  RedisModule_SaveSigned(rdb, f->sortIdx);
 }
 
-void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f) {
+void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
   f->id = RedisModule_LoadUnsigned(rdb);
   f->type = RedisModule_LoadUnsigned(rdb);
   f->weight = RedisModule_LoadDouble(rdb);
+  if (encver >= 4) {
+    f->sortable = RedisModule_LoadUnsigned(rdb);
+    f->sortIdx = RedisModule_LoadSigned(rdb);
+  }
 }
 
 void __indexStats_rdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
@@ -330,8 +341,18 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
-    __fieldSpec_rdbLoad(rdb, &sp->fields[i]);
+
+    __fieldSpec_rdbLoad(rdb, &sp->fields[i], encver);
+    /* keep track of sorting indexes to rebuild the table */
+    if (sp->fields[i].sortIdx > maxSortIdx) {
+      maxSortIdx = sp->fields[i].sortIdx;
+    }
+  }
+  /* if we have sortable fields - rebuild the sorting table */
+  if (maxSortIdx >= 0) {
+    _spec_buildSortingTable(sp, maxSortIdx + 1);
   }
 
   __indexStats_rdbLoad(rdb, &sp->stats);
@@ -413,6 +434,9 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
       default:
 
         break;
+    }
+    if (sp->fields[i].sortable) {
+      __vpushStr(args, ctx, SPEC_SORTABLE_STR);
     }
   }
 
