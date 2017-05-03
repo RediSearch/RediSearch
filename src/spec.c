@@ -29,6 +29,11 @@ uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   return sp->id;
 }
 
+int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
+  if (!sp->sortables) return -1;
+  return RSSortingTable_GetFieldIdx(sp->sortables, name);
+}
+
 char *GetFieldNameByBit(IndexSpec *sp, uint32_t id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (sp->fields[i].id == id) {
@@ -78,7 +83,8 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
-
+  sp->sortIdx = 0;
+  sp->sortable = 0;
   // the field name comes here
   sp->name = rm_strdup(argv[*offset]);
 
@@ -121,6 +127,14 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     return 0;
   }
 
+  if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
+    // cannot sort by geo fields
+    if (sp->type == F_GEO) {
+      return 0;
+    }
+    sp->sortable = 1;
+    ++*offset;
+  }
   return 1;
 }
 
@@ -150,6 +164,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   }
 
   t_fieldMask id = 1;
+  int sortIdx = 0;
 
   int i = schemaOffset + 1;
   while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
@@ -163,8 +178,27 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       spec->fields[spec->numFields].id = id;
       id *= 2;
     }
+    if (spec->fields[spec->numFields].sortable) {
+      spec->fields[spec->numFields].sortIdx = sortIdx++;
+    }
     spec->numFields++;
+    if (sortIdx > 255) {
+      *err = "Too many sortable fields";
+      goto failure;
+    }
   }
+
+  /* If we have sortable fields, create a sorting lookup table */
+  if (sortIdx > 0) {
+    spec->sortables = NewSortingTable(sortIdx);
+    for (int i = 0; i < spec->numFields; i++) {
+      if (spec->fields[i].sortable) {
+        printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
+        SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
+      }
+    }
+  }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -174,7 +208,7 @@ failure:  // on failure free the spec fields array and return an error
 }
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  return Trie_InsertStringBuffer(sp->terms, term, len, 1, 1);
+  return Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1);
 }
 
 void IndexSpec_Free(void *ctx) {
@@ -237,6 +271,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(1000);
   sp->terms = NewTrie();
+  sp->sortables = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }

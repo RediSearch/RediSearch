@@ -1,6 +1,6 @@
 #include "../query.h"
 #include "../query_parser/tokenizer.h"
-#include "stopwords.h"
+#include "../stopwords.h"
 #include "test_util.h"
 #include "time_sample.h"
 #include "../extension.h"

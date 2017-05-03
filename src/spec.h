@@ -1,13 +1,14 @@
 #ifndef __SPEC_H__
 #define __SPEC_H__
-#include "redismodule.h"
-#include "doc_table.h"
-#include "trie/trie_type.h"
-
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
+#include "redismodule.h"
+#include "doc_table.h"
+#include "trie/trie_type.h"
+#include "sortable.h"
+
+typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -18,9 +19,11 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO } FieldType;
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
+#define SPEC_TAG_STR "TAG"
+#define SPEC_SORTABLE_STR "SORTABLE"
 
 static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
-                                      [F_GEO] = GEO_STR};
+                                      [F_GEO] = GEO_STR, [F_TAG] = SPEC_TAG_STR};
 #define INDEX_SPEC_KEY_FMT "idx:%s"
 
 #define SPEC_MAX_FIELDS 32
@@ -34,6 +37,9 @@ typedef struct fieldSpec {
   FieldType type;
   double weight;
   t_fieldMask id;
+
+  int sortable;
+  int sortIdx;
 
   // TODO: const char **separators;
   // size_t numSeparators;
@@ -72,6 +78,8 @@ typedef struct {
 
   Trie *terms;
 
+  RSSortingTable *sortables;
+
   DocTable docs;
 } IndexSpec;
 
@@ -87,6 +95,10 @@ char *GetFieldNameByBit(IndexSpec *sp, uint32_t id);
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
+
+/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
+ * not sortable */
+int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
