@@ -11,6 +11,10 @@ RSSortingVector *NewSortingVector(int len) {
   }
   RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSSortableValue)));
   ret->len = len;
+  // set all values to NIL
+  for (int i = 0; i < len; i++) {
+    ret->values[i].type = RS_SORTABLE_NIL;
+  }
   return ret;
 }
 
@@ -64,7 +68,7 @@ RSSortingTable *NewSortingTable(int len) {
 }
 
 void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
-  if (idx < tbl->len) {
+  if (idx >= tbl->len) {
     return;
   }
   tbl->fields[idx] = name;

@@ -202,7 +202,7 @@ DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   ret.a = a;
   ret.prefixMode = prefixMode;
   Vector_Push(ret.stack, dr);
-  Vector_Push(ret.distStack, maxDist + 1);
+  Vector_Push(ret.distStack, (maxDist + 1));
 
   return ret;
 }

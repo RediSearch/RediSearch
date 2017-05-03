@@ -23,7 +23,7 @@ typedef struct {
   int type : 8;
 } RSSortableValue;
 
-typedef struct {
+typedef struct RSSortingVector {
   unsigned int len : 8;
   RSSortableValue values[];
 } RSSortingVector;

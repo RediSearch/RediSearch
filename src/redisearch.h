@@ -8,6 +8,8 @@ typedef uint32_t t_docId;
 typedef uint32_t t_offset;
 typedef uint32_t t_fieldMask;
 
+struct RSSortingVector;
+
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
@@ -56,6 +58,9 @@ typedef struct {
 
   /* Optional user payload */
   RSPayload *payload;
+
+  struct RSSortingVector *sortVector;
+  
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */

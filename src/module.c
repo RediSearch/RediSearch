@@ -54,6 +54,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
   }
 
   ForwardIndex *idx = NewForwardIndex(doc);
+  RSSortingVector *sv = NULL;
+  if (ctx->spec->sortables) {
+    sv = NewSortingVector(ctx->spec->sortables->len);
+  }
 
   int totalTokens = 0;
 
@@ -74,6 +78,11 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     switch (fs->type) {
       case F_FULLTEXT:
+        if (sv && fs->sortable) {
+          printf("Putting value %s in sorting vector at %d\n", c, fs->sortIdx);
+          RSSortingVector_Put(sv, fs->sortIdx, rm_strdup(c), RS_SORTABLE_STR);
+        }
+
         totalTokens =
             tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens);
         break;
@@ -88,35 +97,41 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
         NumericRangeTree_Add(rt, doc.docId, score);
 
-        break;
-        case F_GEO: {
-
-          char *pos = strpbrk(c, " ,");
-          if (!pos) {
-            *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
-            goto error;
-          }
-          *pos = '\0';
-          pos++;
-          char *slon = (char *)c, *slat = (char *)pos;
-
-          GeoIndex gi = {.ctx = ctx, .sp = fs};
-          if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
-            *errorString = "Could not index geo value";
-            goto error;
-          }
+        // If this is a sortable numeric value - copy the value to the sorting vector
+        if (sv && fs->sortable) {
+          printf("Putting value %f in sorting vector at %d\n", score, fs->sortIdx);
+          RSSortingVector_Put(sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
         }
-
         break;
-
-        default:
-          break;
       }
+      case F_GEO: {
+
+        char *pos = strpbrk(c, " ,");
+        if (!pos) {
+          *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+          goto error;
+        }
+        *pos = '\0';
+        pos++;
+        char *slon = (char *)c, *slat = (char *)pos;
+
+        GeoIndex gi = {.ctx = ctx, .sp = fs};
+        if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
+          *errorString = "Could not index geo value";
+          goto error;
+        }
+      }
+
+      break;
+
+      default:
+        break;
     }
   }
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
   md->maxFreq = idx->maxFreq;
+  md->sortVector = sv;
 
   // printf("totaltokens :%d\n", totalTokens);
   if (totalTokens > 0) {
@@ -788,6 +803,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  // Parse SORTBY argument
+  const char *sortBy = NULL;
+  RMUtil_ParseArgsAfter("SORTBY", &argv[3], argc - 3, "c", &sortBy);
+
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // parse the id filter arguments
@@ -805,9 +824,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q =
-      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-               nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer, payload);
+  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer,
+                      payload, sortBy);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
