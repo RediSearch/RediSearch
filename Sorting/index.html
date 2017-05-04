@@ -7,7 +7,7 @@
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
-        <link rel="canonical" href="http://redisearch.io/Quick_Start/">
+        <link rel="canonical" href="http://redisearch.io/Sorting/">
       
       
       
@@ -17,7 +17,7 @@
     
     
       
-        <title>Quick Start - RediSearch Documentation</title>
+        <title>Sortable Values - RediSearch Documentation</title>
       
     
     
@@ -78,7 +78,7 @@
             
               
             
-            Quick Start
+            Sortable Values
           
         </span>
       </div>
@@ -227,80 +227,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Quick Start
-      </label>
-    
-    <a href="./" title="Quick Start" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#building-and-running" title="Building and running:" class="md-nav__link">
-    Building and running:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Creating an index with fields and weights (default weight is 1.0):" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0):
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-documents-to-the-index" title="Adding documents to the index:" class="md-nav__link">
-    Adding documents to the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#searching-the-index" title="Searching the index:" class="md-nav__link">
-    Searching the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping-the-index" title="Dropping the index:" class="md-nav__link">
-    Dropping the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-and-getting-auto-complete-suggestions" title="Adding and getting Auto-complete suggestions:" class="md-nav__link">
-    Adding and getting Auto-complete suggestions:
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -332,11 +263,72 @@
       
       
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Sorting/" title="Sortable Values" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Sortable Values
+      </label>
+    
+    <a href="./" title="Sortable Values" class="md-nav__link md-nav__link--active">
       Sortable Values
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#declaring-sortable-fields" title="Declaring Sortable Fields" class="md-nav__link">
+    Declaring Sortable Fields
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#note-on-sortable-text-fields" title="Note on sortable TEXT fields" class="md-nav__link">
+    Note on sortable TEXT fields
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#specifying-sortby" title="Specifying SORTBY" class="md-nav__link">
+    Specifying SORTBY
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-example" title="Quick Example" class="md-nav__link">
+    Quick Example
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
     
@@ -421,43 +413,35 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#building-and-running" title="Building and running:" class="md-nav__link">
-    Building and running:
+  <a href="#declaring-sortable-fields" title="Declaring Sortable Fields" class="md-nav__link">
+    Declaring Sortable Fields
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#note-on-sortable-text-fields" title="Note on sortable TEXT fields" class="md-nav__link">
+    Note on sortable TEXT fields
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#specifying-sortby" title="Specifying SORTBY" class="md-nav__link">
+    Specifying SORTBY
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Creating an index with fields and weights (default weight is 1.0):" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0):
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-documents-to-the-index" title="Adding documents to the index:" class="md-nav__link">
-    Adding documents to the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#searching-the-index" title="Searching the index:" class="md-nav__link">
-    Searching the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping-the-index" title="Dropping the index:" class="md-nav__link">
-    Dropping the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-and-getting-auto-complete-suggestions" title="Adding and getting Auto-complete suggestions:" class="md-nav__link">
-    Adding and getting Auto-complete suggestions:
+  <a href="#quick-example" title="Quick Example" class="md-nav__link">
+    Quick Example
   </a>
   
 </li>
@@ -473,61 +457,54 @@
           <div class="md-content">
             <article class="md-content__inner md-typeset">
                
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Sorting.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
                
               
                 
-                <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:<a class="headerlink" href="#quick-start-guide-for-redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="building-and-running">Building and running:<a class="headerlink" href="#building-and-running" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
-<span class="nb">cd</span> RediSearch/src
-make all
-
-<span class="c1"># Assuming you have a redis build from the unstable branch:</span>
-/path/to/redis-server --loadmodule ./module.so
+                <h1 id="sorting-by-indexed-fields">Sorting By Indexed Fields<a class="headerlink" href="#sorting-by-indexed-fields" title="Permanent link">&para;</a></h1>
+<p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name. </p>
+<h2 id="declaring-sortable-fields">Declaring Sortable Fields<a class="headerlink" href="#declaring-sortable-fields" title="Permanent link">&para;</a></h2>
+<p>When creating the index with FT.CREATE, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the followig schema:</p>
+<div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
 </pre></div>
 
 
-<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):<a class="headerlink" href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
-OK 
+<p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age. </p>
+<h3 id="note-on-sortable-text-fields">Note on sortable TEXT fields<a class="headerlink" href="#note-on-sortable-text-fields" title="Permanent link">&para;</a></h3>
+<p>In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.</p>
+<p>Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behavior. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
+<h2 id="specifying-sortby">Specifying SORTBY<a class="headerlink" href="#specifying-sortby" title="Permanent link">&para;</a></h2>
+<p>If an index includes sortable fields, you can add the <code>SORTBY</code> parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If <code>WITHSCORES</code> is specified along with <code>SORTBY</code>, the scores returned are simply the relative position of each result in the result set.</p>
+<p>The syntax for SORTBY is:</p>
+<div class="codehilite"><pre><span></span>SORTBY {field_name} [ASC|DESC]
 </pre></div>
 
 
-<h2 id="adding-documents-to-the-index">Adding documents to the index:<a class="headerlink" href="#adding-documents-to-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
-OK
-</pre></div>
+<ul>
+<li>
+<p>field_name must be a sortabl field defined in the schema.</p>
+</li>
+<li>
+<p>ASC means the order will be ascending, DESC that it will be descending.</p>
+</li>
+<li>
+<p>The default ordering is ASC if not specified otherwise.</p>
+</li>
+</ul>
+<h2 id="quick-example">Quick Example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
+<div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
 
+# Add some users
+&gt; FT.ADD users user1 1.0 FIELDS first_name &quot;alice&quot; last_name &quot;jones&quot; age 35
+&gt; FT.ADD users user2 1.0 FIELDS first_name &quot;bob&quot; last_name &quot;jones&quot; age 36
 
-<h2 id="searching-the-index">Searching the index:<a class="headerlink" href="#searching-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
-1) (integer) 1
-2) &quot;doc1&quot;
-3) 1) &quot;title&quot;
-   2) &quot;hello world&quot;
-   3) &quot;body&quot;
-   4) &quot;lorem ipsum&quot;
-   5) &quot;url&quot;
-   6) &quot;http://redis.io&quot;
-</pre></div>
+# Searching while sorting
 
+# Searching by last name and sorting by first name
+&gt; FT.SEARCH users &quot;@last_name:jones&quot; SORTBY first_name DESC
 
-<blockquote>
-<p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
-</blockquote>
-<h2 id="dropping-the-index">Dropping the index:<a class="headerlink" href="#dropping-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.DROP myIdx
-OK
-</pre></div>
-
-
-<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:<a class="headerlink" href="#adding-and-getting-auto-complete-suggestions" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
-OK
-
-127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
-1) &quot;hello world&quot;
+# Searching by both first and last name, and sorting by age
+&gt; FT.SEARCH users &quot;alice jones&quot; SORTBY age ASC
 </pre></div>
               
               
@@ -542,7 +519,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href=".." title="RediSearch" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Query_Syntax/" title="Query Syntax" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -551,19 +528,19 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                RediSearch
+                Query Syntax
               </span>
             </div>
           </a>
         
         
-          <a href="../Commands/" title="Commands" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Commands
+                Extension API
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
