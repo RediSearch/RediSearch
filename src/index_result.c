@@ -116,8 +116,10 @@ RSQueryTerm *NewTerm(RSToken *tok) {
 }
 
 void Term_Free(RSQueryTerm *t) {
-  if (t->str) rm_free(t->str);
-  rm_free(t);
+  if (t) {
+    if (t->str) rm_free(t->str);
+    rm_free(t);
+  }
 }
 
 void IndexResult_Init(RSIndexResult *h) {

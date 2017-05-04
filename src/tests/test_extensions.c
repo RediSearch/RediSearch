@@ -132,7 +132,7 @@ int testQueryExpander() {
   ASSERT_STRING_EQ("foo", n->pn.children[1]->un.children[1]->tn.str);
 
   RSQueryTerm *qtr = NewTerm(&n->pn.children[1]->un.children[1]->tn);
-  ASSERT(qtr->str == n->pn.children[1]->un.children[1]->tn.str);
+  ASSERT_STRING_EQ(qtr->str, n->pn.children[1]->un.children[1]->tn.str);
   ASSERT_EQUAL(0x00FF, qtr->flags);
 
   Term_Free(qtr);
