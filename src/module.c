@@ -814,9 +814,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Parse SORTBY argument
-  const char *sortBy = NULL;
-  RMUtil_ParseArgsAfter("SORTBY", &argv[3], argc - 3, "c", &sortBy);
-
+  RSSortingKey sortKey;
+  int hasSorting = RSSortingTable_ParseKey(sp->sortables, &sortKey, &argv[3], argc - 3);
+  
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // parse the id filter arguments
@@ -836,7 +836,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
                       nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer,
-                      payload, sortBy);
+                      payload, hasSorting ? &sortKey : NULL);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

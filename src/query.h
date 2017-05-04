@@ -54,10 +54,8 @@ typedef struct RSQuery {
   RSFreeFunction scorerFree;
   RSScoringFunctionCtx scorerCtx;
 
-  // If the query is sortable by embedded properties, we save the name of the sortable property and
-  // its index in the sorting vector
-  const char *sortBy;
-  int sortIndex;
+  // sorting key by specific inline field
+  RSSortingKey *sortKey;
 
   const char *language;
 
@@ -113,7 +111,7 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
                 const char *expander, int maxSlop, int inOrder, const char *scorer,
-                RSPayload payload, const char *sortBy);
+                RSPayload payload, RSSortingKey *sortKey);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

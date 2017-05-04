@@ -428,7 +428,7 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
                 const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
-                const char *sortBy) {
+                RSSortingKey *sk) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -442,7 +442,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->numTokens = 0;
   ret->stopwords = stopwords;
   ret->payload = payload;
-  ret->sortIndex = -1;
+  ret->sortKey = sk;
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
@@ -460,11 +460,6 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
 
     ret->scorer = scx->sf;
     ret->scorerFree = scx->ff;
-  }
-
-  if (NULL != (ret->sortBy = sortBy) && ctx->spec->sortables) {
-    ret->sortIndex = RSSortingTable_GetFieldIdx(ctx->spec->sortables, sortBy);
-    printf("Query sorting index %d\n", ret->sortIndex);
   }
 
   /* Get the query expander */
@@ -637,13 +632,13 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
 }
 
 static int sortByCmp(const void *e1, const void *e2, const void *udata) {
-  const Query *q = udata;
+  const RSSortingKey *sk = udata;
   const heapResult *h1 = e1, *h2 = e2;
   if (!h1->sv || !h2->sv) {
     printf("No sorting vectors, sorry!\n");
     return h1->docId - h2->docId;
   }
-  return RSSortingVector_Cmp(h1->sv, h2->sv, q->sortIndex);
+  return RSSortingVector_Cmp(h1->sv, h2->sv, sk);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -668,8 +663,8 @@ QueryResult *Query_Execute(Query *query) {
 
   int num = query->offset + query->limit;
   heap_t *pq = malloc(heap_sizeof(num));
-  if (query->sortIndex >= 0) {
-    heap_init(pq, sortByCmp, query, num);
+  if (query->sortKey) {
+    heap_init(pq, sortByCmp, query->sortKey, num);
   } else {
     heap_init(pq, cmpHits, NULL, num);
   }
@@ -706,7 +701,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    if (query->sortIndex >= 0) {
+    if (query->sortKey) {
       h->sv = dmd->sortVector;
       h->score = 0;
     } else {

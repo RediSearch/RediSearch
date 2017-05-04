@@ -1,10 +1,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
-
+#include "rmutil/util.h"
+#include "rmutil/strings.h"
 #include "rmalloc.h"
 #include "sortable.h"
 
+/* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len) {
   if (len > 255) {
     return NULL;
@@ -18,42 +20,36 @@ RSSortingVector *NewSortingVector(int len) {
   return ret;
 }
 
-void RSSortingVector_Free(RSSortingVector *tbl) {
-  rm_free(tbl);
-  // TODO: Free all values if needed
-}
+/* Internal compare function between members of the sorting vectors, sorted by sk */
+inline int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk) {
 
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, int idx) {
-
-  RSSortableValue v1 = self->values[idx];
-  RSSortableValue v2 = other->values[idx];
+  RSSortableValue v1 = self->values[sk->index];
+  RSSortableValue v2 = other->values[sk->index];
+  int rc = 0;
   if (v2.type == RS_SORTABLE_NIL) {
-    printf("v2 is nil\n");
-    return v1.type == RS_SORTABLE_NIL ? 0 : 1;
-  }
+    rc = v1.type == RS_SORTABLE_NIL ? 1 : 0;
+  } else {
 
-  assert(v1.type == v2.type || v1.type == RS_SORTABLE_NIL);
-  switch (v1.type) {
-    case RS_SORTABLE_NUM: {
-      int rc = v1.num < v2.num ? 1 : (v2.num < v1.num ? -1 : 0);
-      printf("v1: %f, v2: %f, rc: %d\n", v1.num, v2.num, rc);
-      return rc;
+    assert(v1.type == v2.type || v1.type == RS_SORTABLE_NIL);
+    switch (v1.type) {
+      case RS_SORTABLE_NUM: {
+        rc = v1.num < v2.num ? -1 : (v2.num < v1.num ? 1 : 0);
+        break;
+      }
+      case RS_SORTABLE_STR: {
+        rc = strcmp(v1.str, v2.str);
+        break;
+      }
+
+      case RS_SORTABLE_NIL:
+        rc = 1;
+        break;
     }
-    case RS_SORTABLE_STR: {
-      int rc = -1 * strcmp(v1.str, v2.str);
-      printf("v1: %s, v2: %s, rc: %d\n", v1.str, v2.str, rc);
-      return rc;
-    }
-
-    case RS_SORTABLE_NIL:
-      printf("v1 is nul, returning -1\n");
-
-      // we've already checked that v2 is not nil so v1 must be smaller than it
-      return -1;
   }
-  return 0;
+  return sk->ascending ? rc : -rc;
 }
 
+/* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
   if (idx < 255) {
     switch (type) {
@@ -71,6 +67,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
   }
 }
 
+/* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
   for (int i = 0; i < v->len; i++) {
     if (v->values[i].type == RS_SORTABLE_STR) {
@@ -79,6 +76,8 @@ void SortingVector_Free(RSSortingVector *v) {
   }
   rm_free(v);
 }
+
+/* Save a sorting vector to rdb. This is called from the doc table */
 void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
   RedisModule_SaveUnsigned(rdb, v->len);
   for (int i = 0; i < v->len; i++) {
@@ -101,6 +100,8 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
     }
   }
 }
+
+/* Load a sorting vector from RDB */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
@@ -132,6 +133,7 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
   return vec;
 }
 
+/* Create a new sortin table of a given length */
 RSSortingTable *NewSortingTable(int len) {
   RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(const char *));
   tbl->len = len;
@@ -142,6 +144,7 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
+/* Set a field in the table by index. This is called during the schema parsing */
 void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
   if (idx >= tbl->len) {
     return;
@@ -149,6 +152,7 @@ void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
   tbl->fields[idx] = name;
 }
 
+/* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
   for (int i = 0; i < tbl->len; i++) {
     if (!strcasecmp(tbl->fields[i], field)) {
@@ -156,4 +160,37 @@ int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
     }
   }
   return -1;
+}
+
+/* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
+ * default is ASC if not specified.  This function returns 1 if we found sorting args, they are
+ * valid and the field name exists */
+int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
+                            int argc) {
+  k->field = NULL;
+  k->index = -1;
+  k->ascending = 1;
+  int sortPos = RMUtil_ArgIndex("SORTBY", argv, argc);
+  if (sortPos >= 0 && sortPos + 1 < argc) {
+
+    // parse the sorting field
+    RMUtil_ParseArgs(argv, argc, sortPos + 1, "c", &k->field);
+
+    // if we've found a field...
+    if (k->field) {
+      // parse optional ASC/DESC
+      if (sortPos + 2 < argc) {
+
+        if (RMUtil_StringEqualsCaseC(argv[sortPos + 2], "ASC")) {
+          k->ascending = 1;
+        } else if (RMUtil_StringEqualsCaseC(argv[sortPos + 2], "DESC")) {
+          k->ascending = 0;
+        }
+      }
+      // Get the actual field index from the descriptor
+      k->index = RSSortingTable_GetFieldIdx(tbl, k->field);
+    }
+  }
+  // return 1 on successful parse, 0 if not found or no sorting key
+  return k->index == -1 ? 0 : 1;
 }
