@@ -5,6 +5,7 @@
 #include "redismodule.h"
 #include "util/fnv.h"
 #include "dep/triemap/triemap.h"
+#include "sortable.h"
 #include "rmalloc.h"
 
 /* Creates a new DocTable with a given capacity */
@@ -57,6 +58,30 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
 
   dmd->flags |= Document_HasPayload;
   t->memsize += len;
+  return 1;
+}
+
+/* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
+ * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
+int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
+  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  if (!dmd) {
+    return 0;
+  }
+
+  /* Null vector means remove the current vector if it exists */
+  if (!v) {
+    if (dmd->sortVector) {
+      SortingVector_Free(dmd->sortVector);
+    }
+    dmd->flags &= ~Document_HasSortVector;
+    return 1;
+  }
+
+  /* Set th new vector and the flags accordingly */
+  dmd->sortVector = v;
+  dmd->flags |= Document_HasSortVector;
+
   return 1;
 }
 
@@ -173,6 +198,10 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       // save an extra space for the null terminator to make the payload null terminated on load
       RedisModule_SaveStringBuffer(rdb, t->docs[i].payload->data, t->docs[i].payload->len + 1);
     }
+
+    if (t->docs[i].flags & Document_HasSortVector) {
+      SortingVector_RdbSave(rdb, t->docs[i].sortVector);
+    }
   }
 }
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
@@ -183,7 +212,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->cap = sz;
     t->docs = rm_realloc(t->docs, t->cap * sizeof(RSDocumentMetadata));
   }
-  t->size = t->cap;
+  t->size = sz;
   for (size_t i = 1; i < sz; i++) {
     size_t len;
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);
@@ -200,6 +229,9 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       t->docs[i].payload->data = RedisModule_LoadStringBuffer(rdb, &t->docs[i].payload->len);
       t->docs[i].payload->len--;
       t->memsize += t->docs[i].payload->len + sizeof(RSPayload);
+    }
+    if (t->docs[i].flags & Document_HasSortVector) {
+      t->docs[i].sortVector = SortingVector_RdbLoad(rdb, encver);
     }
 
     DocIdMap_Put(&t->dim, t->docs[i].key, i);
@@ -233,7 +265,7 @@ DocIdMap NewDocIdMap() {
 
 t_docId DocIdMap_Get(DocIdMap *m, const char *key) {
 
-  void *val = TrieMap_Find(m->tm, (unsigned char *)key, strlen(key));
+  void *val = TrieMap_Find(m->tm, (char *)key, strlen(key));
   if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
@@ -251,7 +283,7 @@ void DocIdMap_Put(DocIdMap *m, const char *key, t_docId docId) {
 
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(m->tm, (unsigned char *)key, strlen(key), pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, (char *)key, strlen(key), pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
@@ -259,5 +291,5 @@ void DocIdMap_Free(DocIdMap *m) {
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *key) {
-  return TrieMap_Delete(m->tm, (unsigned char *)key, strlen(key), RedisModule_Free);
+  return TrieMap_Delete(m->tm, (char *)key, strlen(key), RedisModule_Free);
 }

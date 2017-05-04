@@ -54,6 +54,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
   }
 
   ForwardIndex *idx = NewForwardIndex(doc);
+  RSSortingVector *sv = NULL;
+  if (ctx->spec->sortables) {
+    sv = NewSortingVector(ctx->spec->sortables->len);
+  }
 
   int totalTokens = 0;
 
@@ -74,6 +78,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     switch (fs->type) {
       case F_FULLTEXT:
+        if (sv && fs->sortable) {
+          RSSortingVector_Put(sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+        }
+
         totalTokens =
             tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens);
         break;
@@ -88,35 +96,42 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
         NumericRangeTree_Add(rt, doc.docId, score);
 
-        break;
-        case F_GEO: {
-
-          char *pos = strpbrk(c, " ,");
-          if (!pos) {
-            *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
-            goto error;
-          }
-          *pos = '\0';
-          pos++;
-          char *slon = (char *)c, *slat = (char *)pos;
-
-          GeoIndex gi = {.ctx = ctx, .sp = fs};
-          if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
-            *errorString = "Could not index geo value";
-            goto error;
-          }
+        // If this is a sortable numeric value - copy the value to the sorting vector
+        if (sv && fs->sortable) {
+          RSSortingVector_Put(sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
         }
-
         break;
-
-        default:
-          break;
       }
+      case F_GEO: {
+
+        char *pos = strpbrk(c, " ,");
+        if (!pos) {
+          *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+          goto error;
+        }
+        *pos = '\0';
+        pos++;
+        char *slon = (char *)c, *slat = (char *)pos;
+
+        GeoIndex gi = {.ctx = ctx, .sp = fs};
+        if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
+          *errorString = "Could not index geo value";
+          goto error;
+        }
+      }
+
+      break;
+
+      default:
+        break;
     }
   }
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
   md->maxFreq = idx->maxFreq;
+  if (sv) {
+    DocTable_SetSortingVector(&ctx->spec->docs, doc.docId, sv);
+  }
 
   // printf("totaltokens :%d\n", totalTokens);
   if (totalTokens > 0) {
@@ -404,17 +419,25 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int n = 0, _ = 0;
+  int n = 0;
 
   __reply_kvstr(n, "index_name", sp->name);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    __reply_kvstr(_, "type", SpecTypeNames[sp->fields[i].type]);
-    __reply_kvnum(_, "weight", sp->fields[i].weight);
+    int nn = 1;
+    __reply_kvstr(nn, "type", SpecTypeNames[sp->fields[i].type]);
+    if (sp->fields[i].type == F_FULLTEXT) {
+      __reply_kvnum(nn, "weight", sp->fields[i].weight);
+    }
+    if (sp->fields[i].sortable) {
+      RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
+      ++nn;
+    }
+    RedisModule_ReplySetArrayLength(ctx, nn);
   }
   n += 2;
 
@@ -788,6 +811,10 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  // Parse SORTBY argument
+  RSSortingKey sortKey;
+  int hasSorting = RSSortingTable_ParseKey(sp->sortables, &sortKey, &argv[3], argc - 3);
+  
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // parse the id filter arguments
@@ -805,9 +832,9 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q =
-      NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-               nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer, payload);
+  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
+                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer,
+                      payload, hasSorting ? &sortKey : NULL);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

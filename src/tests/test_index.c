@@ -366,8 +366,6 @@ int testIntersection() {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
-  printf("Intersecting...\n");
-
   int count = 0;
   IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
 
@@ -389,9 +387,10 @@ int testIntersection() {
 
   // int count = IR_Intersect(r1, r2, onIntersect, &ctx);
 
-  printf("%d intersections in %lldms, %.0fns per iteration\n", count, TimeSampler_DurationMS(&ts),
-         1000000 * TimeSampler_IterationMS(&ts));
-  printf("top freq: %f\n", topFreq);
+  // printf("%d intersections in %lldms, %.0fns per iteration\n", count,
+  // TimeSampler_DurationMS(&ts),
+  // 1000000 * TimeSampler_IterationMS(&ts));
+  // printf("top freq: %f\n", topFreq);
   ASSERT(count == 50000)
   ASSERT(topFreq == 100000.0);
 
@@ -495,8 +494,8 @@ int testTokenize() {
 int testIndexSpec() {
 
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
-  const char *args[] = {"SCHEMA", title, "text", "weight", "0.1", body,     "text",
-                        "weight", "2.0", foo,    "text",   bar,   "numeric"};
+  const char *args[] = {"SCHEMA", title, "text", "weight",   "0.1", body,      "text",    "weight",
+                        "2.0",    foo,   "text", "sortable", bar,   "numeric", "sortable"};
 
   char *err = NULL;
 
@@ -518,6 +517,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, body) == 0);
   ASSERT(f->weight == 2.0);
   ASSERT(f->id == 2);
+  ASSERT(f->sortable == 0);
+  ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, title, strlen(title));
   ASSERT(f != NULL);
@@ -525,6 +526,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, title) == 0);
   ASSERT(f->weight == 0.1);
   ASSERT(f->id == 1);
+  ASSERT(f->sortable == 0);
+  ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, foo, strlen(foo));
   ASSERT(f != NULL);
@@ -532,6 +535,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, foo) == 0);
   ASSERT(f->weight == 1);
   ASSERT(f->id == 4);
+  ASSERT(f->sortable == 1);
+  ASSERT(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
   ASSERT(f != NULL);
@@ -539,8 +544,19 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, bar) == 0);
   ASSERT(f->weight == 0);
   ASSERT(f->id == 0);
-
+  ASSERT(f->sortable == 1);
+  ASSERT(f->sortIdx == 1);
   ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
+
+  ASSERT(s->sortables != NULL);
+  ASSERT(s->sortables->len == 2);
+  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  ASSERT_EQUAL(0, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  ASSERT_EQUAL(1, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  ASSERT_EQUAL(-1, rc);
+
   IndexSpec_Free(s);
 
   const char *args2[] = {
@@ -625,7 +641,7 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL(5980, (int)dt.memsize);
+  ASSERT_EQUAL(6780, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -662,10 +678,73 @@ int testDocTable() {
   return 0;
 }
 
+int testSortable() {
+  RSSortingTable *tbl = NewSortingTable(3);
+  ASSERT_EQUAL(3, tbl->len);
+  SortingTable_SetFieldName(tbl, 0, "foo");
+  SortingTable_SetFieldName(tbl, 1, "bar");
+  SortingTable_SetFieldName(tbl, 2, "baz");
+  ASSERT_STRING_EQ("foo", tbl->fields[0]);
+  ASSERT_STRING_EQ("bar", tbl->fields[1]);
+  ASSERT_STRING_EQ("baz", tbl->fields[2]);
+  ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
+  ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
+
+  ASSERT_EQUAL(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
+  ASSERT_EQUAL(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+
+  RSSortingVector *v = NewSortingVector(tbl->len);
+  ASSERT_EQUAL(v->len, tbl->len);
+  char *str = "hello";
+  char *masse = "Maße";
+
+  double num = 3.141;
+  ASSERT_EQUAL(v->values[0].type, RS_SORTABLE_NIL);
+  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
+  ASSERT_EQUAL(v->values[0].type, RS_SORTABLE_STR);
+  ASSERT_EQUAL(v->values[1].type, RS_SORTABLE_NIL);
+  ASSERT_EQUAL(v->values[2].type, RS_SORTABLE_NIL);
+  RSSortingVector_Put(v, 1, &num, RS_SORTABLE_NUM);
+  ASSERT_EQUAL(v->values[1].type, RS_SORTABLE_NUM);
+
+  RSSortingVector *v2 = NewSortingVector(tbl->len);
+  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
+
+  /// test string unicode lowercase normalization
+  ASSERT_STRING_EQ("masse", v2->values[0].str);
+
+  double s2 = 4.444;
+  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
+
+  RSSortingKey sk = {.field = "foo", .index = 0, .ascending = 0};
+
+  int rc = RSSortingVector_Cmp(v, v2, &sk);
+  ASSERT(rc > 0);
+  sk.ascending = 1;
+  rc = RSSortingVector_Cmp(v, v2, &sk);
+  ASSERT(rc < 0);
+  rc = RSSortingVector_Cmp(v, v, &sk);
+  ASSERT_EQUAL(0, rc);
+
+  sk.index = 1;
+
+  rc = RSSortingVector_Cmp(v, v2, &sk);
+  ASSERT_EQUAL(-1, rc);
+  sk.ascending = 0;
+  rc = RSSortingVector_Cmp(v, v2, &sk);
+  ASSERT_EQUAL(1, rc);
+
+  SortingTable_Free(tbl);
+  SortingVector_Free(v);
+  SortingVector_Free(v2);
+  return 0;
+}
+
 TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
+
   TESTFUNC(testVarint);
   TESTFUNC(testDistance);
   TESTFUNC(testIndexReadWrite);
@@ -680,4 +759,5 @@ TEST_MAIN({
   TESTFUNC(testIndexSpec);
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
+  TESTFUNC(testSortable);
 });

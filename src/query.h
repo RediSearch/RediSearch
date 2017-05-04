@@ -54,6 +54,9 @@ typedef struct RSQuery {
   RSFreeFunction scorerFree;
   RSScoringFunctionCtx scorerCtx;
 
+  // sorting key by specific inline field
+  RSSortingKey *sortKey;
+
   const char *language;
 
   const char **stopwords;
@@ -108,7 +111,7 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
                 const char *expander, int maxSlop, int inOrder, const char *scorer,
-                RSPayload payload);
+                RSPayload payload, RSSortingKey *sortKey);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

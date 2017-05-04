@@ -427,8 +427,8 @@ QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
-                const char *expander, int slop, int inOrder, const char *scorer,
-                RSPayload payload) {
+                const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
+                RSSortingKey *sk) {
   Query *ret = calloc(1, sizeof(Query));
   ret->ctx = ctx;
   ret->len = len;
@@ -442,6 +442,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->numTokens = 0;
   ret->stopwords = stopwords;
   ret->payload = payload;
+  ret->sortKey = sk;
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
@@ -615,6 +616,7 @@ void Query_Free(Query *q) {
 typedef struct {
   t_docId docId;
   double score;
+  RSSortingVector *sv;
 } heapResult;
 
 /* Compare hits for sorting in the heap during traversal of the top N */
@@ -627,6 +629,15 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
     return -1;
   }
   return h1->docId - h2->docId;
+}
+
+static int sortByCmp(const void *e1, const void *e2, const void *udata) {
+  const RSSortingKey *sk = udata;
+  const heapResult *h1 = e1, *h2 = e2;
+  if (!h1->sv || !h2->sv) {
+    return h1->docId - h2->docId;
+  }
+  return RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
 QueryResult *Query_Execute(Query *query) {
@@ -651,7 +662,11 @@ QueryResult *Query_Execute(Query *query) {
 
   int num = query->offset + query->limit;
   heap_t *pq = malloc(heap_sizeof(num));
-  heap_init(pq, cmpHits, NULL, num);
+  if (query->sortKey) {
+    heap_init(pq, sortByCmp, query->sortKey, num);
+  } else {
+    heap_init(pq, cmpHits, NULL, num);
+  }
 
   heapResult *pooledHit = NULL;
   double minScore = 0;
@@ -685,7 +700,13 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
+    if (query->sortKey) {
+      h->sv = dmd->sortVector;
+      h->score = 0;
+    } else {
+      h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
+      h->sv = NULL;
+    }
     h->docId = r->docId;
 
     if (heap_count(pq) < heap_size(pq)) {
@@ -728,6 +749,10 @@ QueryResult *Query_Execute(Query *query) {
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
+      // For sort key based queries, the score is the inverse of the rank
+      if (query->sortKey) {
+        h->score = (double)i + 1;
+      }
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
     }
     free(h);

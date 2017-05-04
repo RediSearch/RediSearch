@@ -1,6 +1,6 @@
 #include "../query.h"
 #include "../query_parser/tokenizer.h"
-#include "stopwords.h"
+#include "../stopwords.h"
 #include "test_util.h"
 #include "time_sample.h"
 #include "../extension.h"
@@ -17,7 +17,7 @@ int isValidQuery(char *qt) {
 
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
-                      NULL, (RSPayload){});
+                      NULL, (RSPayload){}, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -77,7 +77,7 @@ int testQueryParser() {
   char *qt = "(hello|world) and \"another world\" (foo is bar) -baz boo*";
   RedisSearchCtx ctx;
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0,
-                      NULL, (RSPayload){});
+                      NULL, (RSPayload){}, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -106,7 +106,7 @@ int testQueryParser() {
   ASSERT(n->pn.children[3]->type == QN_NOT);
   ASSERT_EQUAL(QN_TOKEN, n->pn.children[3]->not.child->type);
   ASSERT_STRING_EQ("baz", n->pn.children[3]->not.child->tn.str);
-  
+
   ASSERT_EQUAL(QN_PREFX, n->pn.children[4]->type);
   ASSERT_STRING_EQ("boo", n->pn.children[4]->pfx.str);
   Query_Free(q);
@@ -123,7 +123,7 @@ int testFieldSpec() {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@title:hello world";
   Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
-                      NULL, (RSPayload){});
+                      NULL, (RSPayload){}, NULL);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -137,7 +137,7 @@ int testFieldSpec() {
 
   qt = "@title:hello @body:world";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
-               (RSPayload){});
+               (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -149,7 +149,7 @@ int testFieldSpec() {
 
   qt = "@title:(hello world) @body|title:(world apart) @adasdfsd:fofofof";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
-               (RSPayload){});
+               (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -168,7 +168,7 @@ void benchmarkQueryParser() {
   char *err = NULL;
 
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0,
-                      NULL, (RSPayload){});
+                      NULL, (RSPayload){}, NULL);
   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
 }
 

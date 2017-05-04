@@ -257,6 +257,29 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 res = r.execute_command('ft.search', 'idx', 'constant term9*', 'nocontent')
                 self.assertEqual([0], res)
 
+    def testSortBy(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text', 'sortable', 'bar', 'numeric', 'sortable'))
+            N = 100
+            for i in range(N):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'foo', 'hello%03d world' % i, 'bar', 100-i))
+            for _ in r.retry_with_rdb_reload():
+          
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc99', '1'], res)
+
+
 
     def testNot(self):
         with self.redis() as r:

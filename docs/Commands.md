@@ -6,7 +6,7 @@
 ```
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
-    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
 
 ### Description:
@@ -25,6 +25,8 @@ so keep it short!
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
+
+Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
 
 ### Complexity
 O(1)
@@ -225,6 +227,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [EXPANDER {expander}]
   [SCORER {scorer}]
   [PAYLOAD {payload}]
+  [SORTBY {field} [ASC|DESC]]
   [LIMIT offset num]
 ```
 
@@ -265,6 +268,7 @@ Search the index with a textual query, returning either documents or just ids.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. [See Extensions](/Extensions).
 - **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
+- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](/Sorting), the results are ordered by the value of this field. This applies to both text and numeric fields.
 
 ### Complexity
 
