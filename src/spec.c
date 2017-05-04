@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include "rmutil/vector.h"
 #include <math.h>
+#include <ctype.h>
 #include "rmalloc.h"
 
 RedisModuleType *IndexSpecType;
@@ -77,6 +78,14 @@ int __argExists(const char *arg, const char **argv, int argc, int maxIdx) {
   return idx >= 0 && idx < maxIdx;
 }
 
+char *strtolower(char *str) {
+  char *p = str;
+  while (*p) {
+    *p = tolower(*p);
+    p++;
+  }
+  return str;
+}
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
 *  Returns 1 on successful parse, 0 otherwise */
 int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
@@ -86,7 +95,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   sp->sortIdx = -1;
   sp->sortable = 0;
   // the field name comes here
-  sp->name = rm_strdup(argv[*offset]);
+  sp->name = strtolower(rm_strdup(argv[*offset]));
 
   // we can't be at the end
   if (++*offset == argc) return 0;
