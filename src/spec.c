@@ -142,7 +142,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
   spec->sortables = NewSortingTable(len);
   for (int i = 0; i < spec->numFields; i++) {
     if (spec->fields[i].sortable) {
-      printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
+      // printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
       SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
     }
   }
@@ -389,7 +389,6 @@ void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 #define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
-;
 
 void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
 

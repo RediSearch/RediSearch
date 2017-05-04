@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include "dep/libnu/libnu.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmalloc.h"
@@ -27,7 +28,7 @@ inline int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RS
   RSSortableValue v2 = other->values[sk->index];
   int rc = 0;
   if (v2.type == RS_SORTABLE_NIL) {
-    rc = v1.type == RS_SORTABLE_NIL ? 1 : 0;
+    rc = v1.type == RS_SORTABLE_NIL ? 0 : 1;
   } else {
 
     assert(v1.type == v2.type || v1.type == RS_SORTABLE_NIL);
@@ -42,23 +43,52 @@ inline int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RS
       }
 
       case RS_SORTABLE_NIL:
-        rc = 1;
+        rc = -1;
         break;
     }
   }
   return sk->ascending ? rc : -rc;
 }
 
+/* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
+ * allocated return string needs to be freed later */
+char *normalizeStr(const char *str) {
+
+  char *lower_buffer = rm_calloc(strlen(str) + 1, 1);
+  char *lower = lower_buffer;
+
+  const char *p = str;
+  size_t off = 0;
+  while (*p != 0) {
+    uint32_t in = 0;
+    p = nu_utf8_read(p, &in);
+    const char *lo = nu_tofold(in);
+
+    if (lo != 0) {
+      uint32_t u = 0;
+      do {
+        lo = nu_casemap_read(lo, &u);
+        if (u == 0) break;
+        lower = nu_utf8_write(u, lower);
+      } while (u != 0);
+    } else {
+      lower = nu_utf8_write(in, lower);
+    }
+  }
+
+  return lower_buffer;
+}
+
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
-  if (idx < 255) {
+  if (idx <= 255) {
     switch (type) {
       case RS_SORTABLE_NUM:
         tbl->values[idx].num = *(double *)p;
 
         break;
       case RS_SORTABLE_STR:
-        tbl->values[idx].str = rm_strdup((char *)p);
+        tbl->values[idx].str = normalizeStr((char *)p);
       case RS_SORTABLE_NIL:
       default:
         break;

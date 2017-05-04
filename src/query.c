@@ -635,10 +635,9 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
   const RSSortingKey *sk = udata;
   const heapResult *h1 = e1, *h2 = e2;
   if (!h1->sv || !h2->sv) {
-    printf("No sorting vectors, sorry!\n");
     return h1->docId - h2->docId;
   }
-  return RSSortingVector_Cmp(h1->sv, h2->sv, sk);
+  return RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
 QueryResult *Query_Execute(Query *query) {

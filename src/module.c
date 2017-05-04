@@ -79,7 +79,6 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     switch (fs->type) {
       case F_FULLTEXT:
         if (sv && fs->sortable) {
-          printf("Putting value %s in sorting vector at %d\n", c, fs->sortIdx);
           RSSortingVector_Put(sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
         }
 
@@ -99,7 +98,6 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
         // If this is a sortable numeric value - copy the value to the sorting vector
         if (sv && fs->sortable) {
-          printf("Putting value %f in sorting vector at %d\n", score, fs->sortIdx);
           RSSortingVector_Put(sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
         }
         break;

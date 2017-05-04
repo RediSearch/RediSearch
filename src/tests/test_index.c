@@ -696,6 +696,8 @@ int testSortable() {
   RSSortingVector *v = NewSortingVector(tbl->len);
   ASSERT_EQUAL(v->len, tbl->len);
   char *str = "hello";
+  char *masse = "Maße";
+
   double num = 3.141;
   ASSERT_EQUAL(v->values[0].type, RS_SORTABLE_NIL);
   RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
@@ -706,7 +708,11 @@ int testSortable() {
   ASSERT_EQUAL(v->values[1].type, RS_SORTABLE_NUM);
 
   RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, "jello", RS_SORTABLE_STR);
+  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
+
+  /// test string unicode lowercase normalization
+  ASSERT_STRING_EQ("masse", v2->values[0].str);
+
   double s2 = 4.444;
   RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
 
