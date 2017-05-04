@@ -6,7 +6,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.14 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.14)
+### Latest Release: [0.15 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.15)
 
 # Client Libraries
 
@@ -41,9 +41,10 @@ traditional redis search approaches.
 * Numeric filters and ranges.
 * Geographical search utlizing redis' own GEO commands.
 * Supports any utf-8 encoded text.
-* Retrieve full document content or just ids
+* Retrieve full document content or just ids.
 * Automatically index existing HASH keys as documents.
-* Document Deletion (Update can be done by deletion and then re-insertion)
+* Document Deletion (Update can be done by deletion and then re-insertion).
+* Sortable properties (i.e. sorting users by age or name).
 
 ### Not *yet* supported:
 
