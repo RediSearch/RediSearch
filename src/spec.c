@@ -238,7 +238,8 @@ void IndexSpec_Free(void *ctx) {
   }
   rm_free(spec->name);
   if (spec->sortables) {
-    rm_free(spec->sortables);
+    SortingTable_Free(spec->sortables);
+    spec->sortables = NULL;
   }
   rm_free(spec);
 }
@@ -344,7 +345,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->terms = NULL;
   sp->docs = NewDocTable(1000);
-
+  sp->sortables = NULL;
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
 

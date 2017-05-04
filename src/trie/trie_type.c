@@ -67,6 +67,7 @@ TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist)
   *fc = NewDFAFilter(runes, rlen, maxDist, 1);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
+  free(runes);
   return it;
 }
 

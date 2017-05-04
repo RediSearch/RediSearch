@@ -155,6 +155,11 @@ void dmd_free(RSDocumentMetadata *md) {
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
+  if (md->sortVector) {
+    SortingVector_Free(md->sortVector);
+    md->sortVector = NULL;
+    md->flags &= ~Document_HasSortVector;
+  }
   rm_free(md->key);
 }
 void DocTable_Free(DocTable *t) {

@@ -235,14 +235,14 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
   while (TrieIterator_Next(it, &rstr, &slen, &score, &dist) && itsSz < MAX_PREFIX_EXPANSIONS) {
 
     // Create a token for the reader
-    RSToken *tok = malloc(sizeof(*tok));
-    tok->expanded = 0;
-    tok->flags = 0;
-    tok->len = 0;
-    tok->str = runesToStr(rstr, slen, &tok->len);
+    RSToken tok = (RSToken){
+        .expanded = 0, .flags = 0, .len = 0,
+    };
+    tok.str = runesToStr(rstr, slen, &tok.len);
 
     // Open an index reader
-    IndexReader *ir = Redis_OpenReader(q->ctx, tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
+    IndexReader *ir = Redis_OpenReader(q->ctx, &tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
+    free(tok.str);
     if (!ir) continue;
 
     // Add the reader to the iterator array
