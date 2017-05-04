@@ -750,6 +750,10 @@ QueryResult *Query_Execute(Query *query) {
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
     if (dmd) {
+      // For sort key based queries, the score is the inverse of the rank
+      if (query->sortKey) {
+        h->score = (double)i + 1;
+      }
       res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
     }
     free(h);
