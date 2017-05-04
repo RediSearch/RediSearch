@@ -1410,7 +1410,7 @@
 <h3 id="format">Format:<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
-    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] ...
+    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 </pre></div>
 
 
@@ -1436,6 +1436,7 @@ so keep it short!</p>
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
 </li>
 </ul>
+<p>Numeric or text field can have the optional SORTABLE argument that allows the user to later <a href="../Sorting">sort the results by the value of this field</a> (this adds memory overhead so do not declare it on large text fields).</p>
 <h3 id="complexity">Complexity<a class="headerlink" href="#complexity" title="Permanent link">&para;</a></h3>
 <p>O(1)</p>
 <h3 id="returns">Returns:<a class="headerlink" href="#returns" title="Permanent link">&para;</a></h3>
@@ -1619,6 +1620,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
   [EXPANDER {expander}]
   [SCORER {scorer}]
   [PAYLOAD {payload}]
+  [SORTBY {field} [ASC|DESC]]
   [LIMIT offset num]
 </pre></div>
 
@@ -1658,6 +1660,7 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 <li><strong>PAYLOAD {payload}</strong>: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. <a href="../Extensions">See Extensions</a>.</li>
 <li><strong>WITHPAYLOADS</strong>: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if <code>WITHSCORES</code> was set, follow the scores.</li>
+<li><strong>SORTBY {field} [ASC|DESC]</strong>: If specified, and field is a <a href="../Sorting">sortable field</a>, the results are ordered by the value of this field. This applies to both text and numeric fields.</li>
 </ul>
 <h3 id="complexity_4">Complexity<a class="headerlink" href="#complexity_4" title="Permanent link">&para;</a></h3>
 <p>O(n) for single word queries (though for popular words we save a cache of the top 50 results).</p>
