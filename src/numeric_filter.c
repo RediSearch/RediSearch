@@ -31,7 +31,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
   }
 
   NumericFilter *nf = malloc(sizeof(NumericFilter));
-  nf->fieldName = f;
+  nf->fieldName = strndup(f, len);
   nf->inclusiveMax = 1;
   nf->inclusiveMin = 1;
   nf->min = 0;
@@ -99,6 +99,13 @@ error:
   return NULL;
 }
 
+void NumericFilter_Free(NumericFilter *nf) {
+  if (nf->fieldName) {
+    free((char *)nf->fieldName);
+  }
+  free(nf);
+}
+
 /* Parse multiple filters from an argument list. Returns a vector of filters parse, or NULL if no
  * filter could be parsed */
 Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
@@ -141,14 +148,13 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   return f;
 }
 
-
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
 of them with
 fulltext indexes.
 */
 inline int NumericFilter_Match(NumericFilter *f, double score) {
-  
+
   int rc = 0;
   // match min - -inf or x >/>= score
   int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);

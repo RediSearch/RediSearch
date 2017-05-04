@@ -57,7 +57,9 @@ void QueryNode_Free(QueryNode *n) {
       _queryUnionNode_Free(&n->un);
       break;
     case QN_NUMERIC:
-      free(n->nn.nf);
+
+      NumericFilter_Free(n->nn.nf);
+
       break;  //
     case QN_NOT:
       QueryNode_Free(n->not.child);
@@ -315,7 +317,7 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 
   FieldSpec *fs =
       IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
-  if (fs->type != F_NUMERIC) {
+  if (!fs || fs->type != F_NUMERIC) {
     return NULL;
   }
   NumericRangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
@@ -506,6 +508,10 @@ void Query_Expand(Query *q) {
 void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
+  }
+
+  if (qs->fieldMask == 0) {
+    printf("@NONE:");
   }
 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL) {

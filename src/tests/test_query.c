@@ -23,7 +23,14 @@ int isValidQuery(char *qt) {
 
   if (err) {
     Query_Free(q);
-    FAIL("Error parsing query '%s': %s", qt, err);
+    IndexSpec_Free(ctx.spec);
+    fprintf(stderr, "Error parsing query '%s': %s", qt, err);
+    free(err);
+    return 1;
+  }
+  if (!n) {
+    Query_Free(q);
+    IndexSpec_Free(ctx.spec);
   }
   ASSERT(n != NULL);
   __queryNode_Print(q, n, 0);
@@ -54,7 +61,7 @@ int testQueryParser() {
   assertValidQuery("\"hello world\" \"foo bar\"");
   assertValidQuery("hello \"foo bar\" world");
   assertValidQuery("hello|hallo|yellow world");
-  assertValidQuery("(hello|world|foo) bar baz");
+  assertValidQuery("(hello|world|foo) bar baz 123");
   assertValidQuery("(hello|world|foo) (bar baz)");
   assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
   assertValidQuery("@title:(barack obama)  @body:us|president");
@@ -67,6 +74,15 @@ int testQueryParser() {
   assertInvalidQuery("@body:@title:");
   assertInvalidQuery("@body|title:@title:");
   assertInvalidQuery("@body|title");
+
+  assertValidQuery("@number:[100 200]");
+  assertValidQuery("@number:[100 -200]");
+  assertValidQuery("@number:[(100 (200]");
+  assertValidQuery("@number:[100 inf]");
+  assertValidQuery("@number:[100 -inf]");
+  assertValidQuery("@number:[-inf +inf]");
+
+  assertInvalidQuery("@number:[100 foo]");
 
   assertInvalidQuery("(foo");
   assertInvalidQuery("\"foo");
@@ -85,9 +101,9 @@ int testQueryParser() {
   __queryNode_Print(q, n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
-  ASSERT(n->type == QN_PHRASE);
-  ASSERT(n->pn.exact == 0);
-  ASSERT(n->pn.numChildren == 5);
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->pn.exact, 0);
+  ASSERT_EQUAL(n->pn.numChildren, 5);
   ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
@@ -139,14 +155,22 @@ int testFieldSpec() {
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
-  if (err) FAIL("Error parsing query: %s", err);
+  if (err) {
+    Query_Free(q);
+    IndexSpec_Free(ctx.spec);
+    FAIL("Error parsing query: %s", err);
+  }
+
   ASSERT(n != NULL);
+  printf("%s ====> ", qt);
+  __queryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
   Query_Free(q);
 
+  // test field modifiers
   qt = "@title:(hello world) @body|title:(world apart) @adasdfsd:fofofof";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){}, NULL);
@@ -159,6 +183,21 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
+
+  // test numeric ranges
+  qt = "@num:[0.4 (500]";
+  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
+               (RSPayload){}, NULL);
+  n = Query_Parse(q, &err);
+  if (err) FAIL("Error parsing query: %s", err);
+  ASSERT(n != NULL);
+  ASSERT_EQUAL(n->type, QN_NUMERIC);
+  ASSERT_EQUAL(n->nn.nf->min, 0.4);
+  ASSERT_EQUAL(n->nn.nf->max, 500.0);
+  ASSERT_EQUAL(n->nn.nf->inclusiveMin, 1);
+  ASSERT_EQUAL(n->nn.nf->inclusiveMax, 0);
+  Query_Free(q);
+  IndexSpec_Free(ctx.spec);
 
   return 0;
 }

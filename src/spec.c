@@ -15,7 +15,8 @@ RedisModuleType *IndexSpecType;
 */
 inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
   for (int i = 0; i < spec->numFields; i++) {
-    if (!strcasecmp(spec->fields[i].name, name)) {
+    if (len != strlen(spec->fields[i].name)) continue;
+    if (!strncasecmp(spec->fields[i].name, name, len)) {
       return &spec->fields[i];
     }
   }

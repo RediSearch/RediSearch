@@ -26,10 +26,16 @@ typedef struct {
   int len;
   int pos;
   char *field;
+  double numval;
   // QueryTokenType ;
 } QueryToken;
 
-#define QUERY_SEPARATORS " \t,./{}[];/\\!#$%^&=+<>?";
+typedef struct {
+  double num;
+  int inclusive;
+} RangeNumber;
+
+#define QUERY_SEPARATORS " \t,/{};/\\!#$%^&=+<>?";
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

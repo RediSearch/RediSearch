@@ -3,8 +3,11 @@
 #define RP                              3
 #define QUOTE                           4
 #define TERM                            5
-#define AT                              6
-#define MINUS                           7
-#define TILDE                           8
-#define STAR                            9
-#define COLON                          10
+#define MODIFIER                        6
+#define NUMBER                          7
+#define MINUS                           8
+#define TILDE                           9
+#define STAR                           10
+#define COLON                          11
+#define LSQB                           12
+#define RSQB                           13

@@ -297,7 +297,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 exclusive = r.execute_command('ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
                 #print inclusive, exclusive
                 self.assertNotEqual(inclusive[0], N)
-                self.assertTrue(inclusive[0] + exclusive[0] == N)
+                self.assertEqual(inclusive[0] + exclusive[0], N)
 
                 s1, s2 = set(inclusive[1:]), set(exclusive[1:])
                 self.assertTrue(s1.difference(s2) == s1)

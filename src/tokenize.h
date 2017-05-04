@@ -47,7 +47,7 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 #define STEM_TOKEN_FACTOR 0.2
 
 // TODO: Optimize this with trie or something...
-int isStopword(const char *w, const char **stopwords);
+int isStopword(const char *w, size_t len, const char **stopwords);
 
 typedef struct {
   const char *text;

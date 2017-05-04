@@ -17,7 +17,7 @@ typedef struct numericFilter {
 } NumericFilter;
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
-
+void NumericFilter_Free(NumericFilter *nf);
 NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 

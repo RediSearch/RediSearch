@@ -4,7 +4,8 @@
 %left RP.
 %nonassoc QUOTE.
 %left TERM.
-%left AT.
+%left MODIFIER.
+%left NUMBER.
 
 %token_type {QueryToken}  
 
@@ -22,10 +23,19 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 #include "parse.h"
 #include "../rmutil/vector.h"
 #include "../query_node.h"
+
+char *strdupcase(const char *s, size_t len) {
+  char *ret = strndup(s, len);
+  for (int i = 0; i < len; i++) {
+    ret[i] = tolower(ret[i]);
+  }
+  return ret;
+}
    
 } // END %include  
 
@@ -35,11 +45,32 @@
 %type modifierlist { Vector* }
 %type modifier { QueryToken }
 %type TERM { QueryToken }
-%destructor TERM { free((char *)$$.s); }
-%destructor modifier { free((char *)$$.s); }
-%destructor modifierlist { Vector_Free($$); }
+%type NUMBER { QueryToken }
+%type MODIFIER { QueryToken }
+%type term { QueryToken }
+%type num { RangeNumber }
+%type numeric_range { NumericFilter * }
+
+%destructor num { }
+%destructor TERM {  }
+%destructor term {  }
+%destructor NUMBER { }
+%destructor MODIFIER {  }
+%destructor modifier {  }
+%destructor modifierlist { 
+    for (size_t i = 0; i < Vector_Size($$); i++) {
+        char *s;
+        Vector_Get($$, i, &s);
+        free(s);
+    }
+    Vector_Free($$); 
+}
+%destructor numeric_range {
+    NumericFilter_Free($$);
+}
 query ::= exprlist(A). { ctx->root = A; }
 query ::= expr(A). { ctx->root = A; }
+
 // empty query rule
 query ::= . { ctx->root = NULL; }
 
@@ -58,8 +89,8 @@ exprlist(A) ::= exprlist(B) expr(C). {
 expr(A) ::= union(B). {  A = B;}
 expr(A) ::= LP expr(B) RP .  { A = B; } 
 expr(A) ::= LP exprlist(B) RP .  { A = B; } 
-expr(A) ::= TERM(B). { 
- A = NewTokenNode(ctx->q, B.s, B.len);  
+expr(A) ::= term(B). { 
+ A = NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len);  
 }
 
 expr(A) ::= MINUS expr(B). {
@@ -71,20 +102,24 @@ expr(A) ::= TILDE expr(B). {
 }
 
 // field modifier -- @foo:bar
-modifier(A) ::= AT TERM(B). { A = B; }
+modifier(A) ::= MODIFIER(B). { A = B; }
 
-modifierlist(A) ::= modifier(B) OR TERM(C). { 
+modifierlist(A) ::= modifier(B) OR term(C). { 
     A = NewVector(char *, 2);
-    Vector_Push(A, B.s);
-    Vector_Push(A, C.s);
+    char *s = strdupcase(B.s, B.len);
+    Vector_Push(A, s);
+    s = strdupcase(C.s, C.len);
+    Vector_Push(A, s);
 }
-modifierlist(A) ::= modifierlist(B) OR TERM(C). {
-    Vector_Push(B, C.s);
+
+modifierlist(A) ::= modifierlist(B) OR term(C). {
+    char *s = strdupcase(C.s, C.len);
+    Vector_Push(B, s);
     A = B;
 }
 
-expr(A) ::= TERM(B) STAR. {
-    A = NewPrefixNode(ctx->q, B.s, B.len);
+expr(A) ::= term(B) STAR. {
+    A = NewPrefixNode(ctx->q, strdupcase(B.s, B.len), B.len);
 }
 
 expr(A) ::= modifierlist(B) COLON expr(C). {
@@ -109,17 +144,17 @@ expr(A) ::= modifier(B) COLON expr(C). {
     if (ctx->q->ctx && ctx->q->ctx->spec) {
         C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
     }
-    free((char *)B.s);
+    //free((char *)B.s);
     A = C; 
 } 
 
-exact(A) ::= QUOTE TERM(B).  {
+exact(A) ::= QUOTE term(B).  {
     A = NewPhraseNode(1);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, B.s, B.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len));
 }
 
-exact(A) ::= exact(B) TERM(C). {
-    QueryPhraseNode_AddChild(B, NewTokenNode(ctx->q, C.s, C.len));
+exact(A) ::= exact(B) term(C). {
+    QueryPhraseNode_AddChild(B, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
     A = B;
 }
 
@@ -127,17 +162,53 @@ expr(A) ::= exact(B) QUOTE. {
     A = B;
 }
 
-union(A) ::= union(B) OR TERM(C). {
-    QueryUnionNode_AddChild(B, NewTokenNode(ctx->q, C.s, C.len));
+union(A) ::= union(B) OR term(C). {
+    QueryUnionNode_AddChild(B, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
     A = B;
 }
 
 
-union(A) ::= TERM(B) OR TERM(C). {
+union(A) ::= term(B) OR term(C). {
     A = NewUnionNode();
-    QueryUnionNode_AddChild(A, NewTokenNode(ctx->q, B.s, B.len));
-    QueryUnionNode_AddChild(A, NewTokenNode(ctx->q, C.s, C.len));
+    QueryUnionNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len));
+    QueryUnionNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
 }
+
+
+expr(A) ::= modifier(B) COLON numeric_range(C). {
+    C->fieldName = strdupcase(B.s, B.len);
+    A = NewNumericNode(C);
+}
+
+numeric_range(A) ::= LSQB num(B) num(C) RSQB. {
+    A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+}
+
+num(A) ::= NUMBER(B). {
+    A.num = B.numval;
+    A.inclusive = 1;
+}
+
+num(A) ::= LP num(B). {
+    A=B;
+    A.inclusive = 0;
+}
+num(A) ::= MINUS num(B). {
+    B.num = -B.num;
+    A = B;
+}
+
+term(A) ::= TERM(B). {
+    A = B;
+}
+
+term(A) ::= NUMBER(B). {
+    A = B;
+}
+
+
+
+
 
 
 

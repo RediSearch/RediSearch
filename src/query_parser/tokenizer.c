@@ -5,6 +5,9 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+#include <math.h>
 
 QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords) {
   QueryTokenizer ret;
@@ -17,8 +20,22 @@ QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords)
 
   return ret;
 }
-static char ctrls[256] = {['\"'] = QUOTE, ['|'] = OR, ['('] = LP,   [')'] = RP,
-                          [':'] = COLON,  ['@'] = AT, ['-'] = MINUS, ['~'] = TILDE, ['*'] = STAR};
+static char ctrls[256] = {['\"'] = QUOTE, ['|'] = OR,   ['('] = LP,    [')'] = RP,
+                          [':'] = COLON,  ['@'] = AT,   ['-'] = MINUS, ['~'] = TILDE,
+                          ['*'] = STAR,   ['['] = LSQB, [']'] = RSQB};
+
+int toNumber(QueryToken *t) {
+  char *p = (char *)t->s;
+  errno = 0;
+  t->numval = strtod(t->s, &p);
+
+  if (*p != 0) return 0;
+  if ((errno == ERANGE && (t->numval == HUGE_VAL || t->numval == -HUGE_VAL)) ||
+      (errno != 0 && t->numval == 0)) {
+    return 0;
+  }
+  return 1;
+}
 
 int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok) {
 start:
@@ -55,6 +72,7 @@ start:
       toklen = 0;
       return rc;
     }
+
     *t->pos = tolower(*t->pos);
     ++t->pos;
     ++toklen;
@@ -64,8 +82,13 @@ start:
   t->pos++;
 word : {
   char *w = strndup(currentTok, toklen);
+
   if (!isStopword(w, t->stopwords)) {
-    *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text};
+    *tok = (QueryToken){.s = w, .len = toklen, .pos = currentTok - t->text, .numval = 0};
+    // if the token is convertible to number - convert and return a NUMBER token
+    if (toNumber(tok)) {
+      return NUMBER;
+    }
     return TERM;
   } else {
     // we just skip this token and go to the beginning of the function
