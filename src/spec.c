@@ -127,7 +127,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     return 0;
   }
 
-  if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
+  if (*offset < argc && !strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
     // cannot sort by geo fields
     if (sp->type == F_GEO) {
       return 0;
