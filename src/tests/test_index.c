@@ -494,8 +494,8 @@ int testTokenize() {
 int testIndexSpec() {
 
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
-  const char *args[] = {"SCHEMA", title, "text", "weight", "0.1", body,     "text",
-                        "weight", "2.0", foo,    "text",   bar,   "numeric"};
+  const char *args[] = {"SCHEMA", title, "text", "weight",   "0.1", body,      "text",    "weight",
+                        "2.0",    foo,   "text", "sortable", bar,   "numeric", "sortable"};
 
   char *err = NULL;
 
@@ -517,6 +517,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, body) == 0);
   ASSERT(f->weight == 2.0);
   ASSERT(f->id == 2);
+  ASSERT(f->sortable == 0);
+  ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, title, strlen(title));
   ASSERT(f != NULL);
@@ -524,6 +526,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, title) == 0);
   ASSERT(f->weight == 0.1);
   ASSERT(f->id == 1);
+  ASSERT(f->sortable == 0);
+  ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, foo, strlen(foo));
   ASSERT(f != NULL);
@@ -531,6 +535,8 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, foo) == 0);
   ASSERT(f->weight == 1);
   ASSERT(f->id == 4);
+  ASSERT(f->sortable == 1);
+  ASSERT(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
   ASSERT(f != NULL);
@@ -538,8 +544,19 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, bar) == 0);
   ASSERT(f->weight == 0);
   ASSERT(f->id == 0);
-
+  ASSERT(f->sortable == 1);
+  ASSERT(f->sortIdx == 1);
   ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
+
+  ASSERT(s->sortables != NULL);
+  ASSERT(s->sortables->len == 2);
+  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  ASSERT_EQUAL(0, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  ASSERT_EQUAL(1, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  ASSERT_EQUAL(-1, rc);
+
   IndexSpec_Free(s);
 
   const char *args2[] = {
