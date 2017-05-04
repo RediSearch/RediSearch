@@ -22,6 +22,7 @@ pages:
     - 'Quick Start': 'Quick_Start.md'
     - 'Commands': 'Commands.md'       
     - 'Query Syntax': 'Query_Syntax.md'
+    - 'Sortable Values': 'Sorting.md'
     - 'Extension API': Extensions.md
     - 'Stemming Support': Stemming.md
     - 'Python API': python_client.md
