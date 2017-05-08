@@ -15,7 +15,7 @@ RedisModuleType *IndexSpecType;
 */
 inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
   for (int i = 0; i < spec->numFields; i++) {
-    if (!strncmp(spec->fields[i].name, name, len)) {
+    if (!strcasecmp(spec->fields[i].name, name)) {
       return &spec->fields[i];
     }
   }
@@ -95,7 +95,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   sp->sortIdx = -1;
   sp->sortable = 0;
   // the field name comes here
-  sp->name = strtolower(rm_strdup(argv[*offset]));
+  sp->name = rm_strdup(argv[*offset]);
 
   // we can't be at the end
   if (++*offset == argc) return 0;
