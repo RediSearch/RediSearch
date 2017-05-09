@@ -89,6 +89,9 @@ int testQueryParser() {
   assertInvalidQuery("");
   assertInvalidQuery("()");
 
+  // test utf-8 query
+  assertValidQuery("שלום עולם");
+
   char *err = NULL;
   char *qt = "(hello|world) and \"another world\" (foo is bar) -baz boo*";
   RedisSearchCtx ctx;

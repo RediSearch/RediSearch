@@ -1,28 +1,32 @@
-# Welcome to RediSearch 
+# RediSearch - Redis Powered Search Engine
 
 RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
 
 The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
 
-### Latest Release: [0.15 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.15)
+### Latest Release: [0.16 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.16)
 
 ## Overview
 
 Redisearch impements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.
 
-Inverted indexes are stored on top of Redis strings using binary encoding,
-and not mapped to existing data structures (see [DESIGN.md](https://github.com/RedisLabsModules/RediSearch/blob/master/docs/DESIGN.md)). 
-
-This allows much faster performance, significantly less memory consumption, and
-more advanced features like exact phrase matching, that are not possible with 
-traditional redis search approaches. 
+This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
+that are not possible or efficient with traditional redis search approache
 
 ## Client Libraries
 
 * **Python**: [https://github.com/RedisLabs/redisearch-py](https://github.com/RedisLabs/redisearch-py)
 
 * **Java**: [https://github.com/RedisLabs/JRediSearch](https://github.com/RedisLabs/JRediSearch)
+
+### Community Libraries:
+
+* **PHP**: [https://github.com/ethanhann/redisearch-php](https://github.com/ethanhann/redisearch-php) (By Ethan Hann)
+
+* **Ruby on Rails**: [https://github.com/dmitrypol/redi_search_rails](https://github.com/dmitrypol/redi_search_rails) (By Dmitry Polyakovsky)
+
+* **.Net**: [https://libraries.io/nuget/NRediSearch](https://libraries.io/nuget/NRediSearch) (By Marc Gravell)
 
 ## Primary Features:
 

@@ -51,7 +51,7 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 
 4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
 
-5. It is possible to negate a numeric filter by prependine `-` to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
+5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
 
 ## Prefix Matching (>=0.14)
 

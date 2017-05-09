@@ -6,7 +6,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.15 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.15)
+### Latest Release: [0.16 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.16)
 
 # Client Libraries
 
@@ -14,17 +14,24 @@
 
 * **Java**: [https://github.com/RedisLabs/JRediSearch](https://github.com/RedisLabs/JRediSearch)
 
+## Community Libraries:
+
+* **PHP**: [https://github.com/ethanhann/redisearch-php](https://github.com/ethanhann/redisearch-php) (By Ethan Hann)
+
+* **Ruby on Rails**: [https://github.com/dmitrypol/redi_search_rails](https://github.com/dmitrypol/redi_search_rails) (By Dmitry Polyakovsky)
+
+* **.Net**: [https://libraries.io/nuget/NRediSearch](https://libraries.io/nuget/NRediSearch) (By Marc Gravell)
+
 # Overview
 
 Redisearch impements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.
 
-Inverted indexes are stored on top of Redis strings using binary encoding,
-and not mapped to existing data structures (see [DESIGN.md](docs/DESIGN.md)). 
+Inverted indexes are stored as a special compressed data type that allows for fast
+indexing and search speed, and low memory footprint. 
 
-This allows much faster performance, significantly less memory consumption, and
-more advanced features like exact phrase matching, that are not possible with 
-traditional redis search approaches. 
+This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
+that are not possible or efficient with traditional redis search approaches. 
 
 ## Primary Features:
 
