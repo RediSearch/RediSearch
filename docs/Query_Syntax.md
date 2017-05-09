@@ -8,6 +8,7 @@ We support a simple syntax for complex queries with the following rules:
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
 * Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
 * Selection of specific fields using the syntax `@field:hello world`.
+* Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
@@ -35,6 +36,22 @@ FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
 ```
 
 This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.
+
+## Numeric Filters in Query (Since v0.16)
+
+If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]` - e.g. `@price:[100 200]`.
+
+### A few notes on numeric predicates:
+
+1. It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.
+
+2. It is possible to interesect or union multiple numeric filters in the same query, be it for the same field or different ones.
+
+3. `-inf`, `inf` and `+inf` are acceptable numbers in range. Thus greater-than 100 is expressed as `[(100 inf]`.
+
+4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
+
+5. It is possible to negate a numeric filter by prependine `-` to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
 
 ## Prefix Matching (>=0.14)
 
@@ -114,7 +131,15 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
         hello -worl*
 
+* Numeric Filtering - products named "tv" with a price range of 200-500:
+        
+        @name:tv @price:[200 500]
+
+* Numeric Filtering - users with age greater than 18:
+
+        @age:[(18 +inf]
+
 
 ### Technical Note
 
-The query parser is built using the Lemon Parser Generator. You can see the grammar definition [at the git repo.](https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y)
+The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo.](https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y)

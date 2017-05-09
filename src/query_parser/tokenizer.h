@@ -35,21 +35,6 @@ typedef struct {
   int inclusive;
 } RangeNumber;
 
-#define QUERY_SEPARATORS " \t,/{};/\\!#$%^&=+<>?";
-
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
-
-/* Create a new query tokenizer. There is no need to free anything in the object
- */
-QueryTokenizer NewQueryTokenizer(char *text, size_t len, const char **stopwords);
-
-/* Read the next token from the tokenizer. If tit has reached the end of the
-query text, it will return a token with type T_END and null content.
-
-Note: The token's text might not be null terminated, so use the len variable */
-int QueryTokenizer_Next(QueryTokenizer *t, QueryToken *tok);
-
-/* Returns 1 if the tokenizer can read more tokens from the query text */
-int QueryTokenizer_HasNext(QueryTokenizer *);
 
 #endif

@@ -667,6 +667,23 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                         "filter", "price", "90", "185")
                 self.assertEqual(0, res[0])
 
+                # Test numeric ranges as part of query syntax
+                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[0 100]', "nocontent")
+
+                self.assertEqual(11, len(res))
+                self.assertEqual(100, res[0])
+
+                res = r.execute_command('ft.search', 'idx', 'hello kitty  @score:[0 50]', "nocontent")
+                self.assertEqual(51, res[0])
+                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent")
+                self.assertEqual(49, res[0])
+                res = r.execute_command('ft.search', 'idx', '@score:[(0 (50]', 'verbatim', "nocontent")
+                self.assertEqual(49, res[0])
+                res = r.execute_command('ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent")
+                self.assertEqual(51, res[0])
+                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
+                self.assertEqual(100, res[0])
+
     def testSuggestions(self):
 
         with self.redis() as r:
