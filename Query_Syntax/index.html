@@ -287,6 +287,26 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#numeric-filters-in-query-since-v016" title="Numeric Filters in Query (Since v0.16)" class="md-nav__link">
+    Numeric Filters in Query (Since v0.16)
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-numeric-predicates" title="A few notes on numeric predicates:" class="md-nav__link">
+    A few notes on numeric predicates:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
     Prefix Matching (&gt;=0.14)
   </a>
@@ -433,6 +453,26 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#numeric-filters-in-query-since-v016" title="Numeric Filters in Query (Since v0.16)" class="md-nav__link">
+    Numeric Filters in Query (Since v0.16)
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-numeric-predicates" title="A few notes on numeric predicates:" class="md-nav__link">
+    A few notes on numeric predicates:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
     Prefix Matching (&gt;=0.14)
   </a>
@@ -496,6 +536,7 @@
 <li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>.</li>
 <li>Prefix matches (all terms starting with a prefix) are expressed with a <code>*</code> following a 3-letter or longer prefix.</li>
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
+<li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
 <li>Optional terms or clauses: <code>foo ~bar</code> means bar is optional but documents with bar in them will rank higher. </li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
@@ -516,6 +557,26 @@
 
 
 <p>This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.</p>
+<h2 id="numeric-filters-in-query-since-v016">Numeric Filters in Query (Since v0.16)<a class="headerlink" href="#numeric-filters-in-query-since-v016" title="Permanent link">&para;</a></h2>
+<p>If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is <code>@field:[{min} {max}]</code> - e.g. <code>@price:[100 200]</code>.</p>
+<h3 id="a-few-notes-on-numeric-predicates">A few notes on numeric predicates:<a class="headerlink" href="#a-few-notes-on-numeric-predicates" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.</p>
+</li>
+<li>
+<p>It is possible to interesect or union multiple numeric filters in the same query, be it for the same field or different ones.</p>
+</li>
+<li>
+<p><code>-inf</code>, <code>inf</code> and <code>+inf</code> are acceptable numbers in range. Thus greater-than 100 is expressed as <code>[(100 inf]</code>.</p>
+</li>
+<li>
+<p>Numeric filters are inclusive. Exclusive min or max are expressed with <code>(</code> prepended to the number, e.g. <code>[(100 (200]</code>.</p>
+</li>
+<li>
+<p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. However a boolean-negative numeric filter cannot be the only predicate in the query.</p>
+</li>
+</ol>
 <h2 id="prefix-matching-014">Prefix Matching (&gt;=0.14)<a class="headerlink" href="#prefix-matching-014" title="Permanent link">&para;</a></h2>
 <p>On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending <code>*</code> to a prefix token. For example:</p>
 <div class="codehilite"><pre><span></span>hel* world
@@ -627,9 +688,23 @@ hello -worl*
 
 
 </li>
+<li>
+<p>Numeric Filtering - products named "tv" with a price range of 200-500:</p>
+<div class="codehilite"><pre><span></span>@name:tv @price:[200 500]
+</pre></div>
+
+
+</li>
+<li>
+<p>Numeric Filtering - users with age greater than 18:</p>
+<div class="codehilite"><pre><span></span>@age:[(18 +inf]
+</pre></div>
+
+
+</li>
 </ul>
 <h3 id="technical-note">Technical Note<a class="headerlink" href="#technical-note" title="Permanent link">&para;</a></h3>
-<p>The query parser is built using the Lemon Parser Generator. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
+<p>The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
               
               
             </article>
