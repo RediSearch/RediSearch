@@ -25,3 +25,4 @@ deploy:
   file: $(ls $TRAVIS_BUILD_DIR/src/*.zip | head -1)
   on:
     branch: package
+  local_dir: $TRAVIS_BUILD_DIR/build

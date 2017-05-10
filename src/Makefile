@@ -106,6 +106,7 @@ clean:
 	find . -type f -name '*.o' -delete -print
 
 package: module.so
-	module_packer -v -o "redisearch.{os}-{architecture}.{version}.zip" "`pwd`/module.so"
+	mkdir -p ../build
+	module_packer -v -o "../build/redisearch.{os}-{architecture}.{version}.zip" "`pwd`/module.so"
 
 rebuild: clean all
