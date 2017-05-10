@@ -23,3 +23,5 @@ deploy:
   skip_cleanup: true
   bucket: "redisearch-builds"
   file: $(ls $TRAVIS_BUILD_DIR/src/*.zip | head -1)
+  on:
+    branch: package
