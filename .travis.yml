@@ -11,4 +11,6 @@ before_script:
 
 env:
   - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
-script: make test
+script: 
+  - make test
+  - make package
