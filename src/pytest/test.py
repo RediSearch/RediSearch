@@ -549,7 +549,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+                'ft.create', 'idx', 'schema', 'TiTle', 'text', 'BoDy', 'text'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
                                             'title', 'hello world', 'body', 'foo bar'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 0.5, 'fields',
@@ -565,7 +565,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
             res = r.execute_command('ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
             self.assertEqual(res, [0])
-            res = r.execute_command('ft.search', 'idx', '@body:(hello|foo) @title:(world|bar)', 'nocontent')
+            res = r.execute_command('ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
 
             res = r.execute_command('ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')

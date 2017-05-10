@@ -140,7 +140,8 @@ main := |*
     } 
   };
   space;
-  
+  punct;
+  cntrl;
   term => {
     tok.len = te-ts;
     tok.s = ts;
