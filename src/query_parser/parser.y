@@ -106,9 +106,9 @@ modifier(A) ::= MODIFIER(B). { A = B; }
 
 modifierlist(A) ::= modifier(B) OR term(C). { 
     A = NewVector(char *, 2);
-    char *s = strdupcase(B.s, B.len);
+    char *s = strndup(B.s, B.len);
     Vector_Push(A, s);
-    s = strdupcase(C.s, C.len);
+    s = strndup(C.s, C.len);
     Vector_Push(A, s);
 }
 
@@ -176,7 +176,8 @@ union(A) ::= term(B) OR term(C). {
 
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
-    C->fieldName = strdupcase(B.s, B.len);
+    // we keep the capitalization as is
+    C->fieldName = strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 

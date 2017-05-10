@@ -856,9 +856,9 @@ static void yy_reduce(
 #line 107 "parser.y"
 { 
     yygotominor.yy36 = NewVector(char *, 2);
-    char *s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    char *s = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     Vector_Push(yygotominor.yy36, s);
-    s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    s = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yygotominor.yy36, s);
 }
 #line 865 "parser.c"
@@ -954,49 +954,50 @@ static void yy_reduce(
       case 22: /* expr ::= modifier COLON numeric_range */
 #line 178 "parser.y"
 {
-    yymsp[0].minor.yy30->fieldName = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    // we keep the capitalization as is
+    yymsp[0].minor.yy30->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yygotominor.yy47 = NewNumericNode(yymsp[0].minor.yy30);
 }
-#line 961 "parser.c"
+#line 962 "parser.c"
         break;
       case 23: /* numeric_range ::= LSQB num num RSQB */
-#line 183 "parser.y"
+#line 184 "parser.y"
 {
     yygotominor.yy30 = NewNumericFilter(yymsp[-2].minor.yy49.num, yymsp[-1].minor.yy49.num, yymsp[-2].minor.yy49.inclusive, yymsp[-1].minor.yy49.inclusive);
 }
-#line 968 "parser.c"
+#line 969 "parser.c"
         break;
       case 24: /* num ::= NUMBER */
-#line 187 "parser.y"
+#line 188 "parser.y"
 {
     yygotominor.yy49.num = yymsp[0].minor.yy0.numval;
     yygotominor.yy49.inclusive = 1;
 }
-#line 976 "parser.c"
+#line 977 "parser.c"
         break;
       case 25: /* num ::= LP num */
-#line 192 "parser.y"
+#line 193 "parser.y"
 {
     yygotominor.yy49=yymsp[0].minor.yy49;
     yygotominor.yy49.inclusive = 0;
 }
-#line 984 "parser.c"
+#line 985 "parser.c"
         break;
       case 26: /* num ::= MINUS num */
-#line 196 "parser.y"
+#line 197 "parser.y"
 {
     yymsp[0].minor.yy49.num = -yymsp[0].minor.yy49.num;
     yygotominor.yy49 = yymsp[0].minor.yy49;
 }
-#line 992 "parser.c"
+#line 993 "parser.c"
         break;
       case 27: /* term ::= TERM */
       case 28: /* term ::= NUMBER */ yytestcase(yyruleno==28);
-#line 201 "parser.y"
+#line 202 "parser.y"
 {
     yygotominor.yy0 = yymsp[0].minor.yy0;
 }
-#line 1000 "parser.c"
+#line 1001 "parser.c"
         break;
       default:
         break;
@@ -1067,7 +1068,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 1071 "parser.c"
+#line 1072 "parser.c"
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 
