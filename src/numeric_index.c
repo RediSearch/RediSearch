@@ -83,10 +83,10 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
   // TimeSample ts;
   // TimeSampler_Start(&ts);
-  double scores[n->size];
-  for (size_t i = 0; i < n->size; i++) {
-    scores[i] = n->entries[i].value;
-  }
+  // double scores[n->size];
+  // for (size_t i = 0; i < n->size; i++) {
+  //   scores[i] = n->entries[i].value;
+  // }
 
   // double split = qselect(scores, n->size, n->size / 2);
 
