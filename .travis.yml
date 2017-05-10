@@ -6,7 +6,7 @@ before_script:
   - git clone --depth 1 https://github.com/antirez/redis.git
   - cd redis
   - make
-  - pip install redis
+  - pip install redis ramp-packer
   - cd ..
 
 env:

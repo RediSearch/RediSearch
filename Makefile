@@ -6,3 +6,6 @@ test:
 
 clean:
 	$(MAKE) -C ./src $@
+
+package: all
+	$(MAKE) -C ./src package

@@ -105,5 +105,7 @@ debug: util rmutil snowball libnu trie  triemap | module.so
 clean:
 	find . -type f -name '*.o' -delete -print
 
+package: module.so
+	module_packer -v -o redisearch.zip "`pwd`/module.so"
 
 rebuild: clean all
