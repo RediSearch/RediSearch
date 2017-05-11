@@ -107,6 +107,6 @@ clean:
 
 package: module.so
 	mkdir -p ../build
-	module_packer -v -o "../build/redisearch.{os}-{architecture}.{version}.zip" "`pwd`/module.so"
+	module_packer -v -o "../build/redisearch.{os}-{architecture}.latest.zip" "`pwd`/module.so"
 
 rebuild: clean all
