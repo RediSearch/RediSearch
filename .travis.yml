@@ -23,5 +23,5 @@ deploy:
   bucket: redismodules
   upload-dir: redisearch
   on:
-    branch: package
+    branch: master
   local_dir: $TRAVIS_BUILD_DIR/build
