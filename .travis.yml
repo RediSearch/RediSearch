@@ -3,23 +3,21 @@ compiler: gcc
 dist: trusty
 install: make clean && make
 before_script:
-  - git clone --depth 1 https://github.com/antirez/redis.git
-  - cd redis
-  - make
-  - pip install redis ramp-packer
-  - cd ..
-
+- git clone --depth 1 https://github.com/antirez/redis.git
+- cd redis
+- make
+- pip install redis ramp-packer
+- cd ..
 env:
-  - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
-script: 
-  - make test
-  - make package
-
+- REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
+script:
+- make test
+- make package
 deploy:
   provider: s3
-  access_key_id: "AKIAJBAS62HNYICJHEXQ"
+  access_key_id: AKIAJV5TLHJABHC5XH7A
   secret_access_key:
-    secure: jxseJ9gF2y2hbFAfzDwhue7Uiz7pq7LtpRnnvMNKeLXnsdtFAuOMOHsSEMlGo0S128XpX/9Ch3olNhZIYZZz4NV5uvVxfTiDmX3RtXWAnaeC+TnZ/pUfh641/JIa7S3BJ4OEvLN9bY1etwKe80xUWPNKbMgGCBKS1NCTOxLOJ/q1G9+NRPN6lX8kL0msk7lEKFW4mYT0BQtI1U4b93XDWNq/FRnm0rM6M2a5et21uLPdBIUYhMkO6LdSQa7Su5+3itV9/LHJ46kYlY6W4hD5hVXktN+7y9NRw956DrK100SZvqhjd2WWJ8M5xbwfMbcHnn4rRgzbVZ0FmS0LkXkeD+tq/QmHrPoZFrPLOo6kHy3dkEmPuxWyX4Mc5FR9tieEi7gBckZKj4tUCmgJYpUtW1HRVIcU69Do3SfHSj9cHek5YNa6FD437FxEfK+ed51LxkNU9RuaFMUOFTfjooVnpQMVjPU4P0xU/NQqsyBUamkUDQZjXE71hzAosmrmaw+PRULM2Y7hjgRUoo6ptNk9/124WcqTfkXKE4EgEFV+eVPWx3lc3bE75XnxEIlvtrUbf6juDcO0t/C7JvbOZUhFTzxq+0WwmBSKZ3zZ5L3xrUnBUNB7OE6rVgFqiQYzw7hMIDT2uds05vJWnDWdWea7o0lTdlG2XH0hEq31tGK7Yiw=
+    secure: aPG5de7/5tHF+PWA76wnwYVbBTUBSeH66kBLAMzNvT2rEVkxdR2kqDmnD+70RWNC4B4inhBbtrmWp+IVdXZ7w1o+dNCiOgo/Ddq3pBxNJhg6ue3qnDNM15DmeXtr8zwsY/tazrzWJuyDHJ9WpYXw9456884FmSrf8oBvLqfLWW8/TA5t4fgc9zkimEKUsxHNozQn9dW3FU36qi3QF1ZA2XC995V5ngXPUTKYr+q1eMCiBflItZp6Mw2J9NBGM7LKTuylYCv03NEcrOuiM/7Rk3D8WRVKn1bP+87Oo/uGqoWwGoNMw5w626xY6ff9kffV47Mgr1nrxHUju3eA/Mv8TdRlY02LlywcPWk43XbFvUD20rHYMvq0wq60VULGTItKfbYMeshz4q9YhEuaL24wBYruYnUP+J3iMv+UG69m48EXL/QxW4yvd3lIJhTrFh6hATsRl4SnRz2w6yzBvse5cq2vIU6TdUfrLi9rvVI16huOEPxrQ4jNkKYjZD2YVVOz7ycgb7WhAhmN1TpRAHb3xsnVMDwh9gdKUxjmZ9rOq/1oTUvYohj4bRK3J3X/SDR1kQg0cU6fuLK6vfw+T0MPL8fN3WplCaruywNmTqFzm4/ElbJvG8BZ6eFDNqtewcVkG9q4x/aCH3Tg/H2xwoIBbBLQ8SiY0SAn7Uu7GG0QQdo=
   skip_cleanup: true
   acl: public_read
   bucket: redismodules
