@@ -30,8 +30,8 @@ tilde = '~';
 star = '*';
 rsqb = ']';
 lsqb = '[';
-mod = '@'.alpha.alnum+ $ 1;
-term = (any - punct - cntrl - space)+  $ 0 ;
+mod = '@'.alpha.(alnum | '_')+ $ 1;
+term = ((any - punct - cntrl - space) | '_')+  $ 0 ;
 
 main := |*
 

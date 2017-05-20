@@ -65,9 +65,9 @@ int testQueryParser() {
   assertValidQuery("(hello|world|foo) (bar baz)");
   assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
   assertValidQuery("@title:(barack obama)  @body:us|president");
-  assertValidQuery("@title:barack obama  @body:us");
+  assertValidQuery("@ti_tle:barack obama  @body:us");
   assertValidQuery("@title:barack @body:obama");
-  assertValidQuery("@title|body:barack @body|title|url|something|else:obama");
+  assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama");
   assertValidQuery("hello,world;good+bye foo.bar");
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"");
   assertValidQuery("foo -bar -(bar baz)");
@@ -176,7 +176,7 @@ int testFieldSpec() {
   Query_Free(q);
 
   // test field modifiers
-  qt = "@title:(hello world) @body|title:(world apart) @adasdfsd:fofofof";
+  qt = "@title:(hello world) @body|title:(world apart) @adas_dfsd:fofofof";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
@@ -188,7 +188,6 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
-
   // test numeric ranges
   qt = "@num:[0.4 (500]";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
