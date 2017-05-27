@@ -1,19 +1,19 @@
 # Extending RediSearch
 
-RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.
+RediSearch supports an extension mechanism, much like Redis supports modules. Currently, the API is very minimal and does not yet support dynamic loading of extensions at runtime. Instead, extensions must be written in C and compiled into the engine when building it.
 
 There are two kinds of extension APIs at the moment: 
 
-1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
-2. **Scoring Funtions**, whose role is to rank search results in query time.
+1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers)
+2. **Scoring Funtions**, whose role is to rank search results in query time
 
 ## Registering Extensions
 
-Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. 
+Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of runtime extensions. 
 
-The entry point is a function receiving an `RSExtensionCtx` object, that contains functions for registering the expanders/scorers. 
+The entry point is a function that receives an `RSExtensionCtx` object containing functions for registering the expanders/scorers. 
 
-Right now, it is necessary to call these init functions explicitly in `module.c`, but in the future this will be atuomated.
+Right now it is necessary to call these init functions explicitly in `module.c`, but in the future initialization will be automated.
 
 Here is an example of an extension initialization function:
 
@@ -23,7 +23,7 @@ Here is an example of an extension initialization function:
 
 int MyExtensionInit(RSExtensionCtx *ctx) {
 
-  /* Register  a scoring function with an alias my_scorer and no special private data and free function */
+  /* Register a scoring function with an alias my_scorer, no special private data and free function */
   if (ctx->RegisterScoringFunction("my_scorer", MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
@@ -38,10 +38,9 @@ int MyExtensionInit(RSExtensionCtx *ctx) {
 }
 ```
 
-## Calling your custom functions
+## Calling Your Custom Functions
 
-When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
-e.g.:
+When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias. For example:
 
 ```
 FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
@@ -51,7 +50,7 @@ FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
 
 ## The Query Expander API
 
-At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.
+At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token, with as many tokens as it wishes, that will be union-merged in query time.
 
 The API for an expander is the following:
 
@@ -84,7 +83,7 @@ typedef struct RSQueryExpanderCtx {
 
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its length,
-   * and flags is a 32 bit flag mask that can be used by the extension to set private information on
+   * and flags is a 32-bit flag mask that can be used by the extension to set private information on
    * the token */
   void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                       RSTokenFlags flags);
@@ -122,11 +121,11 @@ typedef struct {
 ## The Scoring Function API
 
 A scoring function receives each document being evaluated by the query, for final ranking. 
-It has access to all the query terms that brought up the document,and to metadata about the
-document such as its a-priory score, length, etc.
+It has access to all the query terms that retrieved the document, as well as metadata about the
+document, such as its a-priory score, length, etc.
 
 Since the scoring function is evaluated per each document, potentially millions of times, and since
-redis is single threaded - it is important that it works as fast as possible and be heavily optimized. 
+Redis is single-threaded, it is important that it work as fast as possible and be heavily optimized. 
 
 A scoring function is applied to each potential result (per document) and is implemented with the following signature:
 
@@ -137,20 +136,20 @@ double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
 
 RSScoringFunctionCtx is a context that implements some helper methods. 
 
-RSIndexResult is the result information - containing the document id, frequency, terms and offsets. 
+RSIndexResult is the result information, containing the document ID, frequency, terms and offsets. 
 
 RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. 
 
-minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.
+minSocre is the minimal score that will yield a relevant search result. It can be used to stop processing mid-way or before the search  process even starts.
 
-The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.
+The returned value of the function is doubled, representing the final score of the result. Returning "0" filters out the result automatically, thus a scoring function can act as a filter function as well.
 
 ### RSScoringFunctionCtx
 
 This is an object containing the following members:
 
-* **void *privdata**: a pointer to an object set by the extension on initialization time.
-* **RSPayload payload**: A Payload object set either by the query expander or the client.
+* **void *privdata**: A pointer to an object set by the extension on initialization time
+* **RSPayload payload**: A Payload object set either by the query expander or the client
 * **int GetSlop(RSIndexResult *res)**: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.
 
 ### RSIndexResult
@@ -161,12 +160,12 @@ See redisearch.h for details
 
 ### RSDocumentMetadata
 
-This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. 
+This is an object describing global information (unrelated to the current query) about the document being evaluated by the scoring function. 
 
 
 ## Example Query Expander
 
-This example query expander expands each token with the the term foo:
+This example query expander expands each token with the the term "foo":
 
 ```c
 #include <redisearch.h> //must be in the include path
@@ -178,7 +177,7 @@ void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
 ## Example Scoring Function
 
-This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:
+This is an actual scoring function, calculating TF-IDF for the document, multiplying it by the document score, and dividing the result by the slop:
 
 ```c
 #include <redisearch.h> //must be in the include path
@@ -200,7 +199,7 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
   // multiply by the document score (between 0 and 1)
   tfidf *= dmd->score;
 
-  // no need to factor the slop if tfidf is already below minimal score
+  // no need to factor the slop if tf-idf is already below minimal score
   if (tfidf < minScore) {
     return 0;
   }
