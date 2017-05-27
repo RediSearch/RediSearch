@@ -1,18 +1,18 @@
 
-# Quick Start Guide for RediSearch:
+# Quick-Start Guide for RediSearch
 
-## Building and running:
+## Building and Running
 
 ```sh
 git clone https://github.com/RedisLabsModules/RediSearch.git
 cd RediSearch/src
 make all
 
-# Assuming you have a redis build from the unstable branch:
+# Assuming you have a Redis build from the unstable branch:
 /path/to/redis-server --loadmodule ./module.so
 ```
 
-## Creating an index with fields and weights (default weight is 1.0):
+## Creating an Index with Fields and Weights (Default Weight is 1.0):
 
 ```
 127.0.0.1:6379> FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
@@ -20,13 +20,13 @@ OK
 
 ``` 
 
-## Adding documents to the index:
+## Adding Documents to the Index:
 ```
 127.0.0.1:6379> FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "http://redis.io" 
 OK
 ```
 
-## Searching the index:
+## Searching the Index:
 
 ```
 127.0.0.1:6379> FT.SEARCH myIdx "hello world" LIMIT 0 10
@@ -40,17 +40,17 @@ OK
    6) "http://redis.io"
 ```
 
-  > **NOTE**: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. 
+  > **NOTE**: Input is expected to be valid UTF-8 or ascii; the engine cannot handle wide character unicode at the moment. 
 
 
-## Dropping the index:
+## Dropping the Index:
 
 ```
 127.0.0.1:6379> FT.DROP myIdx
 OK
 ```
 
-## Adding and getting Auto-complete suggestions:
+## Adding and Getting Auto-complete Suggestions:
 
 ```
 127.0.0.1:6379> FT.SUGADD autocomplete "hello world" 100
