@@ -20,6 +20,8 @@
 
 * **Ruby on Rails**: [https://github.com/dmitrypol/redi_search_rails](https://github.com/dmitrypol/redi_search_rails) (By Dmitry Polyakovsky)
 
+* **Ruby**: [https://github.com/vruizext/redisearch-rb](https://github.com/vruizext/redisearch-rb) (By Victor Ruiz)
+
 * **.Net**: [https://libraries.io/nuget/NRediSearch](https://libraries.io/nuget/NRediSearch) (By Marc Gravell)
 
 # Overview
