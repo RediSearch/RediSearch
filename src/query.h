@@ -14,6 +14,7 @@
 #include "spec.h"
 #include "id_filter.h"
 #include "redisearch.h"
+#include "rmutil/sds.h"
 
 /* A Query represents the parse tree and execution plan for a single search
  * query */
@@ -102,6 +103,9 @@ QueryNode *NewIdFilterNode(IdFilter *flt);
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 void Query_SetIdFilter(Query *q, IdFilter *f);
+
+/* Return a string representation of the query parse tree. The string should be freed by the caller */
+const char *Query_DumpExplain(Query *q);
 
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1

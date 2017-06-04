@@ -349,7 +349,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
             res = r.execute_command(
                 'ft.search', 'idx', 't1|t4 t3|t2', 'slop', '0', 'inorder', 'nocontent')                                        
-            self.assertEqual([4L, 'doc3', 'doc4', 'doc2', 'doc1'], res)
+            self.assertEqual({'doc3', 'doc4', 'doc2', 'doc1'}, set(res[1:]))
             res = r.execute_command(
                 'ft.search', 'idx', 't2 t1', 'slop', '0', 'nocontent')
             self.assertEqual(1, res[0])

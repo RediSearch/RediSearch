@@ -57,13 +57,14 @@ int testQueryParser() {
   assertValidQuery("hello wor*");
   assertValidQuery("hello world");
   assertValidQuery("hello (world)");
+
   assertValidQuery("\"hello world\"");
   assertValidQuery("\"hello world\" \"foo bar\"");
   assertValidQuery("hello \"foo bar\" world");
   assertValidQuery("hello|hallo|yellow world");
   assertValidQuery("(hello|world|foo) bar baz 123");
   assertValidQuery("(hello|world|foo) (bar baz)");
-  assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
+  // assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
   assertValidQuery("@title:(barack obama)  @body:us|president");
   assertValidQuery("@ti_tle:barack obama  @body:us");
   assertValidQuery("@title:barack @body:obama");
@@ -71,11 +72,13 @@ int testQueryParser() {
   assertValidQuery("hello,world;good+bye foo.bar");
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"");
   assertValidQuery("foo -bar -(bar baz)");
-  // assertValidQuery("(hello world)|(goodbye moon)");
+  assertValidQuery("(hello world)|(goodbye moon)");
   assertInvalidQuery("@title:");
   assertInvalidQuery("@body:@title:");
   assertInvalidQuery("@body|title:@title:");
   assertInvalidQuery("@body|title");
+  assertValidQuery("hello ~world ~war");
+  assertValidQuery("hello ~(world war)");
 
   assertValidQuery("@number:[100 200]");
   assertValidQuery("@number:[100 -200]");
@@ -83,6 +86,7 @@ int testQueryParser() {
   assertValidQuery("@number:[100 inf]");
   assertValidQuery("@number:[100 -inf]");
   assertValidQuery("@number:[-inf +inf]");
+  assertValidQuery("@number:[-inf +inf]|@number:[100 200]");
 
   assertInvalidQuery("@number:[100 foo]");
 
@@ -95,7 +99,7 @@ int testQueryParser() {
   assertValidQuery("שלום עולם");
 
   char *err = NULL;
-  char *qt = "(hello|world) and \"another world\" (foo is bar) -baz boo*";
+  char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   RedisSearchCtx ctx;
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DEFAULT_STOPWORDS, NULL, -1, 0,
                       NULL, (RSPayload){}, NULL);
@@ -108,28 +112,34 @@ int testQueryParser() {
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->pn.exact, 0);
-  ASSERT_EQUAL(n->pn.numChildren, 5);
+  ASSERT_EQUAL(n->pn.numChildren, 3);
   ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("world", n->pn.children[0]->un.children[1]->tn.str);
+  QueryNode *_n = n->pn.children[1];
 
-  ASSERT(n->pn.children[1]->type == QN_PHRASE);
-  ASSERT(n->pn.children[1]->pn.exact == 1);
-  ASSERT_STRING_EQ("another", n->pn.children[1]->pn.children[0]->tn.str);
-  ASSERT_STRING_EQ("world", n->pn.children[1]->pn.children[1]->tn.str);
+  ASSERT(_n->type == QN_PHRASE);
+  ASSERT(_n->pn.exact == 0);
+  ASSERT_EQUAL(_n->pn.numChildren, 2);
+  ASSERT(n->pn.children[1]->pn.children[0]->type == QN_PHRASE);
+  ASSERT(n->pn.children[1]->pn.children[0]->pn.exact == 1);
+  ASSERT_STRING_EQ("another", _n->pn.children[0]->pn.children[0]->tn.str);
+  ASSERT_STRING_EQ("world", _n->pn.children[0]->pn.children[1]->tn.str);
 
-  ASSERT(n->pn.children[2]->type == QN_PHRASE);
-  ASSERT_STRING_EQ("foo", n->pn.children[2]->pn.children[0]->tn.str);
-  ASSERT_STRING_EQ("bar", n->pn.children[2]->pn.children[1]->tn.str);
+  ASSERT_EQUAL(_n->pn.children[1]->pn.children[0]->type, QN_TOKEN);
+  ASSERT_EQUAL(_n->pn.children[1]->pn.children[1]->type, QN_TOKEN);
 
-  ASSERT(n->pn.children[3]->type == QN_NOT);
-  ASSERT_EQUAL(QN_TOKEN, n->pn.children[3]->not.child->type);
-  ASSERT_STRING_EQ("baz", n->pn.children[3]->not.child->tn.str);
+  // ASSERT_STRING_EQ("foo", n->pn.children[2]->tn.str);
+  // ASSERT_STRING_EQ("bar", n->pn.children[3]->tn.str);
 
-  ASSERT_EQUAL(QN_PREFX, n->pn.children[4]->type);
-  ASSERT_STRING_EQ("boo", n->pn.children[4]->pfx.str);
+  // ASSERT_EQUAL(n->pn.children[4]->type, QN_NOT);
+  // ASSERT_EQUAL(QN_PHRASE, n->pn.children[4]->not.child->type);
+  // ASSERT_STRING_EQ("baz", n->pn.children[4]->not.child->pn.children[0]->tn.str);
+
+  // ASSERT_EQUAL(QN_PREFX, n->pn.children[4]->not.child->pn.children[1]->type);
+  // ASSERT_STRING_EQ("boo", n->pn.children[4]->not.child->pn.children[1]->pfx.str);
   Query_Free(q);
 
   return 0;
@@ -156,7 +166,7 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->fieldMask, 0x01)
   Query_Free(q);
 
-  qt = "@title:hello @body:world";
+  qt = "(@title:hello) (@body:world)";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
@@ -176,17 +186,27 @@ int testFieldSpec() {
   Query_Free(q);
 
   // test field modifiers
-  qt = "@title:(hello world) @body|title:(world apart) @adas_dfsd:fofofof";
+  qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
   q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, NULL, -1, 0, NULL,
                (RSPayload){}, NULL);
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
+  printf("%s ====> ", qt);
+  __queryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->pn.numChildren, 2)
+  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x03)
+  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x00)
+
+  n = n->pn.children[0];
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->pn.numChildren, 2)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
+  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
   // test numeric ranges
   qt = "@num:[0.4 (500]";
