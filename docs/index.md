@@ -1,3 +1,5 @@
+<center>![logo.png](logo.png)</center>
+
 # RediSearch - Redis Powered Search Engine
 
 RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
