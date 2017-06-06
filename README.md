@@ -2,7 +2,7 @@
 
 # RediSearch 
 
-<center>![logo.png](docs/logo.png)</center>
+![logo.png](docs/logo.png)
 
 
 ### Full-Text search over redis by RedisLabs
