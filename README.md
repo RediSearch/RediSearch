@@ -2,6 +2,9 @@
 
 # RediSearch 
 
+<center>![logo.png](docs/logo.png)</center>
+
+
 ### Full-Text search over redis by RedisLabs
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
