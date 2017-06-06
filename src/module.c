@@ -470,6 +470,46 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/* FT.EXPLAIN {index_name} {query} */
+int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+
+  if (argc != 3) return RedisModule_WrongArity(ctx);
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  size_t qlen;
+  const char *qs = RedisModule_StringPtrLen(argv[2], &qlen);
+  RedisSearchCtx sctx = {ctx, sp};
+  Query *q = NewQuery(&sctx, (char *)qs, qlen, 0, 10, RS_FIELDMASK_ALL, 0, "en", DEFAULT_STOPWORDS,
+                      NULL, -1, 0, NULL, (RSPayload){}, NULL);
+
+  char *errMsg = NULL;
+  if (!Query_Parse(q, &errMsg)) {
+
+    if (errMsg) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
+      RedisModule_ReplyWithError(ctx, errMsg);
+      free(errMsg);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    Query_Free(q);
+    goto end;
+  }
+
+  Query_Expand(q);
+  char *explain = (char *)Query_DumpExplain(q);
+  RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
+  free(explain);
+end:
+  return REDISMODULE_OK;
+}
+
 /* FT.DTADD {index} {key} {flags} {score} [{payload}]
 *
 *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
@@ -814,7 +854,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Parse SORTBY argument
   RSSortingKey sortKey;
   int hasSorting = RSSortingTable_ParseKey(sp->sortables, &sortKey, &argv[3], argc - 3);
-  
+
   int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
 
   // parse the id filter arguments
@@ -1324,6 +1364,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, "ft.info", IndexInfoCommand, "readonly", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, "ft.explain", QueryExplainCommand, "readonly", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 

@@ -13,6 +13,7 @@
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
+#include "rmutil/sds.h"
 
 #define MAX_PREFIX_EXPANSIONS 200
 
@@ -402,9 +403,12 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
 
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryPhraseNode *pn = &parent->pn;
+  // printf("parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
   if (child != NULL && (pn->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
   }
+  // printf("AFTER: parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
+
   // Child nodes inherit the field mask from their parent if they are
   if (child) {
     child->fieldMask &= parent->fieldMask;
@@ -413,6 +417,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
   pn->children[pn->numChildren++] = child;
 }
+
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryUnionNode *un = &parent->un;
   if (child != NULL && (un->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
@@ -505,99 +510,120 @@ void Query_Expand(Query *q) {
   }
 }
 
-void __queryNode_Print(Query *q, QueryNode *qs, int depth) {
-  for (int i = 0; i < depth; i++) {
-    printf("  ");
-  }
+sds _pad(sds s, int len) {
+  if (!len) return s;
+
+  char buf[len * 2 + 1];
+  memset(buf, ' ', len * 2);
+  buf[len * 2] = 0;
+  return sdscat(s, buf);
+}
+
+sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
+  s = _pad(s, depth);
 
   if (qs->fieldMask == 0) {
-    printf("@NONE:");
+    s = sdscat(s, "@NULL:");
   }
 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL) {
     if (!q->ctx) {
-      printf("@%x", qs->fieldMask);
+      s = sdscatprintf(s, "@%x", qs->fieldMask);
     } else {
+      s = sdscat(s, "@");
       uint32_t fm = qs->fieldMask;
       int i = 0, n = 0;
       while (fm) {
         uint32_t bit = (fm & 1) << i;
         if (bit) {
           char *f = GetFieldNameByBit(q->ctx->spec, bit);
-          printf("%s%s", n ? "," : "", f ? f : "n/a");
+          s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }
         fm = fm >> 1;
         i++;
       }
     }
-    printf(":");
+    s = sdscat(s, ":");
   }
 
   switch (qs->type) {
     case QN_PHRASE:
-      printf("%s {\n", qs->pn.exact ? "EXACT" : "PHRASE");
+      s = sdscatprintf(s, "%s {\n", qs->pn.exact ? "EXACT" : "INTERSECT");
       for (int i = 0; i < qs->pn.numChildren; i++) {
-        __queryNode_Print(q, qs->pn.children[i], depth + 1);
+        s = QueryNode_DumpSds(s, q, qs->pn.children[i], depth + 1);
       }
-      for (int i = 0; i < depth; i++) {
-        printf("  ");
-      }
+      s = _pad(s, depth);
 
       break;
     case QN_TOKEN:
-      printf("{%s%s", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
-      break;
+      s = sdscatprintf(s, "%s%s\n", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
+      return s;
 
     case QN_PREFX:
-      printf("PREFIX{%s", (char *)qs->pfx.str);
+      s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.str);
       break;
 
     case QN_NOT:
-      printf("NOT{\n");
-      __queryNode_Print(q, qs->not.child, depth + 1);
-      for (int i = 0; i < depth; i++) {
-        printf("  ");
-      }
+      s = sdscat(s, "NOT{\n");
+      s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
+      s = _pad(s, depth);
       break;
 
     case QN_OPTIONAL:
-      printf("OPTIONAL{\n");
-      __queryNode_Print(q, qs->not.child, depth + 1);
-      for (int i = 0; i < depth; i++) {
-        printf("  ");
-      }
+      s = sdscat(s, "OPTIONAL{\n");
+      s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
+      s = _pad(s, depth);
       break;
 
     case QN_NUMERIC: {
       NumericFilter *f = qs->nn.nf;
-      printf("NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
-             f->inclusiveMax ? "<=" : "<", f->max);
+      s = sdscatprintf(s, "NUMERIC {%f %s x %s %f", f->min, f->inclusiveMin ? "<=" : "<",
+                       f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
-      printf("UNION {\n");
+      s = sdscat(s, "UNION {\n");
       for (int i = 0; i < qs->un.numChildren; i++) {
-        __queryNode_Print(q, qs->un.children[i], depth + 1);
+        s = QueryNode_DumpSds(s, q, qs->un.children[i], depth + 1);
       }
-      for (int i = 0; i < depth; i++) {
-        printf("  ");
-      }
+      s = _pad(s, depth);
       break;
     case QN_GEO:
 
-      printf("GEO {%f,%f --> %f %s", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
-             qs->gn.gf->unit);
+      s = sdscatprintf(s, "GEO {%f,%f --> %f %s", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
+                       qs->gn.gf->unit);
       break;
     case QN_IDS:
 
-      printf("IDS { ");
+      s = sdscat(s, "IDS { ");
       for (int i = 0; i < qs->fn.f->size; i++) {
-        printf("%d,", qs->fn.f->ids[i]);
+        s = sdscatprintf(s, "%d,", qs->fn.f->ids[i]);
       }
       break;
   }
 
-  printf("}\n");
+  s = sdscat(s, "}\n");
+  return s;
+}
+
+/* Return a string representation of the query parse tree. The string should be freed by the caller
+ */
+const char *Query_DumpExplain(Query *q) {
+  // empty query
+  if (!q || !q->root) {
+    return strdup("NULL");
+  }
+
+  sds s = QueryNode_DumpSds(sdsnew(""), q, q->root, 0);
+  const char *ret = strndup(s, sdslen(s));
+  sdsfree(s);
+  return ret;
+}
+
+void __queryNode_Print(Query *q, QueryNode *qn, int depth) {
+  sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
+  printf("%s", s);
+  sdsfree(s);
 }
 
 void Query_Free(Query *q) {
