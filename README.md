@@ -2,10 +2,8 @@
 
 # RediSearch 
 
-![logo.png](docs/logo.png)
-
-
 ### Full-Text search over redis by RedisLabs
+![logo.png](docs/logo.png)
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
