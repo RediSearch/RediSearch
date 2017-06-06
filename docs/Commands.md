@@ -282,7 +282,60 @@ Complexity for complex queries changes, but in general it's proportional to the 
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-----
+---
+
+## FT.EXPLAIN
+
+### Format
+
+```
+FT.EXPLAIN {index} {query}
+```
+
+### Description
+
+Return the execution plan for a complex query
+
+Example:
+
+```sh
+$ redis-cli --raw
+
+127.0.0.1:6379> FT.EXPLAIN rd "(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]"
+INTERSECT {
+  UNION {
+    INTERSECT {
+      foo
+      bar
+    }
+    INTERSECT {
+      hello
+      world
+    }
+  }
+  UNION {
+    NUMERIC {100.000000 <= x <= 200.000000}
+    NUMERIC {500.000000 <= x <= inf}
+  }
+}
+```
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **query**: The query string, as if sent to FT.SEARCH
+
+### Complexity
+
+O(1)
+
+### Returns
+
+String Response. A string representing the execution plan (see above example). 
+
+**Note**: You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+
+---
+
 
 ## FT.DEL
 

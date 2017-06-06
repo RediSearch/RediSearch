@@ -4,7 +4,7 @@ RediSearch is a Full-Text search over Redis, developed by RedisLabs.
 
 The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
 
-### Latest Release: [0.16 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.16)
+### Latest Release: [0.17 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.17)
 
 ## Overview
 
@@ -23,6 +23,8 @@ that are not possible or efficient with traditional redis search approache
 ### Community Libraries:
 
 * **PHP**: [https://github.com/ethanhann/redisearch-php](https://github.com/ethanhann/redisearch-php) (By Ethan Hann)
+
+* **Ruby**: [https://github.com/vruizext/redisearch-rb](https://github.com/vruizext/redisearch-rb) (By Victor Ruiz)
 
 * **Ruby on Rails**: [https://github.com/dmitrypol/redi_search_rails](https://github.com/dmitrypol/redi_search_rails) (By Dmitry Polyakovsky)
 

@@ -6,7 +6,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.16 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.16)
+### Latest Release: [0.17 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.17)
 
 # Client Libraries
 
@@ -65,7 +65,4 @@ that are not possible or efficient with traditional redis search approaches.
 Which basically means you can freely use this for your own projects without "virality" to your code,
 as long as you're not modifying the module itself. See [This Blog Post](https://redislabs.com/blog/why-redis-labs-modules-are-agpl/) for more details.
 
-### Note About Stability
-
-RediSearch is still under development and can be considered Alpha. While we've tested it extensively with big data-sets and very high workloads, and it is very stable - the API itself may change. You are welcome to use it, but keep in mind future versions might change things.
  
