@@ -3,38 +3,37 @@
 #include "sparse_vector.h"
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
-  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune)*(slen + 1);
+  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
 }
 
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren,
-                        float score, int terminal) {
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren, float score,
+                        int terminal) {
   TrieNode *n = calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
   n->numChildren = numChildren;
   n->score = score;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   n->maxChildScore = 0;
-  memcpy(n->str, str+offset, sizeof(rune)*(len-offset));
-  
+  memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
+
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len,
-                          float score) {
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, float score) {
   n->numChildren++;
   n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, 0, score, 1);
   __trieNode_children(n)[n->numChildren - 1] = child;
-  n->flags &= ~TRIENODE_SORTED; // the node is now not sorted
+  n->flags &= ~TRIENODE_SORTED;  // the node is now not sorted
 
   return n;
 }
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
-  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->numChildren,
-                                     n->score, __trieNode_isTerminal(n));
+  TrieNode *newChild =
+      __newTrieNode(n->str, offset, n->len, n->numChildren, n->score, __trieNode_isTerminal(n));
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
   TrieNode **children = __trieNode_children(n);
@@ -63,13 +62,13 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n) {
     return n;
   }
   TrieNode *ch = *__trieNode_children(n);
-  
+
   // Copy the current node's data and children to a new child node
   rune nstr[n->len + ch->len + 1];
-  memcpy(nstr, n->str, sizeof(rune)*n->len);
-  memcpy(&nstr[n->len], ch->str,  sizeof(rune)*ch->len);
-  TrieNode *merged = __newTrieNode(nstr, 0, n->len + ch->len, ch->numChildren,
-                                   ch->score, __trieNode_isTerminal(ch));
+  memcpy(nstr, n->str, sizeof(rune) * n->len);
+  memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
+  TrieNode *merged = __newTrieNode(nstr, 0, n->len + ch->len, ch->numChildren, ch->score,
+                                   __trieNode_isTerminal(ch));
 
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
@@ -94,8 +93,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   }
 }
 
-int TrieNode_Add(TrieNode **np, rune *str, t_len len, float score,
-                 TrieAddOp op) {
+int TrieNode_Add(TrieNode **np, rune *str, t_len len, float score, TrieAddOp op) {
   if (score == 0 || len == 0) {
     return 0;
   }
@@ -138,15 +136,15 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, float score,
     int term = __trieNode_isTerminal(n);
     int deleted = __trieNode_isDeleted(n);
     switch (op) {
-    // in increment mode, just add the score to the node's score
-    case ADD_INCR:
-      n->score += score;
-      break;
+      // in increment mode, just add the score to the node's score
+      case ADD_INCR:
+        n->score += score;
+        break;
 
-    // by default we just replace the score
-    case ADD_REPLACE:
-    default:
-      n->score = score;
+      // by default we just replace the score
+      case ADD_REPLACE:
+      default:
+        n->score = score;
     }
     // set the node as terminal
     n->flags |= TRIENODE_TERMINAL;
@@ -185,8 +183,7 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 
     if (offset == len) {
       // we're at the end of both strings!
-      if (localOffset == n->len)
-        return __trieNode_isDeleted(n) ? 0 : n->score;
+      if (localOffset == n->len) return __trieNode_isDeleted(n) ? 0 : n->score;
 
     } else if (localOffset == n->len) {
       // we've reached the end of the node's string but not the search string
@@ -215,7 +212,7 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 
 void __trieNode_sortChildren(TrieNode *n);
 
-/* Optimize the node and its children: 
+/* Optimize the node and its children:
 *   1. If a child should be deleted - delete it and reduce the child count
 *   2. If a child has a single child - merge them
 *   3. recalculate the max child score
@@ -227,18 +224,18 @@ void __trieNode_optimizeChildren(TrieNode *n) {
   n->maxChildScore = n->score;
   // free deleted terminal nodes
   while (i < n->numChildren) {
-    
+
     // if this is a deleted node with no children - remove it
     if (nodes[i]->numChildren == 0 && __trieNode_isDeleted(nodes[i])) {
       TrieNode_Free(nodes[i]);
-      
-      nodes[i] = NULL; 
+
+      nodes[i] = NULL;
       // just "fill" the hole with the next node up
       while (i < n->numChildren - 1) {
-        nodes[i] = nodes[i+1];
+        nodes[i] = nodes[i + 1];
         n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
         i++;
-      } 
+      }
       // reduce child count
       n->numChildren--;
     } else {
@@ -249,13 +246,11 @@ void __trieNode_optimizeChildren(TrieNode *n) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i]);
       }
       n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
-
     }
     i++;
   }
-  
-  __trieNode_sortChildren(n);
 
+  __trieNode_sortChildren(n);
 }
 
 int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
@@ -341,8 +336,7 @@ static int __trieNode_Cmp(const void *p1, const void *p2) {
 /* Sort the children of a node by their maxChildScore */
 void __trieNode_sortChildren(TrieNode *n) {
   if (!(n->flags & TRIENODE_SORTED) && n->numChildren > 1) {
-    qsort(__trieNode_children(n), n->numChildren, sizeof(TrieNode *),
-          __trieNode_Cmp);
+    qsort(__trieNode_children(n), n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
   }
   n->flags |= TRIENODE_SORTED;
 }
@@ -360,7 +354,7 @@ inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
 }
 
 inline void __ti_Pop(TrieIterator *it) {
-  if (it->stackOffset) {
+  if (it->stackOffset > 0) {
     stackNode *current = __ti_current(it);
     if (it->popCallback) {
       it->popCallback(it->ctx, current->stringOffset);
@@ -386,80 +380,78 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
   //        current->n->len,
   //        current->childOffset, current->n->numChildren);
   switch (current->state) {
-  case ITERSTATE_MATCH:
-    __ti_Pop(it);
-    goto next;
-
-  case ITERSTATE_SELF:
-
-    if (current->stringOffset < current->n->len) {
-      // get the current rune to feed the filter
-      rune b = current->n->str[current->stringOffset];
-
-      if (it->filter) {
-        // run the next character in the filter
-        FilterCode rc = it->filter(b, it->ctx, &matched, matchCtx);
-
-        // if we should stop...
-        if (rc == F_STOP) {
-          // match stop - change the state to MATCH and return
-          if (matched) {
-            current->state = ITERSTATE_MATCH;
-            return __STEP_MATCH;
-          }
-          // normal stop - just pop and continue
-          __ti_Pop(it);
-          goto next;
-        }
-      }
-
-      // advance the buffer offset and character offset
-      it->buf[it->bufOffset++] = b;
-      current->stringOffset++;
-
-      // if we don't have a filter, a "match" is when we reach the end of the
-      // node
-      if (!it->filter) {
-        if (current->stringOffset == current->n->len &&
-            __trieNode_isTerminal(current->n) &&
-            !__trieNode_isDeleted(current->n)) {
-          matched = 1;
-        }
-      }
-
-      return matched ? __STEP_MATCH : __STEP_CONT;
-    } else {
-      // switch to "children mode"
-      current->state = ITERSTATE_CHILDREN;
-    }
-
-  case ITERSTATE_CHILDREN:
-  default:
-    if (!(current->n->flags & TRIENODE_SORTED)) {
-      __trieNode_sortChildren(current->n);
-    }
-    // push the next child
-    if (current->childOffset < current->n->numChildren) {
-      TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
-      if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
-        __ti_Push(it, ch, 0);
-        it->nodesConsumed++;
-      } else {
-        //__ti_Push(it, ch, 1);
-        it->nodesSkipped++;
-      }
-    } else {
-      // at the end of the node - pop and go up
+    case ITERSTATE_MATCH:
       __ti_Pop(it);
-    }
+      goto next;
+
+    case ITERSTATE_SELF:
+
+      if (current->stringOffset < current->n->len) {
+        // get the current rune to feed the filter
+        rune b = current->n->str[current->stringOffset];
+
+        if (it->filter) {
+          // run the next character in the filter
+          FilterCode rc = it->filter(b, it->ctx, &matched, matchCtx);
+
+          // if we should stop...
+          if (rc == F_STOP) {
+            // match stop - change the state to MATCH and return
+            if (matched) {
+              current->state = ITERSTATE_MATCH;
+              return __STEP_MATCH;
+            }
+            // normal stop - just pop and continue
+            __ti_Pop(it);
+            goto next;
+          }
+        }
+
+        // advance the buffer offset and character offset
+        it->buf[it->bufOffset++] = b;
+        current->stringOffset++;
+
+        // if we don't have a filter, a "match" is when we reach the end of the
+        // node
+        if (!it->filter) {
+          if (current->n->len > 0 && current->stringOffset == current->n->len &&
+              __trieNode_isTerminal(current->n) && !__trieNode_isDeleted(current->n)) {
+            matched = 1;
+          }
+        }
+
+        return matched ? __STEP_MATCH : __STEP_CONT;
+      } else {
+        // switch to "children mode"
+        current->state = ITERSTATE_CHILDREN;
+      }
+
+    case ITERSTATE_CHILDREN:
+    default:
+      if (!(current->n->flags & TRIENODE_SORTED)) {
+        __trieNode_sortChildren(current->n);
+      }
+      // push the next child
+      if (current->childOffset < current->n->numChildren) {
+        TrieNode *ch = __trieNode_children(current->n)[current->childOffset++];
+        if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
+          __ti_Push(it, ch, 0);
+          it->nodesConsumed++;
+        } else {
+          //__ti_Push(it, ch, 1);
+          it->nodesSkipped++;
+        }
+      } else {
+        // at the end of the node - pop and go up
+        __ti_Pop(it);
+      }
   }
 
 next:
   return __STEP_CONT;
 }
 
-TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf,
-                               void *ctx) {
+TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
   TrieIterator *it = calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
@@ -470,10 +462,11 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf,
   return it;
 }
 
-void TrieIterator_Free(TrieIterator *it) { free(it); }
+void TrieIterator_Free(TrieIterator *it) {
+  free(it);
+}
 
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score,
-                      void *matchCtx) {
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score, void *matchCtx) {
   int rc;
   while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {

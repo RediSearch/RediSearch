@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "rune_util.h"
 
-typedef u_int8_t t_len;
+typedef uint16_t t_len;
 
 #define MAX_STRING_LEN 255
 
@@ -28,6 +28,8 @@ typedef struct {
   // the number of child nodes
   t_len numChildren;
 
+  unsigned char flags;
+
   // the node's score. Non termn
   float score;
 
@@ -35,14 +37,11 @@ typedef struct {
   // traversal
   float maxChildScore;
 
-  unsigned char flags;
-
   // the string of the current node
   rune str[];
   // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
-
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
 
@@ -53,13 +52,13 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren,
-                        float score, int terminal);
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren, float score,
+                        int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
  * memory saving reasons */
-#define __trieNode_children(n)                                                 \
+#define __trieNode_children(n) \
   ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
@@ -69,8 +68,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren,
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len,
-                          float score);
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
 * up until offset, and
@@ -128,10 +126,10 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[MAX_STRING_LEN];
+  rune buf[MAX_STRING_LEN+1];
   t_len bufOffset;
 
-  stackNode stack[MAX_STRING_LEN];
+  stackNode stack[MAX_STRING_LEN+1];
   t_len stackOffset;
   StepFilter filter;
   float minScore;
@@ -168,8 +166,7 @@ int __ti_step(TrieIterator *it, void *matchCtx);
  * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
  * filter means just
  * continue iterating the entire trie. ctx is the filter's context */
-TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf,
-                               void *ctx);
+TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
 
 /* Free a trie iterator */
 void TrieIterator_Free(TrieIterator *it);
@@ -177,7 +174,6 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score,
-                      void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score, void *matchCtx);
 
 #endif

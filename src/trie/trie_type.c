@@ -26,10 +26,13 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
 
   rune *runes = strToRunes(s, &len);
-  int rc = TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-  free(runes);
-  t->size += rc;
-  return rc;
+  if (len && len < MAX_STRING_LEN) {
+    int rc = TrieNode_Add(&t->root, runes, len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+    free(runes);
+    t->size += rc;
+    return rc;
+  }
+  return 0;
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
@@ -220,6 +223,8 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
   Trie *tree = (Trie *)value;
   RedisModule_SaveUnsigned(rdb, tree->size);
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
   int count = 0;
   if (tree->root) {
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
@@ -235,7 +240,10 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       free(s);
       count++;
     }
-
+    if (count != tree->size) {
+      RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %zd nodes",
+                      tree->size, count);
+    }
     TrieIterator_Free(it);
   }
 }
