@@ -661,7 +661,7 @@ static int cmpHits(const void *e1, const void *e2, const void *udata) {
   } else if (h1->score > h2->score) {
     return -1;
   }
-  return h1->docId - h2->docId;
+  return h2->docId - h1->docId;
 }
 
 static int sortByCmp(const void *e1, const void *e2, const void *udata) {
@@ -694,6 +694,7 @@ QueryResult *Query_Execute(Query *query) {
   }
 
   int num = query->offset + query->limit;
+
   heap_t *pq = malloc(heap_sizeof(num));
   if (query->sortKey) {
     heap_init(pq, sortByCmp, query->sortKey, num);
@@ -776,6 +777,7 @@ QueryResult *Query_Execute(Query *query) {
   size_t n = MIN(heap_count(pq), query->limit);
   res->numResults = n;
   res->results = calloc(n, sizeof(ResultEntry));
+  // printf("offset %zd, limit %zd, num %d\n", query->offset, query->limit, res->numResults);
 
   for (int i = 0; i < n; ++i) {
     heapResult *h = heap_poll(pq);
