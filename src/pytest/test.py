@@ -226,11 +226,11 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields', 'foo', 'hello world werld'))
 
             res  = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-            self.assertEqual([3L, 'doc1', 'doc2', 'doc3'], res)
+            self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
             res  = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
-            self.assertEqual([2L, 'doc2', 'doc3'], res)
+            self.assertEqual([2L, 'doc3', 'doc2'], res)
             res  = r.execute_command('ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-            self.assertEqual([3L, 'doc2', 'doc3', 'doc1'], res)
+            self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
             res  = r.execute_command('ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
 
@@ -419,15 +419,15 @@ class SearchTestCase(ModuleTestCase('../module.so')):
 
                 res = gsearch('hilton', "-0.1757", "51.5156", '1')
                 self.assertEqual(3, res[0])
-                self.assertEqual('hotel2', res[1])
+                self.assertEqual('hotel2', res[5])
                 self.assertEqual('hotel21', res[3])
-                self.assertEqual('hotel79', res[5])
+                self.assertEqual('hotel79', res[1])
 
                 res = gsearch('hilton', "-0.1757", "51.5156", '10')
                 self.assertEqual(14, res[0])
-                self.assertEqual('hotel1', res[1])
-                self.assertEqual('hotel2', res[3])
-                self.assertEqual('hotel21', res[5])
+                self.assertEqual('hotel93', res[1])
+                self.assertEqual('hotel92', res[3])
+                self.assertEqual('hotel79', res[5])
 
                 res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
                 self.assertListEqual(res, res2)
@@ -462,8 +462,8 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
             self.assertEqual(3, len(res))
             self.assertEqual(2, res[0])
-            self.assertEqual("doc1", res[1])
-            self.assertEqual("doc2", res[2])
+            self.assertEqual("doc1", res[2])
+            self.assertEqual("doc2", res[1])
 
             res = r.execute_command(
                 'ft.search', 'idx', "hello", "filter", "price", "0", "3")
