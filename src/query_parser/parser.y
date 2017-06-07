@@ -144,6 +144,10 @@ expr(A) ::= QUOTE termlist(B) QUOTE. {
     A = B;
 }
 
+term(A) ::= QUOTE term(B) QUOTE. {
+    A = B;
+}
+
 expr(A) ::= term(B) .  {
     A = NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len);
 }

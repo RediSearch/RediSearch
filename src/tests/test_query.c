@@ -59,7 +59,11 @@ int testQueryParser() {
   assertValidQuery("hello (world)");
 
   assertValidQuery("\"hello world\"");
+  assertValidQuery("\"hello\"");
+
   assertValidQuery("\"hello world\" \"foo bar\"");
+  assertValidQuery("\"hello world\"|\"foo bar\"");
+  assertValidQuery("\"hello world\" (\"foo bar\")");
   assertValidQuery("hello \"foo bar\" world");
   assertValidQuery("hello|hallo|yellow world");
   assertValidQuery("(hello|world|foo) bar baz 123");
