@@ -234,6 +234,62 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             res  = r.execute_command('ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
 
+    def testExplain(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
+
+            q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
+            res = r.execute_command('ft.explain', 'idx', q)            
+            self.assertEqual(res, """INTERSECT {
+  hello
+  world
+  EXACT {
+    what
+    what
+  }
+  UNION {
+    hello
+    world
+  }
+  UNION {
+    NUMERIC {10.000000 <= @bar <= 100.000000}
+    NUMERIC {200.000000 <= @bar <= 300.000000}
+  }
+}
+""")
+
+    def testPaging(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
+            N = 100
+            for i in range(N):
+                self.assertOk(r.execute_command('ft.add', 'idx', '%d' % i, 1, 'fields',
+                                                'foo', 'hello', 'bar', i))
+            
+
+            chunk = 7
+            offset = 0
+            while True:
+                
+                res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', offset, chunk)
+                self.assertEqual(res[0], N)
+                
+                if offset + chunk > N:
+                    self.assertTrue(len(res)-1 <= chunk)
+                    break
+                self.assertEqual(len(res), chunk+1)
+                for n, id in enumerate(res[1:]):
+                    self.assertEqual(int(id), N - 1- (offset+n))
+                offset += chunk
+                chunk = random.randrange(1, 10)
+            res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 'bar', 'asc', 'limit', N, 10)
+            self.assertEqual(res[0], N)
+            self.assertEqual(len(res), 1)
+
     def testPrefix(self):
         with self.redis() as r:
             r.flushdb()

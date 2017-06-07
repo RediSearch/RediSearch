@@ -773,12 +773,22 @@ QueryResult *Query_Execute(Query *query) {
   res->totalResults = it->Len(it->ctx) - numDeleted;
   it->Free(it);
 
+  // if not enough results - just return nothing now
+  if (heap_count(pq) <= query->offset) {
+    res->numResults = 0;
+    res->results = NULL;
+    goto cleanup;
+  }
+
   // Reverse the results into the final result
-  size_t n = MIN(heap_count(pq), query->limit);
+
+  // first - calculate the number of results in the heap matching our paging
+  size_t n = MIN(heap_count(pq) - query->offset, query->limit);
   res->numResults = n;
   res->results = calloc(n, sizeof(ResultEntry));
   // printf("offset %zd, limit %zd, num %d\n", query->offset, query->limit, res->numResults);
 
+  // pop from the end of the heap the lowest n results in reverse order
   for (int i = 0; i < n; ++i) {
     heapResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
@@ -793,6 +803,7 @@ QueryResult *Query_Execute(Query *query) {
     free(h);
   }
 
+cleanup:
   // if we still have something in the heap (meaning offset > 0), we need to poll...
   while (heap_count(pq) > 0) {
     heapResult *h = heap_poll(pq);
