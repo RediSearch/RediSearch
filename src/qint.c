@@ -1,9 +1,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "../tests/time_sample.h"
-#include "../buffer.h"
-#include "../rmalloc.h"
+#include "buffer.h"
+#include "rmalloc.h"
+#include "qint.h"
 
 size_t qint_encode(BufferWriter *bw, uint32_t arr[], int len) {
   if (len <= 0 || len > 4) return 0;
@@ -21,6 +21,7 @@ size_t qint_encode(BufferWriter *bw, uint32_t arr[], int len) {
     do {
       // write one byte into the buffer and advance the byte count
       ret += Buffer_Write(bw, (char *)&arr[i], 1);
+
       n++;
       // shift right until we have no more bigger bytes that are non zero
       arr[i] = arr[i] >> 8;
@@ -1421,6 +1422,7 @@ size_t qint_decode(BufferReader *br, uint32_t *arr, int len) {
 #define qint_member(p, i)                                       \
   (*(uint32_t *)(p + configs[*(uint8_t *)p].fields[i].offset) & \
    configs[*(uint8_t *)p].fields[i].mask)
+#define qint_memberx(p, c, i) (*(uint32_t *)(p + c.fields[i].offset) & c.fields[i].mask)
 
 size_t qint_decode1(BufferReader *br, uint32_t *i) {
   *i = qint_member(br->pos, 0);
@@ -1446,13 +1448,14 @@ size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3) {
   return offset;
 }
 
-size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3, uint32_t *i4) {
-
-  *i = qint_member(br->pos, 0);
-  *i2 = qint_member(br->pos, 1);
-  *i3 = qint_member(br->pos, 2);
-  *i4 = qint_member(br->pos, 3);
-  size_t offset = configs[*(uint8_t *)br->pos].size;
+inline size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3,
+                           uint32_t *i4) {
+  uint8_t pos = *(uint8_t *)br->pos;
+  *i = qint_memberx(br->pos, configs[pos], 0);
+  *i2 = qint_memberx(br->pos, configs[pos], 1);
+  *i3 = qint_memberx(br->pos, configs[pos], 2);
+  *i4 = qint_memberx(br->pos, configs[pos], 3);
+  size_t offset = configs[pos].size;
   Buffer_Skip(br, offset);
   return offset;
 }

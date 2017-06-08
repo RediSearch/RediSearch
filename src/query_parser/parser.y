@@ -5,11 +5,14 @@
 %left MINUS.
 %left NUMBER.
 %left MODIFIER.
-%left AND.
+
 %left TERMLIST.
+
 %right LP.
 %left RP.
+%left AND.
 %left OR.
+%left ORX.
 
 %token_type {QueryToken}  
 
@@ -91,21 +94,27 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     QueryPhraseNode_AddChild(A, C);
 } 
 
+expr(A) ::= union(B) . [ORX] {
+    A = B;
+}
+
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
     
-    A = NewUnionNode();
-    QueryUnionNode_AddChild(A, B);
+    if (B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
+        A =B;
+    } else {
+        A = NewUnionNode();
+        QueryUnionNode_AddChild(A, B);
+    }
     QueryUnionNode_AddChild(A, C); 
 }
 
-union(A) ::= union(B) OR expr(C). [OR] {
+
+
+union(A) ::= union(B) OR expr(C). [ORX] {
     A = B;
     QueryUnionNode_AddChild(A, C); 
-}
-
-expr(A) ::= union(B) . [OR] {
-    A = B;
 }
 
 // expr(A) ::= term(B) . { 

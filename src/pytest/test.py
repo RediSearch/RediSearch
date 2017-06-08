@@ -239,9 +239,9 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
-
             q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
-            res = r.execute_command('ft.explain', 'idx', q)            
+            res = r.execute_command('ft.explain', 'idx', q)    
+        
             self.assertEqual(res, """INTERSECT {
   hello
   world

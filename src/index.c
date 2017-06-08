@@ -131,7 +131,17 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
     return UI_Read(ctx, hit);
   }
 
+  if (ui->atEnd) {
+    return INDEXREAD_EOF;
+  }
+
   AggregateResult_Reset(ui->current);
+  if (docId < ui->minDocId) {
+    ui->current->docId = ui->minDocId;
+    *hit = ui->current;
+    return INDEXREAD_NOTFOUND;
+  }
+
   int n = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
@@ -144,8 +154,7 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
 
     RSIndexResult *res = it->Current(it->ctx);
 
-    if (ui->docIds[i] < docId || docId == 0) {
-
+    if (ui->docIds[i] < docId) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
       }

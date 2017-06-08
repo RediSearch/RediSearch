@@ -3,7 +3,7 @@
 #include "varint.h"
 #include <stdio.h>
 #include "rmalloc.h"
-#include "util/qint.h"
+#include "qint.h"
 
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
@@ -262,8 +262,6 @@ int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
   uint32_t newi;
 
   while (bottom <= top) {
-    // LG_DEBUG("top %d, bottom: %d idx %d, i %d, docId %d\n", top, bottom,
-    // idx->entries[i].docId, i, docId );
     if (_isPos(idx, i, docId)) {
       ir->currentBlock = i;
       goto found;
@@ -275,11 +273,6 @@ int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
       bottom = i + 1;
     }
     i = (bottom + top) / 2;
-    // LG_DEBUG("top %d, bottom: %d, new i: %d\n", top, bottom, newi);
-    // if (newi == i) {
-    //   break;
-    // }
-    // i = newi;
   }
   ir->currentBlock = i;
 
