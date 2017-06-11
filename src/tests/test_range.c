@@ -22,7 +22,7 @@ int testNumericRangeTree() {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQUAL(t->numRanges, 36);
+  ASSERT_EQUAL(t->numRanges, 16);
   ASSERT_EQUAL(t->numEntries, 50000);
 
   struct {
@@ -61,7 +61,7 @@ int testRangeIterator() {
     // printf("Adding %d > %f\n", docId, value);
     NumericRangeTree_Add(t, docId, value);
   }
-  ASSERT_EQUAL(t->numRanges, 8);
+  ASSERT_EQUAL(t->numRanges, 4);
   ASSERT_EQUAL(t->numEntries, N);
 
   NumericFilter *flt = NewNumericFilter(-1, 1002, 0, 0);
@@ -147,5 +147,5 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testNumericRangeTree);
   TESTFUNC(testRangeIterator);
-  benchmarkNumericRangeTree();
+  // benchmarkNumericRangeTree();
 });

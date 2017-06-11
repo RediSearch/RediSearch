@@ -60,6 +60,7 @@ t_docId UI_LastDocId(void *ctx);
 typedef struct {
   IndexIterator **its;
   t_docId *docIds;
+  int *rcs;
   RSIndexResult *current;
   int num;
   size_t len;

@@ -714,21 +714,20 @@ QueryResult *Query_Execute(Query *query) {
     }
     heapResult *h = pooledHit;
 
+    // Read the next result from the execution tree
     int rc = it->Read(it->ctx, &r);
 
+    // This means we are done!
     if (rc == INDEXREAD_EOF) {
       break;
     } else if (rc == INDEXREAD_NOTFOUND) {
       continue;
     }
-    // IndexResult_Print(r, 0);
-    // printf("\n-------------------\n");
 
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
-      // printf("No dmd for %d\n", r->docId);
       ++numDeleted;
       continue;
     }

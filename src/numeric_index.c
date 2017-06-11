@@ -5,7 +5,7 @@
 #include <math.h>
 #include "redismodule.h"
 //#include "tests/time_sample.h"
-#define NR_EXPONENT 2
+#define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 1000
 #define NR_MAXRANGE_SIZE 5000
 #define NR_MAX_DEPTH 2
@@ -31,9 +31,9 @@ double qselect(double *v, int len, int k) {
 }
 
 /* Returns 1 if the entire numeric range is contained between min and max */
-int NumericRange_Within(NumericRange *n, double min, double max) {
+int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
-  int rc = (n->minVal >= min && n->maxVal < max);
+  int rc = (n->minVal >= min && n->maxVal <= max);
   // printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
   return rc;
 }
@@ -49,7 +49,7 @@ int NumericRange_Contains(NumericRange *n, double min, double max) {
 /* Returns 1 if there is any overlap between the range and min/max */
 int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   if (!n) return 0;
-  int rc = (min >= n->minVal && min < n->maxVal) || (max >= n->minVal && max < n->maxVal);
+  int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
   // printf("range %f..%f, min %f max %f, overlaps? %d\n", n->minVal, n->maxVal, min, max, rc);
   return rc;
 }
@@ -173,32 +173,35 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   return 0;
 }
 
-/* push a range to the vector, checking it's not already there */
-void __pushRange(Vector *v, NumericRange *rng, const char *ctx) {
+/* recrusively add a node's children to the range. */
+void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max) {
+  if (!n) return;
 
-  if (!rng) return;
-
-  for (size_t i = 0; i < Vector_Size(v); i++) {
-    NumericRange *vr;
-    Vector_Get(v, i, &vr);
-    if (vr == rng) {
+  if (n->range) {
+    // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
+    //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
+    //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
+    //
+    // if the range is completely contained in the search, we can just add it and not inspect any
+    // downwards
+    if (NumericRange_Contained(n->range, min, max)) {
+      Vector_Push(v, n->range);
+      return;
+    }
+    // No overlap at all - no need to do anything
+    if (!NumericRange_Overlaps(n->range, min, max)) {
       return;
     }
   }
-  // printf("%s Pushing range %f..%f size %d, card %d, cap %d, splitCard %d\n", ctx, rng->minVal,
-  //        rng->maxVal, rng->size, rng->card, rng->cap, rng->splitCard);
-  Vector_Push(v, rng);
-}
 
-/* recrusively add a node's children to the range. */
-void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max, void *ctx) {
-  if (!n) return;
-  if (n->range && NumericRange_Within(n->range, min, max)) {
-    __pushRange(v, n->range, ctx);
+  // for non leaf nodes - we try to descend into their children
+  if (!__isLeaf(n)) {
+    __recursiveAddRange(v, n->left, min, max);
+    __recursiveAddRange(v, n->right, min, max);
+  } else if (NumericRange_Overlaps(n->range, min, max)) {
+    Vector_Push(v, n->range);
     return;
   }
-  __recursiveAddRange(v, n->left, min, max, ctx);
-  __recursiveAddRange(v, n->right, min, max, ctx);
 }
 
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
@@ -206,105 +209,8 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max,
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
-
-  NumericRangeNode *vmin = n, *vmax = n;
-  double minRange = NF_INFINITY;
-  double maxRange = NF_NEGATIVE_INFINITY;
-
-  while (vmin) {
-
-    NumericRangeNode *rn = vmin;
-    // if vmin fits the entire range - find the smallest fitting child of it and return
-    while (NumericRange_Contains(rn->range, min, max)) {
-
-      if (rn->left && NumericRange_Contains(rn->left->range, min, max)) {
-        rn = rn->left;
-      } else if (rn->right && NumericRange_Contains(rn->right->range, min, max)) {
-        rn = rn->right;
-      } else {
-        __pushRange(leaves, rn->range, "vmin contains");
-
-        return leaves;
-      }
-    }
-
-    // if vmin is within min and max, no need to go down further
-    if (NumericRange_Within(vmin->range, min, max) ||
-        NumericRange_Overlaps(vmin->range, min, max)) {
-      if (minRange > vmin->range->minVal) {
-        minRange = vmin->range->minVal;
-      }
-      if (maxRange < vmin->range->maxVal) {
-        maxRange = vmin->range->maxVal;
-      }
-      __pushRange(leaves, vmin->range, "vmin");
-      break;
-    }
-
-    // find the minimal node that fits the minimum of the query, or just the closes leaf
-    if (!__isLeaf(vmin)) {
-      // if we go left - it means that the right child fits the range as well
-      if (min < vmin->value) {
-        // try to add the right child as well
-        __recursiveAddRange(leaves, vmin->right, min, max, "vmin_other");
-        vmin = vmin->left;
-
-      } else {
-        vmin = vmin->right;  // the left child is not interesting for us
-      }
-
-    } else {
-      // we're at a leaf. either it fits the minimum or the minimum is out of range
-      if (vmin->range->maxVal > min) {
-        if (minRange > vmin->range->minVal) {
-          minRange = vmin->range->minVal;
-        }
-        if (maxRange < vmin->range->maxVal) {
-          maxRange = vmin->range->maxVal;
-        }
-        __pushRange(leaves, vmin->range, "vmin edge");
-      } else {  // we're out of range - no need to return anything
-        // TODO: Vector_Clear
-        // printf("Returning nothing...\n");
-        Vector_Free(leaves);
-        return NULL;
-      }
-      break;
-    }
-  }
-
-  while (vmax) {
-    // printf("minVal %f maxVal %f\n", minRange, maxRange);
-    // if vmax is fully contained within min and max - no need to go down further
-    if (NumericRange_Within(vmax->range, min, max) && vmax->range->maxVal > maxRange) {
-      maxRange = vmax->range->maxVal;
-      __pushRange(leaves, vmax->range, "vmax");
-      break;
-    }
-
-    // try to find the rightmost node fitting our query
-    if (!__isLeaf(vmax)) {
-
-      // go one left - we don't care about right
-      if (max < vmax->value) {
-        vmax = vmax->left;
-      } else {
-        // try adding the left child of the current rightmost node
-        __recursiveAddRange(leaves, vmax->left, min, max, "vmax_other");
-        vmax = vmax->right;
-      }
-
-    } else {
-
-      if (vmax != vmin && vmax->range && vmax->range->minVal <= max &&
-          vmax->range->maxVal > maxRange) {
-        __pushRange(leaves, vmax->range, "vmax");
-      }
-      break;
-    }
-  }
-
-  // printf("Found %zd ranges\n", leaves->top);
+  __recursiveAddRange(leaves, n, min, max);
+  // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
   // for (int i = 0; i < leaves->top; i++) {
   //   NumericRange *rng;
   //   Vector_Get(leaves, i, &rng);
@@ -376,7 +282,9 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 /* Read the next entry from the iterator, into hit *e.
   *  Returns INDEXREAD_EOF if at the end */
 int NR_Read(void *ctx, RSIndexResult **r) {
+
   NumericRangeIterator *it = ctx;
+
   if (it->atEOF || it->rng->size == 0) {
     it->atEOF = 1;
     return INDEXREAD_EOF;
@@ -397,6 +305,7 @@ int NR_Read(void *ctx, RSIndexResult **r) {
     } else {
       match = 1;
     }
+    // printf("nf %s filter doc %d (%f): %d\n", it->nf->fieldName, it->lastDocId, lastValue, match);
   }
   if (it->atEOF && !match) {
     return INDEXREAD_EOF;
@@ -413,17 +322,21 @@ int NR_Read(void *ctx, RSIndexResult **r) {
  * matches */
 int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
 
-  // printf("nr %p skipto %d\n", ctx, docId);
   NumericRangeIterator *it = ctx;
+
   if (it->atEOF || it->rng->size == 0) {
     it->atEOF = 1;
     return INDEXREAD_EOF;
   }
+
+  // If we are seeking beyond our last docId - just declare EOF
   if (docId > it->rng->entries[it->rng->size - 1].docId) {
     it->atEOF = 1;
     it->rec->docId = 0;
     return INDEXREAD_EOF;
   }
+
+  // Find the closest entry to the requested docId
   int top = (int)it->rng->size - 1, bottom = (int)it->offset;
   int i = bottom;
 
@@ -444,10 +357,15 @@ int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
   it->lastDocId = it->rng->entries[i].docId;
   it->rec->docId = it->lastDocId;
 
-  if (it->lastDocId != docId) {
-    return INDEXREAD_NOTFOUND;
-  }
-  return NR_Read(it, r);
+  // Now read the current entry
+  int rc = NR_Read(it, r);
+
+  // EOF or not found are returned as is
+  if (rc != INDEXREAD_OK) return rc;
+
+  // if we got ok - check if the read document was the one we wanted or not.
+  // If the requested document doesn't match the filter, we should return NOTFOUND
+  return it->lastDocId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 }
 /* the last docId read */
 t_docId NR_LastDocId(void *ctx) {
@@ -503,10 +421,12 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
   ret->Current = NR_Current;
   ret->Read = NR_Read;
   ret->SkipTo = NR_SkipTo;
+
   return ret;
 }
 
-/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit the
+/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
+ * the
  * filter */
 IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 

@@ -721,6 +721,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 res = r.execute_command('ft.search', 'idx', 'hello kitty',
                                         "filter", "score", "19", "90",
                                         "filter", "price", "90", "185")
+                print res
                 self.assertEqual(0, res[0])
 
                 # Test numeric ranges as part of query syntax

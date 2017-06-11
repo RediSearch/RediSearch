@@ -150,8 +150,7 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
-of them with
-fulltext indexes.
+of them with fulltext indexes.
 */
 inline int NumericFilter_Match(NumericFilter *f, double score) {
 
