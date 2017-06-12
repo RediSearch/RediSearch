@@ -613,11 +613,14 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len,
             *__trieMapNode_childKey(n, current->childOffset) ==
                 it->prefix[it->bufOffset]) {
           TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
-          __tmi_Push(it, ch);
 
           // unless in suffix mode, no need to go back here after popping the
           // child, so we just set the child offset at the end
           if (!it->inSuffix) current->childOffset = nch;
+          
+          // Add the matching child to the stack
+          __tmi_Push(it, ch);
+
           goto next;
         }
         // if the child doesn't match- just advance one
