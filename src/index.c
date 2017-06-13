@@ -145,15 +145,19 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   int n = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
+  int num = ui->num;
   t_docId minDocId = __UINT32_MAX__;
+  IndexIterator *it;
+  RSIndexResult *res;
   // skip all iterators to docId
-  for (int i = 0; i < ui->num; i++) {
+  for (int i = 0; i < num; i++) {
     // this happens for non existent words
-    IndexIterator *it = ui->its[i];
-    if (it == NULL) continue;
+    if (NULL == (it = ui->its[i])) continue;
 
-    RSIndexResult *res = it->Current(it->ctx);
+    res = NULL;
 
+    // If the requested docId is larger than the last read id from the iterator,
+    // we need to read an entry from the iterator, seeking to this docId
     if (ui->docIds[i] < docId) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
@@ -161,23 +165,27 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
       ui->docIds[i] = res->docId;
 
     } else {
+      // in this case, we are either past or at the requested docId, no need to actually read
       rc = (ui->docIds[i] == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
 
+    // if we've read successfully, update the minimal docId we've found
     if (ui->docIds[i] && rc != INDEXREAD_EOF) {
       minDocId = MIN(ui->docIds[i], minDocId);
     }
 
     // we found a hit - continue to all results matching the same docId
     if (rc == INDEXREAD_OK) {
+
       // add the result to the aggregate result we are holding
       if (hit) {
-        AggregateResult_AddChild(ui->current, res);
+        AggregateResult_AddChild(ui->current, res ? res : it->Current(it->ctx));
       }
-      ui->minDocId = res->docId;
+      ui->minDocId = ui->docIds[i];
       found++;
     }
     n++;
+    
   }
 
   // all iterators are at the end

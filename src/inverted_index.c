@@ -181,16 +181,15 @@ inline int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, t_fie
                           RSOffsetVector *offsets) {
 
   // if we're at the end of the block - exit or advance
-  if (BufferReader_AtEnd(&ir->br)) {
+  BufferReader *br = &ir->br;
+
+  if (BufferReader_AtEnd(br)) {
     if (ir->currentBlock + 1 >= ir->idx->size) {
       return INDEXREAD_EOF;
     }
     indexReader_advanceBlock(ir);
   }
-  BufferReader *br = &ir->br;
-  uint32_t dummyFreq;
-  __readEntry(br, ir->flags, ir->lastId, docId, freq ? freq : &dummyFreq, fieldMask, offsets,
-              ir->singleWordMode);
+  __readEntry(br, ir->flags, ir->lastId, docId, freq, fieldMask, offsets, ir->singleWordMode);
   // printf("IR %s read docId %d\n", ir->term->str, *docId);
   ir->lastId = *docId;
   return INDEXREAD_OK;
@@ -215,11 +214,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       }
 
       ++ir->len;
-      ir->lastId = ir->record->docId;
       *e = ir->record;
-
-      // printf("IR LOOP %s Read docId %d, lastId %d rc %d\n", ir->term->str, e->docId,
-      // ir->lastId,rc);
       return INDEXREAD_OK;
     }
   } while (rc != INDEXREAD_EOF);
@@ -253,10 +248,7 @@ int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
   if (_isPos(idx, ir->currentBlock, docId)) {
     return 1;
   }
-  if (docId >= idx->blocks[idx->size - 1].firstId) {
-    ir->currentBlock = idx->size - 1;
-    goto found;
-  }
+
   uint32_t top = idx->size, bottom = ir->currentBlock;
   uint32_t i = bottom;
   uint32_t newi;
@@ -311,12 +303,12 @@ int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
   }
 
   int rc;
+  t_docId rid;
   while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
-    t_docId rid = (*hit)->docId;
-    if (rid < docId) continue;
+    rid = (*hit)->docId;
+    if (ir->lastId < docId) continue;
     if (rid == docId) return INDEXREAD_OK;
     return INDEXREAD_NOTFOUND;
-    // if ((*hit)->docId == docId return INDEXREAD_NOTFOUND;
   }
   return INDEXREAD_EOF;
 }
@@ -415,7 +407,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
   int frags = 0;
 
   RSOffsetVector offsets;
-  int qscore;
+  uint32_t qscore;
   while (!BufferReader_AtEnd(&br)) {
     size_t sz = __readEntry(&br, flags, lastReadId, &docId, &qscore, &fieldMask, &offsets, 0);
 

@@ -1448,8 +1448,7 @@ size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3) {
   return offset;
 }
 
-inline size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3,
-                           uint32_t *i4) {
+size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3, uint32_t *i4) {
   uint8_t pos = *(uint8_t *)br->pos;
   *i = qint_memberx(br->pos, configs[pos], 0);
   *i2 = qint_memberx(br->pos, configs[pos], 1);

@@ -42,6 +42,7 @@ typedef struct {
   RSIndexResult *current;
   DocTable *docTable;
   int atEnd;
+  // TODO: Quick Exit mode
 } UnionContext;
 
 /* Create a new UnionIterator over a list of underlying child iterators.

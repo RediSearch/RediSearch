@@ -372,7 +372,7 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
     return NULL;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, node->numChildren, q->docTable);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable);
   return ret;
 }
 
