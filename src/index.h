@@ -42,12 +42,13 @@ typedef struct {
   RSIndexResult *current;
   DocTable *docTable;
   int atEnd;
-  // TODO: Quick Exit mode
+  // If set to 1, we exit skips after the first hit found and not merge further results
+  int quickExit;
 } UnionContext;
 
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t);
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit);
 RSIndexResult *UI_Current(void *ctx);
 int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
 int UI_Next(void *ctx);

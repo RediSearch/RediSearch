@@ -11,7 +11,7 @@ inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionContext *)ctx)->minDocId;
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit) {
   // create union context
   UnionContext *ctx = calloc(1, sizeof(UnionContext));
   ctx->its = its;
@@ -21,6 +21,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt) {
   ctx->docIds = calloc(num, sizeof(t_docId));
   ctx->current = NewUnionResult(num);
   ctx->len = 0;
+  ctx->quickExit = quickExit;
   // bind the union iterator calls
   IndexIterator *it = malloc(sizeof(IndexIterator));
   it->ctx = ctx;
@@ -85,13 +86,10 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
     // take the minimum entry and collect all results matching to it
     if (minIdx != -1) {
 
-      // printf("UI %p read docId %d OK\n", ui, ui->docIds[minIdx]);
       UI_SkipTo(ui, ui->docIds[minIdx], hit);
       // return INDEXREAD_OK;
-
       ui->minDocId = ui->docIds[minIdx];
       ui->len++;
-      // printf("UI %p read docId %d OK\n", ui, ui->minDocId);
       return INDEXREAD_OK;
     }
 
@@ -185,7 +183,8 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
       found++;
     }
     n++;
-    
+    // If we've found a single entry and we are iterating in quick exit mode - exit now
+    if (found && ui->quickExit) break;
   }
 
   // all iterators are at the end
