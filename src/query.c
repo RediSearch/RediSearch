@@ -264,7 +264,7 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
     free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable);
+  return NewUnionIterator(its, itsSz, q->docTable, 1);
 }
 
 IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
@@ -372,7 +372,7 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
     return NULL;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
   return ret;
 }
 

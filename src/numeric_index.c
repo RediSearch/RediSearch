@@ -6,8 +6,8 @@
 #include "redismodule.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
-#define NR_MAXRANGE_CARD 1000
-#define NR_MAXRANGE_SIZE 5000
+#define NR_MAXRANGE_CARD 2500
+#define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
 double qselect(double *v, int len, int k) {
@@ -214,7 +214,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
   // for (int i = 0; i < leaves->top; i++) {
   //   NumericRange *rng;
   //   Vector_Get(leaves, i, &rng);
-  //   printf("%f...%f\n", rng->minVal, rng->maxVal);
+  //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
+  //          rng->maxVal - rng->minVal, rng->size, rng->splitCard);
   // }
 
   return leaves;
@@ -460,7 +461,7 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
     its[i] = NewNumericRangeIterator(rng, f);
   }
   Vector_Free(v);
-  return NewUnionIterator(its, n, NULL);
+  return NewUnionIterator(its, n, NULL, 1);
 }
 
 RedisModuleType *NumericIndexType = NULL;
