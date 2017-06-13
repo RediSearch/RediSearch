@@ -2,18 +2,18 @@
 
 ## FT.CREATE 
 
-### Format:
+### Format
 ```
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
 
-### Description:
+### Description
 Creates an index with the given spec. The index name will be used in all the key names
 so keep it short!
 
-### Parameters:
+### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
@@ -26,7 +26,7 @@ so keep it short!
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
-Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+Numeric or text field can have the optional `SORTABLE` argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
 
 ### Complexity
 O(1)
@@ -39,7 +39,7 @@ OK or an error
 
 ## FT.ADD 
 
-### Format:
+### Format
 
 ```
 FT.ADD {index} {docId} {score} 
@@ -54,7 +54,7 @@ FT.ADD {index} {docId} {score}
 
 Add a documet to the index.
 
-### Parameters:
+### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
@@ -217,7 +217,7 @@ Array Response. A nested array of keys and values.
 ### Format
 
 ```
-FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
+FT.SEARCH {index} {query} [INORDER] [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
   [INKEYS {num} {key} ... ]
@@ -239,10 +239,10 @@ Search the index with a textual query, returning either documents or just ids.
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  See below for documentation on query syntax. 
+  See the documentation on [query syntax](/Query_Syntax]. 
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if rediseach is only an index on an external document collection
-- **LIMIT first num**: If the parameters appear after the query, we limit the results to 
+- **LIMIT offset num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments
@@ -382,7 +382,7 @@ FT.DROP {index}
 
 Deletes all the keys associated with the index. 
 
-If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+If no other data is on the redis instance, this is equivalent to `FLUSHDB`, apart from the fact
 that the index specification is not deleted.
 
 ### Parameters
@@ -433,7 +433,7 @@ FT.SUGADD {key} {string} {score} [INCR]
 ### Description
 
 Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
-index definitions, and leaves creating and updating suggestino dictionaries to the user.
+index definitions, and leaves creating and updating suggestion dictionaries to the user.
 
 ### Parameters
 
@@ -453,7 +453,7 @@ Integer Reply: the current size of the suggestion dictionary.
 ### Format
 
 ```
-FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
+FT.SUGGET {key} {prefix} [FUZZY] [MAX num] [WITHSCORES]
 ```
 
 ### Description
@@ -517,4 +517,3 @@ Get the size of an autoc-complete suggestion dictionary
 ### Returns:
 
 Integer Reply: the current size of the suggestion dictionary.
-
