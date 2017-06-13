@@ -91,7 +91,7 @@ libnu:
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-module.so: $(MODULE)
+module.so: $(MODULE) version.h
 	$(LD) -o $@ $(MODULE) $(LIBNU) $(LIBTRIE) $(SHOBJ_LDFLAGS) -lc -lm
 
 
