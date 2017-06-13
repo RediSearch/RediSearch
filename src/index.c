@@ -140,10 +140,11 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
     return INDEXREAD_NOTFOUND;
   }
 
-  int n = 0;
+  int numActive = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
-  int num = ui->num;
+  const int num = ui->num;
+  const int quickExit = ui->quickExit;
   t_docId minDocId = __UINT32_MAX__;
   IndexIterator *it;
   RSIndexResult *res;
@@ -180,15 +181,15 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
         AggregateResult_AddChild(ui->current, res ? res : it->Current(it->ctx));
       }
       ui->minDocId = ui->docIds[i];
-      found++;
+      ++found;
     }
-    n++;
+    ++numActive;
     // If we've found a single entry and we are iterating in quick exit mode - exit now
-    if (found && ui->quickExit) break;
+    if (found && quickExit) break;
   }
 
   // all iterators are at the end
-  if (n == 0) {
+  if (numActive == 0) {
     ui->atEnd = 1;
     return INDEXREAD_EOF;
   }
