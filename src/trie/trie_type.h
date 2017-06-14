@@ -26,6 +26,8 @@ typedef struct {
 #define TRIE_SEARCH_CMD "FT.SUGGET"
 #define TRIE_DEL_CMD "FT.SUGDEL"
 
+void split(char *src, const char *separator, char **dest, int *num);
+
 Trie *NewTrie();
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr);
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr);
