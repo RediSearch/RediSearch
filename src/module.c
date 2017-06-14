@@ -84,7 +84,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         }
 
         totalTokens =
-            tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens);
+            tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens, ctx->spec->stopwords);
         break;
       case F_NUMERIC: {
         double score;
@@ -484,7 +484,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   size_t qlen;
   const char *qs = RedisModule_StringPtrLen(argv[2], &qlen);
   RedisSearchCtx sctx = {ctx, sp};
-  Query *q = NewQuery(&sctx, (char *)qs, qlen, 0, 10, RS_FIELDMASK_ALL, 0, "en", DEFAULT_STOPWORDS,
+  Query *q = NewQuery(&sctx, (char *)qs, qlen, 0, 10, RS_FIELDMASK_ALL, 0, "en", sp->stopwords,
                       NULL, -1, 0, NULL, (RSPayload){}, NULL);
 
   char *errMsg = NULL;
@@ -874,8 +874,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *qs = RedisModule_StringPtrLen(argv[2], &len);
   Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : DEFAULT_STOPWORDS, expander, slop, inOrder, scorer,
-                      payload, hasSorting ? &sortKey : NULL);
+                      nostopwords ? NULL : sp->stopwords, expander, slop, inOrder, scorer, payload,
+                      hasSorting ? &sortKey : NULL);
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {

@@ -182,6 +182,18 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags &= ~Index_StoreScoreIndexes;
   }
 
+  int swIndex = __findOffset(SPEC_STOPWORDS_STR, argv, argc);
+  if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
+    int listSize = atoi(argv[swIndex + 1]);
+    if (listSize <= 0 || (swIndex + 2 + listSize > schemaOffset)) {
+      *err = "Invalid stopword list size";
+      goto failure;
+    }
+    spec->stopwords = NewStopWordListCStr(&argv[swIndex + 2], listSize);
+  } else {
+    spec->stopwords = DefaultStopWordList();
+  }
+
   t_fieldMask id = 1;
   int sortIdx = 0;
 
@@ -279,6 +291,17 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
   return ret;
 }
 
+void IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
+  sp->stopwords = NewStopWordList(strs, len);
+}
+
+int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
+  if (!sp->stopwords) {
+    return 0;
+  }
+  return StopWordList_Contains(sp->stopwords, term, len);
+}
+
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
@@ -286,6 +309,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(1000);
+  sp->stopwords = NULL;
   sp->terms = NewTrie();
   sp->sortables = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));

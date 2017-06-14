@@ -244,6 +244,8 @@ void benchmarkQueryParser() {
   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
 }
 
+
+void   RMUTil_InitAlloc();
 TEST_MAIN({
   RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);

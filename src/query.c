@@ -433,7 +433,7 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
                 const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
                 RSSortingKey *sk) {
   Query *ret = calloc(1, sizeof(Query));

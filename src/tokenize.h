@@ -3,6 +3,7 @@
 #define __TOKENIZE_H__
 
 #include "stemmer.h"
+#include "stopwords.h"
 #include "redisearch.h"
 #include "util/khash.h"
 #include "varint.h"
@@ -46,9 +47,6 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 
 #define STEM_TOKEN_FACTOR 0.2
 
-// TODO: Optimize this with trie or something...
-int isStopword(const char *w, size_t len, const char **stopwords);
-
 typedef struct {
   const char *text;
   char **pos;
@@ -59,6 +57,7 @@ typedef struct {
   void *tokenFuncCtx;
   NormalizeFunc normalize;
   Stemmer *stemmer;
+  StopWordList *stopwords;
   u_int lastOffset;
 } TokenizerCtx;
 
@@ -70,7 +69,7 @@ TokenFunc is a callback that will be called for each token found
 if doStem is 1, we will add stemming extraction for the text
 */
 int tokenize(const char *text, float fieldScore, t_fieldMask fieldId, void *ctx, TokenFunc f,
-             Stemmer *s, u_int offset);
+             Stemmer *s, u_int offset, StopWordList *stopwords);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents.
 Does NOT normalize unicode */

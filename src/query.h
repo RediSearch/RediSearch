@@ -60,7 +60,7 @@ typedef struct RSQuery {
 
   const char *language;
 
-  const char **stopwords;
+  StopWordList *stopwords;
 
   RSPayload payload;
 } Query;
@@ -104,7 +104,8 @@ void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 void Query_SetIdFilter(Query *q, IdFilter *f);
 
-/* Return a string representation of the query parse tree. The string should be freed by the caller */
+/* Return a string representation of the query parse tree. The string should be freed by the caller
+ */
 const char *Query_DumpExplain(Query *q);
 
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
@@ -113,7 +114,7 @@ const char *Query_DumpExplain(Query *q);
 /* Initialize a new query object from user input. This does not parse the query
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
                 const char *expander, int maxSlop, int inOrder, const char *scorer,
                 RSPayload payload, RSSortingKey *sortKey);
 void Query_Expand(Query *q);
