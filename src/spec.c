@@ -340,7 +340,7 @@ void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 }
 
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != INDEX_CURRENT_VERSION && encver != INDEX_CURRENT_VERSION - 1) {
+  if (encver < INDEX_CURRENT_VERSION - 2) {
     return NULL;
   }
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));

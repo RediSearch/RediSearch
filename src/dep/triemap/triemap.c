@@ -96,7 +96,6 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
 }
 
 int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
-
   TrieMapNode *n = *np;
 
   tm_len_t offset = 0;
@@ -264,6 +263,59 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   }
 
   return TRIEMAP_NOTFOUND;
+}
+
+/* Find a node by string. Return the node matching the string even if it is not
+ * terminal. Puts the node local offset in *offset */
+TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_len_t *poffset) {
+  tm_len_t offset = 0;
+  while (n && (offset < len || len == 0)) {
+    tm_len_t localOffset = 0;
+    tm_len_t nlen = n->len;
+    while (offset < len && localOffset < nlen) {
+      if (str[offset] != n->str[localOffset]) {
+        break;
+      }
+      offset++;
+      localOffset++;
+    }
+
+    // we've reached the end of the string - return the node even if it's not
+    // temrinal
+    if (offset == len) {
+      // let the caller know the local offset
+      if (poffset) {
+        *poffset = localOffset;
+      }
+      return n;
+    }
+
+    // we've reached the end of the node's string
+    if (localOffset == nlen) {
+      // we've reached the end of the node's string but not the search string
+      // let's find a child to continue to
+      tm_len_t i = 0;
+      TrieMapNode *nextChild = NULL;
+
+      char *childKeys = __trieMapNode_childKey(n, 0);
+      char c = str[offset];
+
+      while (i < n->numChildren) {
+        if (str[offset] == childKeys[i]) {
+          nextChild = __trieMapNode_children(n)[i];
+          break;
+        }
+        ++i;
+      }
+
+      // we couldn't find a matching child
+      n = nextChild;
+    } else {
+      return NULL;
+    }
+  }
+
+  return NULL;
 }
 
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
@@ -453,7 +505,7 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 /* Push a new trie node on the iterator's stack */
 inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node) {
   if (it->stackOffset == it->stackCap) {
-    it->stackCap = MIN(it->stackCap * 2, 1024);
+    it->stackCap += MIN(it->stackCap, 1024);
     it->stack = realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
   it->stack[it->stackOffset++] = (__tmi_stackNode){
@@ -541,15 +593,17 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
       // push the next child that matches
       tm_len_t nch = current->n->numChildren;
       while (current->childOffset < nch) {
-
         if (it->inSuffix ||
             *__trieMapNode_childKey(n, current->childOffset) == it->prefix[it->bufOffset]) {
           TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
-          __tmi_Push(it, ch);
 
           // unless in suffix mode, no need to go back here after popping the
           // child, so we just set the child offset at the end
           if (!it->inSuffix) current->childOffset = nch;
+
+          // Add the matching child to the stack
+          __tmi_Push(it, ch);
+
           goto next;
         }
         // if the child doesn't match- just advance one
@@ -623,6 +677,23 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
   *len = bufSize;
   free(stack);
   return n;
+}
+
+void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen) {
+
+  char *str;
+  tm_len_t len;
+  TrieMapNode *root = TrieMapNode_FindNode(t->root, (char *)prefix, pflen, NULL);
+  if (!root) {
+    return NULL;
+  }
+
+  TrieMapNode *n = TrieMapNode_RandomWalk(root, (int)round(log2(1 + t->cardinality)), &str, &len);
+  if (n) {
+    free(str);
+    return n->value;
+  }
+  return NULL;
 }
 
 int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr) {

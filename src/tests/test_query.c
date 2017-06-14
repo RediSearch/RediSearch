@@ -116,34 +116,39 @@ int testQueryParser() {
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->pn.exact, 0);
-  ASSERT_EQUAL(n->pn.numChildren, 3);
+  ASSERT_EQUAL(n->pn.numChildren, 4);
   ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("world", n->pn.children[0]->un.children[1]->tn.str);
+
   QueryNode *_n = n->pn.children[1];
 
   ASSERT(_n->type == QN_PHRASE);
+  ASSERT(_n->pn.exact == 1);
+  ASSERT_EQUAL(_n->pn.numChildren, 2);
+  ASSERT_STRING_EQ("another", _n->pn.children[0]->tn.str);
+  ASSERT_STRING_EQ("world", _n->pn.children[1]->tn.str);
+
+  _n = n->pn.children[2];
+  ASSERT(_n->type == QN_PHRASE);
+
   ASSERT(_n->pn.exact == 0);
   ASSERT_EQUAL(_n->pn.numChildren, 2);
-  ASSERT(n->pn.children[1]->pn.children[0]->type == QN_PHRASE);
-  ASSERT(n->pn.children[1]->pn.children[0]->pn.exact == 1);
-  ASSERT_STRING_EQ("another", _n->pn.children[0]->pn.children[0]->tn.str);
-  ASSERT_STRING_EQ("world", _n->pn.children[0]->pn.children[1]->tn.str);
+  ASSERT_STRING_EQ("foo", _n->pn.children[0]->tn.str);
+  ASSERT_STRING_EQ("bar", _n->pn.children[1]->tn.str);
 
-  ASSERT_EQUAL(_n->pn.children[1]->pn.children[0]->type, QN_TOKEN);
-  ASSERT_EQUAL(_n->pn.children[1]->pn.children[1]->type, QN_TOKEN);
+  _n = n->pn.children[3];
+  ASSERT(_n->type == QN_NOT);
+  _n = _n->not.child;
+  ASSERT(_n->pn.exact == 0);
+  ASSERT_EQUAL(_n->pn.numChildren, 2);
+  ASSERT_STRING_EQ("baz", _n->pn.children[0]->tn.str);
 
-  // ASSERT_STRING_EQ("foo", n->pn.children[2]->tn.str);
-  // ASSERT_STRING_EQ("bar", n->pn.children[3]->tn.str);
+  ASSERT_EQUAL(_n->pn.children[1]->type, QN_PREFX);
+  ASSERT_STRING_EQ("boo", _n->pn.children[1]->pfx.str);
 
-  // ASSERT_EQUAL(n->pn.children[4]->type, QN_NOT);
-  // ASSERT_EQUAL(QN_PHRASE, n->pn.children[4]->not.child->type);
-  // ASSERT_STRING_EQ("baz", n->pn.children[4]->not.child->pn.children[0]->tn.str);
-
-  // ASSERT_EQUAL(QN_PREFX, n->pn.children[4]->not.child->pn.children[1]->type);
-  // ASSERT_STRING_EQ("boo", n->pn.children[4]->not.child->pn.children[1]->pfx.str);
   Query_Free(q);
 
   return 0;

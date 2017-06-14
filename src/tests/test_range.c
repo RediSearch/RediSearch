@@ -22,7 +22,7 @@ int testNumericRangeTree() {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQUAL(t->numRanges, 36);
+  ASSERT_EQUAL(t->numRanges, 16);
   ASSERT_EQUAL(t->numEntries, 50000);
 
   struct {
@@ -49,61 +49,83 @@ int testNumericRangeTree() {
   return 0;
 }
 
+#define _min(x, y) (x < y ? x : y)
+#define _max(x, y) (x < y ? y : x)
+
 int testRangeIterator() {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
 
-  int N = 100;
+  int N = 1000000;
+  double *lookup = calloc(N + 1, sizeof(double));
   for (int i = 0; i < N; i++) {
 
     t_docId docId = i + 1;
-    float value = (double)(1 + prng() % 1000);
+    float value = (double)(1 + prng() % (N / 5));
+    lookup[docId] = value;
     // printf("Adding %d > %f\n", docId, value);
     NumericRangeTree_Add(t, docId, value);
   }
-  ASSERT_EQUAL(t->numRanges, 8);
-  ASSERT_EQUAL(t->numEntries, N);
 
-  NumericFilter *flt = NewNumericFilter(-1, 1002, 0, 0);
-  IndexIterator *it = NewNumericFilterIterator(t, flt);
-  ASSERT(it->HasNext(it->ctx));
+  for (int i = 0; i < 5; i++) {
+    double min = (double)(1 + prng() % (N / 5));
+    double max = (double)(1 + prng() % (N / 5));
 
-  // ASSERT_EQUAL(it->Len(it->ctx), N);
-  int count = 0;
+    NumericFilter *flt = NewNumericFilter(_min(min, max), _max(min, max), 1, 1);
 
-  RSIndexResult *res = NULL;
-  while (it->HasNext(it->ctx)) {
-
-    int rc = it->Read(it->ctx, &res);
-    if (rc == INDEXREAD_EOF) {
-      break;
+    // count the number of elements in the range
+    int count = 0;
+    for (int i = 1; i <= N; i++) {
+      if (NumericFilter_Match(flt, lookup[i])) {
+        count++;
+      }
     }
 
-    ASSERT_EQUAL(res->type, RSResultType_Virtual);
-    // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
-    ASSERT(!RSIndexResult_HasOffsets(res));
-    ASSERT(!RSIndexResult_IsAggregate(res));
-    ASSERT(res->docId > 0);
-    ASSERT_EQUAL(res->fieldMask, RS_FIELDMASK_ALL);
+    // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
+    IndexIterator *it = NewNumericFilterIterator(t, flt);
 
-    count++;
+    int xcount = 0;
+    RSIndexResult *res = NULL;
+
+    while (it->HasNext(it->ctx)) {
+
+      int rc = it->Read(it->ctx, &res);
+      if (rc == INDEXREAD_EOF) {
+        break;
+      }
+
+      ASSERT(NumericFilter_Match(flt, lookup[res->docId]));
+
+      ASSERT_EQUAL(res->type, RSResultType_Virtual);
+      // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
+      ASSERT(!RSIndexResult_HasOffsets(res));
+      ASSERT(!RSIndexResult_IsAggregate(res));
+      ASSERT(res->docId > 0);
+      ASSERT_EQUAL(res->fieldMask, RS_FIELDMASK_ALL);
+
+      xcount++;
+    }
+    // printf("The iterator returned %d elements\n", xcount);
+    ASSERT_EQUAL(xcount, count);
+    it->Free(it);
   }
-  it->Free(it);
-  free(flt);
-  ASSERT_EQUAL(N, count);
-  // IndexResult_Free(&res);
+  free(lookup);
+
+  ASSERT_EQUAL(t->numRanges, 142);
+  ASSERT_EQUAL(t->numEntries, N);
   NumericRangeTree_Free(t);
+
   return 0;
 }
 
 int benchmarkNumericRangeTree() {
   NumericRangeTree *t = NewNumericRangeTree();
   int count = 1;
-  for (int i = 0; i < 1000000; i++) {
+  for (int i = 0; i < 100000; i++) {
 
-    count += NumericRangeTree_Add(t, i, (double)(rand() % 100000));
+    count += NumericRangeTree_Add(t, i, (double)(rand() % 500000));
   }
-  printf("created %d range leaves\n", count);
+  // printf("created %d range leaves\n", count);
   Vector *v;
   TIME_SAMPLE_RUN_LOOP(1000, {
     v = NumericRangeTree_Find(t, 1000, 20000);
@@ -113,7 +135,7 @@ int benchmarkNumericRangeTree() {
 
   TimeSample ts;
 
-  NumericFilter *flt = NewNumericFilter(1000, 5000, 0, 0);
+  NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
   IndexIterator *it = NewNumericFilterIterator(t, flt);
   ASSERT(it->HasNext(it->ctx));
 

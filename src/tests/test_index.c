@@ -275,7 +275,7 @@ int testUnion() {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0);
   RSIndexResult *h = NULL;
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;

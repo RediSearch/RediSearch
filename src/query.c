@@ -264,7 +264,7 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
     free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable);
+  return NewUnionIterator(its, itsSz, q->docTable, 1);
 }
 
 IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
@@ -372,7 +372,7 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
     return NULL;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, node->numChildren, q->docTable);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
   return ret;
 }
 
@@ -714,21 +714,20 @@ QueryResult *Query_Execute(Query *query) {
     }
     heapResult *h = pooledHit;
 
+    // Read the next result from the execution tree
     int rc = it->Read(it->ctx, &r);
 
+    // This means we are done!
     if (rc == INDEXREAD_EOF) {
       break;
     } else if (rc == INDEXREAD_NOTFOUND) {
       continue;
     }
-    // IndexResult_Print(r, 0);
-    // printf("\n-------------------\n");
 
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
     // skip deleted documents
     if (!dmd || dmd->flags & Document_Deleted) {
-      // printf("No dmd for %d\n", r->docId);
       ++numDeleted;
       continue;
     }

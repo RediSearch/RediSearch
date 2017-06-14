@@ -89,6 +89,10 @@ void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
   */
 int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr);
 
+/* Get the value of a random element under a specific prefix. NULL if the prefix was not found */
+void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
+
+
 size_t TrieMap_MemUsage(TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet

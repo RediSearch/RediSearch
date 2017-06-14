@@ -17,9 +17,9 @@ export CFLAGS
 
 RELEASEFLAGS=-O3 -g
 DEBUGFLAGS=-O0 -g 
-VARINT=varint.o buffer.o util/qint.o
+VARINT=varint.o buffer.o 
 INDEX=index.o forward_index.o index_result.o doc_table.o numeric_filter.o \
-		numeric_index.o geo_index.o inverted_index.o id_list.o id_filter.o offset_vector.o sortable.o
+		numeric_index.o geo_index.o qint.o inverted_index.o id_list.o id_filter.o offset_vector.o sortable.o 
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o
 EXTOBJS=ext/default.o  extension.o
 REDIS= redis_index.o query.o spec.o  module.o
@@ -91,7 +91,7 @@ libnu:
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-module.so: $(MODULE)
+module.so: $(MODULE) version.h
 	$(LD) -o $@ $(MODULE) $(LIBNU) $(LIBTRIE) $(SHOBJ_LDFLAGS) -lc -lm
 
 
