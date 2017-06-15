@@ -40,7 +40,8 @@ Trie *NewTrie() {
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
   size_t len;
   char *str = (char *)RedisModule_StringPtrLen(s, &len);
-  return Trie_InsertStringBuffer(t, str, len, score, incr);
+  int ret = Trie_InsertStringBuffer(t, str, len, score, incr);
+  return ret;
 }
 
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
