@@ -116,15 +116,14 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, rune *info, t_len info_len
     // 2. a child representing the old node's suffix from the diverted offset
     // and the old children
     n = __trie_SplitNode(n, offset);
-
     // the new string matches the split node exactly!
     // we simply turn the split node, which is now non terminal, into a terminal
     // node
     if (offset == len) {
       n->score = score;
-      n->flags |= TRIENODE_TERMINAL;
-      n->info_len = info_len;
+      n->flags |= TRIENODE_TERMINAL;     
       TrieNode *newChild = __trieNode_children(n)[0];
+      n->info_len = info_len;
       n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len, n->info_len));
       if (info != NULL && info_len > 0)
         memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
@@ -179,15 +178,22 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, rune *info, t_len info_len
 
   // proceed to the next child or add a new child for the current rune
   for (t_len i = 0; i < n->numChildren; i++) {
-    TrieNode *child = __trieNode_children(n)[i];
-
-    if (str[offset] == child->str[0]) {
-      int rc = TrieNode_Add(&child, str + offset, len - offset, info, info_len, score, op);
-      __trieNode_children(n)[i] = child;
-      return rc;
+    TrieNode **childs = __trieNode_children(n);
+    if (childs == NULL) {
+      printf("Warning childs is NULL\n");
+    } else {
+      TrieNode *child = childs[i];
+      if (child == NULL) {
+        printf("Warning child is NULL\n");
+      } else {
+        if (str[offset] == child->str[0]) {
+          int rc = TrieNode_Add(&child, str + offset, len - offset, info, info_len, score, op);
+          __trieNode_children(n)[i] = child;
+          return rc;
+        }
+      }
     }
   }
-
   *np = __trie_AddChild(n, str, offset, len, info, info_len, score);
   return 1;
 }
