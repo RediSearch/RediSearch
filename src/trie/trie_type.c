@@ -45,7 +45,7 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
 
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
   char* str_info[2];
-  memset(str_info, 0, sizeof(char *));
+  memset(str_info, 0, sizeof(char *)*2);
   int split_num = 2;
   split(s, STR_INFO_SPLIT_SEP, str_info, &split_num);
   if (split_num > 0) {
