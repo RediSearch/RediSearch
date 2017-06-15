@@ -26,6 +26,9 @@ typedef struct {
 #define TRIE_SEARCH_CMD "FT.SUGGET"
 #define TRIE_DEL_CMD "FT.SUGDEL"
 
+#define STR_INFO_SPLIT_SEP  "$"
+#define INFO_SPLIT_SEP "#"
+
 void split(char *src, const char *separator, char **dest, int *num);
 
 Trie *NewTrie();

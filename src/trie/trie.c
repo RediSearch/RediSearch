@@ -16,7 +16,8 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, rune *info, t_len in
   n->maxChildScore = 0;
   n->info_len = info_len;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
-  memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
+  if (info != NULL && info_len > 0)
+    memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
   return n;
 }
 
@@ -125,7 +126,8 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, rune *info, t_len info_len
       n->info_len = info_len;
       TrieNode *newChild = __trieNode_children(n)[0];
       n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len, n->info_len));
-      memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
+      if (info != NULL && info_len > 0)
+        memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
       __trieNode_children(n)[0] = newChild;
     } else {
       // we add a child
@@ -158,12 +160,14 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, rune *info, t_len info_len
       memcpy(allChilds, __trieNode_children(n), sizeof(TrieNode*)*n->numChildren);
       n->info_len = info_len;
       n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len, n->info_len));
-      memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
+      if (info != NULL && info_len > 0)
+        memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
       memcpy(__trieNode_children(n), allChilds, sizeof(TrieNode*)*n->numChildren);
     } else {
       n->info_len = info_len;
       n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len, n->info_len));
-      memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
+      if (info != NULL && info_len > 0)
+        memcpy(__trieNode_info(n), info, sizeof(rune) * (info_len));
     }
     // set the node as terminal
     n->flags |= TRIENODE_TERMINAL;

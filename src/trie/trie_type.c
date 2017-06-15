@@ -14,14 +14,16 @@ void split(char *src, const char *separator, char **dest, int *num) {
   int count = 0;    
   if (src == NULL || strlen(src) == 0) return;
   if (separator == NULL || strlen(separator) == 0) return; 
+  if (dest == NULL || num == NULL || *num <= 0) return;
   pNext = strtok(src,separator);    
   while(pNext != NULL) {
     *dest++ = pNext;
     ++count;
+    if (count >= *num)
+      break;
     pNext = strtok(NULL,separator);
   }
-  if (num != NULL)
-    *num = count;
+  *num = count;
 }
 
 Trie *NewTrie() {
@@ -43,20 +45,30 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr) {
 
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr) {
   char* str_info[2];
-  split(s, "$", str_info, NULL);
-  size_t str_len = strlen(str_info[0]);
-  rune *str = strToRunes(str_info[0], &str_len);
-  size_t info_len = strlen(str_info[1]);
-  rune *info = strToRunes(str_info[1], &info_len);
-  if (str_len && str_len < MAX_STRING_LEN && info_len < MAX_STRING_LEN) {
-    int rc = TrieNode_Add(&t->root, str, str_len, info, info_len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-    free(str);
-    free(info);
-    t->size += rc;
-    return rc;
-  } else {
-    free(str);
-    free(info);
+  memset(str_info, 0, sizeof(char *));
+  int split_num = 2;
+  split(s, STR_INFO_SPLIT_SEP, str_info, &split_num);
+  if (split_num > 0) {
+    size_t str_len = strlen(str_info[0]);
+    rune *str = strToRunes(str_info[0], &str_len);
+    size_t info_len = 0;
+    rune *info = NULL;
+    if (split_num > 1) {
+      info_len = strlen(str_info[1]);
+      info = strToRunes(str_info[1], &info_len);
+    }
+    if (str_len && str_len < MAX_STRING_LEN && info_len < MAX_STRING_LEN) {
+      int rc = TrieNode_Add(&t->root, str, str_len, info, info_len, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+      free(str);
+      if (info != NULL)
+        free(info);
+      t->size += rc;
+      return rc;
+    } else {
+      free(str);
+      if (info != NULL)
+        free(info);
+    }
   }
   return 0;
 }
@@ -140,15 +152,17 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       size_t str_len = 0;
       char *str = runesToStr(rstr, slen, &str_len);
       size_t info_len = 0;
-      char *info = runesToStr(rinfo, ilen, &info_len);
+      char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
       ent->len = str_len + 1 + info_len;
       ent->str = calloc(ent->len + 1, sizeof(char));
       memcpy(ent->str, str, str_len);
-      memcpy(ent->str+str_len, "$", 1);
-      memcpy(ent->str+str_len+1, info, info_len);
+      memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
       free(str);
-      free(info);
-
+      if (info!=NULL) {
+        if(info_len>0)
+          memcpy(ent->str+str_len+1, info, info_len);
+        free(info);
+      }
       heap_offerx(pq, ent);
       pooledEntry = NULL;
 
@@ -166,14 +180,17 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         size_t str_len = 0;
         char *str = runesToStr(rstr, slen, &str_len);
         size_t info_len = 0;
-        char *info = runesToStr(rinfo, ilen, &info_len);
+        char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
         ent->len = str_len + 1 + info_len;
         ent->str = calloc(ent->len + 1, sizeof(char));
         memcpy(ent->str, str, str_len);
-        memcpy(ent->str+str_len, "$", 1);
-        memcpy(ent->str+str_len+1, info, info_len);
+        memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
         free(str);
-        free(info);
+        if (info!=NULL) {
+          if(info_len>0)
+            memcpy(ent->str+str_len+1, info, info_len);
+          free(info);
+        }
         heap_offerx(pq, ent);
 
         // get the new minimal score
@@ -288,14 +305,17 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       size_t str_len = 0;
       char *str = runesToStr(rstr, len, &str_len);
       size_t info_len = 0;
-      char *info = runesToStr(rinfo, ilen, &info_len);
+      char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
       size_t slen = str_len + 1 + info_len;
       char *s = calloc(slen + 1, sizeof(char));
       memcpy(s, str, str_len);
-      memcpy(s+str_len, "$", 1);
-      memcpy(s+str_len+1, info, info_len);
+      memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
       free(str);
-      free(info);
+      if (info!=NULL) {
+        if(info_len>0)
+          memcpy(s+str_len+1, info, info_len);
+        free(info);
+      }
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
       RedisModule_SaveDouble(rdb, (double)score);
       free(s);
@@ -324,14 +344,17 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
       size_t str_len = 0;
       char *str = runesToStr(rstr, len, &str_len);
       size_t info_len = 0;
-      char *info = runesToStr(rinfo, ilen, &info_len);
+      char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
       size_t slen = str_len + 1 + info_len;
       char *s = calloc(slen + 1, sizeof(char));
       memcpy(s, str, str_len);
-      memcpy(s+str_len, "$", 1);
-      memcpy(s+str_len+1, info, info_len);
+      memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
       free(str);
-      free(info);
+      if (info!=NULL) {
+        if(info_len>0)
+          memcpy(s+str_len+1, info, info_len);
+        free(info);
+      }
       RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, slen, (double)score);
       free(s);
     }
