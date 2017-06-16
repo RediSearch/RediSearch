@@ -43,7 +43,7 @@ int __trie_add(TrieNode **n, char *str, float sc, TrieAddOp op) {
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
 
-  int rc = TrieNode_Add(n, runes, rlen, sc, op);
+  int rc = TrieNode_Add(n, runes, rlen, NULL, 0, sc, op);
   free(runes);
   return rc;
 }
@@ -107,7 +107,7 @@ int testRuneUtil() {
 
 int testTrie() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
   ASSERT(root != NULL)
   free(rootRunes);
 
@@ -157,7 +157,7 @@ int testUnicode() {
   char *str = "\xc4\x8c\xc4\x87";
 
   rune *rn = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rn, 0, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0);
   free(rn);
   ASSERT(root != NULL)
 
@@ -184,7 +184,7 @@ int testDFAFilter() {
   ssize_t read;
   size_t rlen;
   rune *runes = strToRunes("root", &rlen);
-  TrieNode *root = __newTrieNode(runes, 0, rlen, 0, 0, 0);
+  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0);
   ASSERT(root != NULL)
   free(runes);
   int i = 0;
@@ -200,7 +200,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, (float)score, ADD_REPLACE);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, 0, (float)score, ADD_REPLACE);
     ASSERT(rc == 1);
     free(runes);
 
@@ -240,7 +240,7 @@ int testDFAFilter() {
     int dist = 0;
 
     clock_gettime(CLOCK_REALTIME, &start_time);
-    while (TrieIterator_Next(it, &s, &len, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 2 && dist >= 0)
       ASSERT(len > 0);
@@ -271,7 +271,7 @@ int testDFAFilter() {
     int matches = 0;
     int dist = 0;
 
-    while (TrieIterator_Next(it, &s, &len, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 1 && dist >= 0)
       ASSERT(len > 0);
