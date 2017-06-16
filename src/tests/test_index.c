@@ -158,15 +158,12 @@ int testIndexReadWrite() {
   //   }
   // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
-  int n = 0;
-
   for (int xx = 0; xx < 1; xx++) {
 
     // printf("si: %d\n", si->len);
     IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 1);  //
     RSIndexResult *h = NULL;
 
-    struct timespec start_time, end_time;
     int n = 0;
     while (IR_HasNext(ir)) {
       IR_Read(ir, &h);
@@ -228,11 +225,6 @@ InvertedIndex *createIndex(int size, int idStep) {
 
   return idx;
 }
-
-typedef struct {
-  int maxFreq;
-  int counter;
-} IterationContext;
 
 int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
   printf("intersect: %d\n", hits[0].docId);
@@ -456,8 +448,8 @@ typedef struct {
 
 int tokenFunc(void *ctx, Token t) {
   tokenContext *tx = ctx;
-
-  assert(strcmp(t.s, tx->expected[tx->num++]) == 0);
+  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  assert(ret == 0);
   assert(t.len == strlen(t.s));
   assert(t.fieldId == 1);
   assert(t.pos > 0);

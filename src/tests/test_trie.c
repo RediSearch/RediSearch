@@ -224,9 +224,8 @@ int testDFAFilter() {
                    "\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d",
                    "\xd7\xa9\xd7\x97\xd7\x95\xd7\x9d",
                    NULL};
-  struct timespec start_time, end_time;
+  struct timespec start_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
-  unsigned long long totalns = 0;
 
   for (i = 0; terms[i] != NULL; i++) {
     runes = strToFoldedRunes(terms[i], &rlen);
