@@ -161,7 +161,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       if (info != NULL) {
         if (info_len > 0) {
           ent->len = ent->len + 1 + info_len;
-          ent->str = realloc(s, (ent->len + 1) * sizeof(char));
+          ent->str = realloc(ent->str, (ent->len + 1) * sizeof(char));
           memcpy(ent->str + str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(ent->str + str_len + 1, info, info_len);
         }
@@ -192,7 +192,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         if (info != NULL) {
           if (info_len > 0) {
             ent->len = ent->len + 1 + info_len;
-            ent->str = realloc(s, (ent->len + 1) * sizeof(char));
+            ent->str = realloc(ent->str, (ent->len + 1) * sizeof(char));
             memcpy(ent->str + str_len, STR_INFO_SPLIT_SEP, 1);
             memcpy(ent->str + str_len + 1, info, info_len);
           }
