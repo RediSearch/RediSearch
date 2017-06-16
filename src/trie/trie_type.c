@@ -154,12 +154,14 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       char *str = runesToStr(rstr, slen, &str_len);
       size_t info_len = 0;
       char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
-      ent->len = str_len + 1 + info_len;
+      ent->len = str_len;
       ent->str = calloc(ent->len + 1, sizeof(char));
       memcpy(ent->str, str, str_len);
       free(str);
       if (info != NULL) {
         if (info_len > 0) {
+          ent->len = ent->len + 1 + info_len;
+          ent->str = realloc(s, (ent->len + 1) * sizeof(char));
           memcpy(ent->str + str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(ent->str + str_len + 1, info, info_len);
         }
@@ -183,12 +185,14 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         char *str = runesToStr(rstr, slen, &str_len);
         size_t info_len = 0;
         char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
-        ent->len = str_len + 1 + info_len;
+        ent->len = str_len;
         ent->str = calloc(ent->len + 1, sizeof(char));
         memcpy(ent->str, str, str_len);
         free(str);
         if (info != NULL) {
           if (info_len > 0) {
+            ent->len = ent->len + 1 + info_len;
+            ent->str = realloc(s, (ent->len + 1) * sizeof(char));
             memcpy(ent->str + str_len, STR_INFO_SPLIT_SEP, 1);
             memcpy(ent->str + str_len + 1, info, info_len);
           }
@@ -309,12 +313,14 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       char *str = runesToStr(rstr, len, &str_len);
       size_t info_len = 0;
       char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
-      size_t slen = str_len + 1 + info_len;
+      size_t slen = str_len;
       char *s = calloc(slen + 1, sizeof(char));
       memcpy(s, str, str_len);
       free(str);
       if (info != NULL) {
         if (info_len > 0) {
+          slen = slen + 1 + info_len;
+          s = realloc(s, (slen + 1) * sizeof(char));
           memcpy(s + str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(s + str_len + 1, info, info_len);
         }
@@ -349,12 +355,14 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
       char *str = runesToStr(rstr, len, &str_len);
       size_t info_len = 0;
       char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
-      size_t slen = str_len + 1 + info_len;
+      size_t slen = str_len;
       char *s = calloc(slen + 1, sizeof(char));
       memcpy(s, str, str_len);
       free(str);
       if (info != NULL) {
         if (info_len > 0) {
+          slen = slen + 1 + info_len;
+          s = realloc(s, (slen + 1) * sizeof(char));
           memcpy(s + str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(s + str_len + 1, info, info_len);
         }
