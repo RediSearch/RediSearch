@@ -156,12 +156,13 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
       ent->len = str_len + 1 + info_len;
       ent->str = calloc(ent->len + 1, sizeof(char));
-      memcpy(ent->str, str, str_len);
-      memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
+      memcpy(ent->str, str, str_len);      
       free(str);
       if (info!=NULL) {
-        if(info_len>0)
+        if(info_len>0) {
+          memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(ent->str+str_len+1, info, info_len);
+        }
         free(info);
       }
       heap_offerx(pq, ent);
@@ -185,11 +186,12 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
         ent->len = str_len + 1 + info_len;
         ent->str = calloc(ent->len + 1, sizeof(char));
         memcpy(ent->str, str, str_len);
-        memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
         free(str);
         if (info!=NULL) {
-          if(info_len>0)
+          if(info_len>0) {
+            memcpy(ent->str+str_len, STR_INFO_SPLIT_SEP, 1);
             memcpy(ent->str+str_len+1, info, info_len);
+          }
           free(info);
         }
         heap_offerx(pq, ent);
@@ -310,11 +312,12 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       size_t slen = str_len + 1 + info_len;
       char *s = calloc(slen + 1, sizeof(char));
       memcpy(s, str, str_len);
-      memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
       free(str);
       if (info!=NULL) {
-        if(info_len>0)
+        if(info_len>0) {
+          memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(s+str_len+1, info, info_len);
+        }
         free(info);
       }
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
@@ -348,12 +351,13 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
       char *info = rinfo == NULL ? NULL : runesToStr(rinfo, ilen, &info_len);
       size_t slen = str_len + 1 + info_len;
       char *s = calloc(slen + 1, sizeof(char));
-      memcpy(s, str, str_len);
-      memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
+      memcpy(s, str, str_len);      
       free(str);
       if (info!=NULL) {
-        if(info_len>0)
+        if(info_len>0) {
+          memcpy(s+str_len, STR_INFO_SPLIT_SEP, 1);
           memcpy(s+str_len+1, info, info_len);
+        }
         free(info);
       }
       RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, slen, (double)score);
