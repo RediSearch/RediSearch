@@ -35,7 +35,7 @@ int testDefaultStopwords() {
   }
   const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world", "x", "i", "t"};
   for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
-    printf("checking %s\n", test_terms[i]);
+    // printf("checking %s\n", test_terms[i]);
     ASSERT(!StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
   }
 

@@ -45,7 +45,6 @@ int _tokenize(TokenizerCtx *ctx) {
 
     // skip stopwords
     if (StopWordList_Contains(ctx->stopwords, tok, tlen)) {
-      printf("Got stopword: %s\n", tok);
       continue;
     }
     // create the token struct

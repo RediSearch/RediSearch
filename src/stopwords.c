@@ -87,7 +87,6 @@ StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   while (elements--) {
     size_t len;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
-    printf("Loading stopwrod %.*s\n", (int)len, str);
     TrieMap_Add(sl->m, str, len, NULL, NULL);
     RedisModule_Free(str);
   }

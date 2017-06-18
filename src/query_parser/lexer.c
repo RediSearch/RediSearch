@@ -17,7 +17,7 @@ void *ParseAlloc(void *(*mallocProc)(size_t));
 void ParseFree(void *p, void (*freeProc)(void *));
 
 
-#line 162 "lexer.rl"
+#line 160 "lexer.rl"
 
 
 
@@ -120,7 +120,7 @@ static const int query_error = -1;
 static const int query_en_main = 3;
 
 
-#line 165 "lexer.rl"
+#line 163 "lexer.rl"
 
 
 
@@ -140,7 +140,7 @@ QueryNode *Query_Parse(Query *q, char **err) {
 	act = 0;
 	}
 
-#line 176 "lexer.rl"
+#line 174 "lexer.rl"
   QueryToken tok = {};
   
   parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -420,9 +420,7 @@ _eof_trans:
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
         Parse(pParser, TERM, tok, &ctx);
-    }  else {
-      printf("%.*s is a stopword!\n", tok.len, tok.s);
-    }
+    } 
     if (!ctx.ok) {
       {p++; goto _out; }
     }
@@ -476,9 +474,7 @@ _eof_trans:
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
         Parse(pParser, TERM, tok, &ctx);
-    }  else {
-      printf("%.*s is a stopword!\n", tok.len, tok.s);
-    }
+    } 
     if (!ctx.ok) {
       {p++; goto _out; }
     }
@@ -490,7 +486,7 @@ _eof_trans:
 	}
 	}
 	break;
-#line 494 "lexer.c"
+#line 490 "lexer.c"
 		}
 	}
 
@@ -503,7 +499,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 507 "lexer.c"
+#line 503 "lexer.c"
 		}
 	}
 
@@ -521,7 +517,7 @@ _again:
 	_out: {}
 	}
 
-#line 184 "lexer.rl"
+#line 182 "lexer.rl"
   
 
   if (ctx.ok) {

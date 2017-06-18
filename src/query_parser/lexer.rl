@@ -150,9 +150,7 @@ main := |*
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
         Parse(pParser, TERM, tok, &ctx);
-    }  else {
-      printf("%.*s is a stopword!\n", tok.len, tok.s);
-    }
+    } 
     if (!ctx.ok) {
       fbreak;
     }
