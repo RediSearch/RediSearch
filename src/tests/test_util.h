@@ -8,15 +8,15 @@
 static int numTests = 0;
 static int numAsserts = 0;
 
-#define TESTFUNC(f)                      \
-  printf("Testing %s \t", __STRING(f));  \
-  numTests++;                            \
-  fflush(stdout);                        \
-  if (f()) {                             \
-    printf("%s FAILED!\n", __STRING(f)); \
-    exit(1);                             \
-  } else                                 \
-    printf(" PASSED\n");
+#define TESTFUNC(f)                        \
+  printf("  Testing %s\t\t", __STRING(f)); \
+  numTests++;                              \
+  fflush(stdout);                          \
+  if (f()) {                               \
+    printf(" %s FAILED!\n", __STRING(f));  \
+    exit(1);                               \
+  } else                                   \
+    printf("[PASS]\n");
 
 #define ASSERTM(expr, ...)                                                                 \
   if (!(expr)) {                                                                           \
@@ -58,10 +58,12 @@ static int numAsserts = 0;
 
 #define PRINT_TEST_SUMMARY printf("\nTotal: %d tests and %d assertions OK\n", numTests, numAsserts);
 
-#define TEST_MAIN(body)             \
-  int main(int argc, char **argv) { \
-    body;                           \
-    PRINT_TEST_SUMMARY;             \
-    return 0;                       \
+#define TEST_MAIN(body)                         \
+  int main(int argc, char **argv) {             \
+    printf("Starting Test '%s'...\n", argv[0]); \
+    body;                                       \
+    PRINT_TEST_SUMMARY;                         \
+    printf("\n--------------------\n\n");       \
+    return 0;                                   \
   }
 #endif

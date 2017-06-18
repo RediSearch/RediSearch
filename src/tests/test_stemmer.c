@@ -55,7 +55,7 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, "en");
   ASSERT(s != NULL)
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, s, 0);
+  tokenize(txt, 1, 1, &ctx, tokenFunc, s, 0, DefaultStopWordList());
   ASSERT(ctx.num == 9);
 
   free(txt);

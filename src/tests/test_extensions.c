@@ -104,8 +104,8 @@ int testQueryExpander() {
   const char *qt = "hello world";
   char *err = NULL;
 
-  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DEFAULT_STOPWORDS, "myExpander",
-                      -1, 0, "myScorer", (RSPayload){}, NULL);
+  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(),
+                      "myExpander", -1, 0, "myScorer", (RSPayload){}, NULL);
 
   ASSERT(q->expander = myExpander);
   ASSERT(q->expanderFree = myFreeFunc);

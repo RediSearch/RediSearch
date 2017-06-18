@@ -471,7 +471,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0);
+  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
   ASSERT(ctx.num == 5);
 
   free(txt);
@@ -494,8 +494,9 @@ int testTokenize() {
 int testIndexSpec() {
 
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
-  const char *args[] = {"SCHEMA", title, "text", "weight",   "0.1", body,      "text",    "weight",
-                        "2.0",    foo,   "text", "sortable", bar,   "numeric", "sortable"};
+  const char *args[] = {"STOPWORDS", "2",        "hello", "world",   "SCHEMA",  title, "text",
+                        "weight",    "0.1",      body,    "text",    "weight",  "2.0", foo,
+                        "text",      "sortable", bar,     "numeric", "sortable"};
 
   char *err = NULL;
 
@@ -507,9 +508,16 @@ int testIndexSpec() {
   ASSERT(err == NULL);
   ASSERT(s->numFields == 4)
 
+  ASSERT(s->stopwords != NULL);
+  ASSERT(s->stopwords != DefaultStopWordList());
   ASSERT(s->flags & Index_StoreScoreIndexes);
   ASSERT(s->flags & Index_StoreFieldFlags);
   ASSERT(s->flags & Index_StoreTermOffsets);
+  ASSERT(s->flags & Index_HasCustomStopwords);
+
+  ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
+  ASSERT(IndexSpec_IsStopWord(s, "world", 5));
+  ASSERT(!IndexSpec_IsStopWord(s, "werld", 5));
 
   FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT(f != NULL);

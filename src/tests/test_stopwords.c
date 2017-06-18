@@ -25,7 +25,23 @@ int testStopwordList() {
   return 0;
 }
 
+int testDefaultStopwords() {
+
+  StopWordList *sl = DefaultStopWordList();
+  for (int i = 0; DEFAULT_STOPWORDS[i] != NULL; i++) {
+    ASSERT(StopWordList_Contains(sl, DEFAULT_STOPWORDS[i], strlen(DEFAULT_STOPWORDS[i])));
+  }
+  const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world", "x", "i", "t"};
+  for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
+    printf("checking %s\n", test_terms[i]);
+    ASSERT(!StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
+  }
+
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStopwordList);
+  TESTFUNC(testDefaultStopwords);
 });

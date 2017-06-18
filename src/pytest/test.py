@@ -215,6 +215,37 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
 
+    def testCustomStopwords(self):
+        with self.redis() as r:
+            r.flushdb()
+
+            # Index with default stopwords
+            self.assertOk(r.execute_command('ft.create', 'idx', 'schema', 'foo', 'text'))
+
+            # Index with custom stopwords 
+            self.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
+                                             'schema', 'foo', 'text'))
+            # Index with NO stopwords 
+            self.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
+                                             'schema', 'foo', 'text'))          
+
+            for idx in ('idx', 'idx2', 'idx3'):                                                                           
+                self.assertOk(r.execute_command('ft.add', idx, 'doc1', 1.0, 'fields', 'foo', 'hello world'))
+                self.assertOk(r.execute_command('ft.add', idx, 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
+            
+            for _ in r.retry_with_rdb_reload():
+                # Normal index should return results just for 'hello world'
+                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx', 'hello world', 'nocontent'))
+                self.assertEqual([0],  r.execute_command('ft.search', 'idx', 'to be or not', 'nocontent'))
+
+                # Custom SW index should return results just for 'to be or not'
+                self.assertEqual([0],  r.execute_command('ft.search', 'idx2', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx2', 'to be or not', 'nocontent'))
+
+                # No SW index should return results for both
+                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx3', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx3', 'to be or not', 'nocontent'))
+
 
     def testOptional(self):
         with self.redis() as r:

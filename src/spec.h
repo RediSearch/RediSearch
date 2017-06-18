@@ -65,6 +65,7 @@ typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
   Index_StoreScoreIndexes = 0x04,
+  Index_HasCustomStopwords = 0x08,
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
@@ -125,8 +126,11 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 */
 void IndexSpec_Free(void *spec);
 
-void IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
+/* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
+ * list, and return 0 */
+int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
 
+/* Return 1 if a term is a stopword for the specific index */
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields);
