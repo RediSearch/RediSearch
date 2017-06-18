@@ -15,7 +15,7 @@ typedef struct idFilter {
 
 /* Create a new IdFilter from a list of redis strings. count is the number of strings, guaranteed to
  * be less than or equal to the length of args */
-IdFilter NewIdFilter(RedisModuleString **args, int count, DocTable *dt);
+IdFilter *NewIdFilter(RedisModuleString **args, int count, DocTable *dt);
 
 /* Free the filter's internal data, but not the filter itself, that is allocated on the stack */
 void IdFilter_Free(IdFilter *f);

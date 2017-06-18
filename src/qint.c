@@ -1410,10 +1410,10 @@ qintConfig
 
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
 size_t qint_decode(BufferReader *br, uint32_t *arr, int len) {
-  qintConfig *qc = &configs[*(uint8_t *)br->pos];
-  // printf("qc %02x: size %zd\n",*(uint8_t*)br->pos, qc->size );
+  qintConfig *qc = &configs[*(uint8_t *)BufferReader_Current(br)];
+  // printf("qc %02x: size %zd\n",*(uint8_t*)BufferReader_Current(br), qc->size );
   for (int i = 0; i < len; i++) {
-    arr[i] = *(uint32_t *)(br->pos + qc->fields[i].offset) & qc->fields[i].mask;
+    arr[i] = *(uint32_t *)(BufferReader_Current(br) + qc->fields[i].offset) & qc->fields[i].mask;
   }
   Buffer_Skip(br, qc->size);
   return qc->size;
@@ -1425,35 +1425,35 @@ size_t qint_decode(BufferReader *br, uint32_t *arr, int len) {
 #define qint_memberx(p, c, i) (*(uint32_t *)(p + c.fields[i].offset) & c.fields[i].mask)
 
 size_t qint_decode1(BufferReader *br, uint32_t *i) {
-  *i = qint_member(br->pos, 0);
-  size_t offset = configs[*(uint8_t *)br->pos].fields[1].offset;
+  *i = qint_member(BufferReader_Current(br), 0);
+  size_t offset = configs[*(uint8_t *)BufferReader_Current(br)].fields[1].offset;
   Buffer_Skip(br, offset);
   return offset;
 }
 
 size_t qint_decode2(BufferReader *br, uint32_t *i, uint32_t *i2) {
-  *i = qint_member(br->pos, 0);
-  *i2 = qint_member(br->pos, 1);
-  size_t offset = configs[*(uint8_t *)br->pos].fields[2].offset;
+  *i = qint_member(BufferReader_Current(br), 0);
+  *i2 = qint_member(BufferReader_Current(br), 1);
+  size_t offset = configs[*(uint8_t *)BufferReader_Current(br)].fields[2].offset;
   Buffer_Skip(br, offset);
   return offset;
 }
 
 size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3) {
-  *i = qint_member(br->pos, 0);
-  *i2 = qint_member(br->pos, 1);
-  *i3 = qint_member(br->pos, 2);
-  size_t offset = configs[*(uint8_t *)br->pos].fields[3].offset;
+  *i = qint_member(BufferReader_Current(br), 0);
+  *i2 = qint_member(BufferReader_Current(br), 1);
+  *i3 = qint_member(BufferReader_Current(br), 2);
+  size_t offset = configs[*(uint8_t *)BufferReader_Current(br)].fields[3].offset;
   Buffer_Skip(br, offset);
   return offset;
 }
 
 size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3, uint32_t *i4) {
-  uint8_t pos = *(uint8_t *)br->pos;
-  *i = qint_memberx(br->pos, configs[pos], 0);
-  *i2 = qint_memberx(br->pos, configs[pos], 1);
-  *i3 = qint_memberx(br->pos, configs[pos], 2);
-  *i4 = qint_memberx(br->pos, configs[pos], 3);
+  uint8_t pos = *(uint8_t *)BufferReader_Current(br);
+  *i = qint_memberx(BufferReader_Current(br), configs[pos], 0);
+  *i2 = qint_memberx(BufferReader_Current(br), configs[pos], 1);
+  *i3 = qint_memberx(BufferReader_Current(br), configs[pos], 2);
+  *i4 = qint_memberx(BufferReader_Current(br), configs[pos], 3);
   size_t offset = configs[pos].size;
   Buffer_Skip(br, offset);
   return offset;

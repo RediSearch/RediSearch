@@ -420,7 +420,7 @@ int testBuffer() {
   ASSERT(Buffer_Capacity(w.buf) == 15);
 
   BufferReader br = NewBufferReader(w.buf);
-  ASSERT(br.pos == br.buf->data);
+  ASSERT(br.pos == 0);
 
   char *y = malloc(strlen(x) + 1);
   l = Buffer_Read(&br, y, strlen(x) + 1);
@@ -716,7 +716,7 @@ int testSortable() {
   double s2 = 4.444;
   RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
 
-  RSSortingKey sk = {.field = "foo", .index = 0, .ascending = 0};
+  RSSortingKey sk = { .index = 0, .ascending = 0};
 
   int rc = RSSortingVector_Cmp(v, v2, &sk);
   ASSERT(rc > 0);

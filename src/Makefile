@@ -7,11 +7,11 @@ CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -Wno-
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
-	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl
+	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
 	CFLAGS += -mmacosx-version-min=10.6
 	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb 
-	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl
+	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
 endif
 export CFLAGS
 
@@ -22,9 +22,9 @@ INDEX=index.o forward_index.o index_result.o doc_table.o numeric_filter.o \
 		numeric_index.o geo_index.o qint.o inverted_index.o id_list.o id_filter.o offset_vector.o sortable.o 
 TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o stopwords.o
 EXTOBJS=ext/default.o  extension.o
-REDIS= redis_index.o query.o spec.o  module.o
+REDIS= redis_index.o query.o spec.o  module.o search_request.o concurrent_ctx.o
 QUERY_PARSE=query_parser/lexer.o query_parser/parser.o
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/mempool.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o util/mempool.o dep/thpool/thpool.o
 RMUTILOBJS=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a
 LIBTRIEMAP=dep/triemap/libtriemap.a
@@ -103,6 +103,9 @@ debug: util rmutil snowball libnu trie  triemap | module.so
 	
 
 clean:
+	rm -fv *.o
+
+distclean:
 	find . -type f -name '*.o' -delete -print
 
 package: module.so

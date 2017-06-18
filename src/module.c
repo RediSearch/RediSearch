@@ -25,6 +25,7 @@
 #include "varint.h"
 #include "extension.h"
 #include "ext/default.h"
+#include "search_request.h"
 #include "rmalloc.h"
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
@@ -83,8 +84,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
           RSSortingVector_Put(sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
         }
 
-        totalTokens =
-            tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer, totalTokens, ctx->spec->stopwords);
+        totalTokens = tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer,
+                               totalTokens, ctx->spec->stopwords);
         break;
       case F_NUMERIC: {
         double score;
@@ -507,6 +508,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   char *explain = (char *)Query_DumpExplain(q);
   RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
   free(explain);
+  Query_Free(q);
 end:
   return REDISMODULE_OK;
 }
@@ -741,194 +743,24 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+
   RedisModule_AutoMemory(ctx);
-
-  // Detect "NOCONTENT"
-  int nocontent = RMUtil_ArgExists("nocontent", argv, argc, 3);
-
-  // Parse LIMIT argument
-  long long first = 0, limit = 10;
-  RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &first, &limit);
-  if (limit <= 0) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (sp == NULL) {
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  // if INFIELDS exists, parse the field mask
-  int inFieldsIdx = RMUtil_ArgExists("INFIELDS", argv, argc, 3);
-  long long numFields = 0;
-  t_fieldMask fieldMask = RS_FIELDMASK_ALL;
-  if (inFieldsIdx > 0) {
-    RMUtil_ParseArgs(argv, argc, inFieldsIdx + 1, "l", &numFields);
-    if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {
-      fieldMask = IndexSpec_ParseFieldMask(sp, &argv[inFieldsIdx + 2], numFields);
-    }
-    LG_DEBUG("Parsed field mask: 0x%x\n", fieldMask);
+  char *err;
+
+  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  if (req == NULL) {
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s\n", err);
+    return RedisModule_ReplyWithError(ctx, err);
   }
 
-  // Parse numeric filter. currently only one supported
-  RedisSearchCtx sctx = {ctx, sp};
-  Vector *numericFilters = NULL;
-  int filterIdx = RMUtil_ArgExists("FILTER", argv, argc, 3);
-  if (filterIdx > 0) {
-    numericFilters = ParseMultipleFilters(&sctx, &argv[filterIdx], argc - filterIdx);
-    if (numericFilters == NULL) {
-      RedisModule_ReplyWithError(ctx, "Invalid numeric filter");
-      goto end;
-    }
-  }
-
-  // parse geo filter if present
-  GeoFilter gf;
-  int filterGeo = 0;
-  int gfIdx = RMUtil_ArgExists("GEOFILTER", argv, argc, 3);
-  if (gfIdx > 0 && filterIdx + 6 <= argc) {
-    if (GeoFilter_Parse(&gf, &argv[gfIdx + 1], 5) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithError(ctx, "Invalid geo filter");
-      goto end;
-    }
-    filterGeo = 1;
-  }
-
-  // parse WISTHSCORES
-  int withscores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
-
-  // parse WITHPAYLOADS
-  int withpaylaods = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
-
-  // Parse VERBATIM and LANGUAGE arguments
-  int verbatim = RMUtil_ArgExists("VERBATIM", argv, argc, 3);
-
-  // Parse INORDER and SLOP arguments
-  int inOrder = RMUtil_ArgIndex("INORDER", argv, argc) >= 0;
-  long long slop = -1;
-  RMUtil_ParseArgsAfter("SLOP", argv, argc, "l", &slop);
-
-  if (inOrder && slop < 0) {
-    slop = __INT_MAX__;
-  }
-
-  const char *lang = NULL;
-
-  // make sure we search for "language" only after the query
-  if (argc > 3) {
-    RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &lang);
-    if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
-      RedisModule_ReplyWithError(ctx, "Unsupported Stemmer Language");
-      goto end;
-    }
-  }
-
-  // parse the optional expander argument
-  const char *expander = NULL;
-  if (argc > 3) {
-    RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &expander);
-  }
-  if (!expander) {
-    expander = DEFAULT_EXPANDER_NAME;
-  }
-
-  // IF a payload exists, init it
-  RSPayload payload = {.data = NULL, .len = 0};
-
-  if (argc > 3) {
-    RedisModuleString *ps = NULL;
-    RMUtil_ParseArgsAfter("PAYLOAD", &argv[2], argc - 2, "s", &ps);
-    if (ps) {
-      payload.data = (char *)RedisModule_StringPtrLen(ps, &payload.len);
-    }
-  }
-
-  // parse SCORER argument
-  char *scorer = NULL;
-  RMUtil_ParseArgsAfter("SCORER", &argv[3], argc - 3, "c", &scorer);
-  if (scorer) {
-    if (Extensions_GetScoringFunction(NULL, scorer) == NULL) {
-      return RedisModule_ReplyWithError(ctx, "Invalid scorer name");
-    }
-  }
-
-  // Parse SORTBY argument
-  RSSortingKey sortKey;
-  int hasSorting = RSSortingTable_ParseKey(sp->sortables, &sortKey, &argv[3], argc - 3);
-
-  int nostopwords = RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3);
-
-  // parse the id filter arguments
-  long long numFilteredIds = 0;
-  IdFilter idf = (IdFilter){.ids = NULL, .keys = NULL};
-  RMUtil_ParseArgsAfter("INKEYS", &argv[2], argc - 2, "l", &numFilteredIds);
-  if (numFilteredIds > 0 && numFilteredIds < argc - 3) {
-
-    RedisModule_Log(ctx, "debug", "Filtering %d keys", numFilteredIds);
-    int pos = RMUtil_ArgIndex("INKEYS", argv, argc);
-    idf = NewIdFilter(&argv[pos + 2], MIN(argc - pos - 2, numFilteredIds), &sctx.spec->docs);
-  } else {
-    numFilteredIds = 0;
-  }
-
-  size_t len;
-  const char *qs = RedisModule_StringPtrLen(argv[2], &len);
-  Query *q = NewQuery(&sctx, (char *)qs, len, first, limit, fieldMask, verbatim, lang,
-                      nostopwords ? NULL : sp->stopwords, expander, slop, inOrder, scorer, payload,
-                      hasSorting ? &sortKey : NULL);
-
-  char *errMsg = NULL;
-  if (!Query_Parse(q, &errMsg)) {
-
-    if (errMsg) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
-      RedisModule_ReplyWithError(ctx, errMsg);
-      free(errMsg);
-    } else {
-      /* Simulate an empty response - this means an empty query */
-      RedisModule_ReplyWithArray(ctx, 1);
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
-    Query_Free(q);
-    goto end;
-  }
-
-  Query_Expand(q);
-
-  // set numeric filters if possible
-  if (numericFilters) {
-    for (int i = 0; i < Vector_Size(numericFilters); i++) {
-      NumericFilter *nf;
-      Vector_Get(numericFilters, i, &nf);
-      if (nf) {
-        Query_SetNumericFilter(q, nf);
-      }
-    }
-
-    Vector_Free(numericFilters);
-  }
-
-  if (filterGeo) {
-    Query_SetGeoFilter(q, &gf);
-  }
-
-  if (numFilteredIds > 0) {
-    Query_SetIdFilter(q, &idf);
-  }
-  q->docTable = &sp->docs;
-
-  // Execute the query
-  QueryResult *r = Query_Execute(q);
-  if (r == NULL) {
-    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-    goto end;
-  }
-
-  QueryResult_Serialize(r, &sctx, nocontent, withscores, withpaylaods);
-  QueryResult_Free(r);
-  Query_Free(q);
-end:
-  return REDISMODULE_OK;
+  int rc = RSSearchRequest_Process(ctx, req);
+  SearchCtx_Free(sctx);
+  return rc;
 }
 
 /*
@@ -1294,6 +1126,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   // Init extension mechanism
   Extensions_Init();
+
+  ConcurrentSearch_ThreadPoolStart();
 
   if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
     const char *ext = NULL;

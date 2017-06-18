@@ -17,7 +17,7 @@ typedef struct {
   t_docId lastId;
   uint16_t numDocs;
 
-  Buffer data;
+  Buffer *data;
 } IndexBlock;
 
 typedef struct {

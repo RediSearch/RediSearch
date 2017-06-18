@@ -52,11 +52,12 @@ typedef struct {
 typedef struct {
   /* The field index we are sorting by */
   int index : 8;
-  /* The field name for debugging */
-  const char *field;
+
   /* ASC/DESC flag */
   int ascending;
 } RSSortingKey;
+
+void RSSortingKey_Free(RSSortingKey *k);
 
 /* Create a sorting table of a given length. Length can be up to 255 */
 RSSortingTable *NewSortingTable(int len);

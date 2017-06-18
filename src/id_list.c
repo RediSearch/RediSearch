@@ -116,8 +116,10 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
   IdListIterator *it = rm_new(IdListIterator);
-  it->docIds = ids;
+
   it->size = num;
+  it->docIds = rm_calloc(num, sizeof(t_docId));
+  if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
   it->atEOF = 0;
   it->lastDocId = 0;
   it->res = NewVirtualResult();

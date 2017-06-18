@@ -18,10 +18,10 @@ typedef struct {
 
 typedef struct {
   Buffer *buf;
-  char *pos;
+  size_t pos;
 } BufferReader;
 
-#define BUFFER_READ_BYTE(b) *b->pos++
+#define BUFFER_READ_BYTE(br) br->buf->data[b->pos++]
 //++b->buf->offset;
 
 void Buffer_Init(Buffer *b, size_t cap);
@@ -46,10 +46,13 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);
+char *BufferReader_Current(BufferReader *b);
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 
 Buffer *NewBuffer(size_t len);
+
+Buffer *Buffer_Wrap(char *data, size_t len);
 void Buffer_Free(Buffer *buf);
 
 #endif

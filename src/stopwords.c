@@ -106,4 +106,5 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
   while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
     RedisModule_SaveStringBuffer(rdb, str, len);
   }
+  TrieMapIterator_Free(it);
 }
