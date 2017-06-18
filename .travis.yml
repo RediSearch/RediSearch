@@ -1,27 +1,49 @@
 language: c
 compiler: gcc
 dist: trusty
-install: make clean && make
-before_script:
-- git clone --depth 1 https://github.com/antirez/redis.git
-- cd redis
-- make
-- pip install redis ramp-packer
-- cd ..
+
 env:
-- REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
+  global:
+    - MODULE_NAME=redisearch
+    - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so
+    - REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
+
+install:
+  - make clean && make
+
+before_script:
+  - git clone --depth 1 https://github.com/antirez/redis.git
+  - cd redis
+  - make
+  - cd ..
+  - pip install redis rmtest ramp-packer mkdocs mkdocs-material
+
 script:
-- make test
-- make package
+  - make test
+
+before_deploy:
+  - make package
+  - make docs
+
 deploy:
-  provider: s3
-  access_key_id: AKIAJV5TLHJABHC5XH7A
-  secret_access_key:
-    secure: aPG5de7/5tHF+PWA76wnwYVbBTUBSeH66kBLAMzNvT2rEVkxdR2kqDmnD+70RWNC4B4inhBbtrmWp+IVdXZ7w1o+dNCiOgo/Ddq3pBxNJhg6ue3qnDNM15DmeXtr8zwsY/tazrzWJuyDHJ9WpYXw9456884FmSrf8oBvLqfLWW8/TA5t4fgc9zkimEKUsxHNozQn9dW3FU36qi3QF1ZA2XC995V5ngXPUTKYr+q1eMCiBflItZp6Mw2J9NBGM7LKTuylYCv03NEcrOuiM/7Rk3D8WRVKn1bP+87Oo/uGqoWwGoNMw5w626xY6ff9kffV47Mgr1nrxHUju3eA/Mv8TdRlY02LlywcPWk43XbFvUD20rHYMvq0wq60VULGTItKfbYMeshz4q9YhEuaL24wBYruYnUP+J3iMv+UG69m48EXL/QxW4yvd3lIJhTrFh6hATsRl4SnRz2w6yzBvse5cq2vIU6TdUfrLi9rvVI16huOEPxrQ4jNkKYjZD2YVVOz7ycgb7WhAhmN1TpRAHb3xsnVMDwh9gdKUxjmZ9rOq/1oTUvYohj4bRK3J3X/SDR1kQg0cU6fuLK6vfw+T0MPL8fN3WplCaruywNmTqFzm4/ElbJvG8BZ6eFDNqtewcVkG9q4x/aCH3Tg/H2xwoIBbBLQ8SiY0SAn7Uu7GG0QQdo=
-  skip_cleanup: true
-  acl: public_read
-  bucket: redismodules
-  upload-dir: redisearch
-  on:
-    branch: master
-  local_dir: $TRAVIS_BUILD_DIR/build
+  # Module latest artifact
+  - provider: s3
+    access_key_id: $AWS_ACCESS_KEY
+    secret_access_key: $AWS_SECRET
+    skip_cleanup: true
+    acl: public_read
+    bucket: redismodules
+    upload-dir: $MODULE_NAME
+    on:
+      branch: master
+    local_dir: $TRAVIS_BUILD_DIR/build
+  # Website deployment
+  - provider: s3
+    access_key_id: $AWS_ACCESS_KEY
+    secret_access_key: $AWS_SECRET
+    skip_cleanup: true
+    acl: public_read
+    bucket: $MODULE_NAME.io
+    on:
+      branch: master
+    local_dir: $TRAVIS_BUILD_DIR/site
