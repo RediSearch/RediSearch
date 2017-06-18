@@ -6,6 +6,7 @@
 ```
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
 
@@ -23,10 +24,16 @@ so keep it short!
 
 * **NOSCOREIDX**: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.
 
+* **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}. 
+
+    If not set, we take the default list of stopwords. 
+
+    If **{num}** is set to 0, the index will not have stopwords.
+
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
-Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+    Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
 
 ### Complexity
 O(1)
