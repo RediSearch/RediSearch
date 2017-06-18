@@ -6,11 +6,10 @@ void RMUTil_InitAlloc();
 
 int testStopwordList() {
 
-  const char *terms[] = {strdup("foo"), strdup("bar"), strdup("שלום"), strdup("Hello"),
-                         strdup("WORLD")};
+  char *terms[] = {strdup("foo"), strdup("bar"), strdup("שלום"), strdup("Hello"), strdup("WORLD")};
   const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world"};
 
-  StopWordList *sl = NewStopWordListCStr(terms, sizeof(terms) / sizeof(const char *));
+  StopWordList *sl = NewStopWordListCStr(terms, sizeof(terms) / sizeof(char *));
   ASSERT(sl != NULL);
 
   for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
@@ -22,6 +21,9 @@ int testStopwordList() {
   ASSERT(!StopWordList_Contains(NULL, NULL, 0));
 
   StopWordList_Free(sl);
+  for (int i = 0; i < sizeof(terms) / sizeof(const char *); i++) {
+    free(terms[i]);
+  }
   return 0;
 }
 
@@ -37,6 +39,7 @@ int testDefaultStopwords() {
     ASSERT(!StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
   }
 
+  StopWordList_Free(sl);
   return 0;
 }
 
