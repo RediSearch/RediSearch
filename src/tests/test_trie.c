@@ -132,7 +132,7 @@ int testPayload() {
   int dist = 0;
 
   while (TrieIterator_Next(it, &s, &len, &payload, &plen, &score, &dist)) {
-    ASSERT(score == 0);
+    ASSERT(score == 1);
     ASSERT(len > 0);
     ASSERT(plen == 2);
     ASSERT_EQUAL(payload[0], expectedRunes[0]);
