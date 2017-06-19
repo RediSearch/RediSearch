@@ -234,7 +234,7 @@ failure:  // on failure free the spec fields array and return an error
 }
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  return Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1);
+  return Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 0);
 }
 
 void IndexSpec_Free(void *ctx) {

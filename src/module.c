@@ -903,7 +903,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-## FT.SUGGADD key string score [INCR]
+## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
 
 Add a suggestion string to an auto-complete suggestion dictionary. This is
 disconnected from the
@@ -927,12 +927,14 @@ user queries in
 real
     time
 
+   - PAYLOAD: Add a payload to the suggestion string that will be used as additional information.
+
 ### Returns:
 
 Integer reply: the current size of the suggestion dictionary.
 */
 int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
+  if (argc < 4 || argc > 7) return RedisModule_WrongArity(ctx);
 
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
@@ -950,6 +952,11 @@ int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int incr = RMUtil_ArgExists("INCR", argv, argc, 4);
 
+  // Parse the optional payload field
+  const char *payload = NULL;
+  size_t payloadSize = 0;
+  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
+
   /* Create an empty value object if the key is currently empty. */
   Trie *tree;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
@@ -960,7 +967,55 @@ int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr);
+  Trie_Insert(tree, val, score, incr, payload, payloadSize);
+
+  RedisModule_ReplyWithLongLong(ctx, tree->size);
+  RedisModule_ReplicateVerbatim(ctx);
+  return REDISMODULE_OK;
+}
+
+/* FT.TNADD key string score [{payload}]
+*
+*  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
+*
+*  This command is used only for AOF rewrite
+*
+*  Returns the current size of the suggestion dictionary.
+*/
+int TNAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {  
+  RedisModule_AutoMemory(ctx);
+  if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);  
+
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+  int type = RedisModule_KeyType(key);
+  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+    return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+  }
+
+  RedisModuleString *val = argv[2];
+  double score;
+  if (RMUtil_ParseArgs(argv, argc, 3, "d", &score) == REDISMODULE_ERR) {
+    return RedisModule_ReplyWithError(ctx, "Could not parse score");
+  }
+
+  const char *payload = NULL;
+  size_t payloadSize = 0;
+  // optionally take the payload
+  if (argc == 5) {
+    payload = RedisModule_StringPtrLen(argv[4], &payloadSize);
+  }
+
+  /* Create an empty value object if the key is currently empty. */
+  Trie *tree;
+  if (type == REDISMODULE_KEYTYPE_EMPTY) {
+    tree = NewTrie();
+    RedisModule_ModuleTypeSetValue(key, TrieType, tree);
+  } else {
+    tree = RedisModule_ModuleTypeGetValue(key);
+  }
+
+  /* Insert the new element. */
+  Trie_Insert(tree, val, score, 0, payload, payloadSize);
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
@@ -1029,7 +1084,7 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-## FT.SUGGET key prefix [FUZZY] [MAX num] [WITHSCORES] [TRIM]
+## FT.SUGGET key prefix [FUZZY] [MAX num] [WITHSCORES] [TRIM] [OPTIMIZE] [WITHPAYLOADS]
 
 Get completion suggestions for a prefix
 
@@ -1046,9 +1101,11 @@ Get completion suggestions for a prefix
      is 5, and the number   cannot be greater than 10.
 
    - WITHSCORES: If set, we also return each entry's score
-
+    
    - TRIM: If set, we remove very unlikely results
 
+   - WITHPAYLOADS: If set, we also return each entry's payload as they were inserted, or nil if no payload
+    exists.
 ### Returns:
 
 Array reply: a list of the top suggestions matching the prefix
@@ -1057,7 +1114,7 @@ Array reply: a list of the top suggestions matching the prefix
 int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
-  if (argc < 3 || argc > 8) return RedisModule_WrongArity(ctx);
+  if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   // make sure the key is a trie
@@ -1094,10 +1151,16 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int optimize = RMUtil_ArgExists("OPTIMIZE", argv, argc, 3);
 
+  // detect WITHPAYLOADS
+  int withPayloads = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
+
   Vector *res = Trie_Search(tree, s, len, num, maxDist, 1, trim, optimize);
 
   // if we also need to return scores, we need double the records
-  RedisModule_ReplyWithArray(ctx, Vector_Size(res) * (withScores ? 2 : 1));
+  int mul = 1;
+  mul = withScores ? mul + 1 : mul;
+  mul = withPayloads ? mul + 1 : mul;
+  RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);
 
   for (int i = 0; i < Vector_Size(res); i++) {
     TrieSearchResult *e;
@@ -1106,6 +1169,9 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
     if (withScores) {
       RedisModule_ReplyWithDouble(ctx, e->score);
+    }
+    if (withPayloads) {
+      RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
     }
 
     TrieSearchResult_Free(e);
@@ -1204,7 +1270,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1,
          1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, SuggestDelCommand, "write", 1, 1, 1);
+  if (RedisModule_CreateCommand(ctx, TRIE_ADD_AOF_CMD, TNAddCommand, "write deny-oom", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1);
 
