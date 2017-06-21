@@ -119,14 +119,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     }
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = score;
-
-    size_t lenstr = 0;
-    char *str = runesToStr(rstr, slen, &lenstr);
-    if (str != NULL) {
-      ent->score = lenstr > 0 && strcmp(s, str) == 0 ? INT_MAX : score;
-      free(str);
-    }    
+    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
