@@ -9,6 +9,8 @@
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
+#include <string.h>
+#include <limits.h>
 
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
@@ -118,6 +120,14 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
     TrieSearchResult *ent = pooledEntry;
 
     ent->score = score;
+
+    size_t lenstr = 0;
+    char *str = runesToStr(rstr, slen, &lenstr);
+    if (str != NULL) {
+      ent->score = lenstr > 0 && strcmp(s, str) == 0 ? INT_MAX : score;
+      free(str);
+    }    
+
     if (maxDist > 0) {
       // factor the distance into the score
       ent->score *= exp((double)-(2 * dist));
