@@ -78,7 +78,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // parse geo filter if present
   int gfIdx = RMUtil_ArgExists("GEOFILTER", argv, argc, 3);
-  if (gfIdx > 0 && filterIdx + 6 <= argc) {
+  if (gfIdx > 0 && gfIdx + 6 <= argc) {
     req->geoFilter = malloc(sizeof(GeoFilter));
     if (GeoFilter_Parse(req->geoFilter, &argv[gfIdx + 1], 5) == REDISMODULE_ERR) {
       *errStr = "Invalid geo filter";

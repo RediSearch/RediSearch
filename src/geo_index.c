@@ -34,30 +34,40 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
 int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
+  gf->property = NULL;
+  gf->lat = 0;
+  gf->lon = 0;
+  gf->unit = NULL;
+  gf->radius = 0;
+
   if (argc != 5) {
     return REDISMODULE_ERR;
   }
 
   if (RMUtil_ParseArgs(argv, argc, 0, "cdddc", &gf->property, &gf->lon, &gf->lat, &gf->radius,
                        &gf->unit) == REDISMODULE_ERR) {
-    printf("error parsing\n");
+
+    // don't dup the strings since we are exiting now
+    if (gf->property) gf->property = NULL;
+    if (gf->unit) gf->unit = NULL;
+
     return REDISMODULE_ERR;
   }
-
+  gf->property = gf->property ? strdup(gf->property) : NULL;
+  gf->unit = gf->unit ? strdup(gf->unit) : NULL;
   // verify unit
   if (!gf->unit || (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") &&
                     strcasecmp(gf->unit, "ft") && strcasecmp(gf->unit, "mi"))) {
     // printf("wrong unit %s\n", gf->unit);
     return REDISMODULE_ERR;
   }
-  gf->property = strdup(gf->property);
-  gf->unit = strdup(gf->unit);
+
   return REDISMODULE_OK;
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
-  free((char *)gf->property);
-  free((char *)gf->unit);
+  if (gf->property) free((char *)gf->property);
+  if (gf->unit) free((char *)gf->unit);
   free(gf);
 }
 
