@@ -5,6 +5,7 @@
 #include "time_sample.h"
 #include "../extension.h"
 #include "../ext/default.h"
+#include "../rmutil/alloc.h"
 #include <stdio.h>
 
 void __queryNode_Print(Query *q, QueryNode *qs, int depth);
@@ -104,7 +105,6 @@ int testQueryParser() {
 
   char *err = NULL;
   char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
-  RedisSearchCtx ctx;
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DefaultStopWordList(), NULL, -1, 0,
                       NULL, (RSPayload){}, NULL);
 
@@ -236,7 +236,6 @@ int testFieldSpec() {
 }
 void benchmarkQueryParser() {
   char *qt = "(hello|world) \"another world\"";
-  RedisSearchCtx ctx;
   char *err = NULL;
 
   Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0,

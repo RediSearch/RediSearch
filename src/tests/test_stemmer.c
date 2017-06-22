@@ -31,8 +31,8 @@ int tokenFunc(void *ctx, Token t) {
   // printf("%s %d\n", t.s, t.type);
 
   tokenContext *tx = ctx;
-
-  assert(strcmp(t.s, tx->expected[tx->num++]) == 0);
+  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  assert(ret == 0);
   assert(t.len == strlen(t.s));
   assert(t.fieldId == 1);
   assert(t.pos > 0);

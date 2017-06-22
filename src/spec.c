@@ -284,7 +284,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
     FieldSpec *fs = IndexSpec_GetField(sp, p, len);
     if (fs != NULL) {
-      LG_DEBUG("Found mask for %s: %d\n", p, fs->id);
+      LG_DEBUG("Found mask for %s: %u\n", p, fs->id);
       ret |= (fs->id & RS_FIELDMASK_ALL);
     }
   }

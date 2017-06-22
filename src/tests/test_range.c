@@ -126,9 +126,9 @@ int benchmarkNumericRangeTree() {
     count += NumericRangeTree_Add(t, i, (double)(rand() % 500000));
   }
   // printf("created %d range leaves\n", count);
-  Vector *v;
+
   TIME_SAMPLE_RUN_LOOP(1000, {
-    v = NumericRangeTree_Find(t, 1000, 20000);
+  Vector *v = NumericRangeTree_Find(t, 1000, 20000);
     // printf("%d\n", v->top);
     Vector_Free(v);
   });
@@ -146,7 +146,7 @@ int benchmarkNumericRangeTree() {
   TimeSampler_Start(&ts);
   while (it->HasNext(it->ctx)) {
 
-    int rc = it->Read(it->ctx, &res);
+    it->Read(it->ctx, &res);
     TimeSampler_Tick(&ts);
     // IndexResult_Print(res, 0);
     // if (rc == INDEXREAD_EOF) {

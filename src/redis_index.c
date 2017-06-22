@@ -352,7 +352,7 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
   RedisSearchCtx *sctx = opaque;
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_StringPtrLen(pf, &pflen);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
@@ -395,7 +395,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisSearchCtx *sctx = opaque;
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_StringPtrLen(pf, &pflen);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
