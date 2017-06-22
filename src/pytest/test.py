@@ -356,15 +356,15 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for _ in r.retry_with_rdb_reload():
           
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
                 self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
                 self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
-                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc99', '1'], res)
+                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
 
 

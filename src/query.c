@@ -696,6 +696,9 @@ QueryResult *Query_Execute(Query *query) {
   res->results = NULL;
   res->numResults = 0;
 
+  // If 1, the query has SORTBY and is not score based
+  int sortByMode = query->sortKey != NULL;
+
   //  start lazy evaluation of all query steps
   IndexIterator *it = NULL;
   if (query->root != NULL) {
@@ -710,7 +713,7 @@ QueryResult *Query_Execute(Query *query) {
   int num = query->offset + query->limit;
 
   heap_t *pq = malloc(heap_sizeof(num));
-  if (query->sortKey) {
+  if (sortByMode) {
     heap_init(pq, sortByCmp, query->sortKey, num);
   } else {
     heap_init(pq, cmpHits, NULL, num);
@@ -749,7 +752,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    if (query->sortKey) {
+    if (sortByMode) {
       h->sv = dmd->sortVector;
       h->score = 0;
     } else {
@@ -768,15 +771,30 @@ QueryResult *Query_Execute(Query *query) {
         minScore = minh->score;
       }
     } else {
-      if (h->score >= minScore) {
-        pooledHit = heap_poll(pq);
-        heap_offerx(pq, h);
-
-        // get the new min score
+      /* In SORTBY mode - compare the hit with the lowest ranked entry in the heap */
+      if (sortByMode) {
         heapResult *minh = heap_peek(pq);
-        minScore = minh->score;
+        /* if the current hit should be in the heap - remoe the lowest hit and add the new hit */
+        if (sortByCmp(h, minh, query->sortKey) < 0) {
+          pooledHit = heap_poll(pq);
+          heap_offerx(pq, h);
+        } else {
+          /* The current should not enter the pool, so just leave it as is */
+          pooledHit = h;
+        }
+
       } else {
-        pooledHit = h;
+        /* In Scored mode - compare scores with the lowest ranked result */
+        if (h->score >= minScore) {
+          pooledHit = heap_poll(pq);
+          heap_offerx(pq, h);
+
+          // get the new min score
+          heapResult *minh = heap_peek(pq);
+          minScore = minh->score;
+        } else {
+          pooledHit = h;
+        }
       }
     }
   }
