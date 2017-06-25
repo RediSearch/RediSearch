@@ -2,7 +2,7 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -Wno-pointer-sign -fPIC \
+CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC \
  	-D_GNU_SOURCE -std=gnu99 -I"$(shell pwd)" -DREDIS_MODULE_TARGET
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
