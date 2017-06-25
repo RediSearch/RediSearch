@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "rmalloc.h"
 #include "qint.h"
+#include "dep/streamvbyte/include/streamvbyte.h"
 
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
@@ -138,21 +139,28 @@ inline size_t __readEntry(BufferReader *br, IndexFlags idxflags, t_docId lastId,
   size_t startPos = BufferReader_Offset(br);
 
   uint32_t offsetsSz = 0;
+  uint32_t arr[4];
   *fieldMask = RS_FIELDMASK_ALL;
 
   switch ((uint32_t)idxflags & (Index_StoreFieldFlags | Index_StoreTermOffsets)) {
     // Full encoding - load docId, freq, flags, offset
-    case Index_StoreTermOffsets | Index_StoreFieldFlags:
+    case Index_StoreTermOffsets | Index_StoreFieldFlags: {
 
-      qint_decode4(br, docId, freq, fieldMask, &offsetsSz);
+      size_t sz =
+          streamvbyte_decode((const uint8_t *)BufferReader_Current(br), arr, 4);  // decoding (fast)
+      *docId = arr[0];
+      *freq = arr[1];
+      *fieldMask = arr[2];
+      Buffer_Skip(br, sz);
+      // qint_decode4(br, docId, freq, fieldMask, &offsetsSz);
       if (offsets != NULL && !singleWordMode) {
         offsets->data = BufferReader_Current(br);
-        offsets->len = offsetsSz;
+        offsets->len = arr[3];
       }
-      Buffer_Skip(br, offsetsSz);
+      Buffer_Skip(br, arr[3]);
 
       break;
-
+    }
     // load term offsets but not field flags
     case Index_StoreTermOffsets:
       qint_decode3(br, docId, freq, &offsetsSz);
