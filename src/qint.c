@@ -1409,12 +1409,25 @@ qintConfig
 };
 
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
-size_t qint_decode(BufferReader *br, uint32_t *arr, int len) {
-  qintConfig *qc = &configs[*(uint8_t *)BufferReader_Current(br)];
-  // printf("qc %02x: size %zd\n",*(uint8_t*)BufferReader_Current(br), qc->size );
-  for (int i = 0; i < len; i++) {
-    arr[i] = *(uint32_t *)(BufferReader_Current(br) + qc->fields[i].offset) & qc->fields[i].mask;
+size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len) {
+  uint8_t *p = (uint8_t *)BufferReader_Current(br);
+
+  // the most common case (4 1-byte ints) has a simpler flow.
+  // this stupid optimization actually yields about 10% speedup
+  if (!*p) {
+    for (int i = 0; i < len; i++) {
+      arr[i] = p[i + 1];
+    }
+    Buffer_Skip(br, 5);
+    return 5;
   }
+
+  // less common case...
+  qintConfig *qc = &configs[*p];
+  for (int i = 0; i < len; i++) {
+    arr[i] = *(uint32_t *)(p + qc->fields[i].offset) & qc->fields[i].mask;
+  }
+
   Buffer_Skip(br, qc->size);
   return qc->size;
 }

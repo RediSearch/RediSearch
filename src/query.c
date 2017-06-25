@@ -774,7 +774,7 @@ QueryResult *Query_Execute(Query *query) {
       /* In SORTBY mode - compare the hit with the lowest ranked entry in the heap */
       if (sortByMode) {
         heapResult *minh = heap_peek(pq);
-        
+
         /* if the current hit should be in the heap - remoe the lowest hit and add the new hit */
         if (sortByCmp(h, minh, query->sortKey) < 0) {
           pooledHit = heap_poll(pq);

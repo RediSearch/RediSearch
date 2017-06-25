@@ -49,6 +49,8 @@ typedef struct indexReadCtx {
   t_fieldMask fieldMask;
 
   IndexFlags flags;
+  // processed version of the "interesting" part of the flags
+  IndexFlags readFlags;
 
   int singleWordMode;
 
@@ -73,10 +75,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask 
 void IR_Free(IndexReader *ir);
 
 /* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, t_docId *docId, uint32_t *freq, t_fieldMask *fieldMask,
-                   RSOffsetVector *offsets);
-
-int IR_TryRead(IndexReader *ir, t_docId *docId, t_docId expectedDocId);
+int IR_GenericRead(IndexReader *ir, RSIndexResult *res);
 
 /* Read an entry from an inverted index into RSIndexResult */
 int IR_Read(void *ctx, RSIndexResult **e);
