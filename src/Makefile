@@ -22,8 +22,11 @@ CFLAGS += $(DEBUGFLAGS)
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
+	STATICLIB_LDFLAGS ?= -static -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
 	CFLAGS += -mmacosx-version-min=10.6
+	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
+
 	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
 endif
 export CFLAGS
@@ -89,6 +92,10 @@ test: $(MODULE)
 # Build the module...
 redisearch.so: $(MODULE) version.h
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
+
+libredisearch.a: $(MODULE) version.h
+	ar rcs $@ $(MODULE)
+
 
 clean:
 	rm -fv *.o trie/*.o query_parser/*.o ext/*.o 
