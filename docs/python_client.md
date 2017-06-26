@@ -205,7 +205,7 @@ Create a new batch indexer from the client with a given chunk size
 ### create\_index
 ```py
 
-def create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False)
+def create_index(self, fields, no_term_offsets=False, no_field_flags=False, no_score_indexes=False, stopwords=None)
 
 ```
 
@@ -219,6 +219,20 @@ Create the search index. Creating an existing index juts updates its properties
 - **no_term_offsets**: If true, we will not save term offsets in the index
 - **no_field_flags**: If true, we will not save field flags that allow searching in specific fields
 - **no_score_indexes**: If true, we will not save optimized top score indexes for single word queries
+- **stopwords**: If not None, we create the index with this custom stopword list. The list can be empty
+
+
+### delete\_document
+```py
+
+def delete_document(self, doc_id, conn=None)
+
+```
+
+
+
+Delete a document from index
+Returns 1 if the document was deleted, 0 if not
 
 
 ### drop\_index
@@ -382,7 +396,7 @@ NumericField is used to define a numeric field in a schema defintion
 ### \_\_init\_\_
 ```py
 
-def __init__(self, name)
+def __init__(self, name, sortable=False)
 
 ```
 
@@ -622,7 +636,7 @@ TextField is used to define a text field in a schema definition
 ### \_\_init\_\_
 ```py
 
-def __init__(self, name, weight=1.0)
+def __init__(self, name, weight=1.0, sortable=False)
 
 ```
 
