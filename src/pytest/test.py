@@ -158,6 +158,16 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertIn('doc%d' % i, res)
                 self.assertEqual(1, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
+            for _ in r.retry_with_rdb_reload():
+                did = 'rrrr'
+                self.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
+                                                'f', 'hello world'))
+                self.assertEqual(1, r.execute_command('ft.del', 'idx', did))
+                self.assertEqual(0, r.execute_command('ft.del', 'idx', did))
+                self.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
+                                                'f', 'hello world'))
+                self.assertEqual(1, r.execute_command('ft.del', 'idx', did))
+                self.assertEqual(0, r.execute_command('ft.del', 'idx', did))
 
     def testReplace(self):
 
