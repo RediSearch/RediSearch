@@ -2,79 +2,82 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
+# Compiler and YACC compiler
+CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
+YACC=$(shell which lemon)
+export CC
+export YACC
+
+# if DEBUG env var is set, we compile with "debug" cflags
+DEBUGFLAGS = -g -ggdb -O2
+ifeq ($(DEBUG), 1)
+	DEBUGFLAGS = -g -ggdb -O0
+endif
+
+# Default CFLAGS
 CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC \
  	-D_GNU_SOURCE -std=gnu99 -I"$(shell pwd)" -DREDIS_MODULE_TARGET
+CFLAGS += $(DEBUGFLAGS)
+
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -fno-common -g -ggdb
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
 	CFLAGS += -mmacosx-version-min=10.6
-	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb 
 	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
 endif
 export CFLAGS
 
-RELEASEFLAGS=-O3 -g
-DEBUGFLAGS=-O0 -g 
-VARINT=varint.o buffer.o 
-INDEX=index.o forward_index.o index_result.o doc_table.o numeric_filter.o \
-		numeric_index.o geo_index.o qint.o inverted_index.o id_list.o id_filter.o offset_vector.o sortable.o 
-TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o stopwords.o
-EXTOBJS=ext/default.o  extension.o
-REDIS= redis_index.o query.o spec.o  module.o search_request.o concurrent_ctx.o
-QUERY_PARSE=query_parser/lexer.o query_parser/parser.o
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/mempool.o dep/thpool/thpool.o
-RMUTILOBJS=rmutil/librmutil.a
+# Sources
+SOURCEDIR=$(shell pwd -P)
+CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+
+# Convert all sources to .o files
+CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
+
+# Library dependencies
+LIBRMUTIL=rmutil/librmutil.a
 LIBTRIE=trie/libtrie.a
 LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
-TESTS=test.o
+LIBSTEMMER=dep/snowball/libstemmer.o
 
+# Compilation deps for the module
+MODULE=$(CC_OBJECTS) $(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER)
 
-MODULE=$(VARINT) $(TEXT) $(INDEX) $(REDIS) $(UTILOBJS) $(RMUTILOBJS) \
-	$(EXTOBJS) $(QUERY_PARSE) $(LIBTRIE) $(LIBTRIEMAP)
 %.c: %.y
-	
-YACC=lemon
-CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
-export CC
-export YACC
-.SUFFIXES: .c .so .xo .o
 
-UTIL = util
-RMUTIL = rmutil
-TRIE = trie
-TRIEMAP = triemap
+all: redisearch.so
 
-.PHONY: rmutil $(RMUTIL) 
-.PHONY: util $(UTIL)
-.PHONY: trie $(TRIE)
-.PHONY: tests  
-.PHONY: triemap ($TRIEMAP)
-
-# util: $(UTIL)
-
-all: release
-
-$(UTIL):
-	$(MAKE) -C $@
-
-$(RMUTIL):
-	$(MAKE) -C $@
-
-$(TRIE):
-	$(MAKE) -C $@
-
-$(TRIEMAP):
+# Library compile rules
+$(LIBRMUTIL):
+	$(MAKE) -C rmutil
+.PHONY: $(LIBRMUTIL)
+$(LIBTRIE):
+	$(MAKE) -C trie
+.PHONY: $(LIBTRIE)
+$(LIBTRIEMAP):
 	$(MAKE) -C dep/triemap
+.PHONY: $(LIBTRIEMAP)
+$(LIBSTEMMER):
+	$(MAKE) -C dep/snowball libstemmer.o
+.PHONY: $(LIBSTEMMER)
+$(LIBNU):
+	$(MAKE) -C dep/libnu
+.PHONY: $(LIBNU)
 
+# Compile query parse .y and .rl files. 
+# This is not included in the usual make target!
 query_parser:
 	$(MAKE) -C $@
-	
 .PHONY: query_parser
 
-test:
+test: $(MODULE)
 	# low level redis-independant tests
 	$(MAKE) -C ./tests clean build test
 	# high level python integration tests
@@ -82,34 +85,19 @@ test:
 	# Triemap tests
 	$(MAKE) -C dep/triemap/test test
 
-snowball:
-	$(MAKE) -C dep/snowball libstemmer.o
 
-libnu:
-	$(MAKE) -C dep/libnu
-
-.c.xo:
-	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
-
-module.so: $(MODULE) version.h
-	$(LD) -o $@ $(MODULE) $(LIBNU) $(LIBTRIE) $(SHOBJ_LDFLAGS) -lc -lm
-
-
-release: CFLAGS += $(RELEASEFLAGS)
-release: util rmutil snowball libnu trie triemap | module.so
-
-debug: CFLAGS += $(DEBUGFLAGS)
-debug: util rmutil snowball libnu trie  triemap | module.so
-	
+# Build the module...
+redisearch.so: $(MODULE) version.h
+	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
 clean:
-	rm -fv *.o
+	rm -fv *.o trie/*.o query_parser/*.o ext/*.o 
 
 distclean:
 	find . -type f -name '*.o' -delete -print
 
-package: module.so
+package: redisearch.so
 	mkdir -p ../build
-	module_packer -v -o "../build/redisearch.{os}-{architecture}.latest.zip" "`pwd`/module.so"
+	module_packer -v -o "../build/redisearch.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
 
 rebuild: clean all

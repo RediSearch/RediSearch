@@ -4,7 +4,7 @@ import unittest
 from hotels import hotels
 import random
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def testAdd(self):
         with self.redis() as r:

@@ -3,7 +3,9 @@
 #include "../rmutil/util.h"
 #include "../util/heap.h"
 #include "rune_util.h"
+
 #include "trie_type.h"
+#include "../commands.h"
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
@@ -260,7 +262,7 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     while (TrieIterator_Next(it, &rstr, &len, &score, NULL)) {
       size_t slen;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbd", key, s, slen, (double)score);
+      RedisModule_EmitAOF(aof, RS_SUGADD_CMD, "sbd", key, s, slen, (double)score);
       free(s);
     }
 
