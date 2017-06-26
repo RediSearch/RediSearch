@@ -54,6 +54,7 @@ MODULE=$(CC_OBJECTS) $(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER
 
 all: redisearch.so
 
+
 # Library compile rules
 $(LIBRMUTIL):
 	$(MAKE) -C rmutil
