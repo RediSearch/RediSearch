@@ -5,6 +5,7 @@
 #include <sys/param.h>
 #include <time.h>
 
+#include "commands.h"
 #include "version.h"
 #include "forward_index.h"
 #include "geo_index.h"
@@ -1117,12 +1118,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  // LOGGING_INIT(0xFFFFFFFF);
-  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_GetThreadSafeContext == NULL) {
     RedisModule_Log(ctx, "warning",
@@ -1138,6 +1134,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   ConcurrentSearch_ThreadPoolStart();
 
+  /* Load extensions if needed */
   if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
     const char *ext = NULL;
     RMUtil_ParseArgsAfter("EXTLOAD", argv, argc, "c", &ext);
@@ -1169,68 +1166,78 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   if (NumericIndexType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.add", AddDocumentCommand, "write deny-oom", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_ADD_CMD, AddDocumentCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "FT.SETPAYLOAD", SetPayloadCommand, "write deny-oom", 1, 1,
+  if (RedisModule_CreateCommand(ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1, 1,
                                 1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.addhash", AddHashCommand, "write deny-oom", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_ADDHASH_CMD, AddHashCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.dtadd", DTAddCommand, "write deny-oom", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.del", DeleteCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-
-  if (RedisModule_CreateCommand(ctx, "ft.repair", RepairCommand, "write", 0, 0, -1) ==
+  if (RedisModule_CreateCommand(ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.search", SearchCommand, "readonly deny-oom", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_REPAIR_CMD, RepairCommand, "write", 0, 0, -1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.create", CreateIndexCommand, "write", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.optimize", OptimizeIndexCommand, "write", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.drop", DropIndexCommand, "write", 1, 1, 1) ==
+  // if (RedisModule_CreateCommand(ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1) ==
+  //     REDISMODULE_ERR)
+  //   return REDISMODULE_ERR;
+
+  if (RedisModule_CreateCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.info", IndexInfoCommand, "readonly", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, "ft.explain", QueryExplainCommand, "readonly", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_ADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_SUGDEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_LEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_SUGLEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, TRIE_SEARCH_CMD, SuggestGetCommand, "readonly", 1, 1, 1) ==
+  if (RedisModule_CreateCommand(ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
+}
+
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
+      REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
+  return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
