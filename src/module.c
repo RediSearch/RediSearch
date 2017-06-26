@@ -5,7 +5,6 @@
 #include <sys/param.h>
 #include <time.h>
 
-
 #include "commands.h"
 #include "version.h"
 #include "forward_index.h"
@@ -1126,7 +1125,6 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-<<<<<<< HEAD
   if (RedisModule_GetThreadSafeContext == NULL) {
     RedisModule_Log(ctx, "warning",
                     "***** FATAL: Incompatible version of redis 4.0 detected. *****\n"
@@ -1136,14 +1134,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
-=======
   RedisModule_Log(ctx, "debug", "Loading RediSearch module!");
->>>>>>> Macro to simplify module registration
   // Init extension mechanism
   Extensions_Init();
 
   ConcurrentSearch_ThreadPoolStart();
-  printf("Initialized thread pool!\n");
+
   /* Load extensions if needed */
   if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
     const char *ext = NULL;
@@ -1226,4 +1222,5 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
+
 #endif
