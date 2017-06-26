@@ -45,7 +45,7 @@ int __trie_add(TrieNode **n, char *str, char *payload, float sc, TrieAddOp op) {
   size_t payloadSize = 0;
   if (payload != NULL)
     payloadSize = strlen(payload);
-  int rc = TrieNode_Add(n, runes, rlen, payload, rpayloadSize, sc, op);
+  int rc = TrieNode_Add(n, runes, rlen, payload, payloadSize, sc, op);
   free(runes);
   return rc;
 }
