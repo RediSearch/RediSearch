@@ -97,8 +97,8 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
   rune *rstr;
   t_len slen;
   float score;
-  char *payload;
-  size_t payloadSize;
+  char *payload = NULL;
+  size_t payloadSize = 0;
 
   TrieSearchResult *pooledEntry = NULL;
   int dist = maxDist + 1;
@@ -270,8 +270,8 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
     rune *rstr;
     t_len len;
     float score;
-    char *payload;
-    size_t payloadSize;
+    char *payload = NULL;
+    size_t payloadSize = 0;
 
     while (TrieIterator_Next(it, &rstr, &len, &payload, &payloadSize, &score, NULL)) {
       size_t slen = 0;
@@ -299,8 +299,8 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     rune *rstr;
     t_len len;
     float score;
-    char *payload;
-    size_t payloadSize;
+    char *payload = NULL;
+    size_t payloadSize = 0;
 
     while (TrieIterator_Next(it, &rstr, &len, &payload, &payloadSize, &score, NULL)) {
       size_t slen = 0;
