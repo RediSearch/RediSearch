@@ -22,11 +22,8 @@ CFLAGS += $(DEBUGFLAGS)
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
-	STATICLIB_LDFLAGS ?= -static -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
 	CFLAGS += -mmacosx-version-min=10.6
-	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
-
 	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -bundle -undefined dynamic_lookup -ldl -lpthread
 endif
 export CFLAGS
