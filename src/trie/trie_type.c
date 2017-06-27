@@ -241,8 +241,7 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb) {
     size_t payloadSize;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
-    char *payload = RedisModule_LoadStringBuffer(rdb, &payloadSize);
-    payloadSize--;
+    const char *payload = RedisModule_LoadStringBuffer(rdb, &payloadSize);
     Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload, payloadSize);
     RedisModule_Free(str);
     if (payload != NULL)
@@ -279,7 +278,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
       RedisModule_SaveDouble(rdb, (double)score);
       if (payload != NULL)
-        RedisModule_SaveStringBuffer(rdb, payload, payloadSize + 1);
+        RedisModule_SaveStringBuffer(rdb, payload, payloadSize);
       free(s);
       count++;
     }
