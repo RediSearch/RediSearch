@@ -94,7 +94,7 @@ redisearch.so: $(MODULE) version.h
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
 libredisearch.a: $(MODULE) version.h
-	ar rcs $@ $(MODULE)
+	ar rcs $@ $(CC_OBJECTS)
 
 
 clean:
