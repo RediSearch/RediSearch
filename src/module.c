@@ -1139,7 +1139,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   Extensions_Init();
 
   ConcurrentSearch_ThreadPoolStart();
-
+  printf("Initialized thread pool!\n");
   /* Load extensions if needed */
   if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
     const char *ext = NULL;
