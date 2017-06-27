@@ -93,6 +93,7 @@ test: $(MODULE)
 redisearch.so: $(MODULE) version.h
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
+libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
 libredisearch.a: $(MODULE) version.h
 	ar rcs $@ $(CC_OBJECTS)
 
