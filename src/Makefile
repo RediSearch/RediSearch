@@ -94,6 +94,7 @@ libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
 libredisearch.a: $(MODULE) version.h
 	ar rcs $@ $(CC_OBJECTS)
 
+staticlib: libredisearch.a
 
 clean:
 	rm -fv *.o trie/*.o query_parser/*.o ext/*.o 

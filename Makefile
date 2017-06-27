@@ -17,3 +17,6 @@ deploydocs:
 	mkdocs build
 	s3cmd sync site/ s3://redisearch.io
 .PHONY: deploydocs
+
+staticlib:
+	$(MAKE) -C ./src $@
