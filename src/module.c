@@ -1116,7 +1116,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 #define RM_TRY(f, ...)                                                                  \
-  if (f(__VA_ARGS__) == REDISMODULE_OK) {                                               \
+  if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                              \
     RedisModule_Log(ctx, "warning", "Could not run " __STRING(f) "(" #__VA_ARGS__ ")"); \
     return REDISMODULE_ERR;                                                             \
   } else {                                                                              \
