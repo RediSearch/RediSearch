@@ -111,4 +111,38 @@ int RMUtilInfo_GetDouble(RMUtilInfo *info, const char *key, double *d);
 RedisModuleCallReply *RedisModule_CallReplyArrayElementByPath(RedisModuleCallReply *rep,
                                                               const char *path);
 
+/**
+ * Extract the module type from an opened key.
+ */
+typedef enum {
+  RMUTIL_VALUE_OK = 0,
+  RMUTIL_VALUE_MISSING,
+  RMUTIL_VALUE_EMPTY,
+  RMUTIL_VALUE_MISMATCH
+} RMUtil_TryGetValueStatus;
+
+/**
+ * Tries to extract the module-specific type from the value.
+ * @param key an opened key (may be null)
+ * @param type the pointer to the type to match to
+ * @param[out] out if the value is present, will be set to it.
+ * @return a value in the @ref RMUtil_TryGetValueStatus enum.
+ */
+int RedisModule_TryGetValue(RedisModuleKey *key, const RedisModuleType *type, void **out);
+
+/**
+ * Compares a RedisModuleString against an actual string buffer, avoiding
+ * keeping a temporary value for RedisModule_StringPtrLen.
+ * @param s1 the RedisModuleString
+ * @param s2 the buffer
+ * @param n the length of the C string.
+ * Returns 0 if the strings are equal.
+ */
+int RedisModule_Strncasecmp(const RedisModuleString *s1, const char *s2, size_t n);
+
+/**
+ * Exactly like RedisModule_Strncasecmp, except that `s2` is NUL-terminated
+ */
+int RedisModule_Strcasecmp(const RedisModuleString *s, const char *s2);
+
 #endif

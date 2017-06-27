@@ -6,7 +6,7 @@ inline int __vector_PushPtr(Vector *v, void *elem) {
     Vector_Resize(v, v->cap ? v->cap * 2 : 1);
   }
 
-  __vector_PutPtr(v, v->top++, elem);
+  __vector_PutPtr(v, v->top, elem);
   return v->top;
 }
 
