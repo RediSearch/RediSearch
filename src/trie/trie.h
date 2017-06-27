@@ -37,8 +37,10 @@ typedef struct {
   // traversal
   float maxChildScore;
 
-  // the payload length of this terminal node. could be 0 if it's not terminal
-  size_t plen;
+  // the payload of terminal node. could be NULL if it's not terminal
+  char *payload;
+  // the length of payload
+  size_t payloadSize;
 
   // the string of the current node
   rune str[];
@@ -50,7 +52,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth);
 
 /* The byte size of a node, based on its internal string length and number of
  * children */
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen, size_t plen);
+size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
@@ -58,14 +60,11 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen, size_t plen);
 TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen, t_len numChildren, float score,
                         int terminal);
 
-#define __trieNode_payload(n) \
-  ((char *)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
-
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
  * memory saving reasons */
 #define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune) + (n->plen <=0 ? 0 : n->plen + 1) * sizeof(char)))
+  ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
