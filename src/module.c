@@ -1040,13 +1040,10 @@ Get completion suggestions for a prefix
    - prefix: the prefix to complete on
 
    - FUZZY: if set,we do a fuzzy prefix search, including prefixes at
-levenshtein distance of 1
-    from the prefix sent
+     levenshtein distance of 1  from the prefix sent
 
    - MAX num: If set, we limit the results to a maximum of `num`. The default
-is
-5, and the number
-    cannot be greater than 10.
+     is 5, and the number   cannot be greater than 10.
 
    - WITHSCORES: If set, we also return each entry's score
 
@@ -1118,8 +1115,17 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+#define RM_TRY(f, ...)                                                                  \
+  if (f(__VA_ARGS__) == REDISMODULE_OK) {                                               \
+    RedisModule_Log(ctx, "warning", "Could not run " __STRING(f) "(" #__VA_ARGS__ ")"); \
+    return REDISMODULE_ERR;                                                             \
+  } else {                                                                              \
+    RedisModule_Log(ctx, "verbose", "Successfully executed " __STRING(f));              \
+  }
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
+<<<<<<< HEAD
   if (RedisModule_GetThreadSafeContext == NULL) {
     RedisModule_Log(ctx, "warning",
                     "***** FATAL: Incompatible version of redis 4.0 detected. *****\n"
@@ -1129,6 +1135,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
+=======
+  RedisModule_Log(ctx, "debug", "Loading RediSearch module!");
+>>>>>>> Macro to simplify module registration
   // Init extension mechanism
   Extensions_Init();
 
@@ -1153,82 +1162,55 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
-    RedisModule_Log(ctx, "error", "Could not register default extension");
+    RedisModule_Log(ctx, "warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }
 
   // register trie type
-  if (TrieType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  RM_TRY(TrieType_Register, ctx);
 
-  if (IndexSpec_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  RM_TRY(IndexSpec_RegisterType, ctx);
 
-  if (InvertedIndex_RegisterType(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  RM_TRY(InvertedIndex_RegisterType, ctx);
 
-  if (NumericIndexType_Register(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  RM_TRY(NumericIndexType_Register, ctx);
 
-  if (RedisModule_CreateCommand(ctx, RS_ADD_CMD, AddDocumentCommand, "write deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, AddDocumentCommand, "write deny-oom", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1, 1,
-                                1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1,
+         1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_ADDHASH_CMD, AddHashCommand, "write deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, AddHashCommand, "write deny-oom", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_REPAIR_CMD, RepairCommand, "write", 0, 0, -1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_REPAIR_CMD, RepairCommand, "write", 0, 0, -1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1,
+         1);
 
-  if (RedisModule_CreateCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1);
 
-  // if (RedisModule_CreateCommand(ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1) ==
+  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1) ==
   //     REDISMODULE_ERR)
   //   return REDISMODULE_ERR;
 
-  if (RedisModule_CreateCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1,
+         1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SUGDEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, SuggestDelCommand, "write", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SUGLEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1);
 
-  if (RedisModule_CreateCommand(ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
 
   return REDISMODULE_OK;
 }
