@@ -1,6 +1,6 @@
 parser:
 	ragel -s lexer.rl -o lexer.c
-	lemon -s parser.y
+	lemon -s -Ttemplate.c.tpl parser.y
 
 .PHONY: parser
 all: parser
