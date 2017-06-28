@@ -15,6 +15,16 @@ typedef uint16_t t_len;
 #define TRIENODE_DELETED 0x4
 
 #pragma pack(1)
+typedef struct {
+   uint32_t len; //4G payload is more than enough!!!!
+   char data[]; // this means the data will not take an extra pointer.
+} TriePayload;
+#pragma pack()
+
+/* The byte size of a TriePayload, based on its internal data length */
+size_t __triePayload_Sizeof(uint32_t len);
+
+#pragma pack(1)
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
  * as the children are
  * allocated after str[].
@@ -38,15 +48,15 @@ typedef struct {
   float maxChildScore;
 
   // the payload of terminal node. could be NULL if it's not terminal
-  char *payload;
-  // the length of payload
-  size_t payloadSize;
+  TriePayload *payload;
 
   // the string of the current node
   rune str[];
   // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
+
+
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
 
