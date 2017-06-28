@@ -11,8 +11,6 @@
 
 inline int ReadVarint(BufferReader *b) {
 
-  // printf("%p Reading from buffer, offset %zd, pos %zd, cap %zd\n", b->buf, b->buf->offset,
-  //        b->pos - b->buf->data, b->buf->cap);
   register unsigned char c = BUFFER_READ_BYTE(b);
 
   register int val = c & 127;

@@ -197,7 +197,15 @@ typedef struct {
   RSResultType typeMask;
 } RSAggregateResult;
 
+#pragma pack(4)
+
 typedef struct RSIndexResult {
+
+  /******************************************************************************
+   * IMPORTANT: The order of the following 4 variables must remain the same, and all
+   * their type aliases must remain uint32_t. The record is decoded by casting it
+   * to an array of 4 uint32_t integers to avoid redunadnt memcpy
+   *******************************************************************************/
   /* The docuId of the result */
   t_docId docId;
 
@@ -207,6 +215,14 @@ typedef struct RSIndexResult {
   /* The aggregate field mask of all the records in this result */
   t_fieldMask fieldMask;
 
+  /* For term records only. This is used as an optimization, allowing the result to be loaded
+   * directly into memory */
+  uint32_t offsetsSz;
+
+  /*******************************************************************************
+   * END OF the "magic 4 uints" section
+   ********************************************************************************/
+
   union {
     RSAggregateResult agg;
     RSTermRecord term;
@@ -214,6 +230,8 @@ typedef struct RSIndexResult {
   };
   RSResultType type;
 } RSIndexResult;
+
+#pragma pack()
 
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
 RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);

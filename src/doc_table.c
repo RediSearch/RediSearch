@@ -221,6 +221,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   for (size_t i = 1; i < sz; i++) {
     size_t len;
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);
+
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
     t->docs[i].maxFreq = 0;
     if (encver > 1) {
@@ -239,7 +240,10 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       t->docs[i].sortVector = SortingVector_RdbLoad(rdb, encver);
     }
 
-    DocIdMap_Put(&t->dim, t->docs[i].key, i);
+    // We always save deleted docs to rdb, but we don't want to load them back to the id map
+    if (!t->docs[i].flags & Document_Deleted) {
+      DocIdMap_Put(&t->dim, t->docs[i].key, i);
+    }
     t->memsize += sizeof(RSDocumentMetadata) + len;
   }
 }

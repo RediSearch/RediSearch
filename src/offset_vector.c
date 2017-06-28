@@ -113,7 +113,7 @@ void _ovi_Rewind(void *ctx) {
   _RSOffsetVectorIterator *it = ctx;
   it->lastValue = 0;
   it->buf.offset = 0;
-  it->br.pos = it->buf.data;
+  it->br.pos = 0;
 }
 
 void _ovi_Free(void *ctx) {
@@ -136,13 +136,13 @@ uint32_t _aoi_Next(void *ctx) {
 
   int minIdx = -1;
   uint32_t minVal = RS_OFFSETVECTOR_EOF;
-
-  int num = it->res->numChildren;
+  uint32_t *offsets = it->offsets;
+  register int num = it->res->numChildren;
   // find the minimal value that's not EOF
-  for (int i = 0; i < num; i++) {
-    if (minIdx == -1 || it->offsets[i] < minVal) {
+  for (register int i = 0; i < num; i++) {
+    if (offsets[i] < minVal) {
       minIdx = i;
-      minVal = it->offsets[i];
+      minVal = offsets[i];
     }
   }
 

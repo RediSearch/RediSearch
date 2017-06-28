@@ -7,7 +7,7 @@
 #include <strings.h>
 
 int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, TokenFunc f, Stemmer *s,
-             u_int offset) {
+             u_int offset, StopWordList *stopwords) {
   TokenizerCtx tctx;
   tctx.text = text;
   tctx.pos = (char **)&text;
@@ -19,25 +19,9 @@ int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, Toke
   tctx.fieldId = fieldId;
   tctx.stemmer = s;
   tctx.lastOffset = offset;
+  tctx.stopwords = stopwords;
 
   return _tokenize(&tctx);
-}
-
-inline int isStopword(const char *w, size_t len, const char **stopwords) {
-  if (!stopwords) {
-    return 0;
-  }
-  for (int i = 0; stopwords[i] != NULL; ++i) {
-    // printf("%s %s\n", w, stopwords[i]);
-    size_t wlen = strlen(stopwords[i]);
-
-    if (len == wlen && !strncasecmp(w, stopwords[i], len)) {
-      return 1;
-    }
-    
-  }
-
-  return 0;
 }
 
 // tokenize the text in the context
@@ -60,7 +44,7 @@ int _tokenize(TokenizerCtx *ctx) {
     }
 
     // skip stopwords
-    if (isStopword(tok, tlen, DEFAULT_STOPWORDS)) {
+    if (StopWordList_Contains(ctx->stopwords, tok, tlen)) {
       continue;
     }
     // create the token struct

@@ -80,14 +80,14 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 void IndexResult_Print(RSIndexResult *r, int depth) {
   // for (int i = 0; i < depth; i++) printf("  ");
   if (r->type == RSResultType_Term) {
-    printf("Term{%s => %d}, ", r->term.term ? r->term.term->str : "nil", r->docId);
+    printf("Term{%s => %u}, ", r->term.term ? r->term.term->str : "nil", r->docId);
     return;
   }
   if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%d}, ", r->docId);
+    printf("Virtual{%u}, ", r->docId);
     return;
   }
-  printf("%s => %d{ ", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
+  printf("%s => %u{ ", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
 
   for (int i = 0; i < r->agg.numChildren; i++) {
 
@@ -275,10 +275,10 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
   return 0;
 }
 
-uint32_t _arrayMin(uint32_t *arr, int len, int *pos);
-uint32_t _arrayMax(uint32_t *arr, int len, int *pos);
+uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos);
+uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos);
 
-inline uint32_t _arrayMin(uint32_t *arr, int len, int *pos) {
+inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
@@ -290,7 +290,7 @@ inline uint32_t _arrayMin(uint32_t *arr, int len, int *pos) {
   return m;
 }
 
-inline uint32_t _arrayMax(uint32_t *arr, int len, int *pos) {
+inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {

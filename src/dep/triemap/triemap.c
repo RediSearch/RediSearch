@@ -209,7 +209,12 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
     if (localOffset == nlen) {
       // we're at the end of both strings!
       if (offset == len) {
-        return __trieMapNode_isDeleted(n) ? NULL : n->value;
+        // If this is a terminal, non deleted node
+        if (__trieMapNode_isTerminal(n) && !__trieMapNode_isDeleted(n)) {
+          return n->value;
+        } else {
+          return TRIEMAP_NOTFOUND;
+        }
       }
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to

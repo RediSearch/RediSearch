@@ -14,6 +14,7 @@
 #include "extension.h"
 #include "ext/default.h"
 #include "rmutil/sds.h"
+#include "concurrent_ctx.h"
 
 #define MAX_PREFIX_EXPANSIONS 200
 
@@ -203,10 +204,10 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
 
   IndexReader *ir =
       Redis_OpenReader(q->ctx, &qn->tn, q->docTable, isSingleWord, q->fieldMask & qn->fieldMask);
-
   if (ir == NULL) {
     return NULL;
   }
+
   return NewReadIterator(ir);
 }
 
@@ -245,6 +246,7 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->ctx, &tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
+
     free(tok.str);
     if (!ir) continue;
 
@@ -432,8 +434,18 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
 
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
+Query *NewQueryFromRequest(RSSearchRequest *req) {
+  Query *q = NewQuery(req->sctx, req->rawQuery, req->qlen, req->offset, req->num, req->fieldMask,
+                      req->flags & Search_Verbatim, req->language, req->sctx->spec->stopwords,
+                      req->expander, req->slop, req->flags & Search_InOrder, req->scorer,
+                      req->payload, req->sortBy);
+
+  q->docTable = &req->sctx->spec->docs;
+
+  return q;
+}
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
                 const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
                 RSSortingKey *sk) {
   Query *ret = calloc(1, sizeof(Query));
@@ -447,9 +459,11 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->raw = strndup(query, len);
   ret->root = NULL;
   ret->numTokens = 0;
-  ret->stopwords = stopwords;
+  ret->stopwords = stopwords ? stopwords : DefaultStopWordList();
   ret->payload = payload;
   ret->sortKey = sk;
+  ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
+
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
@@ -682,6 +696,9 @@ QueryResult *Query_Execute(Query *query) {
   res->results = NULL;
   res->numResults = 0;
 
+  // If 1, the query has SORTBY and is not score based
+  int sortByMode = query->sortKey != NULL;
+
   //  start lazy evaluation of all query steps
   IndexIterator *it = NULL;
   if (query->root != NULL) {
@@ -696,7 +713,7 @@ QueryResult *Query_Execute(Query *query) {
   int num = query->offset + query->limit;
 
   heap_t *pq = malloc(heap_sizeof(num));
-  if (query->sortKey) {
+  if (sortByMode) {
     heap_init(pq, sortByCmp, query->sortKey, num);
   } else {
     heap_init(pq, cmpHits, NULL, num);
@@ -706,6 +723,8 @@ QueryResult *Query_Execute(Query *query) {
   double minScore = 0;
   int numDeleted = 0;
   RSIndexResult *r = NULL;
+  ConcurrentSearchCtx *cxc = &query->conc;
+
   // iterate the root iterator and push everything to the PQ
   while (1) {
     // TODO - Use static allocation
@@ -733,7 +752,7 @@ QueryResult *Query_Execute(Query *query) {
     }
 
     /* Call the query scoring function to calculate the score */
-    if (query->sortKey) {
+    if (sortByMode) {
       h->sv = dmd->sortVector;
       h->score = 0;
     } else {
@@ -741,6 +760,8 @@ QueryResult *Query_Execute(Query *query) {
       h->sv = NULL;
     }
     h->docId = r->docId;
+
+    CONCURRENT_CTX_TICK(cxc);
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);
@@ -750,15 +771,31 @@ QueryResult *Query_Execute(Query *query) {
         minScore = minh->score;
       }
     } else {
-      if (h->score >= minScore) {
-        pooledHit = heap_poll(pq);
-        heap_offerx(pq, h);
-
-        // get the new min score
+      /* In SORTBY mode - compare the hit with the lowest ranked entry in the heap */
+      if (sortByMode) {
         heapResult *minh = heap_peek(pq);
-        minScore = minh->score;
+
+        /* if the current hit should be in the heap - remoe the lowest hit and add the new hit */
+        if (sortByCmp(h, minh, query->sortKey) < 0) {
+          pooledHit = heap_poll(pq);
+          heap_offerx(pq, h);
+        } else {
+          /* The current should not enter the pool, so just leave it as is */
+          pooledHit = h;
+        }
+
       } else {
-        pooledHit = h;
+        /* In Scored mode - compare scores with the lowest ranked result */
+        if (h->score >= minScore) {
+          pooledHit = heap_poll(pq);
+          heap_offerx(pq, h);
+
+          // get the new min score
+          heapResult *minh = heap_peek(pq);
+          minScore = minh->score;
+        } else {
+          pooledHit = h;
+        }
       }
     }
   }
@@ -892,8 +929,7 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
   return REDISMODULE_OK;
 }
 
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, int withscores,
-                          int withpayloads) {
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchFlags flags) {
   RedisModuleCtx *ctx = sctx->redisCtx;
 
   if (r->errorString != NULL) {
@@ -901,9 +937,10 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, int nocontent, i
   }
 
   // NOCONTENT mode - just return the ids
-  if (nocontent) {
-    return __queryResult_serializeNoContent(r, ctx, withscores);
+  if (flags & Search_NoContent) {
+    return __queryResult_serializeNoContent(r, ctx, flags & Search_WithScores);
   }
 
-  return __queryResult_serializeFullResults(r, sctx, withscores, withpayloads);
+  return __queryResult_serializeFullResults(r, sctx, flags & Search_WithScores,
+                                            flags & Search_WithPayloads);
 }

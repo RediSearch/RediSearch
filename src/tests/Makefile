@@ -2,15 +2,18 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
+.SILENT:
+
 CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR) 
 VARINT=varint.o buffer.o
 INDEX=index.o forward_index.o inverted_index.o numeric_index.o index_result.o doc_table.o\
-		numeric_filter.o geo_index.o id_list.o id_filter.o offset_vector.o extension.o sortable.o qint.o
-TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o 
+		numeric_filter.o geo_index.o id_list.o id_filter.o offset_vector.o extension.o\
+		sortable.o qint.o concurrent_ctx.o
+TEXT=tokenize.o stemmer.o dep/snowball/libstemmer.o stopwords.o
 REDIS=redis_index.o query.o spec.o 
-UTILOBJS=util/heap.o util/logging.o util/fnv.o util/mempool.o
-RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o
+UTILOBJS=util/heap.o util/logging.o util/fnv.o util/mempool.o dep/thpool/thpool.o
+RMUTILOBJS=rmutil/vector.o rmutil/util.o rmutil/strings.o rmutil/sds.o rmutil/alloc.o 
 QUERY_PARSE=query_parser/lexer.o query_parser/parser.o 
 LIBTRIE=trie/libtrie.a
 LIBTRIEMAP=dep/triemap/libtriemap.a
@@ -19,7 +22,7 @@ TESTS=test.o
 
 SRCDIR := $(shell pwd)
 DEPS := $(patsubst %, ../%, $(TEXT)  $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) $(LIBTRIEMAP) $(LIBTRIE) $(LIBNU) )
-LDFLAGS :=  -lc -lm -ldl
+LDFLAGS :=  -lc -lm -ldl -lpthread
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
@@ -58,7 +61,7 @@ test_query: query
 index: test_index.o
 	$(CC) $(CFLAGS)  -o test_index test_index.o $ $(DEPS) $(LDFLAGS)
 
-test_index: 	
+test_index: index	
 	@(sh -c ./test_index)
 .PHONY: test_index
 
@@ -69,10 +72,18 @@ test_range: range
 	@(sh -c ./test_range)
 .PHONY: test_range
 
-build: stemmer trie index range extensions query
+stopwords: test_stopwords.o
+	$(CC) $(CFLAGS)  -o test_stopwords  $^ $(DEPS) $(LDFLAGS)
+
+test_stopwords: stopwords
+	@(sh -c ./test_stopwords)
+.PHONY: test_stopwords
+
+
+build: stemmer trie index range extensions query stopwords
 
 	
-test: test_index test_stemmer test_trie	 test_range test_extensions test_query
+test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords
 
 all: build test
 

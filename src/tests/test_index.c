@@ -158,15 +158,12 @@ int testIndexReadWrite() {
   //   }
   // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
-  int n = 0;
-
   for (int xx = 0; xx < 1; xx++) {
 
     // printf("si: %d\n", si->len);
     IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 1);  //
     RSIndexResult *h = NULL;
 
-    struct timespec start_time, end_time;
     int n = 0;
     while (IR_HasNext(ir)) {
       IR_Read(ir, &h);
@@ -228,11 +225,6 @@ InvertedIndex *createIndex(int size, int idStep) {
 
   return idx;
 }
-
-typedef struct {
-  int maxFreq;
-  int counter;
-} IterationContext;
 
 int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
   printf("intersect: %d\n", hits[0].docId);
@@ -428,7 +420,7 @@ int testBuffer() {
   ASSERT(Buffer_Capacity(w.buf) == 15);
 
   BufferReader br = NewBufferReader(w.buf);
-  ASSERT(br.pos == br.buf->data);
+  ASSERT(br.pos == 0);
 
   char *y = malloc(strlen(x) + 1);
   l = Buffer_Read(&br, y, strlen(x) + 1);
@@ -456,8 +448,8 @@ typedef struct {
 
 int tokenFunc(void *ctx, Token t) {
   tokenContext *tx = ctx;
-
-  assert(strcmp(t.s, tx->expected[tx->num++]) == 0);
+  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  assert(ret == 0);
   assert(t.len == strlen(t.s));
   assert(t.fieldId == 1);
   assert(t.pos > 0);
@@ -471,7 +463,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0);
+  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
   ASSERT(ctx.num == 5);
 
   free(txt);
@@ -494,8 +486,9 @@ int testTokenize() {
 int testIndexSpec() {
 
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
-  const char *args[] = {"SCHEMA", title, "text", "weight",   "0.1", body,      "text",    "weight",
-                        "2.0",    foo,   "text", "sortable", bar,   "numeric", "sortable"};
+  const char *args[] = {"STOPWORDS", "2",        "hello", "world",   "SCHEMA",  title, "text",
+                        "weight",    "0.1",      body,    "text",    "weight",  "2.0", foo,
+                        "text",      "sortable", bar,     "numeric", "sortable"};
 
   char *err = NULL;
 
@@ -507,9 +500,16 @@ int testIndexSpec() {
   ASSERT(err == NULL);
   ASSERT(s->numFields == 4)
 
+  ASSERT(s->stopwords != NULL);
+  ASSERT(s->stopwords != DefaultStopWordList());
   ASSERT(s->flags & Index_StoreScoreIndexes);
   ASSERT(s->flags & Index_StoreFieldFlags);
   ASSERT(s->flags & Index_StoreTermOffsets);
+  ASSERT(s->flags & Index_HasCustomStopwords);
+
+  ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
+  ASSERT(IndexSpec_IsStopWord(s, "world", 5));
+  ASSERT(!IndexSpec_IsStopWord(s, "werld", 5));
 
   FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT(f != NULL);
@@ -716,7 +716,7 @@ int testSortable() {
   double s2 = 4.444;
   RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
 
-  RSSortingKey sk = {.field = "foo", .index = 0, .ascending = 0};
+  RSSortingKey sk = { .index = 0, .ascending = 0};
 
   int rc = RSSortingVector_Cmp(v, v2, &sk);
   ASSERT(rc > 0);

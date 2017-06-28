@@ -7,6 +7,7 @@
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
+#include "stopwords.h"
 
 typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
@@ -21,6 +22,7 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
+#define SPEC_STOPWORDS_STR "STOPWORDS"
 
 static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
                                       [F_GEO] = GEO_STR, [F_TAG] = SPEC_TAG_STR};
@@ -63,6 +65,7 @@ typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
   Index_StoreScoreIndexes = 0x04,
+  Index_HasCustomStopwords = 0x08,
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
@@ -81,6 +84,8 @@ typedef struct {
   RSSortingTable *sortables;
 
   DocTable docs;
+
+  StopWordList *stopwords;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
@@ -120,6 +125,13 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 * and should be on the request's stack
 */
 void IndexSpec_Free(void *spec);
+
+/* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
+ * list, and return 0 */
+int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
+
+/* Return 1 if a term is a stopword for the specific index */
+int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);

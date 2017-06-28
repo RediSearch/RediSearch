@@ -493,7 +493,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
-  size_t *sz = ctx;
+  unsigned long *sz = ctx;
   *sz += sizeof(NumericRangeNode);
   if (n->range) {
     *sz += sizeof(NumericRange);
@@ -501,9 +501,9 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
   }
 }
 
-size_t NumericIndexType_MemUsage(void *value) {
-  NumericRangeTree *t = value;
-  size_t ret = sizeof(NumericRangeTree);
+unsigned long NumericIndexType_MemUsage(const void *value) {
+  const NumericRangeTree *t = value;
+  unsigned long ret = sizeof(NumericRangeTree);
   NumericRangeNode_Traverse(t->root, __numericIndex_memUsageCallback, &ret);
   return ret;
 }

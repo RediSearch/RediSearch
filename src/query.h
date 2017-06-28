@@ -15,6 +15,8 @@
 #include "id_filter.h"
 #include "redisearch.h"
 #include "rmutil/sds.h"
+#include "search_request.h"
+#include "concurrent_ctx.h"
 
 /* A Query represents the parse tree and execution plan for a single search
  * query */
@@ -41,6 +43,8 @@ typedef struct RSQuery {
 
   RedisSearchCtx *ctx;
 
+  ConcurrentSearchCtx conc;
+
   int maxSlop;
   // Whether phrases are in order or not
   int inOrder;
@@ -60,7 +64,7 @@ typedef struct RSQuery {
 
   const char *language;
 
-  const char **stopwords;
+  StopWordList *stopwords;
 
   RSPayload payload;
 } Query;
@@ -81,8 +85,7 @@ typedef struct queryResult {
 } QueryResult;
 
 /* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, int nocontent, int withscores,
-                          int withpayloads);
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, RSSearchFlags flags);
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy
 this doesn't
@@ -104,7 +107,8 @@ void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 void Query_SetIdFilter(Query *q, IdFilter *f);
 
-/* Return a string representation of the query parse tree. The string should be freed by the caller */
+/* Return a string representation of the query parse tree. The string should be freed by the caller
+ */
 const char *Query_DumpExplain(Query *q);
 
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
@@ -113,9 +117,11 @@ const char *Query_DumpExplain(Query *q);
 /* Initialize a new query object from user input. This does not parse the query
  * just yet */
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, const char **stopwords,
+                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
                 const char *expander, int maxSlop, int inOrder, const char *scorer,
                 RSPayload payload, RSSortingKey *sortKey);
+
+Query *NewQueryFromRequest(RSSearchRequest *req);
 void Query_Expand(Query *q);
 /* Free a query object */
 void Query_Free(Query *q);

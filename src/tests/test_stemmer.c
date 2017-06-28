@@ -31,8 +31,8 @@ int tokenFunc(void *ctx, Token t) {
   // printf("%s %d\n", t.s, t.type);
 
   tokenContext *tx = ctx;
-
-  assert(strcmp(t.s, tx->expected[tx->num++]) == 0);
+  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  assert(ret == 0);
   assert(t.len == strlen(t.s));
   assert(t.fieldId == 1);
   assert(t.pos > 0);
@@ -55,7 +55,7 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, "en");
   ASSERT(s != NULL)
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, s, 0);
+  tokenize(txt, 1, 1, &ctx, tokenFunc, s, 0, DefaultStopWordList());
   ASSERT(ctx.num == 9);
 
   free(txt);

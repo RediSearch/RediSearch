@@ -26,7 +26,7 @@ size_t qint_encode3(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3);
 size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4);
 
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
-size_t qint_decode(BufferReader *br, uint32_t *arr, int len);
+size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len);
 
 /* Decode one unsinged integer from the buffer. This can only be used if the record has been encoded
  * with encode1 */

@@ -7,5 +7,13 @@ test:
 clean:
 	$(MAKE) -C ./src $@
 
+distclean:
+	$(MAKE) -C ./src $@
+
 package: all
 	$(MAKE) -C ./src package
+
+deploydocs:
+	mkdocs build
+	s3cmd sync site/ s3://redisearch.io
+.PHONY: deploydocs

@@ -85,10 +85,11 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   const sb_symbol *b = (const sb_symbol *)token->str;
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
 
-  if (stemmed && strncasecmp(stemmed, token->str, token->len)) {
+  if (stemmed && strncasecmp((const char *)stemmed, token->str, token->len)) {
 
     int sl = sb_stemmer_length(sb);
-    ctx->ExpandToken(ctx, strndup(stemmed, sl), sl, 0x0);  // TODO: Set proper flags here
+    ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl,
+                     0x0);  // TODO: Set proper flags here
   }
 
   // sb_stemmer_delete(sb);

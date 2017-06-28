@@ -158,6 +158,16 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertIn('doc%d' % i, res)
                 self.assertEqual(1, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
+            for _ in r.retry_with_rdb_reload():
+                did = 'rrrr'
+                self.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
+                                                'f', 'hello world'))
+                self.assertEqual(1, r.execute_command('ft.del', 'idx', did))
+                self.assertEqual(0, r.execute_command('ft.del', 'idx', did))
+                self.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
+                                                'f', 'hello world'))
+                self.assertEqual(1, r.execute_command('ft.del', 'idx', did))
+                self.assertEqual(0, r.execute_command('ft.del', 'idx', did))
 
     def testReplace(self):
 
@@ -214,6 +224,37 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
+
+    def testCustomStopwords(self):
+        with self.redis() as r:
+            r.flushdb()
+
+            # Index with default stopwords
+            self.assertOk(r.execute_command('ft.create', 'idx', 'schema', 'foo', 'text'))
+
+            # Index with custom stopwords 
+            self.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
+                                             'schema', 'foo', 'text'))
+            # Index with NO stopwords 
+            self.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
+                                             'schema', 'foo', 'text'))          
+
+            for idx in ('idx', 'idx2', 'idx3'):                                                                           
+                self.assertOk(r.execute_command('ft.add', idx, 'doc1', 1.0, 'fields', 'foo', 'hello world'))
+                self.assertOk(r.execute_command('ft.add', idx, 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
+            
+            for _ in r.retry_with_rdb_reload():
+                # Normal index should return results just for 'hello world'
+                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx', 'hello world', 'nocontent'))
+                self.assertEqual([0],  r.execute_command('ft.search', 'idx', 'to be or not', 'nocontent'))
+
+                # Custom SW index should return results just for 'to be or not'
+                self.assertEqual([0],  r.execute_command('ft.search', 'idx2', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx2', 'to be or not', 'nocontent'))
+
+                # No SW index should return results for both
+                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx3', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx3', 'to be or not', 'nocontent'))
 
 
     def testOptional(self):
@@ -325,15 +366,15 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for _ in r.retry_with_rdb_reload():
           
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
                 self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc99'], res)
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
                 self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
-                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc99', '1'], res)
+                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
 
 

@@ -26,8 +26,10 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     blk->lastId = RedisModule_LoadUnsigned(rdb);
     blk->numDocs = RedisModule_LoadUnsigned(rdb);
 
-    blk->data.data = RedisModule_LoadStringBuffer(rdb, &blk->data.cap);
-    blk->data.offset = blk->data.cap;
+    size_t cap;
+    char *data = RedisModule_LoadStringBuffer(rdb, &cap);
+    blk->data = Buffer_Wrap(data, cap);
+    blk->data->offset = cap;
   }
   return idx;
 }
@@ -44,7 +46,7 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
     RedisModule_SaveUnsigned(rdb, blk->numDocs);
-    RedisModule_SaveStringBuffer(rdb, blk->data.data, blk->data.offset);
+    RedisModule_SaveStringBuffer(rdb, blk->data->data, blk->data->offset);
   }
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
@@ -87,6 +89,21 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
+  if (!sp) {
+    return NULL;
+  }
+
+  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
+  sctx->spec = sp;
+  sctx->redisCtx = ctx;
+  return sctx;
+}
+
+void SearchCtx_Free(RedisSearchCtx *sctx) {
+  rm_free(sctx);
+}
 /*
  * Select a random term from the index that matches the index prefix and inveted key format.
  * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
@@ -352,7 +369,7 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
   RedisSearchCtx *sctx = opaque;
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_StringPtrLen(pf, &pflen);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
@@ -395,7 +412,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisSearchCtx *sctx = opaque;
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_StringPtrLen(pf, &pflen);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;

@@ -182,6 +182,19 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags &= ~Index_StoreScoreIndexes;
   }
 
+  int swIndex = __findOffset(SPEC_STOPWORDS_STR, argv, argc);
+  if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
+    int listSize = atoi(argv[swIndex + 1]);
+    if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
+      *err = "Invalid stopword list size";
+      goto failure;
+    }
+    spec->stopwords = NewStopWordListCStr(&argv[swIndex + 2], listSize);
+    spec->flags |= Index_HasCustomStopwords;
+  } else {
+    spec->stopwords = DefaultStopWordList();
+  }
+
   t_fieldMask id = 1;
   int sortIdx = 0;
 
@@ -271,12 +284,38 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
     FieldSpec *fs = IndexSpec_GetField(sp, p, len);
     if (fs != NULL) {
-      LG_DEBUG("Found mask for %s: %d\n", p, fs->id);
+      LG_DEBUG("Found mask for %s: %u\n", p, fs->id);
       ret |= (fs->id & RS_FIELDMASK_ALL);
     }
   }
 
   return ret;
+}
+
+int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
+  // if the index already has custom stopwords, let us free them first
+  if (sp->stopwords && sp->flags & Index_HasCustomStopwords) {
+    StopWordList_Free(sp->stopwords);
+    sp->stopwords = NULL;
+  }
+
+  sp->stopwords = NewStopWordList(strs, len);
+  // on failure we revert to the default stopwords list
+  if (sp->stopwords == NULL) {
+    sp->stopwords = DefaultStopWordList();
+    sp->flags &= ~Index_HasCustomStopwords;
+    return 0;
+  } else {
+    sp->flags |= Index_HasCustomStopwords;
+  }
+  return 1;
+}
+
+int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
+  if (!sp->stopwords) {
+    return 0;
+  }
+  return StopWordList_Contains(sp->stopwords, term, len);
 }
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
@@ -286,6 +325,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(1000);
+  sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->sortables = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -375,6 +415,12 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   } else {
     sp->terms = NewTrie();
   }
+
+  if (sp->flags & Index_HasCustomStopwords) {
+    sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+  } else {
+    sp->stopwords = DefaultStopWordList();
+  }
   return sp;
 }
 
@@ -394,6 +440,11 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   DocTable_RdbSave(&sp->docs, rdb);
   // save trie of terms
   TrieType_RdbSave(rdb, sp->terms);
+
+  // If we have custom stopwords, save them
+  if (sp->flags & Index_HasCustomStopwords) {
+    StopWordList_RdbSave(rdb, sp->stopwords);
+  }
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {

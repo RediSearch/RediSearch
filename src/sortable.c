@@ -197,17 +197,17 @@ int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
  * valid and the field name exists */
 int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
                             int argc) {
-  k->field = NULL;
+  const char *field = NULL;
   k->index = -1;
   k->ascending = 1;
   int sortPos = RMUtil_ArgIndex("SORTBY", argv, argc);
   if (sortPos >= 0 && sortPos + 1 < argc) {
 
     // parse the sorting field
-    RMUtil_ParseArgs(argv, argc, sortPos + 1, "c", &k->field);
+    RMUtil_ParseArgs(argv, argc, sortPos + 1, "c", &field);
 
     // if we've found a field...
-    if (k->field) {
+    if (field) {
       // parse optional ASC/DESC
       if (sortPos + 2 < argc) {
 
@@ -218,9 +218,13 @@ int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleStr
         }
       }
       // Get the actual field index from the descriptor
-      k->index = RSSortingTable_GetFieldIdx(tbl, k->field);
+      k->index = RSSortingTable_GetFieldIdx(tbl, field);
     }
   }
   // return 1 on successful parse, 0 if not found or no sorting key
   return k->index == -1 ? 0 : 1;
+}
+
+void RSSortingKey_Free(RSSortingKey *k) {
+  free(k);
 }
