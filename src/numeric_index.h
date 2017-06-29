@@ -29,10 +29,10 @@ typedef struct {
   double minVal;
   double maxVal;
 
-  u_int32_t size;
-  u_int32_t cap;
+  uint32_t size;
+  uint32_t cap;
   u_int16_t card;
-  u_int32_t splitCard;
+  uint32_t splitCard;
   NumericRangeEntry *entries;
 } NumericRange;
 
@@ -75,7 +75,7 @@ RSIndexResult *NR_Current(void *ctx);
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
+int NR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 
 /* the last docId read */
 t_docId NR_LastDocId(void *ctx);

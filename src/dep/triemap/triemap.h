@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef u_int16_t tm_len_t;
+typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
@@ -60,8 +60,7 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 * node, and take care of freeing any unwanted pointers. The returned value
 * can be NULL and doesn't have to be either the old or new value.
  */
-int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value,
-                TrieMapReplaceFunc cb);
+int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
 
 /* Find the entry with a given string and length, and return its value, even if
  * that was NULL.
@@ -91,7 +90,6 @@ int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr);
 
 /* Get the value of a random element under a specific prefix. NULL if the prefix was not found */
 void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
-
 
 size_t TrieMap_MemUsage(TrieMap *t);
 
@@ -126,15 +124,13 @@ void __tmi_Pop(TrieMapIterator *it);
  * iterator object even if the prefix was not found, and subsequent calls to
  * TrieMapIterator_Next are needed to get the results from the iteration. If the
  * prefix is not found, the first call to next will return 0 */
-TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix,
-                                 tm_len_t prefixLen);
+TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t prefixLen);
 
 /* Free a trie iterator */
 void TrieMapIterator_Free(TrieMapIterator *it);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done and should exit */
-int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len,
-                         void **value);
+int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
 #endif

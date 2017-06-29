@@ -50,7 +50,7 @@ typedef struct {
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit);
 RSIndexResult *UI_Current(void *ctx);
-int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
+int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 int UI_Next(void *ctx);
 int UI_Read(void *ctx, RSIndexResult **hit);
 int UI_HasNext(void *ctx);
@@ -83,7 +83,7 @@ typedef struct {
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, t_fieldMask fieldMask,
                                    int maxSlop, int inOrder);
 
-int II_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
+int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 int II_Next(void *ctx);
 int II_Read(void *ctx, RSIndexResult **hit);
 int II_HasNext(void *ctx);
