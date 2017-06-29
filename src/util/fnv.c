@@ -1,6 +1,6 @@
 
 #include "fnv.h"
-#include <stdlib.h>
+#include <stdint.h>
 /*
  * fnv_32a_buf - perform a 32 bit Fowler/Noll/Vo FNV-1a hash on a buffer
  *
