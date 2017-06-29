@@ -2,6 +2,7 @@
 #define __FT_FNV_H__
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #define FNV_32_PRIME ((Fnv32_t)0x01000193)
 
