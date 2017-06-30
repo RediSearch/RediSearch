@@ -42,7 +42,6 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
-  size_t payloadSize = 0;
   RSPayload payload = {.data = payloadStr, .len = payloadStr?0:strlen(payloadStr)};
   int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op);
   free(runes);
