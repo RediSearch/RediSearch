@@ -3,7 +3,8 @@
 #include "sparse_vector.h"
 
 size_t __triePayload_Sizeof(uint32_t len) {
-  return sizeof(TriePayload) + sizeof(char) * len;
+  // add an extra space for the null terminator for rdbsave/rdbload
+  return sizeof(TriePayload) + sizeof(char) * (len + 1);
 }
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
