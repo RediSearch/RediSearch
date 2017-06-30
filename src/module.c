@@ -953,56 +953,9 @@ int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int incr = RMUtil_ArgExists("INCR", argv, argc, 4);
 
   // Parse the optional payload field
-  const char *payload = NULL;
-  size_t payloadSize = 0;
-  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
-
-  /* Create an empty value object if the key is currently empty. */
-  Trie *tree;
-  if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    tree = NewTrie();
-    RedisModule_ModuleTypeSetValue(key, TrieType, tree);
-  } else {
-    tree = RedisModule_ModuleTypeGetValue(key);
-  }
-
-  /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr, payload, payloadSize);
-
-  RedisModule_ReplyWithLongLong(ctx, tree->size);
-  RedisModule_ReplicateVerbatim(ctx);
-  return REDISMODULE_OK;
-}
-
-/* FT.TNADD key string score [{payload}]
-*
-*  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
-*
-*  This command is used only for AOF rewrite
-*
-*  Returns the current size of the suggestion dictionary.
-*/
-int TNAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {  
-  RedisModule_AutoMemory(ctx);
-  if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);  
-
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
-  int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
-    return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-  }
-
-  RedisModuleString *val = argv[2];
-  double score;
-  if (RMUtil_ParseArgs(argv, argc, 3, "d", &score) == REDISMODULE_ERR) {
-    return RedisModule_ReplyWithError(ctx, "Could not parse score");
-  }
-
-  const char *payload = NULL;
-  size_t payloadSize = 0;
-  // optionally take the payload
-  if (argc == 5) {
-    payload = RedisModule_StringPtrLen(argv[4], &payloadSize);
+  RSPayload payload = {.data = NULL, .len = 0};
+  if (argc > 4) {
+    RMUtil_ParseArgsAfter("PAYLOAD", &argv[3], argc - 3, "b", &payload.data, &payload.len);
   }
 
   /* Create an empty value object if the key is currently empty. */
@@ -1015,7 +968,7 @@ int TNAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, 0, payload, payloadSize);
+  Trie_Insert(tree, val, score, incr, &payload);
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
@@ -1269,10 +1222,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1,
          1);
-
-  if (RedisModule_CreateCommand(ctx, TRIE_ADD_AOF_CMD, TNAddCommand, "write deny-oom", 1, 1, 1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
 
   if (RedisModule_CreateCommand(ctx, TRIE_DEL_CMD, SuggestDelCommand, "write", 1, 1, 1) ==
       REDISMODULE_ERR)
