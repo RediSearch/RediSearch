@@ -97,7 +97,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
-  for (u_int32_t i = 0; i < n->size; i++) {
+  for (uint32_t i = 0; i < n->size; i++) {
     NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
                      n->entries[i].value, 1);
   }
@@ -321,7 +321,7 @@ int NR_Read(void *ctx, RSIndexResult **r) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int NR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **r) {
+int NR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
 
   NumericRangeIterator *it = ctx;
 

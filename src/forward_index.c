@@ -53,7 +53,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
   ForwardIndex *idx = ctx;
 
   // we hash the string ourselves because khash suckz azz
-  u_int32_t hval = fnv_32a_buf((void *)t.s, t.len, 0);
+  uint32_t hval = fnv_32a_buf((void *)t.s, t.len, 0);
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter

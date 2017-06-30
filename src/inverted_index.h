@@ -89,7 +89,7 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit);
+int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 
 RSIndexResult *IR_Current(void *ctx);
 

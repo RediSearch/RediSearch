@@ -1143,6 +1143,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
+  if (RedisModule_GetThreadSafeContext == NULL) {
+    RedisModule_Log(ctx, "warning",
+                    "***** FATAL: Incompatible version of redis 4.0 detected. *****\n"
+                    "\t\t\t\tRedis 4.0 RC3 or earlier will not run this module properly\n"
+                    "\t\t\t\tPlease use the latest 4.0 branch instead from "
+                    "https://github.com/antirez/redis/archive/4.0.zip\n"
+                    "\t\t\t\tRedis will exit now!");
+    return REDISMODULE_ERR;
+  }
   // Init extension mechanism
   Extensions_Init();
 

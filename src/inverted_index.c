@@ -262,7 +262,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int IR_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
+int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   IndexReader *ir = ctx;
 
   // printf("IR %s skipTo %d\n", ir->term->str, docId);
