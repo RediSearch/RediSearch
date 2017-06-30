@@ -223,6 +223,8 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb) {
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
     payload.data = RedisModule_LoadStringBuffer(rdb, &payload.len);
+    // load an extra space for the null terminator
+    payload.len--;
     Trie_InsertStringBuffer(tree, str, len - 1, score, 0, &payload);
     RedisModule_Free(str);
     if (payload.data != NULL)
@@ -257,8 +259,9 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
       RedisModule_SaveDouble(rdb, (double)score);
+      // save an extra space for the null terminator to make the payload null terminated on load
       if (payload.data != NULL && payload.len > 0)
-        RedisModule_SaveStringBuffer(rdb, payload.data, payload.len);
+        RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
       free(s);
       count++;
     }
