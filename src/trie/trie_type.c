@@ -54,10 +54,8 @@ void TrieSearchResult_Free(TrieSearchResult *e) {
     free(e->str);
     e->str = NULL;
   }
-  if (e->payload) {
-    free(e->payload);
-    e->payload = NULL;
-  }
+  e->payload = NULL;
+  e->plen = 0;
   free(e);
 }
 
@@ -123,14 +121,8 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
 
     if (heap_count(pq) < heap_size(pq)) {
       ent->str = runesToStr(rstr, slen, &ent->len);
-      if (payload.data != NULL && payload.len > 0) {
-        ent->payload = calloc(payload.len, sizeof(char));
-        memcpy(ent->payload, payload.data, sizeof(char)*payload.len);
-        ent->plen = payload.len;
-      } else {
-        ent->payload = NULL;
-        ent->plen = 0;
-      }
+      ent->payload = payload.data;
+      ent->plen = payload.len;
       heap_offerx(pq, ent);
       pooledEntry = NULL;
 
@@ -143,20 +135,10 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
       if (ent->score >= it->minScore) {
         pooledEntry = heap_poll(pq);
         free(pooledEntry->str);
-        if (pooledEntry->payload != NULL)
-          free(pooledEntry->payload);
         pooledEntry->str = NULL;
-        pooledEntry->payload = NULL;
-        pooledEntry->plen = 0;
         ent->str = runesToStr(rstr, slen, &ent->len);
-        if (payload.data != NULL && payload.len > 0) {
-          ent->payload = calloc(payload.len, sizeof(char));
-          memcpy(ent->payload, payload.data, sizeof(char)*payload.len);
-          ent->plen = payload.len;
-        } else {
-          ent->payload = NULL;
-          ent->plen = 0;
-        }
+        ent->payload = payload.data;
+        ent->plen = payload.len;
         heap_offerx(pq, ent);
 
         // get the new minimal score
