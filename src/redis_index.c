@@ -430,6 +430,16 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   return REDISMODULE_OK;
 }
 
+static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
+  if (k != NULL) {
+    RedisModule_DeleteKey(k);
+    RedisModule_CloseKey(k);
+    return 1;
+  }
+  return 0;
+}
+
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   if (deleteDocuments) {
@@ -437,15 +447,8 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     DocTable *dt = &ctx->spec->docs;
 
     for (size_t i = 1; i < dt->size; i++) {
-      RedisModuleKey *k = RedisModule_OpenKey(
-          ctx->redisCtx,
-          RedisModule_CreateString(ctx->redisCtx, dt->docs[i].key, strlen(dt->docs[i].key)),
-          REDISMODULE_WRITE);
-
-      if (k != NULL) {
-        RedisModule_DeleteKey(k);
-        RedisModule_CloseKey(k);
-      }
+      Redis_DeleteKey(ctx->redisCtx, RedisModule_CreateString(ctx->redisCtx, dt->docs[i].key,
+                                                              strlen(dt->docs[i].key)));
     }
   }
 
@@ -455,16 +458,17 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   // // Delete the actual index sub keys
   Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
-  // Delete the index spec
-  RedisModuleKey *k = RedisModule_OpenKey(
-      ctx->redisCtx,
-      RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name),
-      REDISMODULE_WRITE);
-  if (k != NULL) {
-    RedisModule_DeleteKey(k);
-    RedisModule_CloseKey(k);
-    return REDISMODULE_OK;
+  // Delete the numeric indexes
+  for (size_t i = 0; i < ctx->spec->numFields; i++) {
+    const FieldSpec *spec = ctx->spec->fields + i;
+    if (spec->type == F_NUMERIC) {
+      Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
+    }
   }
 
-  return REDISMODULE_ERR;
+  // Delete the index spec
+  int deleted = Redis_DeleteKey(
+      ctx->redisCtx,
+      RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+  return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }
