@@ -27,11 +27,11 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, const char *payload, size_t plen, float score) {
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload, float score) {
   n->numChildren++;
   n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
   // a newly added child must be a terminal node
-  TrieNode *child = __newTrieNode(str, offset, len, payload, plen, 0, score, 1);
+  TrieNode *child = __newTrieNode(str, offset, len, payload?payload->data:NULL, payload?payload->len:0, 0, score, 1);
   __trieNode_children(n)[n->numChildren - 1] = child;
   n->flags &= ~TRIENODE_SORTED;  // the node is now not sorted
 
@@ -111,7 +111,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   }
 }
 
-int TrieNode_Add(TrieNode **np, rune *str, t_len len, const char *payload, size_t plen, float score, TrieAddOp op) {
+int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op) {
   if (score == 0 || len == 0) {
     return 0;
   }
@@ -143,16 +143,16 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, const char *payload, size_
         free(n->payload);
         n->payload = NULL;
       }
-      if (payload != NULL && plen > 0) {
-        n->payload = calloc(1, __triePayload_Sizeof(plen));
-        n->payload->len = plen;
-        memcpy(n->payload->data, payload, sizeof(char)*n->payload->len);         
+      if (payload != NULL && payload->data != NULL && payload->len > 0) {
+        n->payload = calloc(1, __triePayload_Sizeof(payload->len));
+        n->payload->len = payload->len;
+        memcpy(n->payload->data, payload->data, sizeof(char)*n->payload->len);         
       }
       
       __trieNode_children(n)[0] = newChild;
     } else {
       // we add a child
-      n = __trie_AddChild(n, str, offset, len, payload, plen, score);
+      n = __trie_AddChild(n, str, offset, len, payload, score);
       n->maxChildScore = MAX(n->maxChildScore, score);
     }
     *np = n;
@@ -180,10 +180,10 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, const char *payload, size_
       free(n->payload);
       n->payload = NULL;
     }
-    if (payload != NULL && plen > 0) {
-      n->payload = calloc(1, __triePayload_Sizeof(plen));
-      n->payload->len = plen;
-      memcpy(n->payload->data, payload, sizeof(char)*n->payload->len);  
+    if (payload != NULL && payload->data != NULL && payload->len > 0) {
+      n->payload = calloc(1, __triePayload_Sizeof(payload->len));
+      n->payload->len = payload->len;
+      memcpy(n->payload->data, payload->data, sizeof(char)*n->payload->len);  
     }
     // set the node as terminal
     n->flags |= TRIENODE_TERMINAL;
@@ -197,12 +197,12 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, const char *payload, size_
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = __trieNode_children(n)[i];
     if (str[offset] == child->str[0]) {
-      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, plen, score, op);
+      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op);
       __trieNode_children(n)[i] = child;
       return rc;
     }
   }
-  *np = __trie_AddChild(n, str, offset, len, payload, plen, score);
+  *np = __trie_AddChild(n, str, offset, len, payload, score);
   return 1;
 }
 
@@ -507,7 +507,7 @@ void TrieIterator_Free(TrieIterator *it) {
   free(it);
 }
 
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, char **payload, size_t *plen, float *score, void *matchCtx) {
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx) {
   int rc;
   while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
@@ -518,13 +518,13 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, char **payload, 
         *ptr = it->buf;
         *len = it->bufOffset;
         *score = sn->n->score;
-        if (payload != NULL && plen != NULL) {
+        if (payload != NULL) {
           if (sn->n->payload != NULL) {
-            *payload = sn->n->payload->data;
-            *plen = sn->n->payload->len;
+            payload->data = sn->n->payload->data;
+            payload->len = sn->n->payload->len;
           } else {
-            *payload = NULL;
-            *plen = 0;
+            payload->data = NULL;
+            payload->len = 0;
           }
           
         }

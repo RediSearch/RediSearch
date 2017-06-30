@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "rune_util.h"
+#include "redisearch.h"
 
 typedef uint16_t t_len;
 
@@ -83,7 +84,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, const char *payload, size_t plen, float score);
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload, float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
 * up until offset, and
@@ -98,7 +99,7 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, rune *str, t_len len, const char *payload, size_t plen, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns
 * 0 if the entry was
@@ -189,6 +190,6 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, char **payload, size_t *plen, float *score, void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
 
 #endif

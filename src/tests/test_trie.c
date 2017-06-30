@@ -39,13 +39,12 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 //     // return NULL;
 // }
 
-int __trie_add(TrieNode **n, char *str, char *payload, float sc, TrieAddOp op) {
+int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
   size_t payloadSize = 0;
-  if (payload != NULL)
-    payloadSize = strlen(payload);
-  int rc = TrieNode_Add(n, runes, rlen, payload, payloadSize, sc, op);
+  RSPayload payload = {.data = payloadStr, .len = payloadStr?0:strlen(payloadStr)};
+  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op);
   free(runes);
   return rc;
 }
@@ -124,17 +123,16 @@ int testPayload() {
   rune *s;
   t_len len;
   float score;
-  char *payload;
-  size_t plen;
+  RSPayload payload = {.data = NULL, .len = 0};
   int matches = 0;
   int dist = 0;
 
-  while (TrieIterator_Next(it, &s, &len, &payload, &plen, &score, &dist)) {
+  while (TrieIterator_Next(it, &s, &len, &payload, &score, &dist)) {
     ASSERT(score == 1);
     ASSERT(len > 0);
     ASSERT(plen == 2);
-    ASSERT_EQUAL(payload[0], expectedRunes[0]);
-    ASSERT_EQUAL(payload[1], expectedRunes[1]);
+    ASSERT_EQUAL(payload.data[0], expectedRunes[0]);
+    ASSERT_EQUAL(payload.data[1], expectedRunes[1]);
     matches++;
   }
   ASSERT(matches > 0);
