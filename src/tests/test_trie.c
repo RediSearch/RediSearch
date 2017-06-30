@@ -129,7 +129,7 @@ int testPayload() {
   while (TrieIterator_Next(it, &s, &len, &payload, &score, &dist)) {
     ASSERT(score == 1);
     ASSERT(len > 0);
-    ASSERT(plen == 2);
+    ASSERT(payload.len == 2);
     ASSERT_EQUAL(payload.data[0], expectedRunes[0]);
     ASSERT_EQUAL(payload.data[1], expectedRunes[1]);
     matches++;
@@ -239,7 +239,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, NULL, 0, (float)score, ADD_REPLACE);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE);
     ASSERT(rc == 1);
     free(runes);
 
@@ -278,7 +278,7 @@ int testDFAFilter() {
     int dist = 0;
 
     clock_gettime(CLOCK_REALTIME, &start_time);
-    while (TrieIterator_Next(it, &s, &len, NULL, NULL, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 2 && dist >= 0)
       ASSERT(len > 0);
@@ -309,7 +309,7 @@ int testDFAFilter() {
     int matches = 0;
     int dist = 0;
 
-    while (TrieIterator_Next(it, &s, &len, NULL, NULL, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 1 && dist >= 0)
       ASSERT(len > 0);
