@@ -1,4 +1,8 @@
 #include "periodic.h"
+#include <pthread.h>
+#include <stdlib.h>
+#include <errno.h>
+
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
   RedisModuleCtx *redisCtx;
