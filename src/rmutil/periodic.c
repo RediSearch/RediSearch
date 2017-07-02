@@ -5,7 +5,6 @@
 
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
-  RedisModuleCtx *redisCtx;
   void *privdata;
   struct timespec interval;
   pthread_t thread;
@@ -28,14 +27,23 @@ static void *rmutilTimer_Loop(void *ctx) {
 
   int rc = ETIMEDOUT;
   struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
+
   pthread_mutex_lock(&tm->lock);
   while (rc != 0) {
+    clock_gettime(CLOCK_REALTIME, &ts);
     struct timespec timeout = timespecAdd(&ts, &tm->interval);
     if ((rc = pthread_cond_timedwait(&tm->cond, &tm->lock, &timeout)) == ETIMEDOUT) {
-      clock_gettime(CLOCK_REALTIME, &ts);
 
-      tm->cb(tm->redisCtx, tm->privdata);
+      // Create a thread safe context if we're running inside redis
+      RedisModuleCtx *rctx = NULL;
+      if (RedisModule_GetThreadSafeContext) rctx = RedisModule_GetThreadSafeContext(NULL);
+
+      // call our callback...
+      tm->cb(rctx, tm->privdata);
+
+      // If needed - free the thread safe context.
+      // It's up to the user to decide whether automemory is active there
+      if (rctx) RedisModule_FreeThreadSafeContext(rctx);
     }
   }
   //  RedisModule_Log(tm->redisCtx, "notice", "Timer cancelled");
@@ -46,10 +54,7 @@ static void *rmutilTimer_Loop(void *ctx) {
 RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct timespec interval) {
   RMUtilTimer *ret = malloc(sizeof(*ret));
   *ret = (RMUtilTimer){
-      .privdata = privdata,
-      .redisCtx = RedisModule_GetThreadSafeContext ? RedisModule_GetThreadSafeContext(NULL) : NULL,
-      .interval = interval,
-      .cb = cb,
+      .privdata = privdata, .interval = interval, .cb = cb,
   };
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
