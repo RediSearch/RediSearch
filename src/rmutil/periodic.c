@@ -1,14 +1,5 @@
-#include <time.h>
-#include <signal.h>
-#include <redismodule.h>
-#include <pthread.h>
-#include <errno.h>
-#include <stdio.h>
-#include <unistd.h>
-
-typedef void (*RMutilTimerFunc)(RedisModuleCtx *, void *);
-
-typedef struct {
+#include "periodic.h"
+typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
   RedisModuleCtx *redisCtx;
   void *privdata;
@@ -18,37 +9,41 @@ typedef struct {
   pthread_cond_t cond;
 } RMUtilTimer;
 
-void timespecAdd(struct timespec *dst, struct timespec *other) {
-  dst->tv_sec += other->tv_sec;
+static struct timespec timespecAdd(struct timespec *a, struct timespec *b) {
+  struct timespec ret;
+  ret.tv_sec = a->tv_sec + b->tv_sec;
 
-  long long ns = dst->tv_nsec + other->tv_nsec;
-  dst->tv_sec += ns / 100000000;
-  dst->tv_nsec = ns % 1000000;
+  long long ns = a->tv_nsec + b->tv_nsec;
+  ret.tv_sec += ns / 1000000000;
+  ret.tv_nsec = ns % 1000000000;
+  return ret;
 }
 
 static void *rmutilTimer_Loop(void *ctx) {
   RMUtilTimer *tm = ctx;
 
   int rc = ETIMEDOUT;
-  while (rc == ETIMEDOUT) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    timespecAdd(&ts, &tm->interval);
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  pthread_mutex_lock(&tm->lock);
+  while (rc != 0) {
+    struct timespec timeout = timespecAdd(&ts, &tm->interval);
+    if ((rc = pthread_cond_timedwait(&tm->cond, &tm->lock, &timeout)) == ETIMEDOUT) {
+      clock_gettime(CLOCK_REALTIME, &ts);
 
-    if ((rc = pthread_cond_timedwait(&tm->cond, &tm->lock, &ts)) == ETIMEDOUT) {
       tm->cb(tm->redisCtx, tm->privdata);
     }
   }
-  printf("Timer cancelled\n");
+  //  RedisModule_Log(tm->redisCtx, "notice", "Timer cancelled");
 
   return NULL;
 }
 
 RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct timespec interval) {
-  RMUtilTimer *ret = RedisModule_Alloc(sizeof(*ret));
+  RMUtilTimer *ret = malloc(sizeof(*ret));
   *ret = (RMUtilTimer){
       .privdata = privdata,
-      .redisCtx = RedisModule_GetThreadSafeContext(NULL),
+      .redisCtx = RedisModule_GetThreadSafeContext ? RedisModule_GetThreadSafeContext(NULL) : NULL,
       .interval = interval,
       .cb = cb,
   };
@@ -61,29 +56,12 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct 
 
 int RMUtilTimer_Stop(RMUtilTimer *t) {
   int rc;
-  if (0 != (rc = pthread_cond_signal(&t->cond))) {
-    return rc;
+  if (0 == (rc = pthread_cond_signal(&t->cond))) {
+    rc = pthread_join(t->thread, NULL);
   }
-  if (0 != (rc = pthread_join(t->thread, NULL))) {
-    return rc;
-  }
-  printf("Stopped timer!\n");
-  return 0;
+  return rc;
 }
 
 void RMUtilTimer_Free(RMUtilTimer *t) {
-}
-
-void timerCb(RedisModuleCtx *ctx, void *p) {
-  // int *x = p;
-  printf("!\n");
-}
-int main(int argc, char **argv) {
-  int x = 0;
-  RMUtilTimer *tm =
-      RMUtil_NewPeriodicTimer(timerCb, &x, (struct timespec){.tv_sec = 0, .tv_nsec = 1000000});
-
-  sleep(5);
-  printf("Done! %d\n", x);
-  return 0;
+  free(t);
 }
