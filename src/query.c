@@ -435,10 +435,11 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
 QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQueryFromRequest(RSSearchRequest *req) {
-  Query *q = NewQuery(req->sctx, req->rawQuery, req->qlen, req->offset, req->num, req->fieldMask,
-                      req->flags & Search_Verbatim, req->language, req->sctx->spec->stopwords,
-                      req->expander, req->slop, req->flags & Search_InOrder, req->scorer,
-                      req->payload, req->sortBy);
+  Query *q =
+      NewQuery(req->sctx, req->rawQuery, req->qlen, req->offset, req->num, req->fieldMask,
+               req->flags & Search_Verbatim, req->language,
+               req->flags & Search_NoStopwrods ? NULL : req->sctx->spec->stopwords, req->expander,
+               req->slop, req->flags & Search_InOrder, req->scorer, req->payload, req->sortBy);
 
   q->docTable = &req->sctx->spec->docs;
 
@@ -459,7 +460,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->raw = strndup(query, len);
   ret->root = NULL;
   ret->numTokens = 0;
-  ret->stopwords = stopwords ? stopwords : DefaultStopWordList();
+  ret->stopwords = stopwords;
   ret->payload = payload;
   ret->sortKey = sk;
   ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
