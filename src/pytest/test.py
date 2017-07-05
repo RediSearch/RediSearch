@@ -4,6 +4,7 @@ import unittest
 from hotels import hotels
 import random
 
+
 class SearchTestCase(ModuleTestCase('../module.so')):
 
     def testAdd(self):
@@ -89,7 +90,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for _ in r.retry_with_rdb_reload():
 
                 res = r.execute_command('ft.search', 'idx', 'hello')
-                
+
                 self.assertTrue(len(res) == 5)
                 self.assertEqual(res[0], 2L)
                 self.assertEqual(res[1], "doc2")
@@ -212,14 +213,14 @@ class SearchTestCase(ModuleTestCase('../module.so')):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'f', 'text'))
+                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric'))
 
             for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                                'f', 'hello world'))
+                                                'f', 'hello world', 'n', 666))
 
             keys = r.keys('*')
-            self.assertEqual(203, len(keys))
+            self.assertEqual(204, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
@@ -230,49 +231,63 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             r.flushdb()
 
             # Index with default stopwords
-            self.assertOk(r.execute_command('ft.create', 'idx', 'schema', 'foo', 'text'))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
 
-            # Index with custom stopwords 
+            # Index with custom stopwords
             self.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
-                                             'schema', 'foo', 'text'))
-            # Index with NO stopwords 
+                                            'schema', 'foo', 'text'))
+            # Index with NO stopwords
             self.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
-                                             'schema', 'foo', 'text'))          
+                                            'schema', 'foo', 'text'))
 
-            for idx in ('idx', 'idx2', 'idx3'):                                                                           
-                self.assertOk(r.execute_command('ft.add', idx, 'doc1', 1.0, 'fields', 'foo', 'hello world'))
-                self.assertOk(r.execute_command('ft.add', idx, 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
-            
+            for idx in ('idx', 'idx2', 'idx3'):
+                self.assertOk(r.execute_command(
+                    'ft.add', idx, 'doc1', 1.0, 'fields', 'foo', 'hello world'))
+                self.assertOk(r.execute_command(
+                    'ft.add', idx, 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
+
             for _ in r.retry_with_rdb_reload():
                 # Normal index should return results just for 'hello world'
-                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx', 'hello world', 'nocontent'))
-                self.assertEqual([0],  r.execute_command('ft.search', 'idx', 'to be or not', 'nocontent'))
+                self.assertEqual([1, 'doc1'],  r.execute_command(
+                    'ft.search', 'idx', 'hello world', 'nocontent'))
+                self.assertEqual([0],  r.execute_command(
+                    'ft.search', 'idx', 'to be or not', 'nocontent'))
 
                 # Custom SW index should return results just for 'to be or not'
-                self.assertEqual([0],  r.execute_command('ft.search', 'idx2', 'hello world', 'nocontent'))
-                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx2', 'to be or not', 'nocontent'))
+                self.assertEqual([0],  r.execute_command(
+                    'ft.search', 'idx2', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command(
+                    'ft.search', 'idx2', 'to be or not', 'nocontent'))
 
                 # No SW index should return results for both
-                self.assertEqual([1, 'doc1'],  r.execute_command('ft.search', 'idx3', 'hello world', 'nocontent'))
-                self.assertEqual([1, 'doc2'],  r.execute_command('ft.search', 'idx3', 'to be or not', 'nocontent'))
-
+                self.assertEqual([1, 'doc1'],  r.execute_command(
+                    'ft.search', 'idx3', 'hello world', 'nocontent'))
+                self.assertEqual([1, 'doc2'],  r.execute_command(
+                    'ft.search', 'idx3', 'to be or not', 'nocontent'))
 
     def testOptional(self):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'foo', 'text'))
-            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'hello wat woot'))
-            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields', 'foo', 'hello world woot'))
-            self.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields', 'foo', 'hello world werld'))
+            self.assertOk(r.execute_command('ft.add', 'idx',
+                                            'doc1', 1.0, 'fields', 'foo', 'hello wat woot'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2',
+                                            1.0, 'fields', 'foo', 'hello world woot'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc3',
+                                            1.0, 'fields', 'foo', 'hello world werld'))
 
-            res  = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+            res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
-            res  = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([2L, 'doc3', 'doc2'], res)
-            res  = r.execute_command('ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
-            res  = r.execute_command('ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
             self.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
 
     def testExplain(self):
@@ -281,8 +296,8 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
             q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
-            res = r.execute_command('ft.explain', 'idx', q)    
-        
+            res = r.execute_command('ft.explain', 'idx', q)
+
             self.assertEqual(res, """INTERSECT {
   hello
   world
@@ -310,24 +325,25 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             for i in range(N):
                 self.assertOk(r.execute_command('ft.add', 'idx', '%d' % i, 1, 'fields',
                                                 'foo', 'hello', 'bar', i))
-            
 
             chunk = 7
             offset = 0
             while True:
-                
-                res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', offset, chunk)
+
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello', 'nocontent', 'limit', offset, chunk)
                 self.assertEqual(res[0], N)
-                
+
                 if offset + chunk > N:
-                    self.assertTrue(len(res)-1 <= chunk)
+                    self.assertTrue(len(res) - 1 <= chunk)
                     break
-                self.assertEqual(len(res), chunk+1)
+                self.assertEqual(len(res), chunk + 1)
                 for n, id in enumerate(res[1:]):
-                    self.assertEqual(int(id), N - 1- (offset+n))
+                    self.assertEqual(int(id), N - 1 - (offset + n))
                 offset += chunk
                 chunk = random.randrange(1, 10)
-            res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 'bar', 'asc', 'limit', N, 10)
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello', 'nocontent', 'sortby', 'bar', 'asc', 'limit', N, 10)
             self.assertEqual(res[0], N)
             self.assertEqual(len(res), 1)
 
@@ -341,17 +357,23 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'constant term%d' % (random.randrange(0, 5))))
             for _ in r.retry_with_rdb_reload():
-                res = r.execute_command('ft.search', 'idx', 'constant term', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'constant term', 'nocontent')
                 self.assertEqual([0], res)
-                res = r.execute_command('ft.search', 'idx', 'constant term*', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'constant term*', 'nocontent')
                 self.assertEqual(N, res[0])
-                res = r.execute_command('ft.search', 'idx', 'const* term*', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'const* term*', 'nocontent')
                 self.assertEqual(N, res[0])
-                res = r.execute_command('ft.search', 'idx', 'constant term1*', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'constant term1*', 'nocontent')
                 self.assertGreater(res[0], 2)
-                res = r.execute_command('ft.search', 'idx', 'const* -term*', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'const* -term*', 'nocontent')
                 self.assertEqual([0], res)
-                res = r.execute_command('ft.search', 'idx', 'constant term9*', 'nocontent')
+                res = r.execute_command(
+                    'ft.search', 'idx', 'constant term9*', 'nocontent')
                 self.assertEqual([0], res)
 
     def testSortBy(self):
@@ -362,21 +384,29 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             N = 100
             for i in range(N):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                                'foo', 'hello%03d world' % i, 'bar', 100-i))
+                                                'foo', 'hello%03d world' % i, 'bar', 100 - i))
             for _ in r.retry_with_rdb_reload():
-          
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
-                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
-
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                        'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                self.assertEqual(
+                    [100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
     def testNot(self):
         with self.redis() as r:
@@ -389,23 +419,28 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                                 'foo', 'constant term%d' % (random.randrange(0, 5))))
 
             for i in range(5):
-                inclusive = r.execute_command('ft.search', 'idx', 'constant term%d' % i, 'nocontent', 'limit', 0, N)
-                
-                exclusive = r.execute_command('ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
-                #print inclusive, exclusive
+                inclusive = r.execute_command(
+                    'ft.search', 'idx', 'constant term%d' % i, 'nocontent', 'limit', 0, N)
+
+                exclusive = r.execute_command(
+                    'ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
+                # print inclusive, exclusive
                 self.assertNotEqual(inclusive[0], N)
                 self.assertEqual(inclusive[0] + exclusive[0], N)
 
                 s1, s2 = set(inclusive[1:]), set(exclusive[1:])
                 self.assertTrue(s1.difference(s2) == s1)
                 self.assertTrue(s2.intersection(s1) == set())
-            
-            # NOT on a non existing term
-            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -dasdfasdf', 'nocontent')[0], N)
-            #not on self term
-            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
 
-            self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
+            # NOT on a non existing term
+            self.assertEqual(r.execute_command(
+                'ft.search', 'idx', 'constant -dasdfasdf', 'nocontent')[0], N)
+            # not on self term
+            self.assertEqual(r.execute_command(
+                'ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
+
+            self.assertEqual(r.execute_command(
+                'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
             #self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
 
     def testInKeys(self):
@@ -426,7 +461,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                     'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
                 self.assertEqual(len(keys), res[0])
                 self.assertTrue(all((k in res for k in keys)))
-            
+
             self.assertEqual(0, r.execute_command(
                 'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 4, 'foo', 'bar', 'baz')[0])
 
@@ -445,7 +480,7 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                                             'title', 't1 t3 t4 t5 t2'))
 
             res = r.execute_command(
-                'ft.search', 'idx', 't1|t4 t3|t2', 'slop', '0', 'inorder', 'nocontent')                                        
+                'ft.search', 'idx', 't1|t4 t3|t2', 'slop', '0', 'inorder', 'nocontent')
             self.assertEqual({'doc3', 'doc4', 'doc2', 'doc1'}, set(res[1:]))
             res = r.execute_command(
                 'ft.search', 'idx', 't2 t1', 'slop', '0', 'nocontent')
@@ -633,14 +668,15 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
-            
+
             # this is the default scorer
-            res = r.execute_command('ft.search', 'idx', 'foo', 'scorer', 'TFIDF')
+            res = r.execute_command(
+                'ft.search', 'idx', 'foo', 'scorer', 'TFIDF')
             self.assertEqual(res, [0])
             with self.assertResponseError():
-                res = r.execute_command('ft.search', 'idx', 'foo', 'scorer', 'NOSUCHSCORER')
-            
-            
+                res = r.execute_command(
+                    'ft.search', 'idx', 'foo', 'scorer', 'NOSUCHSCORER')
+
     def testFieldSelectors(self):
 
         with self.redis() as r:
@@ -652,25 +688,31 @@ class SearchTestCase(ModuleTestCase('../module.so')):
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 0.5, 'fields',
                                             'body', 'hello world', 'title', 'foo bar'))
 
-            res = r.execute_command('ft.search', 'idx', '@title:hello world', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@title:hello world', 'nocontent')
             self.assertEqual(res, [1, 'doc1'])
-            res = r.execute_command('ft.search', 'idx', '@body:hello world', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@body:hello world', 'nocontent')
             self.assertEqual(res, [1, 'doc2'])
 
-            res = r.execute_command('ft.search', 'idx', '@body:hello @title:world', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@body:hello @title:world', 'nocontent')
             self.assertEqual(res, [0])
 
-            res = r.execute_command('ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
             self.assertEqual(res, [0])
-            res = r.execute_command('ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
 
-            res = r.execute_command('ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
 
-            res = r.execute_command('ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
+            res = r.execute_command(
+                'ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
-
 
     def testStemming(self):
         with self.redis() as r:
@@ -762,24 +804,30 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 res = r.execute_command('ft.search', 'idx', 'hello kitty',
                                         "filter", "score", "19", "90",
                                         "filter", "price", "90", "185")
-                
+
                 self.assertEqual(0, res[0])
 
                 # Test numeric ranges as part of query syntax
-                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[0 100]', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty @score:[0 100]', "nocontent")
 
                 self.assertEqual(11, len(res))
                 self.assertEqual(100, res[0])
 
-                res = r.execute_command('ft.search', 'idx', 'hello kitty  @score:[0 50]', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty  @score:[0 50]', "nocontent")
                 self.assertEqual(51, res[0])
-                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent")
                 self.assertEqual(49, res[0])
-                res = r.execute_command('ft.search', 'idx', '@score:[(0 (50]', 'verbatim', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', '@score:[(0 (50]', 'verbatim', "nocontent")
                 self.assertEqual(49, res[0])
-                res = r.execute_command('ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent")
                 self.assertEqual(51, res[0])
-                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
                 self.assertEqual(100, res[0])
 
     def testSuggestions(self):
@@ -826,7 +874,6 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertEqual(4, len(rc))
                 self.assertTrue(float(rc[1]) > 0)
                 self.assertTrue(float(rc[3]) > 0)
-                
 
             rc = r.execute_command("ft.SUGDEL", "ac", "hello world")
             self.assertEqual(1L, rc)

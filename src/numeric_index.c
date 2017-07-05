@@ -467,14 +467,14 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
+RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
                                         field);
 }
 
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
 
-  RedisModuleString *s = fmtNumericIndexKey(ctx, fname);
+  RedisModuleString *s = fmtRedisNumericIndexKey(ctx, fname);
   RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
