@@ -830,12 +830,16 @@ QueryResult *Query_Execute(Query *query) {
     heapResult *h = heap_poll(pq);
     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+    RSSortableValue *sv = NULL;
     if (dmd) {
       // For sort key based queries, the score is the inverse of the rank
-      if (query->sortKey) {
+      if (sortByMode) {
         h->score = (double)i + 1;
+
+        sv = RSSortingVector_Get(h->sv, query->sortKey);
       }
-      res->results[n - i - 1] = (ResultEntry){dmd->key, h->score, dmd->payload};
+      res->results[n - i - 1] =
+          (ResultEntry){.id = dmd->key, .score = h->score, .payload = dmd->payload, .sortKey = sv};
     }
     free(h);
   }
@@ -856,7 +860,7 @@ void QueryResult_Free(QueryResult *q) {
   free(q);
 }
 
-int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int withscores) {
+int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, RSSearchFlags flags) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
@@ -865,9 +869,37 @@ int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int wi
   for (int i = 0; i < r->numResults; i++) {
     ++arrlen;
     RedisModule_ReplyWithStringBuffer(ctx, r->results[i].id, strlen(r->results[i].id));
-    if (withscores) {
+    if (flags & Search_WithScores) {
       ++arrlen;
       RedisModule_ReplyWithDouble(ctx, r->results[i].score);
+    }
+    // serialize payloads if neede
+    if (flags & Search_WithPayloads) {
+      ++arrlen;
+      if (r->results[i].payload) {
+        RedisModule_ReplyWithStringBuffer(ctx, r->results[i].payload->data,
+                                          r->results[i].payload->len);
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
+    // If necessary reply with sort key
+    if (flags & Search_WithSortKeys) {
+      ++arrlen;
+      if (r->results[i].sortKey) {
+        switch (r->results[i].sortKey->type) {
+         case RS_SORTABLE_NUM:
+            RedisModule_ReplyWithDouble(ctx, r->results[i].sortKey->num);
+            break;
+          case RS_SORTABLE_STR:
+          default:
+            RedisModule_ReplyWithStringBuffer(ctx, r->results[i].sortKey->str,
+                                              strlen(r->results[i].sortKey->str));
+        }
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
     }
   }
   RedisModule_ReplySetArrayLength(ctx, arrlen);
@@ -875,8 +907,7 @@ int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, int wi
   return REDISMODULE_OK;
 }
 
-int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int withscores,
-                                       int withpayloads) {
+int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, RSSearchFlags flags) {
   // With content mode - return and load the documents
   RedisModuleCtx *ctx = sctx->redisCtx;
   int ndocs;
@@ -898,17 +929,35 @@ int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, int
     RedisModule_ReplyWithString(ctx, doc.docKey);
     ++len;
     // if needed - send the score as well
-    if (withscores) {
+    if (flags & Search_WithScores) {
       ++len;
       RedisModule_ReplyWithDouble(ctx, r->results[i].score);
     }
 
     // serialize payloads if neede
-    if (withpayloads) {
+    if (flags & Search_WithPayloads) {
       ++len;
       if (r->results[i].payload) {
         RedisModule_ReplyWithStringBuffer(ctx, r->results[i].payload->data,
                                           r->results[i].payload->len);
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
+    // If necessary reply with sort key
+    if (flags & Search_WithSortKeys) {
+      ++len;
+      if (r->results[i].sortKey) {
+        switch (r->results[i].sortKey->type) {
+          case RS_SORTABLE_NUM:
+            RedisModule_ReplyWithDouble(ctx, r->results[i].sortKey->num);
+            break;
+          case RS_SORTABLE_STR:
+          default:
+            RedisModule_ReplyWithStringBuffer(ctx, r->results[i].sortKey->str,
+                                              strlen(r->results[i].sortKey->str));
+        }
       } else {
         RedisModule_ReplyWithNull(ctx);
       }
@@ -939,9 +988,8 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchFlags fl
 
   // NOCONTENT mode - just return the ids
   if (flags & Search_NoContent) {
-    return __queryResult_serializeNoContent(r, ctx, flags & Search_WithScores);
+    return __queryResult_serializeNoContent(r, ctx, flags);
   }
 
-  return __queryResult_serializeFullResults(r, sctx, flags & Search_WithScores,
-                                            flags & Search_WithPayloads);
+  return __queryResult_serializeFullResults(r, sctx, flags);
 }

@@ -376,6 +376,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
                 self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual([100L, 'doc0', '100', 'doc1', '99', 'doc2', '98', 'doc3', '97', 'doc4', '96'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual([100L, 'doc99', 'hello099 world', 'doc98', 'hello098 world', 'doc97', 'hello097 world', 'doc96', 
+                                    'hello096 world', 'doc95', 'hello095 world'], res)
 
 
     def testNot(self):

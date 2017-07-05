@@ -224,7 +224,7 @@ Array Response. A nested array of keys and values.
 ### Format
 
 ```
-FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS]
+FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
   [INKEYS {num} {key} ... ]
@@ -267,6 +267,7 @@ Search the index with a textual query, returning either documents or just ids.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
+- **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
 - **LANGUAGE {language}**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
