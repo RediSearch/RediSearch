@@ -228,7 +228,8 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [FILTER {numeric_field} {min} {max}] ...
   [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]
   [INKEYS {num} {key} ... ]
-  [INFIELDS {num {field} ... ]
+  [INFIELDS {num} {field} ... ]
+  [RETURN {num} {field} ... ]
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
@@ -249,6 +250,8 @@ Search the index with a textual query, returning either documents or just ids.
   See below for documentation on query syntax. 
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if rediseach is only an index on an external document collection
+- **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
+  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific

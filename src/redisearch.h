@@ -8,6 +8,8 @@ typedef uint32_t t_docId;
 typedef uint32_t t_offset;
 typedef uint32_t t_fieldMask;
 
+#define RSFieldMask_Contains(mask, n) (((1 << (n - 1)) & mask) != 0)
+
 struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
