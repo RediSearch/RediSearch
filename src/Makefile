@@ -103,7 +103,7 @@ clean:
 	rm -fv *.o trie/*.o query_parser/*.o ext/*.o 
 
 distclean:
-	find . -type f -name '*.o' -delete -print
+	find . -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' \) -delete -print
 
 package: redisearch.so
 	mkdir -p ../build
