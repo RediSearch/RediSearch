@@ -116,12 +116,7 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
 
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
-
-  // if we're at an end of block - check if this is the last block
-  if (BufferReader_AtEnd(&ir->br)) {
-    return ir->currentBlock < ir->idx->size - 1;
-  }
-  return 1;
+  return !ir->atEnd;
 }
 
 void indexReader_advanceBlock(IndexReader *ir) {
@@ -176,10 +171,10 @@ int IR_Read(void *ctx, RSIndexResult **e) {
   BufferReader *br = &ir->br;
 
   do {
-
     if (BufferReader_AtEnd(br)) {
+      // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
-        return INDEXREAD_EOF;
+        goto eof;
       }
       indexReader_advanceBlock(ir);
       br = &ir->br;
@@ -188,6 +183,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     readEntry(br, ir->readFlags, ir->record, ir->singleWordMode);
     ir->lastId = ir->record->docId += ir->lastId;
 
+    // The record doesn't match the field filter. Continue to the next one
     if (!(ir->record->fieldMask & ir->fieldMask)) {
       continue;
     }
@@ -195,8 +191,12 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     ++ir->len;
     *e = ir->record;
     return INDEXREAD_OK;
-    //}
-  } while (1);  // c != INDEXREAD_EOF);
+
+  } while (1);
+eof:
+
+  // Mark the reader as at EOF and return EOF
+  ir->atEnd = 1;
 
   return INDEXREAD_EOF;
 }
@@ -273,6 +273,7 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   /* check if the id is out of range */
   if (docId > ir->idx->lastId) {
+    ir->atEnd = 1;
     return INDEXREAD_EOF;
   }
   // try to skip to the current block
@@ -289,6 +290,7 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     if (rid == docId) return INDEXREAD_OK;
     return INDEXREAD_NOTFOUND;
   }
+  ir->atEnd = 1;
   return INDEXREAD_EOF;
 }
 
@@ -322,6 +324,7 @@ IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask 
   ret->docTable = docTable;
   ret->len = 0;
   ret->singleWordMode = singleWordMode;
+  ret->atEnd = 0;
 
   ret->fieldMask = fieldMask;
   ret->flags = flags;

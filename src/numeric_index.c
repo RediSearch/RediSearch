@@ -287,36 +287,37 @@ int NR_Read(void *ctx, RSIndexResult **r) {
   NumericRangeIterator *it = ctx;
 
   if (it->atEOF || it->rng->size == 0) {
-    it->atEOF = 1;
-    return INDEXREAD_EOF;
+    goto eof;
   }
 
   int match = 0;
   double lastValue = 0;
-  while (!match && !it->atEOF) {
-    it->lastDocId = it->rng->entries[it->offset].docId;
-    lastValue = it->rng->entries[it->offset].value;
-    ++it->offset;
+  do {
     if (it->offset == it->rng->size) {
-      it->atEOF = 1;
+      goto eof;
     }
-
+    it->lastDocId = it->rng->entries[it->offset].docId;
+    // lastValue = it->rng->entries[it->offset].value;
     if (it->nf) {
-      match = NumericFilter_Match(it->nf, lastValue);
+      match = NumericFilter_Match(it->nf, it->rng->entries[it->offset].value);
     } else {
       match = 1;
     }
+    it->offset++;
+
     // printf("nf %s filter doc %d (%f): %d\n", it->nf->fieldName, it->lastDocId, lastValue, match);
-  }
-  if (it->atEOF && !match) {
-    return INDEXREAD_EOF;
-  }
+  } while (!match);
 
-  // match must be true here
-  it->rec->docId = it->lastDocId;
-  *r = it->rec;
+  if (match) {
+    // match must be true here
+    it->rec->docId = it->lastDocId;
+    *r = it->rec;
 
-  return INDEXREAD_OK;
+    return INDEXREAD_OK;
+  }
+eof:
+  it->atEOF = 1;
+  return INDEXREAD_EOF;
 }
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
