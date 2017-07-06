@@ -196,6 +196,20 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     req->idFilter = NewIdFilter(vargs, nargs, &ctx->spec->docs);
   }
 
+  // parse RETURN argument
+  if ((vargs = getLengthArgs("RETURN", &nargs, argv, argc, 2))) {
+    if (!nargs) {
+      req->flags |= Search_NoContent;
+    } else {
+      req->retfields = malloc(sizeof(*req->retfields) * nargs);
+      req->nretfields = nargs;
+      for (size_t ii = 0; ii < nargs; ++ii) {
+        RedisModule_RetainString(ctx->redisCtx, vargs[ii]);
+        req->retfields[ii] = vargs[ii];
+      }
+    }
+  }
+
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -243,6 +257,13 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
       }
     }
     Vector_Free(req->numericFilters);
+  }
+
+  if (req->retfields) {
+    for (size_t ii = 0; ii < req->nretfields; ++ii) {
+      RedisModule_FreeString(req->sctx->redisCtx, req->retfields[ii]);
+    }
+    free(req->retfields);
   }
 
   if (req->sctx) {
@@ -313,15 +334,15 @@ void threadProcessQuery(void *p) {
     goto end;
   }
 
-  QueryResult_Serialize(r, req->sctx, req->flags);
+  QueryResult_Serialize(r, req->sctx, req);
   QueryResult_Free(r);
   Query_Free(q);
 
 end:
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_UnblockClient(req->bc, NULL);
-  RedisModule_FreeThreadSafeContext(ctx);
   RSSearchRequest_Free(req);
+  RedisModule_FreeThreadSafeContext(ctx);
 
   return;
   //  return REDISMODULE_OK;

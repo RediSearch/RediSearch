@@ -86,7 +86,7 @@ typedef struct queryResult {
 } QueryResult;
 
 /* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, RSSearchFlags flags);
+int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, RSSearchRequest *req);
 
 /* Evaluate a query stage and prepare it for execution. As execution is lazy
 this doesn't

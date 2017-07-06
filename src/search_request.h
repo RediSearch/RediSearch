@@ -60,6 +60,9 @@ typedef struct {
 
   char *scorer;
 
+  RedisModuleString **retfields;
+  size_t nretfields;
+
   RSPayload payload;
 
   RSSortingKey *sortBy;

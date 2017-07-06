@@ -946,6 +946,40 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 for i in range(1, 30, 3):
                     self.assertEqual(res[i + 1], 'payload %s' % res[i])
 
+    def testReturning(self):
+        self.assertCmdOk('ft.create', 'idx', 'schema', 'f1',
+                         'text', 'f2', 'text', 'n1', 'numeric', 'f3', 'text')
+        for i in range(10):
+            self.assertCmdOk('ft.add', 'idx', 'DOC_{0}'.format(i), 1.0, 'fields',
+                             'f2', 'val2', 'f1', 'val1', 'f3', 'val3',
+                             'n1', i)
+
+        # RETURN 0. Simplest case
+        for x in self.retry_with_reload():
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', '0')
+            self.assertEqual(11, len(res))
+            self.assertEqual(10, res[0])
+            for r in res[1:]:
+                self.assertTrue(r.startswith('DOC_'))
+
+        for field in ('f1', 'f2', 'f3', 'n1'):
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', 1, field)
+            self.assertEqual(21, len(res))
+            self.assertEqual(10, res[0])
+            for pair in grouper(res[1:], 2):
+                docname, fields = pair
+                self.assertEqual(2, len(fields))
+                self.assertEqual(field, fields[0])
+                self.assertTrue(docname.startswith('DOC_'))
+
+
+def grouper(iterable, n, fillvalue=None):
+    "Collect data into fixed-length chunks or blocks"
+    from itertools import izip_longest
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
+    args = [iter(iterable)] * n
+    return izip_longest(fillvalue=fillvalue, *args)
+
 
 if __name__ == '__main__':
 
