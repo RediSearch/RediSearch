@@ -58,7 +58,7 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
     int rc = INDEXREAD_EOF;
     for (int i = 0; i < ui->num; i++) {
       IndexIterator *it = ui->its[i];
-      if (it == NULL) continue;
+      if (it == NULL || !it->HasNext(it->ctx)) continue;
       RSIndexResult *res = it->Current(it->ctx);
 
       rc = INDEXREAD_OK;
@@ -75,6 +75,8 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
 
       if (rc != INDEXREAD_EOF) {
         numActive++;
+      } else {
+        continue;
       }
 
       if (rc == INDEXREAD_OK && res->docId <= minDocId) {
@@ -152,6 +154,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   for (int i = 0; i < num; i++) {
     // this happens for non existent words
     if (NULL == (it = ui->its[i])) continue;
+    if (!it->HasNext(it->ctx)) continue;
 
     res = NULL;
 
@@ -164,6 +167,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
       ui->docIds[i] = res->docId;
 
     } else {
+      // if the iterator is at an end - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
       rc = (ui->docIds[i] == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
@@ -299,7 +303,7 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   for (int i = 0; i < ic->num; i++) {
     IndexIterator *it = ic->its[i];
 
-    if (!it) return INDEXREAD_EOF;
+    if (!it || !it->HasNext(it->ctx)) return INDEXREAD_EOF;
 
     RSIndexResult *res = it->Current(it->ctx);
     rc = INDEXREAD_OK;

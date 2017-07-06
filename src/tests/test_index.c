@@ -166,10 +166,11 @@ int testIndexReadWrite() {
 
     int n = 0;
     while (IR_HasNext(ir)) {
-      IR_Read(ir, &h);
+      if (IR_Read(ir, &h) == INDEXREAD_EOF) {
+        break;
+      }
       ASSERT_EQUAL(h->docId, n);
       n++;
-      // printf("%d\n", h.docId);
     }
     // for (int z= 0; z < 10; z++) {
     // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
@@ -241,7 +242,7 @@ int testReadIterator() {
   int i = 1;
   while (it->HasNext(it->ctx)) {
     if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
-      return -1;
+      break;
     }
 
     // printf("Iter got %d\n", h.docId);
@@ -716,7 +717,7 @@ int testSortable() {
   double s2 = 4.444;
   RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
 
-  RSSortingKey sk = { .index = 0, .ascending = 0};
+  RSSortingKey sk = {.index = 0, .ascending = 0};
 
   int rc = RSSortingVector_Cmp(v, v2, &sk);
   ASSERT(rc > 0);

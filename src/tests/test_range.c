@@ -58,6 +58,7 @@ int testRangeIterator() {
 
   int N = 1000000;
   double *lookup = calloc(N + 1, sizeof(double));
+  uint8_t *matched = calloc(N + 1, sizeof(uint8_t));
   for (int i = 0; i < N; i++) {
 
     t_docId docId = i + 1;
@@ -70,13 +71,14 @@ int testRangeIterator() {
   for (int i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
-
+    memset(matched, 0, sizeof(uint8_t) * (N + 1));
     NumericFilter *flt = NewNumericFilter(_min(min, max), _max(min, max), 1, 1);
 
     // count the number of elements in the range
     int count = 0;
     for (int i = 1; i <= N; i++) {
       if (NumericFilter_Match(flt, lookup[i])) {
+        matched[i] = 1;
         count++;
       }
     }
@@ -93,6 +95,10 @@ int testRangeIterator() {
       if (rc == INDEXREAD_EOF) {
         break;
       }
+      ASSERT(matched[res->docId] == 1);
+      matched[res->docId] = (uint8_t)2;
+      // printf("rc: %d docId: %d, lookup %f, flt %f..%f\n", rc, res->docId, lookup[res->docId],
+      //        flt->min, flt->max);
 
       ASSERT(NumericFilter_Match(flt, lookup[res->docId]));
 
@@ -105,6 +111,12 @@ int testRangeIterator() {
 
       xcount++;
     }
+    for (int i = 1; i <= N; i++) {
+      if (matched[i] == 1) {
+        printf("Miss: %d\n", i);
+      }
+    }
+
     // printf("The iterator returned %d elements\n", xcount);
     ASSERT_EQUAL(xcount, count);
     it->Free(it);

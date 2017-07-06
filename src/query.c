@@ -740,7 +740,7 @@ QueryResult *Query_Execute(Query *query) {
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       break;
-    } else if (rc == INDEXREAD_NOTFOUND) {
+    } else if (!r || rc == INDEXREAD_NOTFOUND) {
       continue;
     }
 
