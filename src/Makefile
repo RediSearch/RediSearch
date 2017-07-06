@@ -89,6 +89,8 @@ test: $(MODULE)
 
 # Build the module...
 redisearch.so: $(MODULE) version.h
+	# Just to make sure old versions of the modules are deleted
+	rm -f module.so
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
 libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
