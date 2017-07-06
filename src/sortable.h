@@ -82,6 +82,8 @@ int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSorting
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
 
+RSSortableValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
+
 /* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len);
 

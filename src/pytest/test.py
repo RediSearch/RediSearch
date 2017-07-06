@@ -4,8 +4,7 @@ import unittest
 from hotels import hotels
 import random
 
-
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def testAdd(self):
         with self.redis() as r:
@@ -386,28 +385,25 @@ class SearchTestCase(ModuleTestCase('../module.so')):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'hello%03d world' % i, 'bar', 100 - i))
             for _ in r.retry_with_rdb_reload():
+          
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
-                res = r.execute_command(
-                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
-                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command(
-                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
-                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command(
-                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
-                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command(
-                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
-                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
-                                        'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
-                self.assertEqual(
-                    [100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual([100L, 'doc0', '100', 'doc1', '99', 'doc2', '98', 'doc3', '97', 'doc4', '96'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual([100L, 'doc99', 'hello099 world', 'doc98', 'hello098 world', 'doc97', 'hello097 world', 'doc96', 
+                                    'hello096 world', 'doc95', 'hello095 world'], res)
 
+              
     def testNot(self):
         with self.redis() as r:
             r.flushdb()

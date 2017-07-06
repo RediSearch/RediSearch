@@ -9,7 +9,7 @@ before_script:
 - pip install redis ramp-packer
 - cd ..
 env:
-- REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/module.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
+- REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/redisearch.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
 script:
 - make test
 - make package

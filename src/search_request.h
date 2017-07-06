@@ -18,6 +18,8 @@ typedef enum {
 
   Search_InOrder = 0x20,
 
+  Search_WithSortKeys = 0x40,
+
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00

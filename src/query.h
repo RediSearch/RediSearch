@@ -73,6 +73,7 @@ typedef struct {
   const char *id;
   double score;
   RSPayload *payload;
+  RSSortableValue *sortKey;
 } ResultEntry;
 
 /* QueryResult represents the final processed result of a query execution */

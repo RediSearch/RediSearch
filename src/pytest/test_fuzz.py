@@ -5,7 +5,7 @@ import random
 import time
 
 
-class SearchTestCase(ModuleTestCase('../module.so')):
+class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     _tokens = {}
     _docs = {}
