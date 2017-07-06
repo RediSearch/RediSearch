@@ -112,6 +112,9 @@ void Query_SetIdFilter(Query *q, IdFilter *f);
  */
 const char *Query_DumpExplain(Query *q);
 
+/* Only used in tests, for now */
+void QueryNode_Print(Query *q, QueryNode *qs, int depth);
+
 #define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
 #define QUERY_ERROR_INTERNAL -1
 

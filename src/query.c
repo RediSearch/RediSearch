@@ -18,13 +18,11 @@
 
 #define MAX_PREFIX_EXPANSIONS 200
 
-void __queryNode_Print(Query *q, QueryNode *qs, int depth);
-
-void _queryTokenNode_Free(QueryTokenNode *tn) {
+static void QueryTokenNode_Free(QueryTokenNode *tn) {
   if (tn->str) free(tn->str);
 }
 
-void _queryPhraseNode_Free(QueryPhraseNode *pn) {
+static void QueryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
@@ -34,7 +32,7 @@ void _queryPhraseNode_Free(QueryPhraseNode *pn) {
   }
 }
 
-void _queryUnionNode_Free(QueryUnionNode *pn) {
+static void QueryUnionNode_Free(QueryUnionNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
@@ -50,13 +48,13 @@ void QueryNode_Free(QueryNode *n) {
   if (!n) return;
   switch (n->type) {
     case QN_TOKEN:
-      _queryTokenNode_Free(&n->tn);
+      QueryTokenNode_Free(&n->tn);
       break;
     case QN_PHRASE:
-      _queryPhraseNode_Free(&n->pn);
+      QueryPhraseNode_Free(&n->pn);
       break;
     case QN_UNION:
-      _queryUnionNode_Free(&n->un);
+      QueryUnionNode_Free(&n->un);
       break;
     case QN_NUMERIC:
 
@@ -70,7 +68,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryNode_Free(n->opt.child);
       break;
     case QN_PREFX:
-      _queryTokenNode_Free(&n->pfx);
+      QueryTokenNode_Free(&n->pfx);
       break;
     case QN_GEO:
     case QN_IDS:
@@ -79,7 +77,7 @@ void QueryNode_Free(QueryNode *n) {
   free(n);
 }
 
-QueryNode *__newQueryNode(QueryNodeType type) {
+static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
   s->fieldMask = RS_FIELDMASK_ALL;
@@ -87,7 +85,7 @@ QueryNode *__newQueryNode(QueryNodeType type) {
 }
 
 QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags) {
-  QueryNode *ret = __newQueryNode(QN_TOKEN);
+  QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
@@ -95,7 +93,7 @@ QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlag
 }
 
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
-  QueryNode *ret = __newQueryNode(QN_TOKEN);
+  QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
@@ -103,7 +101,7 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
 }
 
 QueryNode *NewPrefixNode(Query *q, const char *s, size_t len) {
-  QueryNode *ret = __newQueryNode(QN_PREFX);
+  QueryNode *ret = NewQueryNode(QN_PREFX);
   q->numTokens++;
 
   ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
@@ -111,14 +109,14 @@ QueryNode *NewPrefixNode(Query *q, const char *s, size_t len) {
 }
 
 QueryNode *NewUnionNode() {
-  QueryNode *ret = __newQueryNode(QN_UNION);
+  QueryNode *ret = NewQueryNode(QN_UNION);
   ret->fieldMask = 0;
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
   return ret;
 }
 
 QueryNode *NewPhraseNode(int exact) {
-  QueryNode *ret = __newQueryNode(QN_PHRASE);
+  QueryNode *ret = NewQueryNode(QN_PHRASE);
   ret->fieldMask = 0;
 
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
@@ -126,32 +124,32 @@ QueryNode *NewPhraseNode(int exact) {
 }
 
 QueryNode *NewNotNode(QueryNode *n) {
-  QueryNode *ret = __newQueryNode(QN_NOT);
+  QueryNode *ret = NewQueryNode(QN_NOT);
   ret->not.child = n;
   return ret;
 }
 
 QueryNode *NewOptionalNode(QueryNode *n) {
-  QueryNode *ret = __newQueryNode(QN_OPTIONAL);
+  QueryNode *ret = NewQueryNode(QN_OPTIONAL);
   ret->not.child = n;
   return ret;
 }
 
 QueryNode *NewNumericNode(NumericFilter *flt) {
-  QueryNode *ret = __newQueryNode(QN_NUMERIC);
+  QueryNode *ret = NewQueryNode(QN_NUMERIC);
   ret->nn = (QueryNumericNode){.nf = flt};
 
   return ret;
 }
 
 QueryNode *NewGeofilterNode(GeoFilter *flt) {
-  QueryNode *ret = __newQueryNode(QN_GEO);
+  QueryNode *ret = NewQueryNode(QN_GEO);
   ret->gn = (QueryGeofilterNode){.gf = flt};
 
   return ret;
 }
 
-void _query_SetFilterNode(Query *q, QueryNode *n) {
+static void Query_SetFilterNode(Query *q, QueryNode *n) {
   if (q->root == NULL) return;
 
   // for a simple phrase node we just add the numeric node
@@ -174,25 +172,25 @@ void _query_SetFilterNode(Query *q, QueryNode *n) {
 }
 
 void Query_SetGeoFilter(Query *q, GeoFilter *gf) {
-  _query_SetFilterNode(q, NewGeofilterNode(gf));
+  Query_SetFilterNode(q, NewGeofilterNode(gf));
 }
 
 void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
 
-  _query_SetFilterNode(q, NewNumericNode(nf));
+  Query_SetFilterNode(q, NewNumericNode(nf));
 }
 
 QueryNode *NewIdFilterNode(IdFilter *flt) {
-  QueryNode *qn = __newQueryNode(QN_IDS);
+  QueryNode *qn = NewQueryNode(QN_IDS);
   qn->fn.f = flt;
   return qn;
 }
 
 void Query_SetIdFilter(Query *q, IdFilter *f) {
-  _query_SetFilterNode(q, NewIdFilterNode(f));
+  Query_SetFilterNode(q, NewIdFilterNode(f));
 }
 
-IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
+IndexIterator *Query_EvalTokenNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
   }
@@ -213,7 +211,7 @@ IndexIterator *query_EvalTokenNode(Query *q, QueryNode *qn) {
 
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all of
  * them */
-IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalPrefixNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_PREFX) {
     return NULL;
   }
@@ -270,7 +268,7 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
   return NewUnionIterator(its, itsSz, q->docTable, 1);
 }
 
-IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalPhraseNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_PHRASE) {
     return NULL;
   }
@@ -299,7 +297,7 @@ IndexIterator *query_EvalPhraseNode(Query *q, QueryNode *qn) {
   return ret;
 }
 
-IndexIterator *query_EvalNotNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalNotNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
@@ -308,7 +306,7 @@ IndexIterator *query_EvalNotNode(Query *q, QueryNode *qn) {
   return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
 }
 
-IndexIterator *query_EvalOptionalNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalOptionalNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_OPTIONAL) {
     return NULL;
   }
@@ -317,7 +315,7 @@ IndexIterator *query_EvalOptionalNode(Query *q, QueryNode *qn) {
   return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
 }
 
-IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
+static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 
   FieldSpec *fs =
       IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
@@ -332,7 +330,7 @@ IndexIterator *query_EvalNumericNode(Query *q, QueryNumericNode *node) {
   return NewNumericFilterIterator(t, node->nf);
 }
 
-IndexIterator *query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
+static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
 
   FieldSpec *fs = IndexSpec_GetField(q->ctx->spec, node->gf->property, strlen(node->gf->property));
   if (fs->type != F_GEO) {
@@ -343,12 +341,12 @@ IndexIterator *query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
   return NewGeoRangeIterator(&gi, node->gf);
 }
 
-IndexIterator *query_EvalIdFilterNode(Query *q, QueryIdFilterNode *node) {
+static IndexIterator *Query_EvalIdFilterNode(Query *q, QueryIdFilterNode *node) {
 
   return NewIdFilterIterator(node->f);
 }
 
-IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalUnionNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_UNION) {
     return NULL;
   }
@@ -382,23 +380,23 @@ IndexIterator *query_EvalUnionNode(Query *q, QueryNode *qn) {
 IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
-      return query_EvalTokenNode(q, n);
+      return Query_EvalTokenNode(q, n);
     case QN_PHRASE:
-      return query_EvalPhraseNode(q, n);
+      return Query_EvalPhraseNode(q, n);
     case QN_UNION:
-      return query_EvalUnionNode(q, n);
+      return Query_EvalUnionNode(q, n);
     case QN_NOT:
-      return query_EvalNotNode(q, n);
+      return Query_EvalNotNode(q, n);
     case QN_PREFX:
-      return query_EvalPrefixNode(q, n);
+      return Query_EvalPrefixNode(q, n);
     case QN_NUMERIC:
-      return query_EvalNumericNode(q, &n->nn);
+      return Query_EvalNumericNode(q, &n->nn);
     case QN_OPTIONAL:
-      return query_EvalOptionalNode(q, n);
+      return Query_EvalOptionalNode(q, n);
     case QN_GEO:
-      return query_EvalGeofilterNode(q, &n->gn);
+      return Query_EvalGeofilterNode(q, &n->gn);
     case QN_IDS:
-      return query_EvalIdFilterNode(q, &n->fn);
+      return Query_EvalIdFilterNode(q, &n->fn);
   }
 
   return NULL;
@@ -432,8 +430,6 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
   un->children[un->numChildren++] = child;
 }
-
-QueryNode *StemmerExpand(void *ctx, Query *q, QueryNode *n);
 
 Query *NewQueryFromRequest(RSSearchRequest *req) {
   Query *q =
@@ -502,7 +498,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   return ret;
 }
 
-void _queryNode_expand(Query *q, QueryNode **pqn) {
+static void QueryNode_Expand(Query *q, QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
   if (qn->type == QN_TOKEN) {
@@ -511,22 +507,22 @@ void _queryNode_expand(Query *q, QueryNode **pqn) {
 
   } else if (qn->type == QN_PHRASE) {
     for (int i = 0; i < qn->pn.numChildren; i++) {
-      _queryNode_expand(q, &qn->pn.children[i]);
+      QueryNode_Expand(q, &qn->pn.children[i]);
     }
   } else if (qn->type == QN_UNION) {
     for (int i = 0; i < qn->un.numChildren; i++) {
-      _queryNode_expand(q, &qn->un.children[i]);
+      QueryNode_Expand(q, &qn->un.children[i]);
     }
   }
 }
 
 void Query_Expand(Query *q) {
   if (q->expander && q->root) {
-    _queryNode_expand(q, &q->root);
+    QueryNode_Expand(q, &q->root);
   }
 }
 
-sds _pad(sds s, int len) {
+static sds doPad(sds s, int len) {
   if (!len) return s;
 
   char buf[len * 2 + 1];
@@ -535,8 +531,8 @@ sds _pad(sds s, int len) {
   return sdscat(s, buf);
 }
 
-sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
-  s = _pad(s, depth);
+static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
+  s = doPad(s, depth);
 
   if (qs->fieldMask == 0) {
     s = sdscat(s, "@NULL:");
@@ -570,7 +566,7 @@ sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
       for (int i = 0; i < qs->pn.numChildren; i++) {
         s = QueryNode_DumpSds(s, q, qs->pn.children[i], depth + 1);
       }
-      s = _pad(s, depth);
+      s = doPad(s, depth);
 
       break;
     case QN_TOKEN:
@@ -584,13 +580,13 @@ sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
       s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
-      s = _pad(s, depth);
+      s = doPad(s, depth);
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
       s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
-      s = _pad(s, depth);
+      s = doPad(s, depth);
       break;
 
     case QN_NUMERIC: {
@@ -603,7 +599,7 @@ sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
       for (int i = 0; i < qs->un.numChildren; i++) {
         s = QueryNode_DumpSds(s, q, qs->un.children[i], depth + 1);
       }
-      s = _pad(s, depth);
+      s = doPad(s, depth);
       break;
     case QN_GEO:
 
@@ -637,7 +633,7 @@ const char *Query_DumpExplain(Query *q) {
   return ret;
 }
 
-void __queryNode_Print(Query *q, QueryNode *qn, int depth) {
+void QueryNode_Print(Query *q, QueryNode *qn, int depth) {
   sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
   printf("%s", s);
   sdsfree(s);
@@ -690,7 +686,7 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
-  //__queryNode_Print(query, query->root, 0);
+  // QueryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
   res->errorString = NULL;
