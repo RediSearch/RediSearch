@@ -263,7 +263,8 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       RedisModule_SaveDouble(rdb, (double)score);
       // save an extra space for the null terminator to make the payload null terminated on load
       if (payload.data != NULL && payload.len > 0)
-        RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
+        RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1); 
+       // TODO: Save a marker for empty payload!
       free(s);
       count++;
     }

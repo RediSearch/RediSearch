@@ -42,10 +42,11 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
-  RSPayload payload = {.data = payloadStr, .len = payloadStr?0:strlen(payloadStr)};
+
+  RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
   int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op);
   free(runes);
-  return rc;
+  return rc;c
 }
 
 int testRuneUtil() {
@@ -111,7 +112,7 @@ int testPayload() {
   ASSERT(root != NULL)
   free(rootRunes);
 
-  char expectedRunes[3] = {'y', 'Y','\0'};
+  char expectedRunes[3] = {'y', 'Y', '\0'};
   int rc = __trie_add(&root, "hello", "yY", 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
 
