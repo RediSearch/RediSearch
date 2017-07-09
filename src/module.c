@@ -1054,10 +1054,11 @@ Get completion suggestions for a prefix
      is 5, and the number   cannot be greater than 10.
 
    - WITHSCORES: If set, we also return each entry's score
-    
+
    - TRIM: If set, we remove very unlikely results
 
-   - WITHPAYLOADS: If set, we also return each entry's payload as they were inserted, or nil if no payload
+   - WITHPAYLOADS: If set, we also return each entry's payload as they were inserted, or nil if no
+payload
     exists.
 ### Returns:
 
@@ -1124,7 +1125,10 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithDouble(ctx, e->score);
     }
     if (withPayloads) {
-      RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
+      if (e->payload)
+        RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
+      else
+        RedisModule_ReplyWithNull(ctx);
     }
 
     TrieSearchResult_Free(e);
