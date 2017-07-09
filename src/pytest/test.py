@@ -878,6 +878,27 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
             rc = r.execute_command("ft.SUGGET", "ac", "hello")
             self.assertEqual(['hello werld'], rc)
+    
+    def testSuggestPayload(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertEqual(1, r.execute_command(
+                'ft.SUGADD', 'ac', 'hello world', 1, 'PAYLOAD', 'foo'))
+            self.assertEqual(2, r.execute_command(
+                'ft.SUGADD', 'ac', 'hello werld', 1, 'PAYLOAD', 'bar'))
+            self.assertEqual(3, r.execute_command(
+                'ft.SUGADD', 'ac', 'hello nopayload', 1, 'PAYLOAD', ''))
+            self.assertEqual(4, r.execute_command(
+                'ft.SUGADD', 'ac', 'hello nopayload2', 1))
+
+            res = r.execute_command("FT.SUGGET", "ac", "hello", 'WITHPAYLOADS')
+            self.assertListEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
+                                res)
+            res = r.execute_command("FT.SUGGET", "ac", "hello")
+            self.assertListEqual(['hello world',  'hello werld', 'hello nopayload','hello nopayload2'],
+                                res)
+            res = r.execute_command("FT.SUGGET", "ac", "hello", 'WITHPAYLOADS', 'WITHSCORES')
+            self.assertEqual(12, len(res)) #we don't compare the scores beause they may change
 
     def testPayload(self):
 
