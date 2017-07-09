@@ -3,6 +3,7 @@
 #include "spec.h"
 #include "util/logging.h"
 #include "rmutil/vector.h"
+#include "trie/trie_type.h"
 #include <math.h>
 #include <ctype.h>
 #include "rmalloc.h"
@@ -380,7 +381,7 @@ void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 }
 
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver < INDEX_CURRENT_VERSION - 2) {
+  if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
   }
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
@@ -411,7 +412,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   DocTable_RdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb);
+    sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {
     sp->terms = NewTrie();
   }
@@ -439,7 +440,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   __indexStats_rdbSave(rdb, &sp->stats);
   DocTable_RdbSave(&sp->docs, rdb);
   // save trie of terms
-  TrieType_RdbSave(rdb, sp->terms);
+  TrieType_GenericSave(rdb, sp->terms, 0);
 
   // If we have custom stopwords, save them
   if (sp->flags & Index_HasCustomStopwords) {

@@ -2,7 +2,6 @@
 #define __VECTOR_H__
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 
 /*
 * Generic resizable vector that can be used if you just want to store stuff
@@ -10,10 +9,10 @@
 * Works like C++ std::vector with an underlying resizable buffer
 */
 typedef struct {
-    char *data;
-    size_t elemSize;
-    size_t cap;
-    size_t top;
+  char *data;
+  size_t elemSize;
+  size_t cap;
+  size_t top;
 
 } Vector;
 
