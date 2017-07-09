@@ -10,6 +10,49 @@
 #include "rmalloc.h"
 #include <sys/param.h>
 
+#define BAD_LENGTH_ARGS ((size_t)-1)
+/**
+ * Gets a variable list of arguments to a given keyword.
+ * The number of variable arguments are found in `outlen`.
+ * If offset is specified, the first <offset> arguments will be ignored when
+ * checking for the presence of the keyword and subsequent arguments.
+ *
+ * If the return value is NULL then the keyword is not present. If
+ * the value of outlen is `BAD_LENGTH_ARGS` then the keyword was found, but
+ * there was a problem with how the numbers are formatted.
+ *
+ */
+static RedisModuleString **getLengthArgs(const char *keyword, size_t *outlen,
+                                         RedisModuleString **argv, int argc, size_t offset) {
+  if (offset > argc) {
+    return NULL;
+  }
+
+  argv += offset;
+  argc -= offset;
+
+  int ix = RMUtil_ArgIndex(keyword, argv, argc);
+  if (ix < 0) {
+    return NULL;
+  } else if (ix >= argc - 1) {
+    *outlen = BAD_LENGTH_ARGS;
+    return argv;
+  }
+
+  argv += (ix + 1);
+  argc -= (ix + 1);
+
+  long long n = 0;
+  RMUtil_ParseArgs(argv, argc, 0, "l", &n);
+  if (n > argc - 1 || n < 0) {
+    *outlen = BAD_LENGTH_ARGS;
+    return argv;
+  }
+
+  *outlen = n;
+  return argv + 1;
+}
+
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
 
@@ -57,15 +100,17 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     goto err;
   }
 
+  RedisModuleString **vargs;
+  size_t nargs;
+
   // if INFIELDS exists, parse the field mask
-  int inFieldsIdx = RMUtil_ArgIndex("INFIELDS", argv, argc);
-  long long numFields = 0;
   req->fieldMask = RS_FIELDMASK_ALL;
-  if (inFieldsIdx >= 3) {
-    RMUtil_ParseArgs(argv, argc, inFieldsIdx + 1, "l", &numFields);
-    if (numFields > 0 && inFieldsIdx + 1 + numFields < argc) {
-      req->fieldMask = IndexSpec_ParseFieldMask(ctx->spec, &argv[inFieldsIdx + 2], numFields);
+  if ((vargs = getLengthArgs("INFIELDS", &nargs, argv, argc, 3))) {
+    if (nargs == BAD_LENGTH_ARGS) {
+      *errStr = "Bad argument for `INFIELDS`";
+      goto err;
     }
+    req->fieldMask = IndexSpec_ParseFieldMask(ctx->spec, vargs, nargs);
     RedisModule_Log(ctx->redisCtx, "warning", "Parsed field mask: 0x%x\n", req->fieldMask);
   }
 
@@ -143,15 +188,26 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse the id filter arguments
-  long long numFilteredIds = 0;
-  IdFilter idf = (IdFilter){.ids = NULL, .keys = NULL};
-  RMUtil_ParseArgsAfter("INKEYS", &argv[2], argc - 2, "l", &numFilteredIds);
-  if (numFilteredIds > 0 && numFilteredIds < argc - 3) {
+  if ((vargs = getLengthArgs("INKEYS", &nargs, argv, argc, 2))) {
+    if (nargs == BAD_LENGTH_ARGS) {
+      *errStr = "Bad argument for `INKEYS`";
+      goto err;
+    }
+    req->idFilter = NewIdFilter(vargs, nargs, &ctx->spec->docs);
+  }
 
-    RedisModule_Log(ctx->redisCtx, "debug", "Filtering %d keys", numFilteredIds);
-    int pos = RMUtil_ArgIndex("INKEYS", argv, argc);
-    req->idFilter =
-        NewIdFilter(&argv[pos + 2], MIN(argc - pos - 2, numFilteredIds), &ctx->spec->docs);
+  // parse RETURN argument
+  if ((vargs = getLengthArgs("RETURN", &nargs, argv, argc, 2))) {
+    if (!nargs) {
+      req->flags |= Search_NoContent;
+    } else {
+      req->retfields = malloc(sizeof(*req->retfields) * nargs);
+      req->nretfields = nargs;
+      for (size_t ii = 0; ii < nargs; ++ii) {
+        RedisModule_RetainString(ctx->redisCtx, vargs[ii]);
+        req->retfields[ii] = vargs[ii];
+      }
+    }
   }
 
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
@@ -201,6 +257,13 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
       }
     }
     Vector_Free(req->numericFilters);
+  }
+
+  if (req->retfields) {
+    for (size_t ii = 0; ii < req->nretfields; ++ii) {
+      RedisModule_FreeString(req->sctx->redisCtx, req->retfields[ii]);
+    }
+    free(req->retfields);
   }
 
   if (req->sctx) {
@@ -271,15 +334,15 @@ void threadProcessQuery(void *p) {
     goto end;
   }
 
-  QueryResult_Serialize(r, req->sctx, req->flags);
+  QueryResult_Serialize(r, req->sctx, req);
   QueryResult_Free(r);
   Query_Free(q);
 
 end:
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_UnblockClient(req->bc, NULL);
-  RedisModule_FreeThreadSafeContext(ctx);
   RSSearchRequest_Free(req);
+  RedisModule_FreeThreadSafeContext(ctx);
 
   return;
   //  return REDISMODULE_OK;
