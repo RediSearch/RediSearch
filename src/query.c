@@ -236,7 +236,8 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
 
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) && itsSz < MAX_PREFIX_EXPANSIONS) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
+         itsSz < MAX_PREFIX_EXPANSIONS) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
@@ -860,126 +861,6 @@ void QueryResult_Free(QueryResult *q) {
   free(q);
 }
 
-int __queryResult_serializeNoContent(QueryResult *r, RedisModuleCtx *ctx, RSSearchFlags flags) {
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
-  size_t arrlen = 1;
-
-  for (int i = 0; i < r->numResults; i++) {
-    ++arrlen;
-    RedisModule_ReplyWithStringBuffer(ctx, r->results[i].id, strlen(r->results[i].id));
-    if (flags & Search_WithScores) {
-      ++arrlen;
-      RedisModule_ReplyWithDouble(ctx, r->results[i].score);
-    }
-    // serialize payloads if neede
-    if (flags & Search_WithPayloads) {
-      ++arrlen;
-      if (r->results[i].payload) {
-        RedisModule_ReplyWithStringBuffer(ctx, r->results[i].payload->data,
-                                          r->results[i].payload->len);
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    // If necessary reply with sort key
-    if (flags & Search_WithSortKeys) {
-      ++arrlen;
-      if (r->results[i].sortKey) {
-        switch (r->results[i].sortKey->type) {
-          case RS_SORTABLE_NUM:
-            RedisModule_ReplyWithDouble(ctx, r->results[i].sortKey->num);
-            break;
-          case RS_SORTABLE_STR:
-          default:
-            RedisModule_ReplyWithStringBuffer(ctx, r->results[i].sortKey->str,
-                                              strlen(r->results[i].sortKey->str));
-        }
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-  }
-  RedisModule_ReplySetArrayLength(ctx, arrlen);
-
-  return REDISMODULE_OK;
-}
-
-int __queryResult_serializeFullResults(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest *req) {
-  // With content mode - return and load the documents
-  RedisModuleCtx *ctx = sctx->redisCtx;
-  int ndocs;
-  RedisModuleString *ids[r->numResults];
-  for (int i = 0; i < r->numResults; i++) {
-    ids[i] = RedisModule_CreateString(ctx, r->results[i].id, strlen(r->results[i].id));
-  }
-
-  Document *docs =
-      Redis_LoadDocuments(sctx, ids, r->numResults, req->retfields, req->nretfields, &ndocs);
-  // format response
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
-
-  int len = 1;
-  for (int i = 0; i < ndocs; i++) {
-    Document doc = docs[i];
-    // send the id
-    RedisModule_ReplyWithString(ctx, doc.docKey);
-    ++len;
-    // if needed - send the score as well
-    if (req->flags & Search_WithScores) {
-      ++len;
-      RedisModule_ReplyWithDouble(ctx, r->results[i].score);
-    }
-
-    // serialize payloads if neede
-    if (req->flags & Search_WithPayloads) {
-      ++len;
-      if (r->results[i].payload) {
-        RedisModule_ReplyWithStringBuffer(ctx, r->results[i].payload->data,
-                                          r->results[i].payload->len);
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    // If necessary reply with sort key
-    if (req->flags & Search_WithSortKeys) {
-      ++len;
-      if (r->results[i].sortKey) {
-        switch (r->results[i].sortKey->type) {
-          case RS_SORTABLE_NUM:
-            RedisModule_ReplyWithDouble(ctx, r->results[i].sortKey->num);
-            break;
-          case RS_SORTABLE_STR:
-          default:
-            RedisModule_ReplyWithStringBuffer(ctx, r->results[i].sortKey->str,
-                                              strlen(r->results[i].sortKey->str));
-        }
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    // serialize the fields
-    ++len;
-    RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
-    for (int f = 0; f < doc.numFields; f++) {
-      RedisModule_ReplyWithString(ctx, doc.fields[f].name);
-      RedisModule_ReplyWithString(ctx, doc.fields[f].text);
-    }
-
-    Document_Free(doc);
-  }
-  RedisModule_ReplySetArrayLength(ctx, len);
-
-  free(docs);
-  return REDISMODULE_OK;
-}
-
 int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest *req) {
   RedisModuleCtx *ctx = sctx->redisCtx;
 
@@ -987,10 +868,78 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
     return RedisModule_ReplyWithError(ctx, r->errorString);
   }
 
-  // NOCONTENT mode - just return the ids
-  if (req->flags & Search_NoContent) {
-    return __queryResult_serializeNoContent(r, ctx, req->flags);
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
+  size_t arrlen = 1;
+
+  const int with_docs = !(req->flags & Search_NoContent);
+
+  for (size_t i = 0; i < r->numResults; ++i) {
+
+    Document doc = {NULL};
+    RedisModuleKey *rkey = NULL;
+    const ResultEntry *result = r->results + i;
+
+    if (with_docs) {
+      // Current behavior skips entire result if document does not exist.
+      // I'm unusre if that's intentional or an oversight.
+      RedisModuleString *idstr = RedisModule_CreateString(ctx, result->id, strlen(result->id));
+      int rv = Redis_LoadDocumentEx(sctx, idstr, req->retfields, req->nretfields, &doc, &rkey);
+      RedisModule_FreeString(ctx, idstr);
+      if (rv != REDISMODULE_OK) {
+        continue;
+      }
+    }
+
+    ++arrlen;
+
+    RedisModule_ReplyWithStringBuffer(ctx, result->id, strlen(result->id));
+
+    if (req->flags & Search_WithScores) {
+      ++arrlen;
+      RedisModule_ReplyWithDouble(ctx, result->score);
+    }
+
+    if (req->flags & Search_WithPayloads) {
+      ++arrlen;
+      const RSPayload *payload = result->payload;
+      if (payload) {
+        RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
+    if (req->flags & Search_WithSortKeys) {
+      ++arrlen;
+      const RSSortableValue *sortkey = result->sortKey;
+      if (sortkey) {
+        if (sortkey->type == RS_SORTABLE_NUM) {
+          RedisModule_ReplyWithDouble(ctx, sortkey->num);
+        } else {
+          // RS_SORTABLE_NIL, RS_SORTABLE_STR
+          RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
+        }
+      } else {
+        RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
+    if (with_docs) {
+      ++arrlen;
+      RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
+      for (size_t j = 0; j < doc.numFields; ++j) {
+        RedisModule_ReplyWithString(ctx, doc.fields[j].name);
+        RedisModule_ReplyWithString(ctx, doc.fields[j].text);
+      }
+      if (rkey) {
+        RedisModule_CloseKey(rkey);
+      }
+      Document_Free(doc);
+    }
   }
 
-  return __queryResult_serializeFullResults(r, sctx, req);
+  RedisModule_ReplySetArrayLength(ctx, arrlen);
+
+  return REDISMODULE_OK;
 }
