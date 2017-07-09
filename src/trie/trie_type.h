@@ -23,15 +23,6 @@ typedef struct {
 
 #define SCORE_TRIM_FACTOR 10.0
 
-#define TRIE_ADD_CMD "FT.SUGADD"
-#define TRIE_LEN_CMD "FT.SUGLEN"
-#define TRIE_SEARCH_CMD "FT.SUGGET"
-#define TRIE_DEL_CMD "FT.SUGDEL"
-
-#define STR_INFO_SPLIT_SEP  "$"
-#define INFO_SPLIT_SEP "#"
-
-void split(char *src, const char *separator, char **dest, int *num);
 
 Trie *NewTrie();
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
