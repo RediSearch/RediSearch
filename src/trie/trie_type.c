@@ -215,7 +215,13 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
 /* declaration of the type for redis registration. */
 RedisModuleType *TrieType;
 
-void *TrieType_GenericLoad(RedisModuleIO *rdb) {
+void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
+  if (encver > TRIE_ENCVER_CURRENT) {
+    return NULL;
+  }
+  return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
+}
+void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
   Trie *tree = NewTrie();
@@ -225,10 +231,12 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb) {
     RSPayload payload = {.data = NULL, .len = 0};
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
-    payload.data = RedisModule_LoadStringBuffer(rdb, &payload.len);
-    // load an extra space for the null terminator
-    payload.len--;
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, &payload);
+    if (loadPayloads) {
+      payload.data = RedisModule_LoadStringBuffer(rdb, &payload.len);
+      // load an extra space for the null terminator
+      payload.len--;
+    }
+    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL);
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
@@ -236,15 +244,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb) {
   return tree;
 }
 
-void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != 0) {
-    return NULL;
-  }
-  return TrieType_GenericLoad(rdb);
+void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
+  TrieType_GenericSave(rdb, (Trie *)value, 1);
 }
 
-void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
-  Trie *tree = (Trie *)value;
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
@@ -261,10 +265,17 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
       RedisModule_SaveDouble(rdb, (double)score);
-      // save an extra space for the null terminator to make the payload null terminated on load
-      if (payload.data != NULL && payload.len > 0)
-        RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1); 
-       // TODO: Save a marker for empty payload!
+
+      if (savePayloads) {
+        // save an extra space for the null terminator to make the payload null terminated on load
+        if (payload.data != NULL && payload.len > 0) {
+          RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
+        } else {
+          // If there's no payload - we save an empty string
+          RedisModule_SaveStringBuffer(rdb, "", 1);
+        }
+      }
+      // TODO: Save a marker for empty payload!
       free(s);
       count++;
     }
@@ -289,7 +300,7 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_EmitAOF(aof, TRIE_ADD_CMD, "sbdbb", key, s, slen, (double)score, "PAYLOAD", 7,
+      RedisModule_EmitAOF(aof, RS_SUGADD_CMD, "sbdbb", key, s, slen, (double)score, "PAYLOAD", 7,
                           payload.data, payload.len);
       free(s);
     }
@@ -320,7 +331,7 @@ int TrieType_Register(RedisModuleCtx *ctx) {
                                .aof_rewrite = TrieType_AofRewrite,
                                .free = TrieType_Free};
 
-  TrieType = RedisModule_CreateDataType(ctx, "trietype0", 0, &tm);
+  TrieType = RedisModule_CreateDataType(ctx, "trietype0", TRIE_ENCVER_CURRENT, &tm);
   if (TrieType == NULL) {
     return REDISMODULE_ERR;
   }

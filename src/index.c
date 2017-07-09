@@ -4,6 +4,10 @@
 #include "spec.h"
 #include <math.h>
 #include <assert.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdlib.h>
+
 #include <sys/param.h>
 #include "rmalloc.h"
 
@@ -51,6 +55,7 @@ int UI_Read(void *ctx, RSIndexResult **hit) {
   AggregateResult_Reset(ui->current);
 
   do {
+
     // find the minimal iterator
     t_docId minDocId = __UINT32_MAX__;
     int minIdx = -1;
