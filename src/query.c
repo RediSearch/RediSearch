@@ -236,7 +236,7 @@ IndexIterator *query_EvalPrefixNode(Query *q, QueryNode *qn) {
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
 
-  while (TrieIterator_Next(it, &rstr, &slen, &score, &dist) && itsSz < MAX_PREFIX_EXPANSIONS) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) && itsSz < MAX_PREFIX_EXPANSIONS) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){

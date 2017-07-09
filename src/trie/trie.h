@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "rune_util.h"
+#include "redisearch.h"
 
 typedef uint16_t t_len;
 
@@ -13,6 +14,16 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED 0x1
 #define TRIENODE_TERMINAL 0x2
 #define TRIENODE_DELETED 0x4
+
+#pragma pack(1)
+typedef struct {
+   uint32_t len; //4G payload is more than enough!!!!
+   char data[]; // this means the data will not take an extra pointer.
+} TriePayload;
+#pragma pack()
+
+/* The byte size of a TriePayload, based on its internal data length */
+size_t __triePayload_Sizeof(uint32_t len);
 
 #pragma pack(1)
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
@@ -37,11 +48,16 @@ typedef struct {
   // traversal
   float maxChildScore;
 
+  // the payload of terminal node. could be NULL if it's not terminal
+  TriePayload *payload;
+
   // the string of the current node
   rune str[];
   // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
+
+
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
 
@@ -52,7 +68,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren, float score,
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen, t_len numChildren, float score,
                         int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
@@ -68,7 +84,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, t_len numChildren, f
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, float score);
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload, float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
 * up until offset, and
@@ -83,7 +99,7 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, rune *str, t_len len, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns
 * 0 if the entry was
@@ -174,6 +190,6 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, float *score, void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
 
 #endif

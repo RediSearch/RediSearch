@@ -435,7 +435,7 @@ Integer Reply - the number of index entries optimized.
 ### Format
 
 ```
-FT.SUGADD {key} {string} {score} [INCR]
+FT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]
 ```
 
 ### Description
@@ -449,6 +449,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 - **string**: the suggestion string we index
 - **score**: a floating point number of the suggestion string's weight
 - **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time
+- **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by adding the `WITHPAYLOADS` argument to `FT.SUGGET`.
 
 ### Returns:
 
@@ -461,7 +462,7 @@ Integer Reply: the current size of the suggestion dictionary.
 ### Format
 
 ```
-FT.SUGGET {key} {prefix} [FUZZY] [MAX num]
+FT.SUGGET {key} {prefix} [FUZZY] [WITHPAYLOADS] [MAX num]
 ```
 
 ### Description
@@ -474,8 +475,8 @@ Get completion suggestions for a prefix
 - **prefix**: the prefix to complete on
 - **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent
 - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number cannot be greater than 10).
-- **WITHSCORES**: If set, we also return the score of each suggestion. this can be
-  used to merge results from multiple instances
+- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances
+- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.
 
 ### Returns:
 

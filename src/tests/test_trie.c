@@ -39,11 +39,12 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 //     // return NULL;
 // }
 
-int __trie_add(TrieNode **n, char *str, float sc, TrieAddOp op) {
+int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
 
-  int rc = TrieNode_Add(n, runes, rlen, sc, op);
+  RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
+  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op);
   free(runes);
   return rc;
 }
@@ -105,36 +106,75 @@ int testRuneUtil() {
   return 0;
 }
 
-int testTrie() {
+int testPayload() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
   ASSERT(root != NULL)
   free(rootRunes);
 
-  int rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
-  ASSERT_EQUAL(1, rc);
-  rc = __trie_add(&root, "hello", 1, ADD_REPLACE);
-  ASSERT_EQUAL(0, rc);  // the second insert of the same term should result in 0
-  rc = __trie_add(&root, "help", 2, ADD_REPLACE);
+  char expectedRunes[3] = {'y', 'Y', '\0'};
+  int rc = __trie_add(&root, "hello", "yY", 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
 
-  __trie_add(&root, "helter skelter", 3, ADD_REPLACE);
+  size_t rlen;
+  rune *runes = strToRunes("hel", &rlen);
+  DFAFilter fc = NewDFAFilter(runes, rlen, 1, 1);
+  TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, &fc);
+  rune *s;
+  t_len len;
+  float score;
+  RSPayload payload = {.data = NULL, .len = 0};
+  int matches = 0;
+  int dist = 0;
+
+  while (TrieIterator_Next(it, &s, &len, &payload, &score, &dist)) {
+    ASSERT(score == 1);
+    ASSERT(len > 0);
+    ASSERT(payload.len == 2);
+    ASSERT_EQUAL(payload.data[0], expectedRunes[0]);
+    ASSERT_EQUAL(payload.data[1], expectedRunes[1]);
+    matches++;
+  }
+  ASSERT(matches > 0);
+
+  DFAFilter_Free(&fc);
+  TrieIterator_Free(it);
+  free(runes);
+
+  TrieNode_Free(root);
+  return 0;
+}
+
+int testTrie() {
+  rune *rootRunes = strToRunes("", NULL);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
+  ASSERT(root != NULL)
+  free(rootRunes);
+
+  int rc = __trie_add(&root, "hello", NULL, 1, ADD_REPLACE);
+  ASSERT_EQUAL(1, rc);
+  rc = __trie_add(&root, "hello", NULL, 1, ADD_REPLACE);
+  ASSERT_EQUAL(0, rc);  // the second insert of the same term should result in 0
+  rc = __trie_add(&root, "help", NULL, 2, ADD_REPLACE);
+  ASSERT_EQUAL(1, rc);
+
+  __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
   rune *runes = strToRunes("helter skelter", &rlen);
   float sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 3);
 
-  __trie_add(&root, "heltar skelter", 4, ADD_REPLACE);
-  __trie_add(&root, "helter shelter", 5, ADD_REPLACE);
+  __trie_add(&root, "heltar skelter", NULL, 4, ADD_REPLACE);
+  __trie_add(&root, "helter shelter", NULL, 5, ADD_REPLACE);
 
   // replace the score
-  __trie_add(&root, "helter skelter", 6, ADD_REPLACE);
+  __trie_add(&root, "helter skelter", NULL, 6, ADD_REPLACE);
 
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 6);
 
   /// add with increment
-  __trie_add(&root, "helter skelter", 6, ADD_INCR);
+  __trie_add(&root, "helter skelter", NULL, 6, ADD_INCR);
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 12);
 
@@ -157,13 +197,13 @@ int testUnicode() {
   char *str = "\xc4\x8c\xc4\x87";
 
   rune *rn = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rn, 0, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0);
   free(rn);
   ASSERT(root != NULL)
 
-  int rc = __trie_add(&root, str, 1, ADD_REPLACE);
+  int rc = __trie_add(&root, str, NULL, 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
-  rc = __trie_add(&root, str, 1, ADD_REPLACE);
+  rc = __trie_add(&root, str, NULL, 1, ADD_REPLACE);
   ASSERT_EQUAL(0, rc);
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
@@ -184,7 +224,7 @@ int testDFAFilter() {
   ssize_t read;
   size_t rlen;
   rune *runes = strToRunes("root", &rlen);
-  TrieNode *root = __newTrieNode(runes, 0, rlen, 0, 0, 0);
+  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0);
   ASSERT(root != NULL)
   free(runes);
   int i = 0;
@@ -200,7 +240,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, (float)score, ADD_REPLACE);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE);
     ASSERT(rc == 1);
     free(runes);
 
@@ -239,7 +279,7 @@ int testDFAFilter() {
     int dist = 0;
 
     clock_gettime(CLOCK_REALTIME, &start_time);
-    while (TrieIterator_Next(it, &s, &len, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 2 && dist >= 0)
       ASSERT(len > 0);
@@ -270,7 +310,7 @@ int testDFAFilter() {
     int matches = 0;
     int dist = 0;
 
-    while (TrieIterator_Next(it, &s, &len, &score, &dist)) {
+    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 1 && dist >= 0)
       ASSERT(len > 0);
@@ -295,5 +335,6 @@ TEST_MAIN({
   TESTFUNC(testRuneUtil);
   TESTFUNC(testDFAFilter);
   TESTFUNC(testTrie);
+  TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
 });
