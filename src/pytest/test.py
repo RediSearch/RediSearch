@@ -4,6 +4,7 @@ import unittest
 from hotels import hotels
 import random
 
+
 class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def testAdd(self):
@@ -385,25 +386,37 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'hello%03d world' % i, 'bar', 100 - i))
             for _ in r.retry_with_rdb_reload():
-          
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
-                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96', 'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
-                self.assertEqual([100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
-                self.assertListEqual([100L, 'doc0', '100', 'doc1', '99', 'doc2', '98', 'doc3', '97', 'doc4', '96'], res)
-                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
-                self.assertListEqual([100L, 'doc99', 'hello099 world', 'doc98', 'hello098 world', 'doc97', 'hello097 world', 'doc96', 
-                                    'hello096 world', 'doc95', 'hello095 world'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
+                self.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                                  'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+                res = r.execute_command(
+                    'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
+                self.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                                  'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                        'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                self.assertEqual(
+                    [100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
 
-              
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                        'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual(
+                    [100L, 'doc0', '100', 'doc1', '99', 'doc2', '98', 'doc3', '97', 'doc4', '96'], res)
+                res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                        'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
+                self.assertListEqual([100L, 'doc99', 'hello099 world', 'doc98', 'hello098 world', 'doc97', 'hello097 world', 'doc96',
+                                      'hello096 world', 'doc95', 'hello095 world'], res)
+
     def testNot(self):
         with self.redis() as r:
             r.flushdb()
@@ -459,7 +472,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertTrue(all((k in res for k in keys)))
 
             self.assertEqual(0, r.execute_command(
-                'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 4, 'foo', 'bar', 'baz')[0])
+                'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
+
+            with self.assertResponseError():
+                self.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)
+            with self.assertResponseError():
+                self.cmd('ft.search', 'idx', 'hello', 'INKEYS', -1)
+            with self.assertResponseError():
+                self.cmd('ft.search', 'idx', 'hello', 'inkeys', 4, 'foo')
 
     def testSlopInOrder(self):
         with self.redis() as r:
@@ -925,6 +945,40 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(10, res[0])
                 for i in range(1, 30, 3):
                     self.assertEqual(res[i + 1], 'payload %s' % res[i])
+
+    def testReturning(self):
+        self.assertCmdOk('ft.create', 'idx', 'schema', 'f1',
+                         'text', 'f2', 'text', 'n1', 'numeric', 'f3', 'text')
+        for i in range(10):
+            self.assertCmdOk('ft.add', 'idx', 'DOC_{0}'.format(i), 1.0, 'fields',
+                             'f2', 'val2', 'f1', 'val1', 'f3', 'val3',
+                             'n1', i)
+
+        # RETURN 0. Simplest case
+        for x in self.retry_with_reload():
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', '0')
+            self.assertEqual(11, len(res))
+            self.assertEqual(10, res[0])
+            for r in res[1:]:
+                self.assertTrue(r.startswith('DOC_'))
+
+        for field in ('f1', 'f2', 'f3', 'n1'):
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', 1, field)
+            self.assertEqual(21, len(res))
+            self.assertEqual(10, res[0])
+            for pair in grouper(res[1:], 2):
+                docname, fields = pair
+                self.assertEqual(2, len(fields))
+                self.assertEqual(field, fields[0])
+                self.assertTrue(docname.startswith('DOC_'))
+
+
+def grouper(iterable, n, fillvalue=None):
+    "Collect data into fixed-length chunks or blocks"
+    from itertools import izip_longest
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
+    args = [iter(iterable)] * n
+    return izip_longest(fillvalue=fillvalue, *args)
 
 
 if __name__ == '__main__':

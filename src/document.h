@@ -29,8 +29,18 @@ void Document_Free(Document doc);
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
 
+/**
+ * Load a single document
+ * fields is an array of fields to load from a document.
+ * keyp is an [out] pointer to a key which may be closed after the document field
+ * is no longer required. Can be NULL
+ */
+int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, RedisModuleString **fields,
+                         size_t nfields, Document *doc, RedisModuleKey **keyp);
+
 /* Load a bunch of documents from redis */
-Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **key, int numKeys, int *nump);
+Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **key, int numKeys,
+                              RedisModuleString **fields, int numFields, int *nump);
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
 

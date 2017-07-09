@@ -273,6 +273,43 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *do
   return REDISMODULE_OK;
 }
 
+int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, RedisModuleString **fields,
+                         size_t nfields, Document *doc, RedisModuleKey **rkeyp) {
+  RedisModuleKey *rkeyp_s = NULL;
+  if (!rkeyp) {
+    rkeyp = &rkeyp_s;
+  }
+
+  *rkeyp = NULL;
+  if (!fields) {
+    return Redis_LoadDocument(ctx, key, doc);
+  }
+
+  // Get the key itself
+  *rkeyp = RedisModule_OpenKey(ctx->redisCtx, key, REDISMODULE_READ);
+  if (*rkeyp == NULL) {
+    return REDISMODULE_ERR;
+  }
+
+  if (RedisModule_KeyType(*rkeyp) != REDISMODULE_KEYTYPE_HASH) {
+    RedisModule_CloseKey(*rkeyp);
+    return REDISMODULE_ERR;
+  }
+
+  doc->fields = malloc(sizeof(*doc->fields) * nfields);
+
+  for (size_t ii = 0; ii < nfields; ++ii) {
+    int rv =
+        RedisModule_HashGet(*rkeyp, REDISMODULE_HASH_NONE, fields[ii], &doc->fields[ii].text, NULL);
+    if (rv == REDISMODULE_OK) {
+      doc->numFields++;
+      doc->fields[ii].name = fields[ii];
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
 Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang,
                      const char *payload, size_t payloadSize) {
   Document doc;
@@ -288,12 +325,12 @@ Document NewDocument(RedisModuleString *docKey, double score, int numFields, con
 }
 
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
-                              int *nump) {
+                              RedisModuleString **fields, int numFields, int *nump) {
   Document *docs = calloc(numKeys, sizeof(Document));
   int n = 0;
 
   for (int i = 0; i < numKeys; i++) {
-    Redis_LoadDocument(ctx, keys[i], &docs[n]);
+    Redis_LoadDocumentEx(ctx, keys[i], fields, numFields, &docs[n], NULL);
     docs[n++].docKey = keys[i];
   }
 
