@@ -9,7 +9,7 @@ int testStopwordList() {
   char *terms[] = {strdup("foo"), strdup("bar"), strdup("שלום"), strdup("Hello"), strdup("WORLD")};
   const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world"};
 
-  StopWordList *sl = NewStopWordListCStr(terms, sizeof(terms) / sizeof(char *));
+  StopWordList *sl = NewStopWordListCStr((const char **)terms, sizeof(terms) / sizeof(char *));
   ASSERT(sl != NULL);
 
   for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
