@@ -898,7 +898,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
             rc = r.execute_command("ft.SUGGET", "ac", "hello")
             self.assertEqual(['hello werld'], rc)
-    
+
     def testSuggestPayload(self):
         with self.redis() as r:
             r.flushdb()
@@ -913,12 +913,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
             res = r.execute_command("FT.SUGGET", "ac", "hello", 'WITHPAYLOADS')
             self.assertListEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
-                                res)
+                                 res)
             res = r.execute_command("FT.SUGGET", "ac", "hello")
-            self.assertListEqual(['hello world',  'hello werld', 'hello nopayload','hello nopayload2'],
-                                res)
-            res = r.execute_command("FT.SUGGET", "ac", "hello", 'WITHPAYLOADS', 'WITHSCORES')
-            self.assertEqual(12, len(res)) #we don't compare the scores beause they may change
+            self.assertListEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
+                                 res)
+            res = r.execute_command(
+                "FT.SUGGET", "ac", "hello", 'WITHPAYLOADS', 'WITHSCORES')
+            # we don't compare the scores beause they may change
+            self.assertEqual(12, len(res))
 
     def testPayload(self):
 
@@ -971,6 +973,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(2, len(fields))
                 self.assertEqual(field, fields[0])
                 self.assertTrue(docname.startswith('DOC_'))
+
+        # Test when field is not found
+        res = self.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
+        self.assertEqual(21, len(res))
+        self.assertEqual(10, res[0])
+        for pair in grouper(res[1:], 2):
+            _, pair = pair
+            self.assertEqual(None, pair[1])
 
 
 def grouper(iterable, n, fillvalue=None):
