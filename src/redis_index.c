@@ -266,14 +266,14 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *do
   for (int i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
-    doc->fields[n].name = RedisModule_CreateStringFromCallReply(k);
+    doc->fields[n].name = RedisModule_StringPtrLen(RedisModule_CreateStringFromCallReply(k), NULL);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
   }
 
   return REDISMODULE_OK;
 }
 
-int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, RedisModuleString **fields,
+int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
                          size_t nfields, Document *doc, RedisModuleKey **rkeyp) {
   RedisModuleKey *rkeyp_s = NULL;
   if (!rkeyp) {
@@ -299,8 +299,8 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, RedisModul
   doc->fields = malloc(sizeof(*doc->fields) * nfields);
 
   for (size_t ii = 0; ii < nfields; ++ii) {
-    int rv =
-        RedisModule_HashGet(*rkeyp, REDISMODULE_HASH_NONE, fields[ii], &doc->fields[ii].text, NULL);
+    int rv = RedisModule_HashGet(*rkeyp, REDISMODULE_HASH_CFIELDS, fields[ii],
+                                 &doc->fields[ii].text, NULL);
     if (rv == REDISMODULE_OK) {
       doc->numFields++;
       doc->fields[ii].name = fields[ii];
@@ -325,7 +325,7 @@ Document NewDocument(RedisModuleString *docKey, double score, int numFields, con
 }
 
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
-                              RedisModuleString **fields, int numFields, int *nump) {
+                              const char **fields, int numFields, int *nump) {
   Document *docs = calloc(numKeys, sizeof(Document));
   int n = 0;
 
@@ -348,7 +348,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
   }
 
   for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_NONE, doc->fields[i].name, doc->fields[i].text, NULL);
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
+                        NULL);
   }
   return REDISMODULE_OK;
 }

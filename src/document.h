@@ -5,7 +5,7 @@
 #include "redisearch.h"
 
 typedef struct {
-  RedisModuleString *name;
+  const char *name;
   RedisModuleString *text;
 } DocumentField;
 
@@ -35,12 +35,12 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Do
  * keyp is an [out] pointer to a key which may be closed after the document field
  * is no longer required. Can be NULL
  */
-int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, RedisModuleString **fields,
+int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
                          size_t nfields, Document *doc, RedisModuleKey **keyp);
 
 /* Load a bunch of documents from redis */
-Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **key, int numKeys,
-                              RedisModuleString **fields, int numFields, int *nump);
+Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
+                              const char **fields, int numFields, int *nump);
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
 

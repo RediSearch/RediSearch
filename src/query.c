@@ -929,7 +929,7 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
       ++arrlen;
       RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
       for (size_t j = 0; j < doc.numFields; ++j) {
-        RedisModule_ReplyWithString(ctx, doc.fields[j].name);
+        RedisModule_ReplyWithStringBuffer(ctx, doc.fields[j].name, strlen(doc.fields[j].name));
         RedisModule_ReplyWithString(ctx, doc.fields[j].text);
       }
       if (rkey) {
