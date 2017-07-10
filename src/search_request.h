@@ -60,7 +60,7 @@ typedef struct {
 
   char *scorer;
 
-  RedisModuleString **retfields;
+  const char **retfields;
   size_t nretfields;
 
   RSPayload payload;

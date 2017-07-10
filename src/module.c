@@ -70,7 +70,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
 
     size_t len;
-    const char *f = RedisModule_StringPtrLen(doc.fields[i].name, &len);
+    const char *f = doc.fields[i].name;
+    len = strlen(f);
     const char *c = RedisModule_StringPtrLen(doc.fields[i].text, NULL);
 
     FieldSpec *fs = IndexSpec_GetField(ctx->spec, f, len);
@@ -289,7 +290,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
     // NULL),
     // RedisModule_StringPtrLen(argv[i+1], NULL));
-    doc.fields[n].name = argv[i];
+    doc.fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
     doc.fields[n].text = argv[i + 1];
   }
 
