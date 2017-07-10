@@ -204,8 +204,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
       req->retfields = malloc(sizeof(*req->retfields) * nargs);
       req->nretfields = nargs;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        RedisModule_RetainString(ctx->redisCtx, vargs[ii]);
-        req->retfields[ii] = vargs[ii];
+        req->retfields[ii] = strdup(RedisModule_StringPtrLen(vargs[ii], NULL));
       }
     }
   }
@@ -261,7 +260,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
 
   if (req->retfields) {
     for (size_t ii = 0; ii < req->nretfields; ++ii) {
-      RedisModule_FreeString(req->sctx->redisCtx, req->retfields[ii]);
+      free((void *)req->retfields[ii]);
     }
     free(req->retfields);
   }
