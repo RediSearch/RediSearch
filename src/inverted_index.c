@@ -278,7 +278,9 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
   // try to skip to the current block
   if (!indexReader_skipToBlock(ir, docId)) {
-    IR_Read(ir, hit);
+    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
+      return INDEXREAD_EOF;
+    }
     return INDEXREAD_NOTFOUND;
   }
 
