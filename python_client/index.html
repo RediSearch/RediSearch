@@ -467,6 +467,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#delete95document" title="delete_document" class="md-nav__link">
+    delete_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#drop95index" title="drop_index" class="md-nav__link">
     drop_index
   </a>
@@ -1023,6 +1030,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#delete95document" title="delete_document" class="md-nav__link">
+    delete_document
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#drop95index" title="drop_index" class="md-nav__link">
     drop_index
   </a>
@@ -1545,7 +1559,7 @@ It abstracts the API of the module and lets you just use the engine </p>
 
 <p>Create a new batch indexer from the client with a given chunk size</p>
 <h3 id="create95index">create_index<a class="headerlink" href="#create95index" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">create_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">no_term_offsets</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_field_flags</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_score_indexes</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">create_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">no_term_offsets</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_field_flags</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_score_indexes</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">stopwords</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
 </pre></div>
 
 
@@ -1556,7 +1570,15 @@ It abstracts the API of the module and lets you just use the engine </p>
 <li><strong>no_term_offsets</strong>: If true, we will not save term offsets in the index</li>
 <li><strong>no_field_flags</strong>: If true, we will not save field flags that allow searching in specific fields</li>
 <li><strong>no_score_indexes</strong>: If true, we will not save optimized top score indexes for single word queries</li>
+<li><strong>stopwords</strong>: If not None, we create the index with this custom stopword list. The list can be empty</li>
 </ul>
+<h3 id="delete95document">delete_document<a class="headerlink" href="#delete95document" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">delete_document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doc_id</span><span class="p">,</span> <span class="n">conn</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+</pre></div>
+
+
+<p>Delete a document from index
+Returns 1 if the document was deleted, 0 if not</p>
 <h3 id="drop95index">drop_index<a class="headerlink" href="#drop95index" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">drop_index</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 </pre></div>
@@ -1644,7 +1666,7 @@ document indexeing in pipelines, flushing it every N documents. </p>
 <h2 id="class-numericfield">Class NumericField<a class="headerlink" href="#class-numericfield" title="Permanent link">&para;</a></h2>
 <p>NumericField is used to define a numeric field in a schema defintion</p>
 <h3 id="9595init9595_6">__init__<a class="headerlink" href="#9595init9595_6" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sortable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
 
 
@@ -1777,7 +1799,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 <h2 id="class-textfield">Class TextField<a class="headerlink" href="#class-textfield" title="Permanent link">&para;</a></h2>
 <p>TextField is used to define a text field in a schema definition</p>
 <h3 id="9595init9595_11">__init__<a class="headerlink" href="#9595init9595_11" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">sortable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
 
 
