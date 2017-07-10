@@ -135,8 +135,8 @@ int UI_SkipTo(void *ctx, u_int32_t docId, RSIndexResult **hit) {
 
   AggregateResult_Reset(ui->current);
   if (docId < ui->minDocId) {
-    ui->current->docId = ui->minDocId;
-    *hit = ui->current;
+    AggregateResult_Reset((*hit));
+
     return INDEXREAD_NOTFOUND;
   }
 
