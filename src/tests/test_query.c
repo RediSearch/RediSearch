@@ -8,7 +8,7 @@
 #include "../rmutil/alloc.h"
 #include <stdio.h>
 
-void __queryNode_Print(Query *q, QueryNode *qs, int depth);
+void QueryNode_Print(Query *q, QueryNode *qs, int depth);
 
 int isValidQuery(char *qt) {
   char *err = NULL;
@@ -34,7 +34,7 @@ int isValidQuery(char *qt) {
     IndexSpec_Free(ctx.spec);
   }
   ASSERT(n != NULL);
-  __queryNode_Print(q, n, 0);
+  QueryNode_Print(q, n, 0);
   Query_Free(q);
   IndexSpec_Free(ctx.spec);
   return 0;
@@ -111,7 +111,7 @@ int testQueryParser() {
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
-  __queryNode_Print(q, n, 0);
+  QueryNode_Print(q, n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
@@ -168,7 +168,7 @@ int testFieldSpec() {
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
-  __queryNode_Print(q, n, 0);
+  QueryNode_Print(q, n, 0);
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
@@ -187,7 +187,7 @@ int testFieldSpec() {
 
   ASSERT(n != NULL);
   printf("%s ====> ", qt);
-  __queryNode_Print(q, n, 0);
+  QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
@@ -202,7 +202,7 @@ int testFieldSpec() {
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
   printf("%s ====> ", qt);
-  __queryNode_Print(q, n, 0);
+  QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->fieldMask, 0x03)
   ASSERT_EQUAL(n->pn.numChildren, 2)
