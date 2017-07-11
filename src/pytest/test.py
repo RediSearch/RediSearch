@@ -461,18 +461,20 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'hello world'))
+            
+            for _ in r.retry_with_rdb_reload():
+                                  
+                for keys in (
+                    ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
+                        'doc%d' % i for i in range(99, 0, -5)]
+                ):
+                    res = r.execute_command(
+                        'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
+                    self.assertEqual(len(keys), res[0])
+                    self.assertTrue(all((k in res for k in keys)))
 
-            for keys in (
-                ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
-                    'doc%d' % i for i in range(99, 0, -5)]
-            ):
-                res = r.execute_command(
-                    'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
-                self.assertEqual(len(keys), res[0])
-                self.assertTrue(all((k in res for k in keys)))
-
-            self.assertEqual(0, r.execute_command(
-                'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
+                self.assertEqual(0, r.execute_command(
+                    'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
 
             with self.assertResponseError():
                 self.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)
