@@ -111,7 +111,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
       goto err;
     }
     req->fieldMask = IndexSpec_ParseFieldMask(ctx->spec, vargs, nargs);
-    RedisModule_Log(ctx->redisCtx, "warning", "Parsed field mask: 0x%x\n", req->fieldMask);
+    RedisModule_Log(ctx->redisCtx, "debug", "Parsed field mask: 0x%x", req->fieldMask);
   }
 
   // Parse numeric filter. currently only one supported
