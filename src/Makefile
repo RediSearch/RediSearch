@@ -9,7 +9,7 @@ export CC
 export YACC
 
 # if DEBUG env var is set, we compile with "debug" cflags
-DEBUGFLAGS = -g -ggdb -O2
+DEBUGFLAGS = -g -ggdb -O3 -flto
 ifeq ($(DEBUG), 1)
 	DEBUGFLAGS = -g -ggdb -O0
 endif
