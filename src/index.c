@@ -43,7 +43,7 @@ RSIndexResult *UI_Current(void *ctx) {
   return ((UnionContext *)ctx)->current;
 }
 
-int UI_Read(void *ctx, RSIndexResult **hit) {
+inline int UI_Read(void *ctx, RSIndexResult **hit) {
   UnionContext *ui = ctx;
   // nothing to do
   if (ui->num == 0 || ui->atEnd) {
@@ -141,11 +141,6 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
 
   AggregateResult_Reset(ui->current);
-  if (docId < ui->minDocId) {
-    AggregateResult_Reset((*hit));
-    return INDEXREAD_NOTFOUND;
-  }
-
   int numActive = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
@@ -217,8 +212,6 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   // not found...
   ui->minDocId = minDocId;
-  AggregateResult_Reset((*hit));
-  // printf("UI %p skipped to docId %d NOT FOUND, minDocId now %d\n", ui, docId, ui->minDocId);
   return INDEXREAD_NOTFOUND;
 }
 
