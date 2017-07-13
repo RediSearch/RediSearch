@@ -93,6 +93,8 @@ redisearch.so: $(MODULE) version.h
 	rm -f module.so
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
+# Build a stand-alone static library without the module entry point.
+# This is used to include the module's functionality in other modules
 libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
 libredisearch.a: $(MODULE) version.h
 	ar rcs $@ $(CC_OBJECTS)
