@@ -3,11 +3,11 @@
 # RediSearch - Redis Powered Search Engine
 # RediSearch - Redis 技术支持的搜索引擎
 
->:RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
->:RediSearch 是一个建立在Redis上的全文搜索引擎, 由RedisLabs开发.
+>RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
+>RediSearch 是一个建立在Redis上的全文搜索引擎, 由RedisLabs开发.
 
->:The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
->:源代码托管在: [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
+>The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
+>源代码托管在: [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
 
 ### Latest Release: [0.18 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.18)
 ### 最新的发布版本: [0.18 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases/tag/v0.18)
@@ -15,14 +15,15 @@
 ## Overview
 ## 概述
 
->:Redisearch impements a search engine on top of redis, but unlike other redis 
->:search libraries, it does not use internal data structures like sorted sets.
->:Redisearch是基于redis所实现的一个搜索引擎, 但是区别于其他redis搜索类库, 
->:它不是使用redis自带的内部数据结构， 比如sorted set
+>Redisearch impements a search engine on top of redis, but unlike other redis <br />
+ search libraries, it does not use internal data structures like sorted sets.
+>Redisearch是基于redis所实现的一个搜索引擎, 但是区别于其他redis搜索类库, <br />
+它不是使用redis自带的内部数据结构， 比如sorted set
 
->:This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
->:that are not possible or efficient with traditional redis search approache
->:正是因为如此redisearch带来了更多高级的功能, 比如准确的短语匹配和文本查询时的数字过滤，<br>这些也是传统redis搜索所不能或者高效达成的功能
+>This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, <br />
+that are not possible or efficient with traditional redis search approache
+>正是因为如此redisearch带来了更多高级的功能, 比如准确的短语匹配和文本查询时的数字过滤，<br />
+这些也是传统redis搜索所不能或者高效达成的功能
 
 ## Client Libraries
 ## 客户端类库
