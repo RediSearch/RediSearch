@@ -747,6 +747,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#return95fields" title="return_fields" class="md-nav__link">
+    return_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#slop" title="slop" class="md-nav__link">
     slop
   </a>
@@ -1310,6 +1317,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#return95fields" title="return_fields" class="md-nav__link">
+    return_fields
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#slop" title="slop" class="md-nav__link">
     slop
   </a>
@@ -1496,7 +1510,7 @@
 
 
 <p>Add suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.</p>
-<p>If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores </p>
+<p>If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores</p>
 <h3 id="delete">delete<a class="headerlink" href="#delete" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">)</span>
 </pre></div>
@@ -1505,7 +1519,7 @@
 <p>Delete a string from the AutoCompleter index.
 Returns 1 if the string was found and deleted, 0 otherwise</p>
 <h3 id="get95suggestions">get_suggestions<a class="headerlink" href="#get95suggestions" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">get_suggestions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">with_scores</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">get_suggestions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">with_scores</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">with_payloads</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
 
 
@@ -1517,6 +1531,7 @@ Returns 1 if the string was found and deleted, 0 otherwise</p>
     <strong>NOTE</strong>: Running fuzzy searches on short (&lt;3 letters) prefixes can be very slow, and even scan the entire index.</li>
 <li><strong>with_scores</strong>: if set to true, we also return the (refactored) score of each suggestion. 
   This is normally not needed, and is NOT the original score inserted into the index</li>
+<li><strong>with_payloads</strong>: Return suggestion payloads</li>
 <li><strong>num</strong>: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.</li>
 </ul>
 <p>Returns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.</p>
@@ -1761,6 +1776,12 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 
 
 <p>Return the query string of this query only</p>
+<h3 id="return95fields">return_fields<a class="headerlink" href="#return95fields" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">return_fields</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
+
+
+<p>Only return values from these fields</p>
 <h3 id="slop">slop<a class="headerlink" href="#slop" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">slop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">slop</span><span class="p">)</span>
 </pre></div>
@@ -1792,7 +1813,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 <h2 id="class-suggestion">Class Suggestion<a class="headerlink" href="#class-suggestion" title="Permanent link">&para;</a></h2>
 <p>Represents a single suggestion being sent or returned from the auto complete server</p>
 <h3 id="9595init9595_10">__init__<a class="headerlink" href="#9595init9595_10" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
 </pre></div>
 
 
