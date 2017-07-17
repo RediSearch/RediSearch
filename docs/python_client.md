@@ -99,7 +99,7 @@ def add_suggestions(self, *suggestions, **kwargs)
 
 Add suggestion terms to the AutoCompleter engine. Each suggestion has a score and string.
 
-If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores 
+If kwargs['increment'] is true and the terms are already in the server's dictionary, we increment their scores
 
 
 ### delete
@@ -118,7 +118,7 @@ Returns 1 if the string was found and deleted, 0 otherwise
 ### get\_suggestions
 ```py
 
-def get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False)
+def get_suggestions(self, prefix, fuzzy=False, num=10, with_scores=False, with_payloads=False)
 
 ```
 
@@ -132,6 +132,7 @@ Get a list of suggestions from the AutoCompleter, for a given prefix
     **NOTE**: Running fuzzy searches on short (<3 letters) prefixes can be very slow, and even scan the entire index.
 - **with_scores**: if set to true, we also return the (refactored) score of each suggestion. 
   This is normally not needed, and is NOT the original score inserted into the index
+- **with_payloads**: Return suggestion payloads
 - **num**: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.
 
 Returns a list of Suggestion objects. If with_scores was False, the score of all suggestions is 1.
@@ -564,6 +565,18 @@ def query_string(self)
 Return the query string of this query only
 
 
+### return\_fields
+```py
+
+def return_fields(self, *fields)
+
+```
+
+
+
+Only return values from these fields
+
+
 ### slop
 ```py
 
@@ -623,7 +636,7 @@ Represents a single suggestion being sent or returned from the auto complete ser
 ### \_\_init\_\_
 ```py
 
-def __init__(self, string, score=1.0)
+def __init__(self, string, score=1.0, payload=None)
 
 ```
 
