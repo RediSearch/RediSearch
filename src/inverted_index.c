@@ -298,13 +298,6 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
 size_t IR_NumDocs(void *ctx) {
   IndexReader *ir = ctx;
-
-  // in single word optimized mode we only know the size of the record from
-  // the header.
-  if (ir->singleWordMode) {
-    return ir->idx->numDocs;
-  }
-
   // otherwise we use our counter
   return ir->len;
 }
