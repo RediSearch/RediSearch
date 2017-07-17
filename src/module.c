@@ -1030,7 +1030,7 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (!tree) {
-    RedisModule_ReplyWithLongLong(ctx, 0);
+    return RedisModule_ReplyWithLongLong(ctx, 0);
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);

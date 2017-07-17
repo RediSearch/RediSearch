@@ -248,9 +248,9 @@ void Document_Free(Document doc) {
 }
 
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+  doc->numFields = 0;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
-  RMUTIL_ASSERT_NOERROR(ctx->redisCtx, rep);
-  if (RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_NULL) {
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     return REDISMODULE_ERR;
   }
 
