@@ -28,9 +28,33 @@ typedef struct {
   uint32_t numDocs;
 } InvertedIndex;
 
+struct indexReadCtx;
+
+/**
+ * This context is passed to the decoder callback, and can contain either
+ * a a pointer or integer. It is intended to relay along any kind of additional
+ * configuration information to help the decoder determine whether to filter
+ * the entry */
+typedef union {
+  void *ptr;
+  uint32_t num;
+} IndexDecoderCtx;
+
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num);
+
+/**
+ * Decode a single record from the buffer reader. This function is responsible for:
+ * (1) Decoding the record at the given position of br
+ * (2) Advancing the reader's position to the next record
+ * (3) Filtering the record based on any relevant information (can be passed through `ctx`)
+ * (4) Populating `res` with the information from the record.
+ *
+ * If the record should not be processed, it should not be populated and 0 should
+ * be returned. Otherwise, the function should return 1.
+ */
+typedef int (*IndexDecoder)(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReadCtx {
@@ -45,6 +69,8 @@ typedef struct indexReadCtx {
   // SkipIndex *skipIdx;
   // u_int skipIdxPos;
   DocTable *docTable;
+  IndexDecoderCtx decoderCtx;
+  IndexDecoder decoder;
 
   t_fieldMask fieldMask;
 
