@@ -51,7 +51,7 @@ char *GetFieldNameByBit(IndexSpec *sp, uint32_t id) {
 * Returns REDISMODULE_ERR if there's a parsing error.
 * The command only receives the relvant part of argv.
 *
-* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX] [NOFREQS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
@@ -181,6 +181,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
   if (__argExists(SPEC_NOSCOREIDX_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreScoreIndexes;
+  }
+
+  if (__argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
+    spec->flags &= ~Index_StoreFreqs;
   }
 
   int swIndex = __findOffset(SPEC_STOPWORDS_STR, argv, argc);
@@ -390,6 +394,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->sortables = NULL;
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  if (encver < INDEX_MIN_NOFREQ_VERSION) {
+    sp->flags |= Index_StoreFreqs;
+  }
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));

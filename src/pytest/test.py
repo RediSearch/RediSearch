@@ -461,9 +461,9 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'hello world'))
-            
+
             for _ in r.retry_with_rdb_reload():
-                                  
+
                 for keys in (
                     ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
                         'doc%d' % i for i in range(99, 0, -5)]
@@ -983,6 +983,55 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         for pair in grouper(res[1:], 2):
             _, pair = pair
             self.assertEqual(None, pair[1])
+
+    def _test_create_options_real(self, *options):
+        options = [x for x in options if x]
+        has_offsets = 'NOOFFSETS' not in options
+        has_fields = 'NOFIELDS' not in options
+        has_freqs = 'NOFREQS' not in options
+
+        try:
+            self.cmd('ft.drop', 'idx')
+        except:
+            pass
+
+        options = ['idx'] + options + ['schema', 'f1', 'text', 'f2', 'text']
+        self.assertCmdOk('ft.create', *options)
+        for i in range(10):
+            self.assertCmdOk('ft.add', 'idx', 'doc{}'.format(
+                i), 0.5, 'fields', 'f1', 'value for {}'.format(i))
+
+        # Query
+        res = self.cmd('ft.search', 'idx', "value for 3")
+        if not has_offsets:
+            self.assertFalse(res)
+        else:
+            self.assertTrue(res)
+
+        # Frequencies:
+        self.assertCmdOk('ft.add', 'idx', 'doc100', 1.0, 'fields', 'f1', 'foo bar')
+        self.assertCmdOk('ft.add', 'idx', 'doc200', 1.0, 'fields', 'f1', ('foo ' * 10) + ' bar')
+        res = self.cmd('ft.search', 'idx', 'foo')
+        self.assertEqual(2, res[0])
+        if has_offsets:
+            docname = res[1]
+            if has_freqs:
+                self.assertEqual('doc200', docname)
+            else:
+                self.assertEqual('doc100', docname)
+
+        self.assertCmdOk('ft.add', 'idx', 'doc300', 1.0, 'fields', 'f1', 'Hello')
+        res = self.cmd('ft.search', 'idx', '@f2:Hello')
+        if has_fields:
+            self.assertEqual(1, len(res))
+        else:
+            self.assertEqual(3, len(res))
+
+    def testCreationOptions(self):
+        from itertools import combinations
+        for x in range(1, 5):
+            for combo in combinations(('NOOFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
+                self._test_create_options_real(*combo)
 
 
 def grouper(iterable, n, fillvalue=None):

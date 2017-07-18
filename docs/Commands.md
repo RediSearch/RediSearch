@@ -24,6 +24,10 @@ so keep it short!
 
 * **NOSCOREIDX**: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.
 
+* **NOFREQS**: If set, we avoid saving the term frequencies in the index. This saves
+  memory but does not allow sorting based on the frequencies of a given term within
+  the document.
+
 * **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}. 
 
     If not set, we take the default list of stopwords. 
