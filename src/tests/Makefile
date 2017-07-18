@@ -87,11 +87,18 @@ test_stopwords: stopwords
 	@(sh -c ./test_stopwords)
 .PHONY: test_stopwords
 
+qint: test_qint.o $(DEPS)
+	$(CC) $(CFLAGS) -o test_qint $^ $ $(LDFLAGS)
+
+test_qint: qint
+	./test_qint
+.PHONY: test_qint
 
 build: stemmer trie index range extensions query stopwords
 
 	
-test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords
+test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords \
+	test_qint
 
 all: build test
 
