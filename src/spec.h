@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -18,6 +17,7 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
 #define SPEC_NOSCOREIDX_STR "NOSCOREIDX"
+#define SPEC_NOFREQS_STR "NOFREQS"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
@@ -67,11 +67,18 @@ typedef enum {
   Index_StoreFieldFlags = 0x02,
   Index_StoreScoreIndexes = 0x04,
   Index_HasCustomStopwords = 0x08,
+  Index_StoreFreqs = 0x010,
+  Index_DocIdsOnly = 0x00
 } IndexFlags;
 
-#define INDEX_DEFAULT_FLAGS Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
-#define INDEX_CURRENT_VERSION 5
+#define INDEX_DEFAULT_FLAGS \
+  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
+#define INDEX_STORAGE_MASK (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets)
+#define INDEX_CURRENT_VERSION 6
 #define INDEX_MIN_COMPAT_VERSION 2
+
+// Versions below this always store the frequency
+#define INDEX_MIN_NOFREQ_VERSION 6
 
 typedef struct {
   char *name;

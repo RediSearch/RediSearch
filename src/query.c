@@ -744,7 +744,7 @@ QueryResult *Query_Execute(Query *query) {
     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
     // skip deleted documents
-    if (!dmd || dmd->flags & Document_Deleted) {
+    if (!dmd || (dmd->flags & Document_Deleted)) {
       ++numDeleted;
       continue;
     }

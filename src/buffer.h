@@ -27,13 +27,36 @@ typedef struct {
 void Buffer_Init(Buffer *b, size_t cap);
 size_t Buffer_ReadByte(BufferReader *b, char *c);
 size_t Buffer_Read(BufferReader *b, void *data, size_t len);
-size_t Buffer_Skip(BufferReader *b, int bytes);
 size_t Buffer_Seek(BufferReader *b, size_t offset);
-size_t Buffer_Offset(Buffer *ctx);
-size_t BufferReader_Offset(BufferReader *r);
-int BufferReader_AtEnd(BufferReader *br);
-size_t Buffer_Capacity(Buffer *ctx);
-int Buffer_AtEnd(Buffer *ctx);
+
+static inline size_t BufferReader_Offset(const BufferReader *br) {
+  return br->pos;
+}
+
+static inline size_t Buffer_Offset(const Buffer *ctx) {
+  return ctx->offset;
+}
+
+static inline int BufferReader_AtEnd(const BufferReader *br) {
+  return br->pos >= br->buf->offset;
+}
+
+static inline size_t Buffer_Capacity(const Buffer *ctx) {
+  return ctx->cap;
+}
+
+static inline int Buffer_AtEnd(const Buffer *ctx) {
+  return ctx->offset >= ctx->cap;
+}
+
+/**
+Skip forward N bytes, returning the resulting offset on success or the end
+position if where is outside bounds
+*/
+static inline size_t Buffer_Skip(BufferReader *br, int bytes) {
+  br->pos += bytes;
+  return br->pos;
+}
 
 typedef struct {
   Buffer *buf;
@@ -44,9 +67,17 @@ typedef struct {
 size_t Buffer_Write(BufferWriter *b, void *data, size_t len);
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
+// Ensure that at least extraLen new bytes can be added to the buffer.
+// Returns 0 if no realloc was performed. 1 if realloc was performed.
+int Buffer_Reserve(Buffer *b, size_t extraLen);
+
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);
-char *BufferReader_Current(BufferReader *b);
+
+static inline char *BufferReader_Current(BufferReader *b) {
+  return b->buf->data + b->pos;
+}
+
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 

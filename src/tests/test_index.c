@@ -118,9 +118,9 @@ int testDistance() {
   return 0;
 }
 
-int testIndexReadWrite() {
+int testIndexReadWriteFlags(uint32_t indexFlags) {
 
-  InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
+  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
 
   for (int i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
@@ -159,9 +159,8 @@ int testIndexReadWrite() {
   // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
 
   for (int xx = 0; xx < 1; xx++) {
-
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 1);  //
+    IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, indexFlags, NULL, 1);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -190,6 +189,18 @@ int testIndexReadWrite() {
   // IW_Free(w);
   // // overriding the regular IW_Free because we already deleted the buffer
   InvertedIndex_Free(idx);
+  return 0;
+}
+
+int testIndexReadWrite() {
+  for (uint32_t i = 0; i < 32; i++) {
+    // printf("Testing %u BEGIN\n", i);
+    int rv = testIndexReadWriteFlags(i);
+    // printf("Testing %u END\n", i);
+    if (rv != 0) {
+      return -1;
+    }
+  }
   return 0;
 }
 
@@ -602,7 +613,7 @@ int testIndexFlags() {
 
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteEntry(w, &h);
-  // printf("written %d bytes\n", sz);
+  // printf("written %d bytes. Offset=%d\n", sz, h.vw->bw.buf->offset);
   ASSERT_EQUAL(16, sz);
   InvertedIndex_Free(w);
 
@@ -610,6 +621,7 @@ int testIndexFlags() {
   w = NewInvertedIndex(flags, 1);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteEntry(w, &h);
+  // printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
   ASSERT_EQUAL(sz2, sz - Buffer_Offset(h.vw->bw.buf) - 1);
   InvertedIndex_Free(w);
 
