@@ -18,7 +18,7 @@ static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
                          t_fieldMask fieldMask, uint32_t freq, uint32_t offsetsSz,
                          RSOffsetVector *offsets);
 
-void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -162,7 +162,7 @@ inline int IR_HasNext(void *ctx) {
   return !ir->atEnd;
 }
 
-void indexReader_advanceBlock(IndexReader *ir) {
+static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
@@ -249,7 +249,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       if (ir->currentBlock + 1 == ir->idx->size) {
         goto eof;
       }
-      indexReader_advanceBlock(ir);
+      IndexReader_AdvanceBlock(ir);
       br = &ir->br;
     }
 
@@ -290,7 +290,7 @@ int _isPos(InvertedIndex *idx, uint32_t i, t_docId docId) {
   return 0;
 }
 
-int indexReader_skipToBlock(IndexReader *ir, t_docId docId) {
+static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
   InvertedIndex *idx = ir->idx;
   if (idx->size == 0 || docId < idx->blocks[0].firstId) {
@@ -350,7 +350,7 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   // try to skip to the current block
-  if (!indexReader_skipToBlock(ir, docId)) {
+  if (!IndexReader_SkipToBlock(ir, docId)) {
     if (IR_Read(ir, hit) == INDEXREAD_EOF) {
       return INDEXREAD_EOF;
     }
