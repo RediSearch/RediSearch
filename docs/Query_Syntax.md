@@ -1,27 +1,27 @@
-# Search Query Syntax:
+# Search Query Syntax
 
-We support a simple syntax for complex queries with the following rules:
+RediSearch supports a simple syntax for complex queries, adhering to the following rules:
 
-* Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
-* Exact phrases are wrapped in quotes, e.g `"hello world"`.
-* OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
-* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
-* Selection of specific fields using the syntax `@field:hello world`.
-* Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
-* Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
-* An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
+* Multi-word phrases are simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms
+* Exact phrases are wrapped in quotes, e.g `"hello world"`
+* OR Unions (i.e `word1 OR word2`) are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`
+* NOT negation of expressions or sub-queries (i.e. `word1 NOT word2`) are expressed with a minus sign (`-`), e.g. `hello -world`
+* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a prefix of three or more letters
+* Selection of specific fields uses the syntax `@field:hello world`
+* Matching numeric range on numeric fields uses the syntax `@field:[{min} {max}]`
+* Optional terms or clauses are prefixed with a tilde ('~'), e.g. `foo ~bar` means "bar" is optional but documents with "bar" in them will rank higher
+* An expression in a query can be wrapped in parentheses to resolve ambiguity, e.g. `(hello|hella) (world|werld)`
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
-## Field modifiers
+## Field Modifiers
 
-As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword. 
+As of version 0.12 it is possible to specify field modifiers in the query, and not just using the INFIELDS global keyword. 
 
-Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the `@` symbol, the field name and a `:` (colon) symbol. 
+It is possible to specify which fields a query expression or sub expression matches by prepending the expression with the `@` symbol, the field name and a `:` (colon) symbol. 
 
-If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier. 
+If a field modifier precedes multiple words, those words are treated as a phrase with the same modifier. 
 
-If a field modifier preceds an expression in parentheses, it applies only to the expression inside the parentheses.
+If a field modifier precedes an expression in parentheses, it modifies only to the expression inside the parentheses.
 
 Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:
 
@@ -29,7 +29,7 @@ Multiple modifiers can be combined to create complex filtering on several fields
 FT.SEARCH cars "@country:korea @engine:(diesel|hybrid) @class:suv"
 ```
 
-Multiple modifiers can be applied to the same term or grouped terms. e.g.:
+Multiple modifiers can be applied to the same term or grouped terms, e.g.:
 
 ```
 FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
@@ -39,23 +39,23 @@ This will search for documents that have "hello world" either in the body or the
 
 ## Numeric Filters in Query (Since v0.16)
 
-If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]` - e.g. `@price:[100 200]`.
+If a field in the schema is defined as NUMERIC, it is possible to filter by that field using either the FILTER argument in the Redis request or specified filtering rules in the query. The syntax is `@field:[{min} {max}]` e.g. `@price:[100 200]`.
 
-### A few notes on numeric predicates:
+### A few Notes on Numeric Predicates:
 
-1. It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.
+1. It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do so with the FILTER argument.
 
-2. It is possible to interesect or union multiple numeric filters in the same query, be it for the same field or different ones.
+2. It is possible to interesect or unionize multiple numeric filters in the same query, be it for the same field or different ones.
 
-3. `-inf`, `inf` and `+inf` are acceptable numbers in range. Thus greater-than 100 is expressed as `[(100 inf]`.
+3. `-inf`, `inf` and `+inf` are acceptable numbers in range. Thus "greater than 100" is expressed as `[(100 inf]`.
 
-4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
+4. Numeric filters are inclusive. Exclusive minimums or maximums are expressed by prepending `(` to the number, e.g. `[(100 (200]`.
 
-5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
+5. It is possible to negate a numeric filter by prepending a minus sign (`-`) to the filter. For example, returning a result where price is not "100" is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
 
-## Prefix Matching (>=0.14)
+## Prefix Matching (>= v0.14)
 
-On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
+Upon index updating, RediSearch maintains a dictionary of all terms in the index. This can be used to match all terms that start with a specified prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
 
 ```
 hel* world
@@ -65,15 +65,15 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 
 
-### A few notes on prefix searches:
+### A few notes on Prefix Searches:
 
-1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.
+1. As prefixes can be expanded into many many terms, so use them with caution. There is no magic going on--the expansion will create a union operation of all suffixes!
 
-2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
+2. As a protective measure to avoid selecting too many terms and thereby blocking Redis, which is single-threaded, there are two limitations on prefix matching:
 
-  * Prefixes are limited to 3 letters or more. 
+  * Prefixes are limited to three letters or more
 
-  * Expansion is limited to 200 terms or less. 
+  * Expansion is limited to 200 terms or less
 
 3. Prefix matching fully supports unicode and is case insensitive.
 
@@ -91,11 +91,11 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
         "hello world"
 
-* Union: documents containing either **hello** OR **world**
+* Union - documents containing either **hello** OR **world**
 
         hello|world
 
-* Not: documents containing **hello** but not **world**
+* Not - documents containing **hello** but not **world**
 
         hello -world
 
@@ -103,7 +103,7 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
         (hello|halo) (world|werld)
 
-* Negation of union
+* Negation of a union
 
         hello -(world|werld)
 
@@ -111,19 +111,19 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
         (barack|barrack) obama
 
-* Optional terms with higher priority to ones containing more matches:
+* Optional terms that raise priority 
 
         obama ~barack ~michelle
 
-* Exact phrase in one field, one word in aonther field:
+* Exact phrase in one field, one word in another field
 
         @title:"barack obama" @job:president
 
-* Combined AND, OR with field specifiers:
+* Combined AND, OR with field specifiers
 
         @title:hello world @body:(foo bar) @category:(articles|biographies)
 
-* Prefix Queries:
+* Prefix queries
 
         hello worl*
 
@@ -131,11 +131,11 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
         hello -worl*
 
-* Numeric Filtering - products named "tv" with a price range of 200-500:
+* Numeric filtering - products named "tv" with a price range of 200-500
         
         @name:tv @price:[200 500]
 
-* Numeric Filtering - users with age greater than 18:
+* Numeric filtering - users with age greater than 18
 
         @age:[(18 +inf]
 
