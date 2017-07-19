@@ -160,14 +160,16 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, indexFlags, NULL, 1);  //
+    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
+    int rc;
     while (IR_HasNext(ir)) {
-      if (IR_Read(ir, &h) == INDEXREAD_EOF) {
+      if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
         break;
       }
+      ASSERT_EQUAL(INDEXREAD_OK, rc);
       ASSERT_EQUAL(h->docId, n);
       n++;
     }
@@ -194,7 +196,7 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
 int testIndexReadWrite() {
   for (uint32_t i = 0; i < 32; i++) {
-    // printf("Testing %u BEGIN\n", i);
+    printf("Testing %u BEGIN\n", i);
     int rv = testIndexReadWriteFlags(i);
     // printf("Testing %u END\n", i);
     if (rv != 0) {
@@ -246,7 +248,8 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 int testReadIterator() {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewIndexReader(idx, NULL, RS_FIELDMASK_ALL, INDEX_DEFAULT_FLAGS, NULL, 0);
+  IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
+
   RSIndexResult *h = NULL;
 
   IndexIterator *it = NewReadIterator(r1);
@@ -271,8 +274,8 @@ int testReadIterator() {
 int testUnion() {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -300,8 +303,8 @@ int testNot() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -329,8 +332,8 @@ int testOptional() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -363,8 +366,8 @@ int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewIndexReader(w, NULL, RS_FIELDMASK_ALL, w->flags, NULL, 0);
-  IndexReader *r2 = NewIndexReader(w2, NULL, RS_FIELDMASK_ALL, w2->flags, NULL, 0);
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);

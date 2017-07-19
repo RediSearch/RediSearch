@@ -65,6 +65,14 @@ void InvertedIndex_Free(void *ctx) {
 //
 // 0. (empty)
 
+size_t encodeFull(BufferWriter *bw, t_docId delta, void *entry) {
+  ForwardIndexEntry *ent = entry;
+  size_t sz = 0;
+  sz = qint_encode4(bw, delta, ent->freq, ent->fieldMask, ent->vw->bw.buf->offset);
+
+  sz += Buffer_Write(bw, ent->vw->bw.buf->data, ent->vw->bw.buf->offset);
+  
+}
 static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
                          t_fieldMask fieldMask, uint32_t freq, RSOffsetVector *offsets) {
   size_t sz = 0;
@@ -121,22 +129,9 @@ static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
   return sz;
 }
 
-/* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
-                                ForwardIndexEntry *ent) {  // VVW_Truncate(ent->vw);
+size_t encodeForwardEntry(BufferWriter *bw, t_docId delta, void *entry) {
 
-  // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
-  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
-
-  // see if we need to grow the current block
-  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
-    InvertedIndex_AddBlock(idx, ent->docId);
-    blk = &INDEX_LAST_BLOCK(idx);
-  }
-  // // this is needed on the first block
-  if (blk->firstId == 0) {
-    blk->firstId = ent->docId;
-  }
+  ForwardIndexEntry *ent = entry;
   size_t ret = 0;
   RSOffsetVector offsets;
   if (ent->vw) {
@@ -145,13 +140,32 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     offsets.data = NULL;
     offsets.len = 0;
   }
+  return writeEntry(bw, 0, delta, ent->fieldMask, ent->freq, &offsets);
+}
+/* Write a forward-index entry to an index writer */
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+                                       void *entry) {
+
+  // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
+  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
+
+  // see if we need to grow the current block
+  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
+    InvertedIndex_AddBlock(idx, docId);
+    blk = &INDEX_LAST_BLOCK(idx);
+  }
+  // // this is needed on the first block
+  if (blk->firstId == 0) {
+    blk->firstId = docId;
+  }
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  ret = writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->fieldMask, ent->freq, &offsets);
+  //
+  size_t ret = encoder(&bw, docId - idx->lastId, entry);
 
-  idx->lastId = ent->docId;
-  blk->lastId = ent->docId;
+  idx->lastId = docId;
+  blk->lastId = docId;
   ++blk->numDocs;
   ++idx->numDocs;
 
@@ -393,41 +407,45 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                            IndexFlags flags, RSQueryTerm *term, int singleWordMode) {
-  IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  ret->currentBlock = 0;
-  ret->idx = idx;
-  ret->term = term;
+IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
+                                RSQueryTerm *term) {
 
   if (term) {
     // compute IDF based on num of docs in the header
-    ret->term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
+    term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
   }
 
-  ret->record = NewTokenRecord(term);
-  ret->record->fieldMask = RS_FIELDMASK_ALL;
-  ret->record->freq = 1;
-  ret->lastId = 0;
-  ret->docTable = docTable;
-  ret->len = 0;
-  ret->singleWordMode = singleWordMode;
-  ret->atEnd = 0;
+  RSIndexResult *record = NewTokenRecord(term);
+  record->fieldMask = RS_FIELDMASK_ALL;
+  record->freq = 1;
 
-  ret->fieldMask = fieldMask;
-  ret->flags = flags;
-  ret->readFlags = (uint32_t)flags & INDEX_STORAGE_MASK;
+  IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
+
+  uint32_t readFlags = (uint32_t)idx->flags & INDEX_STORAGE_MASK;
+  IndexDecoder decoder = getDecoder(readFlags);
+
+  return NewIndexReaderGeneric(idx, decoder, dctx, record);
+}
+
+IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+                                   IndexDecoderCtx decoderCtx, RSIndexResult *record) {
+  IndexReader *ret = rm_malloc(sizeof(IndexReader));
+  ret->currentBlock = 0;
+  ret->lastId = 0;
+  ret->idx = idx;
+
+  ret->record = record;
+  ret->len = 0;
+  ret->atEnd = 0;
   ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
-  ret->decoder = getDecoder(ret->readFlags);
-  ret->decoderCtx.num = ret->fieldMask;
+  ret->decoder = decoder;
+  ret->decoderCtx = decoderCtx;
   return ret;
 }
 
 void IR_Free(IndexReader *ir) {
 
   IndexResult_Free(ir->record);
-
-  Term_Free(ir->term);
   rm_free(ir);
 }
 

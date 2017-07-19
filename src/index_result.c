@@ -163,6 +163,8 @@ void IndexResult_Free(RSIndexResult *r) {
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
     rm_free(r->agg.children);
     r->agg.children = NULL;
+  } else if (r->type == RSResultType_Term && r->term.term != NULL) {
+    Term_Free(r->term.term);
   }
   rm_free(r);
 }

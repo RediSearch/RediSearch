@@ -23,7 +23,7 @@ typedef struct {
 typedef struct {
   IndexBlock *blocks;
   uint32_t size;
-  IndexFlags flags;
+
   t_docId lastId;
   uint32_t numDocs;
 } InvertedIndex;
@@ -66,39 +66,34 @@ typedef struct indexReadCtx {
   t_docId lastId;
   uint32_t currentBlock;
   // // skip index. If not null and is needed, will be used for intersects
-  // SkipIndex *skipIdx;
-  // u_int skipIdxPos;
-  DocTable *docTable;
   IndexDecoderCtx decoderCtx;
   IndexDecoder decoder;
 
-  t_fieldMask fieldMask;
-
-  IndexFlags flags;
-  // processed version of the "interesting" part of the flags
-  IndexFlags readFlags;
-
-  int singleWordMode;
-
   size_t len;
   RSIndexResult *record;
-  RSQueryTerm *term;
 
   int atEnd;
 } IndexReader;
 
+typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId lastId, void *entry);
+
 /* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
  * indexes if needed.
  * Returns the number of bytes written to the index */
-size_t InvertedIndex_WriteEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+                                       void *entry);
+
+IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+                                   IndexDecoderCtx decoderCtx, RSIndexResult *record);
 
 /* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-IndexReader *NewIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                            IndexFlags flags, RSQueryTerm *term, int singleWordMode);
+IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocTable *docTable,
+                                t_fieldMask fieldMask, RSQueryTerm *term);
+
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 

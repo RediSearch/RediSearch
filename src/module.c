@@ -33,7 +33,6 @@
  * version of it first */
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave,
                 int replace) {
-  int isnew = 1;
 
   // if we're in replace mode, first we need to try and delete the older version of the document
   if (replace) {
@@ -45,7 +44,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
   // Make sure the document is not already in the index - it needs to be
   // incremental!
-  if (doc.docId == 0 || !isnew) {
+  if (doc.docId == 0) {
     *errorString = "Document already in index";
     return REDISMODULE_ERR;
   }
