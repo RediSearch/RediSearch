@@ -75,13 +75,15 @@ typedef struct indexReadCtx {
   int atEnd;
 } IndexReader;
 
-typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId lastId, void *entry);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId lastId, RSIndexResult *record);
+
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+                                       RSIndexResult *record);
 
 /* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
- * indexes if needed.
- * Returns the number of bytes written to the index */
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
-                                       void *entry);
+ * indexes if needed. Returns the number of bytes written to the index */
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
+                                            ForwardIndexEntry *ent);
 
 IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
                                    IndexDecoderCtx decoderCtx, RSIndexResult *record);

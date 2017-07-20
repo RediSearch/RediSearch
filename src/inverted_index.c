@@ -65,86 +65,97 @@ void InvertedIndex_Free(void *ctx) {
 //
 // 0. (empty)
 
-size_t encodeFull(BufferWriter *bw, t_docId delta, void *entry) {
-  ForwardIndexEntry *ent = entry;
+size_t encodeFull(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   size_t sz = 0;
-  sz = qint_encode4(bw, delta, ent->freq, ent->fieldMask, ent->vw->bw.buf->offset);
-
-  sz += Buffer_Write(bw, ent->vw->bw.buf->data, ent->vw->bw.buf->offset);
-  
+  sz = qint_encode4(bw, delta, res->freq, res->fieldMask, res->offsetsSz);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
 }
-static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
-                         t_fieldMask fieldMask, uint32_t freq, RSOffsetVector *offsets) {
-  size_t sz = 0;
+
+// 2. (Frequency, Field)
+size_t encodeFreqsFields(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return qint_encode3(bw, (uint32_t)delta, (uint32_t)res->freq, (uint32_t)res->fieldMask);
+}
+
+// 3. Frequencies only
+size_t encodeFreqsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
+}
+
+// 4. Field mask only
+size_t encodeFieldsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->fieldMask);
+}
+
+// 5. (field, offset)
+size_t encodeFieldsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
+}
+
+// 6. Offsets only
+size_t encodeOffsetsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+
+  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
+}
+
+// 7. Offsets and freqs
+size_t encodeFreqsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
+}
+
+size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return WriteVarint(delta, bw);
+}
+static IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags) {
+
   switch (idxflags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
-
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-      sz = qint_encode4(bw, docId, (uint32_t)freq, (uint32_t)fieldMask, (uint32_t)offsets->len);
-      sz += Buffer_Write(bw, offsets->data, offsets->len);
-      break;
-
+      return encodeFull;
     // 2. (Frequency, Field)
     case Index_StoreFreqs | Index_StoreFieldFlags:
-      sz = qint_encode3(bw, docId, (uint32_t)freq, (uint32_t)fieldMask);
-      break;
+      return encodeFreqsFields;
 
     // 3. Frequencies only
     case Index_StoreFreqs:
-      sz = qint_encode2(bw, docId, (uint32_t)freq);
-      break;
+      return encodeFreqsOnly;
 
     // 4. Field only
     case Index_StoreFieldFlags:
-      sz = qint_encode2(bw, docId, (uint32_t)fieldMask);
-      break;
+      return encodeFieldsOnly;
 
     // 5. (field, offset)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      sz = qint_encode3(bw, docId, (uint32_t)fieldMask, offsets->len);
-      sz += Buffer_Write(bw, offsets->data, offsets->len);
-      break;
+      return encodeFieldsOffsets;
 
     // 6. (offset)
     case Index_StoreTermOffsets:
-      sz = qint_encode2(bw, docId, offsets->len);
-      sz += Buffer_Write(bw, offsets->data, offsets->len);
-      break;
+      return encodeOffsetsOnly;
 
     // 7. (freq, offset) Store term offsets but not field flags
     case Index_StoreFreqs | Index_StoreTermOffsets:
-      sz = qint_encode3(bw, docId, (uint32_t)freq, (uint32_t)offsets->len);
-      sz += Buffer_Write(bw, offsets->data, offsets->len);
-      break;
+      return encodeFreqsOffsets;
 
     // 0. docid only
     case Index_DocIdsOnly:
-      sz = WriteVarint(docId, bw);
-      break;
+      return encodeDocIdsOnly;
 
     default:
       abort();
   }
 
-  return sz;
+  return 0;
 }
 
-size_t encodeForwardEntry(BufferWriter *bw, t_docId delta, void *entry) {
-
-  ForwardIndexEntry *ent = entry;
-  size_t ret = 0;
-  RSOffsetVector offsets;
-  if (ent->vw) {
-    offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
-  } else {
-    offsets.data = NULL;
-    offsets.len = 0;
-  }
-  return writeEntry(bw, 0, delta, ent->fieldMask, ent->freq, &offsets);
-}
 /* Write a forward-index entry to an index writer */
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
-                                       void *entry) {
+                                       RSIndexResult *entry) {
 
   // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
@@ -170,6 +181,23 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   ++idx->numDocs;
 
   return ret;
+}
+
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
+                                            ForwardIndexEntry *ent) {
+  RSIndexResult rec = (RSIndexResult){
+      .type = RSResultType_Term,
+      .docId = ent->docId,
+      .offsetsSz = ent->vw->bw.buf->offset,
+      .freq = ent->freq,
+      .fieldMask = ent->fieldMask,
+      .term = (RSTermRecord){.term = NULL,
+                             .offsets = ent->vw ? (RSOffsetVector){ent->vw->bw.buf->data,
+                                                                   ent->vw->bw.buf->offset}
+                                                : (RSOffsetVector){0, 0}},
+
+  };
+  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
 }
 
 inline int IR_HasNext(void *ctx) {
