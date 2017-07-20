@@ -5,13 +5,19 @@ We support a simple syntax for complex queries with the following rules:
 * Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`.
+* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported. 
 * Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
+
+## Pure Negative Queries
+
+As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. `-hello` or `-(@title:foo|bar)`. The results will be all the documents *NOT* containing the query terms.
+
+**Caution**: Any complex expression can be negated this way, whowever caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.
 
 ## Field modifiers
 
@@ -51,9 +57,9 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 
 4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
 
-5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. However a boolean-negative numeric filter cannot be the only predicate in the query.
+5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. 
 
-## Prefix Matching (>=0.14)
+## Prefix Matching 
 
 On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
 
