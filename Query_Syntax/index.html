@@ -280,6 +280,13 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#pure-negative-queries" title="Pure Negative Queries" class="md-nav__link">
+    Pure Negative Queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
     Field modifiers
   </a>
@@ -307,8 +314,8 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
-    Prefix Matching (&gt;=0.14)
+  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+    Prefix Matching
   </a>
   
     <nav class="md-nav">
@@ -446,6 +453,13 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#pure-negative-queries" title="Pure Negative Queries" class="md-nav__link">
+    Pure Negative Queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
     Field modifiers
   </a>
@@ -473,8 +487,8 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#prefix-matching-014" title="Prefix Matching (&gt;=0.14)" class="md-nav__link">
-    Prefix Matching (&gt;=0.14)
+  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+    Prefix Matching
   </a>
   
     <nav class="md-nav">
@@ -533,7 +547,7 @@
 <li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
 <li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
 <li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
-<li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>.</li>
+<li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>. As of version 0.19.3, purely negative queries (i.e. <code>-foo</code> or <code>-@title:(foo|bar)</code>) are supported. </li>
 <li>Prefix matches (all terms starting with a prefix) are expressed with a <code>*</code> following a 3-letter or longer prefix.</li>
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
@@ -541,6 +555,9 @@
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
+<h2 id="pure-negative-queries">Pure Negative Queries<a class="headerlink" href="#pure-negative-queries" title="Permanent link">&para;</a></h2>
+<p>As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. <code>-hello</code> or <code>-(@title:foo|bar)</code>. The results will be all the documents <em>NOT</em> containing the query terms.</p>
+<p><strong>Warning</strong>: Any complex expression can be negated this way, however caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.</p>
 <h2 id="field-modifiers">Field modifiers<a class="headerlink" href="#field-modifiers" title="Permanent link">&para;</a></h2>
 <p>As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword. </p>
 <p>Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the <code>@</code> symbol, the field name and a <code>:</code> (colon) symbol. </p>
@@ -574,10 +591,10 @@
 <p>Numeric filters are inclusive. Exclusive min or max are expressed with <code>(</code> prepended to the number, e.g. <code>[(100 (200]</code>.</p>
 </li>
 <li>
-<p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. However a boolean-negative numeric filter cannot be the only predicate in the query.</p>
+<p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. </p>
 </li>
 </ol>
-<h2 id="prefix-matching-014">Prefix Matching (&gt;=0.14)<a class="headerlink" href="#prefix-matching-014" title="Permanent link">&para;</a></h2>
+<h2 id="prefix-matching">Prefix Matching<a class="headerlink" href="#prefix-matching" title="Permanent link">&para;</a></h2>
 <p>On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending <code>*</code> to a prefix token. For example:</p>
 <div class="codehilite"><pre><span></span>hel* world
 </pre></div>
