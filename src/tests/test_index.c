@@ -163,7 +163,7 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx, idx->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -252,7 +252,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 int testReadIterator() {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx, idx->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   RSIndexResult *h = NULL;
 
@@ -278,8 +278,8 @@ int testReadIterator() {
 int testUnion() {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -307,8 +307,8 @@ int testNot() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -336,8 +336,8 @@ int testOptional() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -366,12 +366,38 @@ int testOptional() {
   return 0;
 }
 
+int testNumericInverted() {
+
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+
+  for (int i = 0; i < 75; i++) {
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (float)(i + 1));
+    printf("written %zd bytes\n", sz);
+
+    ASSERT(sz > 2);
+  }
+  ASSERT_EQUAL(75, idx->lastId);
+
+  printf("written %zd bytes\n", idx->blocks[0].data->offset);
+
+  IndexReader *ir = NewNumericReader(idx, NULL);
+  IndexIterator *it = NewReadIterator(ir);
+  RSIndexResult *res;
+  t_docId i = 1;
+  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+    ASSERT_EQUAL(i++, res->docId);
+    ASSERT_EQUAL(res->num.value, (float)res->docId);
+    // printf("%d %f\n", res->docId, res->num.value);
+  }
+  return 0;
+}
+
 int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -770,19 +796,21 @@ TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
 
-  TESTFUNC(testVarint);
-  TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testNumericInverted);
 
-  TESTFUNC(testReadIterator);
-  TESTFUNC(testIntersection);
-  TESTFUNC(testNot);
-  TESTFUNC(testUnion);
+  // TESTFUNC(testVarint);
+  // TESTFUNC(testDistance);
+  // TESTFUNC(testIndexReadWrite);
 
-  TESTFUNC(testBuffer);
-  TESTFUNC(testTokenize);
-  TESTFUNC(testIndexSpec);
-  TESTFUNC(testIndexFlags);
-  TESTFUNC(testDocTable);
-  TESTFUNC(testSortable);
+  // TESTFUNC(testReadIterator);
+  // TESTFUNC(testIntersection);
+  // TESTFUNC(testNot);
+  // TESTFUNC(testUnion);
+
+  // TESTFUNC(testBuffer);
+  // TESTFUNC(testTokenize);
+  // TESTFUNC(testIndexSpec);
+  // TESTFUNC(testIndexFlags);
+  // TESTFUNC(testDocTable);
+  // TESTFUNC(testSortable);
 });

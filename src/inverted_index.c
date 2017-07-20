@@ -6,6 +6,7 @@
 #include "rmalloc.h"
 #include "qint.h"
 #include "qint.c"
+#include "numeric_filter.h"
 
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_INITIAL_CAP 2
@@ -49,20 +50,7 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
-// Formatting options:
-
-// 1. (freq, field, offset)
-// 2. (freq, field)
-// 3. (freq)
-
-// 4. (field),
-// 5. (field, offset)
-
-// 6. (offset)
-// 7. (freq, offset)
-//
-// 0. (empty)
-
+// 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 size_t encodeFull(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   size_t sz = 0;
   sz = qint_encode4(bw, delta, res->freq, res->fieldMask, res->offsetsSz);
@@ -107,13 +95,25 @@ size_t encodeFreqsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return sz;
 }
 
+// 8. Encode only the doc ids
 size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return WriteVarint(delta, bw);
 }
 
-IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags) {
+// 9. Special encoder for numeric values
+size_t encodeNumeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  static union {
+    float f;
+    uint32_t u;
+  } x;
 
-  switch (idxflags & INDEX_STORAGE_MASK) {
+  x.f = res->num.value;
+  return qint_encode2(bw, (uint32_t)delta, x.u);
+}
+
+IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
+
+  switch (flags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
       return encodeFull;
@@ -145,11 +145,12 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags) {
     case Index_DocIdsOnly:
       return encodeDocIdsOnly;
 
+    // invalid encoder - we will fail
     default:
-      abort();
+      break;
   }
 
-  return 0;
+  return NULL;
 }
 
 /* Write a forward-index entry to an index writer */
@@ -199,6 +200,13 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
   return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
 }
 
+size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value) {
+  RSIndexResult rec = (RSIndexResult){
+      .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){value},
+  };
+  return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
+}
+
 inline int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
   return !ir->atEnd;
@@ -223,6 +231,23 @@ DECODER(readFreqOffsetsFlags) {
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   return res->fieldMask & ctx.num;
+}
+
+// special decoder for decoding numeric results
+DECODER(readNumeric) {
+
+  static union {
+    uint32_t u;
+    float f;
+  } x;
+  qint_decode2(br, &res->docId, &x.u);
+  res->num.value = x.f;
+
+  NumericFilter *f = ctx.ptr;
+  if (f) {
+    return NumericFilter_Match(f, (double)x.f);
+  }
+  return 1;
 }
 
 DECODER(readFreqs) {
@@ -263,6 +288,7 @@ DECODER(readDocIdsOnly) {
 }
 
 static IndexDecoder getDecoder(uint32_t flags) {
+
   switch (flags & INDEX_STORAGE_MASK) {
 
     // (freqs, fields, offset)
@@ -297,11 +323,24 @@ static IndexDecoder getDecoder(uint32_t flags) {
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
       return readFlagsOffsets;
 
+    case Index_StoreNumeric:
+      return readNumeric;
+
     default:
       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
       abort();
       return NULL;
   }
+}
+
+IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
+  RSIndexResult *res = NewVirtualResult();
+  res->type = RSResultType_Numeric;
+  res->freq = 1;
+  res->num.value = 0;
+
+  IndexDecoderCtx ctx = {.ptr = flt};
+  return NewIndexReaderGeneric(idx, readNumeric, ctx, res);
 }
 
 int IR_Read(void *ctx, RSIndexResult **e) {
@@ -434,8 +473,8 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocTable *docTable,
-                                t_fieldMask fieldMask, RSQueryTerm *term) {
+IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
+                                RSQueryTerm *term) {
   if (term) {
     // compute IDF based on num of docs in the header
     term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
@@ -448,7 +487,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocT
   IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
 
   uint32_t readFlags = (uint32_t)idx->flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = getDecoder(readerFlags);
+  IndexDecoder decoder = getDecoder(readFlags);
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
 }

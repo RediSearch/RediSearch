@@ -8,7 +8,7 @@
 #include "index_iterator.h"
 #include "index_result.h"
 #include "spec.h"
-
+#include "numeric_filter.h"
 #include <stdint.h>
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
@@ -85,19 +85,22 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent);
 
+size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value);
+
 IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
                                    IndexDecoderCtx decoderCtx, RSIndexResult *record);
 
-IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags);
+IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
+
+IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 /* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
-
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocTable *docTable,
-                                t_fieldMask fieldMask, RSQueryTerm *term);
+IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
+                                RSQueryTerm *term);
 
 /* free an index reader */
 void IR_Free(IndexReader *ir);

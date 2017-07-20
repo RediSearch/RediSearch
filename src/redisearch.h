@@ -178,11 +178,14 @@ typedef struct {
 
 } RSVirtualRecord;
 
+typedef struct { float value; } RSNumericRecord;
+
 typedef enum {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
+  RSResultType_Numeric = 0x10
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)
@@ -226,9 +229,14 @@ typedef struct RSIndexResult {
    ********************************************************************************/
 
   union {
+    // Aggregate record
     RSAggregateResult agg;
+    // Term record
     RSTermRecord term;
+    // virtual record with no values
     RSVirtualRecord virt;
+    // numeric record with float value
+    RSNumericRecord num;
   };
   RSResultType type;
 } RSIndexResult;

@@ -57,7 +57,6 @@ RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
 }
 
 /* An aggregate offset iterator yielding offsets one by one */
-
 uint32_t _aoi_Next(void *ctx);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
@@ -92,6 +91,18 @@ RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
 
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }
+uint32_t _empty_Next(void *ctx) {
+  return RS_OFFSETVECTOR_EOF;
+}
+void _empty_Free(void *ctx) {
+}
+void _empty_Rewind(void *ctx) {
+}
+
+RSOffsetIterator _emptyIterator() {
+  return (RSOffsetIterator){
+      .Next = _empty_Next, .Rewind = _empty_Rewind, .Free = _empty_Free, .ctx = NULL};
+}
 
 /* Create the appropriate iterator from a result based on its type */
 RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
@@ -99,6 +110,11 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
       return _offsetVector_iterate(&res->term.offsets);
+
+    // virtual and numeric entries have no offsets and cannot participate
+    case RSResultType_Virtual:
+    case RSResultType_Numeric:
+      return _emptyIterator();
 
     case RSResultType_Intersection:
     case RSResultType_Union:

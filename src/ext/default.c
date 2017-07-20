@@ -10,12 +10,14 @@ double _tfidfRecursive(RSIndexResult *r) {
   if (r->type == RSResultType_Term) {
     return r->freq * (r->term.term ? r->term.term->idf : 0);
   }
-
-  double ret = 0;
-  for (int i = 0; i < r->agg.numChildren; i++) {
-    ret += _tfidfRecursive(r->agg.children[i]);
+  if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
+    double ret = 0;
+    for (int i = 0; i < r->agg.numChildren; i++) {
+      ret += _tfidfRecursive(r->agg.children[i]);
+    }
+    return ret;
   }
-  return ret;
+  return r->freq;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
@@ -43,6 +45,7 @@ double _dismaxRecursive(RSIndexResult *r) {
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
+    case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
       break;

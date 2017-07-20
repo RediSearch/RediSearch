@@ -45,6 +45,17 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   return res;
 }
 
+RSIndexResult *NewNumericResult() {
+  RSIndexResult *res = rm_new(RSIndexResult);
+
+  *res = (RSIndexResult){.type = RSResultType_Numeric,
+                         .docId = 0,
+                         .fieldMask = RS_FIELDMASK_ALL,
+                         .freq = 1,
+                         .num = (RSNumericRecord){.value = 0}};
+  return res;
+}
+
 RSIndexResult *NewVirtualResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
@@ -141,10 +152,11 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->agg.typeMask != RSResultType_Virtual;
+      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RSResultType_Numeric;
 
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
+    case RSResultType_Numeric:
     default:
       return 0;
   }
@@ -354,7 +366,9 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
   */
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
-  if (ir->type == RSResultType_Term || ir->agg.numChildren <= 1) {
+  // check if calculation is even relevant here...
+  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) ||
+      ir->agg.numChildren <= 1) {
     return 1;
   }
   RSAggregateResult *r = &ir->agg;
