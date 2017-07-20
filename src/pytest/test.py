@@ -100,6 +100,10 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(res[3], "doc1")
                 self.assertTrue('hello world' in res[4])
 
+                # Test empty query
+                res = r.execute_command('ft.search', 'idx', '')
+                self.assertListEqual([0], res)
+
                 # Test searching with no content
                 res = r.execute_command(
                     'ft.search', 'idx', 'hello', 'nocontent')
@@ -433,13 +437,19 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
                 exclusive = r.execute_command(
                     'ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
+                exclusive2 = r.execute_command(
+                    'ft.search', 'idx', '-(term%d)' % i, 'nocontent', 'limit', 0, N)
                 # print inclusive, exclusive
                 self.assertNotEqual(inclusive[0], N)
                 self.assertEqual(inclusive[0] + exclusive[0], N)
 
-                s1, s2 = set(inclusive[1:]), set(exclusive[1:])
+                s1, s2, s3 = set(inclusive[1:]), set(exclusive[1:]), set(exclusive2[1:])
                 self.assertTrue(s1.difference(s2) == s1)
+                self.assertTrue(s1.difference(s3) == s1)
+                self.assertTrue(s2 == s3)
                 self.assertTrue(s2.intersection(s1) == set())
+                self.assertTrue(s3.intersection(s1) == set())
+
 
             # NOT on a non existing term
             self.assertEqual(r.execute_command(
