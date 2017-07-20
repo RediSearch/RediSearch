@@ -57,16 +57,15 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
                               char **errStr) {
 
   RSSearchRequest *req = calloc(1, sizeof(*req));
-  *req = (RSSearchRequest){
-      .sctx = NULL,
-      .indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL)),
-      .bc = NULL,
-      .offset = 0,
-      .num = 10,
-      .flags = RS_DEFAULT_QUERY_FLAGS,
-      .slop = -1,
-      .fieldMask = RS_FIELDMASK_ALL,
-  };
+  *req = (RSSearchRequest){.sctx = NULL,
+                           .indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL)),
+                           .bc = NULL,
+                           .offset = 0,
+                           .num = 10,
+                           .flags = RS_DEFAULT_QUERY_FLAGS,
+                           .slop = -1,
+                           .fieldMask = RS_FIELDMASK_ALL,
+                           .sortBy = NULL};
 
   // Detect "NOCONTENT"
   if (RMUtil_ArgExists("NOCONTENT", argv, argc, 3)) req->flags |= Search_NoContent;
@@ -182,7 +181,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // Parse SORTBY argument
   RSSortingKey sortKey;
-  if (RSSortingTable_ParseKey(ctx->spec->sortables, &sortKey, &argv[3], argc - 3)) {
+  if (ctx->spec->sortables != NULL &&
+      RSSortingTable_ParseKey(ctx->spec->sortables, &sortKey, &argv[3], argc - 3)) {
     req->sortBy = malloc(sizeof(RSSortingKey));
     *req->sortBy = sortKey;
   }

@@ -182,6 +182,7 @@ void SortingTable_Free(RSSortingTable *t) {
 
 /* Set a field in the table by index. This is called during the schema parsing */
 void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
+  if (!tbl) return;
   if (idx >= tbl->len) {
     return;
   }
@@ -190,6 +191,8 @@ void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
+
+  if (!tbl) return 01;
   for (int i = 0; i < tbl->len; i++) {
     if (!strcasecmp(tbl->fields[i], field)) {
       return i;
@@ -206,6 +209,8 @@ int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleStr
   const char *field = NULL;
   k->index = -1;
   k->ascending = 1;
+  if (!tbl) return 0;
+
   int sortPos = RMUtil_ArgIndex("SORTBY", argv, argc);
   if (sortPos >= 0 && sortPos + 1 < argc) {
 
