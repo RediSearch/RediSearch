@@ -122,6 +122,9 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
 
+  IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
+  ASSERT(enc != NULL);
+
   for (int i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
@@ -140,7 +143,7 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -160,7 +163,7 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
+    IndexReader *ir = NewTermIndexReader(idx, idx->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -196,7 +199,7 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
 int testIndexReadWrite() {
   for (uint32_t i = 0; i < 32; i++) {
-    printf("Testing %u BEGIN\n", i);
+    // printf("Testing %u BEGIN\n", i);
     int rv = testIndexReadWriteFlags(i);
     // printf("Testing %u END\n", i);
     if (rv != 0) {
@@ -209,6 +212,7 @@ int testIndexReadWrite() {
 InvertedIndex *createIndex(int size, int idStep) {
   InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
 
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
   t_docId id = idStep;
   for (int i = 0; i < size; i++) {
     // if (i % 10000 == 1) {
@@ -228,7 +232,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     for (int n = idStep; n < idStep + i % 4; n++) {
       VVW_Write(h.vw, n);
     }
-    InvertedIndex_WriteEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
     VVW_Free(h.vw);
 
     id += idStep;
@@ -248,7 +252,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 int testReadIterator() {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(idx, idx->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   RSIndexResult *h = NULL;
 
@@ -274,8 +278,8 @@ int testReadIterator() {
 int testUnion() {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -303,8 +307,8 @@ int testNot() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -332,8 +336,8 @@ int testOptional() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
@@ -366,8 +370,8 @@ int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL);  //
+  IndexReader *r1 = NewTermIndexReader(w, w->flags, NULL, RS_FIELDMASK_ALL, NULL);   //
+  IndexReader *r2 = NewTermIndexReader(w2, w->flags, NULL, RS_FIELDMASK_ALL, NULL);  //
 
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -613,9 +617,9 @@ int testIndexFlags() {
 
   u_char flags = INDEX_DEFAULT_FLAGS;
   InvertedIndex *w = NewInvertedIndex(flags, 1);
-
+  IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT(w->flags == flags);
-  size_t sz = InvertedIndex_WriteEntry(w, &h);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("written %d bytes. Offset=%d\n", sz, h.vw->bw.buf->offset);
   ASSERT_EQUAL(16, sz);
   InvertedIndex_Free(w);
@@ -623,7 +627,8 @@ int testIndexFlags() {
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(flags, 1);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteEntry(w, &h);
+  enc = InvertedIndex_GetEncoder(w->flags);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
   ASSERT_EQUAL(sz2, sz - Buffer_Offset(h.vw->bw.buf) - 1);
   InvertedIndex_Free(w);
@@ -632,7 +637,8 @@ int testIndexFlags() {
   w = NewInvertedIndex(flags, 1);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteEntry(w, &h);
+  enc = InvertedIndex_GetEncoder(w->flags);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQUAL(4, sz);
   InvertedIndex_Free(w);
 

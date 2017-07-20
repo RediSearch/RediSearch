@@ -226,7 +226,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
   }
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
-  return NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
+  return NewTermIndexReader(idx, ctx->spec->flags, dt, fieldMask, NewTerm(tok));
 }
 
 // void Redis_CloseReader(IndexReader *r) {

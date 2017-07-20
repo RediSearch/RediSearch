@@ -13,9 +13,6 @@
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
-static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
-                         t_fieldMask fieldMask, uint32_t freq, RSOffsetVector *offsets);
-
 static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
@@ -29,6 +26,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
+
   idx->flags = flags;
   idx->numDocs = 0;
   if (initBlock) {
@@ -112,7 +110,8 @@ size_t encodeFreqsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
 size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return WriteVarint(delta, bw);
 }
-static IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags) {
+
+IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags) {
 
   switch (idxflags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
@@ -172,8 +171,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  //
-  size_t ret = encoder(&bw, docId - idx->lastId, entry);
+  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId, (int)idx->flags);
+  size_t ret = encoder(&bw, docId - blk->lastId, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
@@ -435,9 +434,8 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                                RSQueryTerm *term) {
-
+IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocTable *docTable,
+                                t_fieldMask fieldMask, RSQueryTerm *term) {
   if (term) {
     // compute IDF based on num of docs in the header
     term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
@@ -450,7 +448,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
   IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
 
   uint32_t readFlags = (uint32_t)idx->flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = getDecoder(readFlags);
+  IndexDecoder decoder = getDecoder(readerFlags);
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
 }
@@ -525,6 +523,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoder decoder = getDecoder(readFlags);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
+
   while (!BufferReader_AtEnd(&br)) {
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
@@ -540,8 +540,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
       if (frags) {
         // printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
         //        blk->lastId);
-        writeEntry(&bw, flags, res->docId - blk->lastId, res->fieldMask, res->freq,
-                   &res->term.offsets);
+        encoder(&bw, res->docId - blk->lastId, res);
+
       } else {
         bw.buf->offset += sz;
         bw.pos += sz;

@@ -142,6 +142,8 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+    IndexEncoder enc = InvertedIndex_GetEncoder(ctx->spec->flags);
+
     while (entry != NULL) {
       // ForwardIndex_NormalizeFreq(idx, entry);
       int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
@@ -150,7 +152,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         ctx->spec->stats.numTerms += 1;
         ctx->spec->stats.termsSize += entry->len;
       }
-      size_t sz = InvertedIndex_WriteEntry(invidx, entry);
+      size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, enc, entry);
 
       /*******************************************
       * update stats for the index

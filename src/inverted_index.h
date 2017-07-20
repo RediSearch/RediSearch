@@ -23,7 +23,7 @@ typedef struct {
 typedef struct {
   IndexBlock *blocks;
   uint32_t size;
-
+  IndexFlags flags;
   t_docId lastId;
   uint32_t numDocs;
 } InvertedIndex;
@@ -88,11 +88,14 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
                                    IndexDecoderCtx decoderCtx, RSIndexResult *record);
 
+IndexEncoder InvertedIndex_GetEncoder(IndexFlags idxflags);
+
 /* Create a new index reader on an inverted index buffer,
 * optionally with a skip index, docTable and scoreIndex.
 * If singleWordMode is set to 1, we ignore the skip index and use the score
 * index.
 */
+
 IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexFlags readerFlags, DocTable *docTable,
                                 t_fieldMask fieldMask, RSQueryTerm *term);
 
