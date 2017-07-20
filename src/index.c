@@ -634,7 +634,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it) {
   nc->child = it;
   nc->lastDocId = 0;
 
-  IndexIterator *ret = malloc(sizeof(*it));
+  IndexIterator *ret = malloc(sizeof(*ret));
   ret->ctx = nc;
   ret->Current = OI_Current;
   ret->Free = OI_Free;
@@ -643,5 +643,97 @@ IndexIterator *NewOptionalIterator(IndexIterator *it) {
   ret->Len = OI_Len;
   ret->Read = OI_Read;
   ret->SkipTo = OI_SkipTo;
+  return ret;
+}
+
+/* Wildcard iterator, matchin ALL documents in the index. This is used for one thing only -
+ * purely negative queries. If the root of the query is a negative expression, we cannot process it
+ * without a positive expression. So we create a wildcard iterator that basically just iterates all
+ * the incremental document ids, and matches every skip within its range. */
+typedef struct {
+  t_docId topId;
+  t_docId current;
+  RSIndexResult *res;
+} WildcardIteratorCtx;
+
+/* Free a wildcard iterator */
+void WI_Free(IndexIterator *it) {
+
+  WildcardIteratorCtx *nc = it->ctx;
+  IndexResult_Free(nc->res);
+  free(it->ctx);
+  free(it);
+}
+
+/* Read reads the next consecutive id, unless we're at the end */
+int WI_Read(void *ctx, RSIndexResult **hit) {
+  WildcardIteratorCtx *nc = ctx;
+  if (nc->current > nc->topId) {
+    return INDEXREAD_EOF;
+  }
+  nc->res->docId = nc->current++;
+  return INDEXREAD_OK;
+}
+
+/* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has no
+ * meaning */
+int WI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+  // printf("WI_Skipto %d\n", docId);
+  WildcardIteratorCtx *nc = ctx;
+
+  if (nc->current > nc->topId) return INDEXREAD_EOF;
+
+  if (docId == 0) return WI_Read(ctx, hit);
+
+  nc->current = docId;
+  nc->res->docId = docId;
+
+  return INDEXREAD_OK;
+}
+
+/* We always have next, in case anyone asks... ;) */
+int WI_HasNext(void *ctx) {
+  WildcardIteratorCtx *nc = ctx;
+
+  return nc->current <= nc->topId;
+}
+
+/* Return the current hit */
+RSIndexResult *WI_Current(void *ctx) {
+  WildcardIteratorCtx *nc = ctx;
+  return nc->res;
+}
+
+/* Our len is the len of the index... */
+size_t WI_Len(void *ctx) {
+  WildcardIteratorCtx *nc = ctx;
+  return nc->topId;
+}
+
+/* Last docId */
+t_docId WI_LastDocId(void *ctx) {
+  WildcardIteratorCtx *nc = ctx;
+
+  return nc->current;
+}
+
+/* Create a new wildcard iterator */
+IndexIterator *NewWildcardIterator(t_docId maxId) {
+  WildcardIteratorCtx *c = malloc(sizeof(*c));
+  c->current = 1;
+  c->topId = maxId;
+  c->res = NewVirtualResult();
+  c->res->freq = 1;
+  c->res->fieldMask = RS_FIELDMASK_ALL;
+
+  IndexIterator *ret = malloc(sizeof(*ret));
+  ret->ctx = c;
+  ret->Current = WI_Current;
+  ret->Free = WI_Free;
+  ret->HasNext = WI_HasNext;
+  ret->LastDocId = WI_LastDocId;
+  ret->Len = WI_Len;
+  ret->Read = WI_Read;
+  ret->SkipTo = WI_SkipTo;
   return ret;
 }

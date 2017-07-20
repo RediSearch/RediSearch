@@ -34,6 +34,9 @@ typedef enum {
 
   /* Id Filter node */
   QN_IDS,
+
+  /* Wildcard node, used only in conjunction with negative root node to allow negative queries */
+  QN_WILDCARD
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -62,6 +65,9 @@ typedef RSToken QueryTokenNode;
 
 typedef RSToken QueryPrefixNode;
 
+typedef struct {
+} QueryWildcardNode;
+
 /* A node with a numeric filter */
 typedef struct { struct numericFilter *nf; } QueryNumericNode;
 
@@ -82,6 +88,7 @@ typedef struct RSQueryNode {
     QueryNotNode not;
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
+    QueryWildcardNode wc;
   };
   uint32_t fieldMask;
   /* The node type, for resolving the union access */

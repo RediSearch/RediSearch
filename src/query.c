@@ -71,6 +71,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryTokenNode_Free(&n->pfx);
       break;
     case QN_GEO:
+    case QN_WILDCARD:
     case QN_IDS:
       break;
   }
@@ -98,6 +99,10 @@ QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
 
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
   return ret;
+}
+
+QueryNode *NewWildcardNode() {
+  return NewQueryNode(QN_WILDCARD);
 }
 
 QueryNode *NewPrefixNode(Query *q, const char *s, size_t len) {
@@ -297,6 +302,14 @@ static IndexIterator *Query_EvalPhraseNode(Query *q, QueryNode *qn) {
   return ret;
 }
 
+static IndexIterator *Query_EvalWildcardNode(Query *q, QueryNode *qn) {
+  if (qn->type != QN_WILDCARD || !q->docTable) {
+    return NULL;
+  }
+
+  return NewWildcardIterator(q->docTable->maxDocId);
+}
+
 static IndexIterator *Query_EvalNotNode(Query *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
@@ -397,6 +410,8 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
       return Query_EvalGeofilterNode(q, &n->gn);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
+    case QN_WILDCARD:
+      return Query_EvalWildcardNode(q, n);
   }
 
   return NULL;
@@ -612,6 +627,10 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
       for (int i = 0; i < qs->fn.f->size; i++) {
         s = sdscatprintf(s, "%d,", qs->fn.f->ids[i]);
       }
+      break;
+    case QN_WILDCARD:
+
+      s = sdscat(s, "<WILDCARD>");
       break;
   }
 

@@ -84,6 +84,9 @@ int testQueryParser() {
   assertInvalidQuery("@body|title");
   assertValidQuery("hello ~world ~war");
   assertValidQuery("hello ~(world war)");
+  assertValidQuery("-foo");
+  assertValidQuery("@title:-foo");
+  assertValidQuery("-@title:foo");
 
   assertValidQuery("@number:[100 200]");
   assertValidQuery("@number:[100 -200]");
@@ -154,6 +157,34 @@ int testQueryParser() {
   return 0;
 }
 
+int testPureNegative() {
+  char *err = NULL;
+  const char *qs[] = {"-@title:hello", "-hello", "@title:-hello", "-(foo)", "-foo", "(-foo)", NULL};
+
+  static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
+                               "text",   "weight", "2.0",  "bar",    "numeric"};
+  RedisSearchCtx ctx = {
+      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+
+  for (int i = 0; qs[i] != NULL; i++) {
+    Query *q = NewQuery(&ctx, qs[i], strlen(qs[i]), 0, 1, RS_FIELDMASK_ALL, 0, "en",
+                        DefaultStopWordList(), NULL, -1, 0, NULL, (RSPayload){}, NULL);
+
+    QueryNode *n = Query_Parse(q, &err);
+
+    if (err) FAIL("Error parsing query: %s", err);
+    // QueryNode_Print(q, n, 0);
+    ASSERT(err == NULL);
+    ASSERT(n != NULL);
+    ASSERT_EQUAL(n->type, QN_PHRASE);
+    ASSERT_EQUAL(n->pn.numChildren, 2);
+    ASSERT_EQUAL(n->pn.children[0]->type, QN_WILDCARD);
+    ASSERT_EQUAL(n->pn.children[1]->type, QN_NOT);
+
+    Query_Free(q);
+  }
+  return 0;
+}
 int testFieldSpec() {
   char *err = NULL;
 
@@ -246,8 +277,9 @@ void benchmarkQueryParser() {
 void RMUTil_InitAlloc();
 TEST_MAIN({
   RMUTil_InitAlloc();
-  // LOGGING_INIT(L_INFO);
+  LOGGING_INIT(L_INFO);
   TESTFUNC(testQueryParser);
+  TESTFUNC(testPureNegative);
   TESTFUNC(testFieldSpec);
   benchmarkQueryParser();
 
