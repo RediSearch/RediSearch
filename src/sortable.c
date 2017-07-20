@@ -192,7 +192,7 @@ void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
 
-  if (!tbl) return 01;
+  if (!tbl) return -1;
   for (int i = 0; i < tbl->len; i++) {
     if (!strcasecmp(tbl->fields[i], field)) {
       return i;

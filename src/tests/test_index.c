@@ -697,11 +697,14 @@ int testSortable() {
   SortingTable_SetFieldName(tbl, 0, "foo");
   SortingTable_SetFieldName(tbl, 1, "bar");
   SortingTable_SetFieldName(tbl, 2, "baz");
+  SortingTable_SetFieldName(NULL, 2, "baz");
+
   ASSERT_STRING_EQ("foo", tbl->fields[0]);
   ASSERT_STRING_EQ("bar", tbl->fields[1]);
   ASSERT_STRING_EQ("baz", tbl->fields[2]);
   ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
   ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
+  ASSERT_EQUAL(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
 
   ASSERT_EQUAL(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
   ASSERT_EQUAL(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
