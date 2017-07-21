@@ -405,11 +405,11 @@ int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
-#define __reply_kvnum(n, k, v)                 \
+#define REPLY_KVNUM(n, k, v)                   \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
   n += 2
-#define __reply_kvstr(n, k, v)               \
+#define REPLY_KVSTR(n, k, v)                 \
   RedisModule_ReplyWithSimpleString(ctx, k); \
   RedisModule_ReplyWithSimpleString(ctx, v); \
   n += 2
@@ -429,7 +429,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   int n = 0;
 
-  __reply_kvstr(n, "index_name", sp->name);
+  REPLY_KVSTR(n, "index_name", sp->name);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
@@ -437,9 +437,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
     int nn = 1;
-    __reply_kvstr(nn, "type", SpecTypeNames[sp->fields[i].type]);
+    REPLY_KVSTR(nn, "type", SpecTypeNames[sp->fields[i].type]);
     if (sp->fields[i].type == F_FULLTEXT) {
-      __reply_kvnum(nn, "weight", sp->fields[i].weight);
+      REPLY_KVNUM(nn, "weight", sp->fields[i].weight);
     }
     if (sp->fields[i].sortable) {
       RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
@@ -449,30 +449,30 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   n += 2;
 
-  __reply_kvnum(n, "num_docs", sp->stats.numDocuments);
-  __reply_kvnum(n, "max_doc_id", sp->docs.maxDocId);
-  __reply_kvnum(n, "num_terms", sp->stats.numTerms);
-  __reply_kvnum(n, "num_records", sp->stats.numRecords);
-  __reply_kvnum(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  __reply_kvnum(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+  REPLY_KVNUM(n, "num_docs", sp->stats.numDocuments);
+  REPLY_KVNUM(n, "max_doc_id", sp->docs.maxDocId);
+  REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
+  REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
+  REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  __reply_kvnum(n, "inverted_cap_ovh", 0);
+  REPLY_KVNUM(n, "inverted_cap_ovh", 0);
   //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
-  __reply_kvnum(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  __reply_kvnum(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  __reply_kvnum(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
+  REPLY_KVNUM(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
+  REPLY_KVNUM(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
+  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
-  __reply_kvnum(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  __reply_kvnum(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  __reply_kvnum(n, "records_per_doc_avg",
-                (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
-  __reply_kvnum(n, "bytes_per_record_avg",
-                (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
-  __reply_kvnum(n, "offsets_per_term_avg",
-                (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
-  __reply_kvnum(n, "offset_bits_per_record_avg",
-                8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+  REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+  REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  REPLY_KVNUM(n, "records_per_doc_avg",
+              (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+  REPLY_KVNUM(n, "bytes_per_record_avg",
+              (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
+  REPLY_KVNUM(n, "offsets_per_term_avg",
+              (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
+  REPLY_KVNUM(n, "offset_bits_per_record_avg",
+              8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
