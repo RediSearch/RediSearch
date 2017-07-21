@@ -40,7 +40,7 @@ typedef struct {
 int forwardIndexTokenFunc(void *ctx, Token t);
 
 void ForwardIndexFree(ForwardIndex *idx);
-ForwardIndex *NewForwardIndex(Document doc);
+ForwardIndex *NewForwardIndex(Document *doc);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);

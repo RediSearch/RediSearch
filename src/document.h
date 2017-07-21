@@ -26,6 +26,12 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
 
 void Document_Free(Document *doc);
 
+#define DOCUMENT_ADD_NOSAVE 0x01
+#define DOCUMENT_ADD_REPLACE 0x02
+
+int Document_AddToIndexes(Document *doc, RedisSearchCtx *ctx, const char **errorString,
+                          int options);
+
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
 

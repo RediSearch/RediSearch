@@ -6,16 +6,16 @@
 #include <sys/param.h>
 #include "rmalloc.h"
 
-ForwardIndex *NewForwardIndex(Document doc) {
+ForwardIndex *NewForwardIndex(Document *doc) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
   idx->hits = kh_init(32);
-  idx->docScore = doc.score;
-  idx->docId = doc.docId;
+  idx->docScore = doc->score;
+  idx->docId = doc->docId;
   idx->totalFreq = 0;
   idx->uniqueTokens = 0;
   idx->maxFreq = 0;
-  idx->stemmer = NewStemmer(SnowballStemmer, doc.language);
+  idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
 
   return idx;
 }
