@@ -414,6 +414,22 @@ int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithSimpleString(ctx, v); \
   n += 2
 
+static void genOptionsStr(uint32_t options, char *out) {
+  size_t noptions = 0;
+#define MAYBE_ADD_OPTION(o, inverse) \
+  if (!(options & o)) {              \
+    strcat(out, inverse ", ");       \
+    noptions++;                      \
+  }
+  MAYBE_ADD_OPTION(Index_StoreFieldFlags, "NOFIELDS");
+  MAYBE_ADD_OPTION(Index_StoreTermOffsets, "NOOFFSETS");
+  MAYBE_ADD_OPTION(Index_StoreFreqs, "NOFREQS");
+  if (noptions) {
+    size_t len = strlen(out);
+    out[len - 2] = '\0';
+  }
+}
+
 /* FT.INFO {index}
 *  Provide info and stats about an index
 */
@@ -430,6 +446,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int n = 0;
 
   REPLY_KVSTR(n, "index_name", sp->name);
+
+  char indexOptionsStr[256] = {0};
+  genOptionsStr(sp->flags, indexOptionsStr);
+  REPLY_KVSTR(n, "index_options", indexOptionsStr);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
