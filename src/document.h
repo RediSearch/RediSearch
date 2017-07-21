@@ -24,7 +24,7 @@ typedef struct {
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize);
 
-void Document_Free(Document doc);
+void Document_Free(Document *doc);
 
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);

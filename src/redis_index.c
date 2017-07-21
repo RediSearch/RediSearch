@@ -277,8 +277,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 //   free(r);
 // }
 
-void Document_Free(Document doc) {
-  free(doc.fields);
+void Document_Free(Document *doc) {
+  free(doc->fields);
 }
 
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
