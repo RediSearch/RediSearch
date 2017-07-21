@@ -21,8 +21,8 @@ typedef struct {
   size_t payloadSize;
 } Document;
 
-Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang,
-                     const char *payload, size_t payloadSize);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
+                   const char *lang, const char *payload, size_t payloadSize);
 
 void Document_Free(Document doc);
 

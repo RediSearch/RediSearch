@@ -344,18 +344,15 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
   return REDISMODULE_OK;
 }
 
-Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang,
-                     const char *payload, size_t payloadSize) {
-  Document doc;
-  doc.docKey = docKey;
-  doc.score = (float)score;
-  doc.numFields = numFields;
-  doc.fields = calloc(doc.numFields, sizeof(DocumentField));
-  doc.language = lang;
-  doc.payload = payload;
-  doc.payloadSize = payloadSize;
-
-  return doc;
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
+                   const char *lang, const char *payload, size_t payloadSize) {
+  doc->docKey = docKey;
+  doc->score = (float)score;
+  doc->numFields = numFields;
+  doc->fields = calloc(doc->numFields, sizeof(DocumentField));
+  doc->language = lang;
+  doc->payload = payload;
+  doc->payloadSize = payloadSize;
 }
 
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,

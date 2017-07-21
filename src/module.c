@@ -295,8 +295,9 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   size_t payloadSize = 0;
   RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
 
-  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE,
-                             payload, payloadSize);
+  Document doc = {0};
+  Document_Init(&doc, argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE, payload,
+                payloadSize);
 
   size_t len;
   int n = 0;
