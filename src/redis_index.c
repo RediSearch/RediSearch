@@ -344,17 +344,6 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
   return REDISMODULE_OK;
 }
 
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
-                   const char *lang, const char *payload, size_t payloadSize) {
-  doc->docKey = docKey;
-  doc->score = (float)score;
-  doc->numFields = numFields;
-  doc->fields = calloc(doc->numFields, sizeof(DocumentField));
-  doc->language = lang;
-  doc->payload = payload;
-  doc->payloadSize = payloadSize;
-}
-
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
                               const char **fields, int numFields, int *nump) {
   Document *docs = calloc(numKeys, sizeof(Document));
@@ -367,22 +356,6 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int
 
   *nump = n;
   return docs;
-}
-
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
-
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    return REDISMODULE_ERR;
-  }
-
-  for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
-  }
-  return REDISMODULE_OK;
 }
 
 int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
