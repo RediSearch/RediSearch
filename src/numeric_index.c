@@ -52,10 +52,13 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (value < n->minVal || n->card == 0) n->minVal = value;
   if (value > n->maxVal || n->card == 0) n->maxVal = value;
 
-  if (add && n->card < n->splitCard) {
-    n->values[n->card++] = (float)value;
+  if (add) {
+    if (n->card < n->splitCard) {
+      n->values[n->card] = (float)value;
+    }
+    ++n->card;
   }
-
+  ++n->size;
   InvertedIndex_WriteNumericEntry(n->entries, docId, value);
 
   return n->card;
@@ -145,6 +148,9 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   // if this node is a leaf - we add AND check the cardinlity. We only split leaf nodes
   int card = NumericRange_Add(n->range, docId, value, 1);
 
+  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
+  // n->range->minVal,
+  //        n->range->maxVal, card, n->range->size);
   if (card >= n->range->splitCard || (n->range->size > NR_MAXRANGE_SIZE && n->range->card > 1)) {
 
     // split this node but don't delete its range
