@@ -201,8 +201,9 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 }
 
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value) {
+
   RSIndexResult rec = (RSIndexResult){
-      .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){value},
+      .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
@@ -287,7 +288,7 @@ DECODER(readDocIdsOnly) {
   return 1;  // Don't care about field mask
 }
 
-static IndexDecoder getDecoder(uint32_t flags) {
+IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
 
   switch (flags & INDEX_STORAGE_MASK) {
 
@@ -328,7 +329,6 @@ static IndexDecoder getDecoder(uint32_t flags) {
 
     default:
       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
-      abort();
       return NULL;
   }
 }
@@ -487,7 +487,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
   IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
 
   uint32_t readFlags = (uint32_t)idx->flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = getDecoder(readFlags);
+  IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
 }
@@ -561,7 +561,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
   int frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = getDecoder(readFlags);
+  IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
   IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
 
   while (!BufferReader_AtEnd(&br)) {

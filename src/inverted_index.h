@@ -56,6 +56,8 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
  */
 typedef int (*IndexDecoder)(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res);
 
+IndexDecoder InvertedIndex_GetDecoder(uint32_t flags);
+
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReadCtx {
   // the underlying data buffer

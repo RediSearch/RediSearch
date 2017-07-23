@@ -8,16 +8,10 @@
 #include "index_result.h"
 #include "redismodule.h"
 #include "search_ctx.h"
+#include "inverted_index.h"
 #include "numeric_filter.h"
 
 #define RT_LEAF_CARDINALITY_MAX 500
-
-/* A single entry in a numeric index's single range. Since entries are binned together, each needs
- * to have the exact value */
-typedef struct {
-  t_docId docId;
-  double value;
-} NumericRangeEntry;
 
 /* A numeric range is a node in a numeric range tree, representing a range of values bunched
  * toghether.
@@ -33,7 +27,8 @@ typedef struct {
   uint32_t cap;
   u_int16_t card;
   uint32_t splitCard;
-  NumericRangeEntry *entries;
+  float *values;
+  InvertedIndex *entries;
 } NumericRange;
 
 /* NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a
