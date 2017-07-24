@@ -758,6 +758,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, err);
   }
 
