@@ -11,7 +11,7 @@
 #define NR_MAX_DEPTH 2
 
 /* Returns 1 if the entire numeric range is contained between min and max */
-int NumericRange_Contained(NumericRange *n, double min, double max) {
+static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal >= min && n->maxVal <= max);
 
@@ -20,7 +20,7 @@ int NumericRange_Contained(NumericRange *n, double min, double max) {
 }
 
 /* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
-int NumericRange_Contains(NumericRange *n, double min, double max) {
+static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal <= min && n->maxVal > max);
   // printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
@@ -58,7 +58,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     }
     ++n->card;
   }
-  ++n->size;
+
   InvertedIndex_WriteNumericEntry(n->entries, docId, value);
 
   return n->card;
@@ -75,10 +75,11 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   // double split = qselect(scores, n->size, n->size / 2);
 
   double split = (n->minVal + n->maxVal) / (double)2;
+
   // printf("split point :%f\n", split);
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split,
+  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal,
+  *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
@@ -108,8 +109,6 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
-                             .cap = cap,
-                             .size = 0,
                              .card = 0,
                              .splitCard = splitCard,
                              .values = RedisModule_Calloc(splitCard, sizeof(float)),
@@ -150,8 +149,9 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
-  //        n->range->maxVal, card, n->range->size);
-  if (card >= n->range->splitCard || (n->range->size > NR_MAXRANGE_SIZE && n->range->card > 1)) {
+  //        n->range->maxVal, card, n->range->entries->numDocs);
+  if (card >= n->range->splitCard ||
+      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && n->range->card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
@@ -359,7 +359,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += sizeof(InvertedIndex) + n->range->entries->size;  // FIXME!!! not the correct size
+    *sz += sizeof(InvertedIndex) + n->range->entries->numDocs;  // FIXME!!! not the correct size
   }
 }
 

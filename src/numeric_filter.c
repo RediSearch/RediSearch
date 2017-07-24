@@ -147,22 +147,3 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->inclusiveMin = inclusiveMin;
   return f;
 }
-
-/*
-A numeric index allows indexing of documents by numeric ranges, and intersection
-of them with fulltext indexes.
-*/
-inline int NumericFilter_Match(NumericFilter *f, double score) {
-
-  int rc = 0;
-  // match min - -inf or x >/>= score
-  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
-
-  if (matchMin) {
-    // match max - +inf or x </<= score
-    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
-  }
-
-  // printf("numeric filter %s=>%f..%f. match %f?  %d\n", f->fieldName, f->min, f->max, score, rc);
-  return rc;
-}

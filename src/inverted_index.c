@@ -102,13 +102,7 @@ size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
 
 // 9. Special encoder for numeric values
 size_t encodeNumeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
-  static union {
-    float f;
-    uint32_t u;
-  } x;
-
-  x.f = res->num.value;
-  return qint_encode2(bw, (uint32_t)delta, x.u);
+  return qint_encode2(bw, (uint32_t)delta, res->num.encoded);
 }
 
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
@@ -157,7 +151,6 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
 
-  // printf("writing %s docId %d, lastDocId %d\n", ent->term, ent->docId, idx->lastId);
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // see if we need to grow the current block
@@ -237,16 +230,11 @@ DECODER(readFreqOffsetsFlags) {
 // special decoder for decoding numeric results
 DECODER(readNumeric) {
 
-  static union {
-    uint32_t u;
-    float f;
-  } x;
-  qint_decode2(br, &res->docId, &x.u);
-  res->num.value = x.f;
-
+  qint_decode2(br, &res->docId, &res->num.encoded);
+  // printf("Decoded %u -> %f\n", res->num.encoded, res->num.val)
   NumericFilter *f = ctx.ptr;
   if (f) {
-    return NumericFilter_Match(f, (double)x.f);
+    return NumericFilter_Match(f, res->num.value);
   }
   return 1;
 }
@@ -294,6 +282,7 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
 
     // (freqs, fields, offset)
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
+
       return readFreqOffsetsFlags;
 
     // (freqs)
@@ -480,14 +469,17 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
     term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
   }
 
+  // Get the decoder
+  IndexDecoder decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
+  if (!decoder) {
+    return NULL;
+  }
+
   RSIndexResult *record = NewTokenRecord(term);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
   IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
-
-  uint32_t readFlags = (uint32_t)idx->flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
 }

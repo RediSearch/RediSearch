@@ -803,15 +803,19 @@ QueryResult *Query_Execute(Query *query) {
 
       } else {
         /* In Scored mode - compare scores with the lowest ranked result */
-        if (h->score >= minScore) {
-          pooledHit = heap_poll(pq);
-          heap_offerx(pq, h);
-
-          // get the new min score
-          heapResult *minh = heap_peek(pq);
-          minScore = minh->score;
-        } else {
+        if (h->score < minScore) {
           pooledHit = h;
+        } else {
+          if (h->score > minScore || cmpHits(h, heap_peek(pq), NULL) < 0) {
+
+            pooledHit = heap_poll(pq);
+            heap_offerx(pq, h);
+
+            // get the new min score
+            minScore = ((heapResult *)heap_peek(pq))->score;
+          } else {
+            pooledHit = h;
+          }
         }
       }
     }
