@@ -102,7 +102,9 @@ size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
 
 // 9. Special encoder for numeric values
 size_t encodeNumeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
-  return qint_encode2(bw, (uint32_t)delta, res->num.encoded);
+  size_t sz = WriteVarint(delta, bw);
+  sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
+  return sz;
 }
 
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
@@ -229,8 +231,9 @@ DECODER(readFreqOffsetsFlags) {
 
 // special decoder for decoding numeric results
 DECODER(readNumeric) {
-
-  qint_decode2(br, &res->docId, &res->num.encoded);
+  res->docId = ReadVarint(br);
+  Buffer_Read(br, &res->num.encoded, sizeof(uint32_t));
+  // qint_decode2(br, &res->docId, &res->num.encoded);
   // printf("Decoded %u -> %f\n", res->num.encoded, res->num.val)
   NumericFilter *f = ctx.ptr;
   if (f) {

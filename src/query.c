@@ -684,7 +684,7 @@ typedef struct {
 } heapResult;
 
 /* Compare hits for sorting in the heap during traversal of the top N */
-static int cmpHits(const void *e1, const void *e2, const void *udata) {
+static inline int cmpHits(const void *e1, const void *e2, const void *udata) {
   const heapResult *h1 = e1, *h2 = e2;
 
   if (h1->score < h2->score) {
@@ -806,6 +806,8 @@ QueryResult *Query_Execute(Query *query) {
         if (h->score < minScore) {
           pooledHit = h;
         } else {
+          /* if the new result has a larger score, or has the same score
+           * but a larger id (we sort by score then id), we add it to the heap */
           if (h->score > minScore || cmpHits(h, heap_peek(pq), NULL) < 0) {
 
             pooledHit = heap_poll(pq);

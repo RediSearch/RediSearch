@@ -80,25 +80,6 @@ void Buffer_Free(Buffer *buf) {
 }
 
 /**
-Read len bytes from the buffer into data. If offset + len are over capacity
-- we do not read and return 0
-@return the number of bytes consumed
-*/
-inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
-  // no capacity - return 0
-  Buffer *b = br->buf;
-  if (br->pos + len > b->cap) {
-    return 0;
-  }
-
-  memcpy(data, b->data + br->pos, len);
-  br->pos += len;
-  // b->offset += len;
-
-  return len;
-}
-
-/**
 Consme one byte from the buffer
 @return 0 if at end, 1 if consumed
 */

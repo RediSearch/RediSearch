@@ -21,12 +21,29 @@ typedef struct {
   size_t pos;
 } BufferReader;
 
-#define BUFFER_READ_BYTE(br) br->buf->data[b->pos++]
+#define BUFFER_READ_BYTE(br) br->buf->data[br->pos++]
 //++b->buf->offset;
 
 void Buffer_Init(Buffer *b, size_t cap);
 size_t Buffer_ReadByte(BufferReader *b, char *c);
-size_t Buffer_Read(BufferReader *b, void *data, size_t len);
+/**
+Read len bytes from the buffer into data. If offset + len are over capacity
+- we do not read and return 0
+@return the number of bytes consumed
+*/
+static inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
+  // // no capacity - return 0
+  // Buffer *b = br->buf;
+  // if (br->pos + len > b->cap) {
+  //   return 0;
+  // }
+
+  memcpy(data, br->buf->data + br->pos, len);
+  br->pos += len;
+  // b->offset += len;
+
+  return len;
+}
 size_t Buffer_Seek(BufferReader *b, size_t offset);
 
 static inline size_t BufferReader_Offset(const BufferReader *br) {

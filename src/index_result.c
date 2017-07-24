@@ -289,9 +289,6 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
   return 0;
 }
 
-uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos);
-uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos);
-
 static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
