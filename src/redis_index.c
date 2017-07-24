@@ -11,10 +11,16 @@
 RedisModuleType *InvertedIndexType;
 
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != 0) {
+  if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
   }
   InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+
+  // If the data was encoded with a version that did not include the store numeric / store freqs
+  // options - we force adding StoreFreqs.
+  if (encver <= INVERTED_INDEX_NOFREQFLAG_VER) {
+    idx->flags |= Index_StoreFreqs;
+  }
   idx->lastId = RedisModule_LoadUnsigned(rdb);
   idx->numDocs = RedisModule_LoadUnsigned(rdb);
   idx->size = RedisModule_LoadUnsigned(rdb);
@@ -62,7 +68,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
                                .aof_rewrite = InvertedIndex_AofRewrite,
                                .free = InvertedIndex_Free};
 
-  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", 0, &tm);
+  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
   if (InvertedIndexType == NULL) {
     RedisModule_Log(ctx, "error", "Could not create inverted index type");
     return REDISMODULE_ERR;
@@ -226,7 +232,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
   }
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
-  idx->flags = ctx->spec->flags;
+
   return NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
 }
 

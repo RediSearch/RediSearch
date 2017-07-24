@@ -28,6 +28,9 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
 
+#define INVERTED_INDEX_ENCVER 1
+#define INVERTED_INDEX_NOFREQFLAG_VER 0
+
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
 /* Scan the keyspace with MATCH for a prefix, and call ScanFunc for each key found */
