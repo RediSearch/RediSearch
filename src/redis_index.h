@@ -10,8 +10,8 @@
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask);
+IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
+                              t_fieldMask fieldMask);
 
 InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
                                        int write);
@@ -67,5 +67,6 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value);
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value);
 void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 int InvertedIndex_RegisterType(RedisModuleCtx *ctx);
+unsigned long InvertedIndex_MemUsage(const void *value);
 
 #endif

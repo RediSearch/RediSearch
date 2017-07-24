@@ -61,11 +61,23 @@ void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *
   // NOT IMPLEMENTED YET
 }
 
+unsigned long InvertedIndex_MemUsage(const void *value) {
+  const InvertedIndex *idx = value;
+  unsigned long ret = sizeof(InvertedIndex);
+  for (size_t i = 0; i < idx->size; i++) {
+    ret += sizeof(IndexBlock);
+    ret += sizeof(Buffer);
+    ret += Buffer_Offset(idx->blocks[i].data);
+  }
+  return ret;
+}
+
 int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = InvertedIndex_RdbLoad,
                                .rdb_save = InvertedIndex_RdbSave,
                                .aof_rewrite = InvertedIndex_AofRewrite,
+                               .mem_usage = InvertedIndex_MemUsage,
                                .free = InvertedIndex_Free};
 
   InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);

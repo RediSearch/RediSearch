@@ -1,6 +1,7 @@
 #include "numeric_index.h"
 #include "sys/param.h"
 #include "rmutil/vector.h"
+#include "redis_index.h"
 #include "index.h"
 #include <math.h>
 #include "redismodule.h"
@@ -216,8 +217,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
-
-    RedisModule_Free(n->range->entries);
+    InvertedIndex_Free(n->range->entries);
+    RedisModule_Free(n->range->values);
     RedisModule_Free(n->range);
     n->range = NULL;
   }
@@ -359,7 +360,10 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += sizeof(InvertedIndex) + n->range->entries->numDocs;  // FIXME!!! not the correct size
+    *sz += n->range->card * sizeof(float);
+    if (n->range->entries) {
+      *sz += InvertedIndex_MemUsage(n->range->entries);
+    }
   }
 }
 

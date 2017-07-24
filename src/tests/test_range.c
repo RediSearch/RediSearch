@@ -102,7 +102,7 @@ int testRangeIterator() {
 
       ASSERT(NumericFilter_Match(flt, lookup[res->docId]));
 
-      ASSERT_EQUAL(res->type, RSResultType_Virtual);
+      ASSERT_EQUAL(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT(!RSIndexResult_HasOffsets(res));
       ASSERT(!RSIndexResult_IsAggregate(res));
