@@ -100,6 +100,8 @@ int testRangeIterator() {
       // printf("rc: %d docId: %d, lookup %f, flt %f..%f\n", rc, res->docId, lookup[res->docId],
       //        flt->min, flt->max);
 
+      ASSERT_EQUAL(res->num.value, lookup[res->docId]);
+
       ASSERT(NumericFilter_Match(flt, lookup[res->docId]));
 
       ASSERT_EQUAL(res->type, RSResultType_Numeric);
