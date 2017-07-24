@@ -13,7 +13,7 @@ Currently there is no dynamic linking of extensions and they need to be compiled
 
 The entry point is a function receiving an `RSExtensionCtx` object, that contains functions for registering the expanders/scorers. 
 
-Right now, it is necessary to call these init functions explicitly in `module.c`, but in the future this will be atuomated.
+Right now, it is necessary to call these init functions explicitly in `module.c`, but in the future this will be automated.
 
 Here is an example of an extension initialization function:
 
