@@ -887,7 +887,7 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
   RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
   size_t arrlen = 1;
 
-  const int with_docs = !(req->flags & Search_NoContent);
+  const int withDocs = !(req->flags & Search_NoContent);
 
   for (size_t i = 0; i < r->numResults; ++i) {
 
@@ -895,15 +895,12 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
     RedisModuleKey *rkey = NULL;
     const ResultEntry *result = r->results + i;
 
-    if (with_docs) {
+    if (withDocs) {
       // Current behavior skips entire result if document does not exist.
       // I'm unusre if that's intentional or an oversight.
       RedisModuleString *idstr = RedisModule_CreateString(ctx, result->id, strlen(result->id));
-      int rv = Redis_LoadDocumentEx(sctx, idstr, req->retfields, req->nretfields, &doc, &rkey);
+      Redis_LoadDocumentEx(sctx, idstr, req->retfields, req->nretfields, &doc, &rkey);
       RedisModule_FreeString(ctx, idstr);
-      if (rv != REDISMODULE_OK) {
-        continue;
-      }
     }
 
     ++arrlen;
@@ -940,7 +937,7 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
       }
     }
 
-    if (with_docs) {
+    if (withDocs) {
       ++arrlen;
       RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
       for (size_t j = 0; j < doc.numFields; ++j) {

@@ -132,6 +132,19 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(res[3], "doc1")
                 self.assertTrue(float(res[4]) > 0)
 
+    def testSearchNosave(self):
+        # Check to see what happens when we try to return unsaved documents
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'f1', 'text')
+        # Add 3 documents
+        for x in range(3):
+            self.cmd('ft.add', 'idx', 'doc{}'.format(x), 1.0, 'NOSAVE', 'FIELDS', 'f1', 'value')
+
+        # Now query the results
+        res = self.cmd('ft.search', 'idx', 'value')
+        self.assertEqual(3, res[0])
+        for content in res[2::2]:
+            self.assertEqual([], content)
+
     def testDelete(self):
         with self.redis() as r:
             r.flushdb()
@@ -449,7 +462,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertTrue(s2 == s3)
                 self.assertTrue(s2.intersection(s1) == set())
                 self.assertTrue(s3.intersection(s1) == set())
-
 
             # NOT on a non existing term
             self.assertEqual(r.execute_command(
