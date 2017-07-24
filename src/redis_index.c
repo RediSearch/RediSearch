@@ -276,11 +276,6 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 //   }
 //   free(r);
 // }
-
-void Document_Free(Document *doc) {
-  free(doc->fields);
-}
-
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
   doc->numFields = 0;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);

@@ -14,6 +14,7 @@
 #include "util/logging.h"
 #include "search_request.h"
 #include "rmalloc.h"
+#include "concurrent_ctx.h"
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize) {
@@ -24,6 +25,40 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
   doc->language = lang;
   doc->payload = payload;
   doc->payloadSize = payloadSize;
+}
+
+void Document_Detatch(Document *doc, RedisModuleCtx *srcCtx) {
+  RedisModule_RetainString(srcCtx, doc->docKey);
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    DocumentField *f = doc->fields + ii;
+    RedisModule_RetainString(srcCtx, f->text);
+    f->name = strdup(f->name);
+  }
+  doc->stringOwner = 1;
+  if (doc->payload) {
+    doc->payload = strndup(doc->payload, doc->payloadSize);
+  }
+  if (doc->language) {
+    doc->language = strdup(doc->language);
+  }
+}
+
+void Document_Free(Document *doc) {
+  free(doc->fields);
+}
+
+void Document_FreeDetatched(Document *doc, RedisModuleCtx *anyCtx) {
+  RedisModule_FreeString(anyCtx, doc->docKey);
+
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    RedisModule_FreeString(anyCtx, doc->fields[ii].text);
+    free((void *)doc->fields[ii].name);
+  }
+
+  free((char *)doc->payload);
+  free((char *)doc->language);
+
+  Document_Free(doc);
 }
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
@@ -42,13 +77,13 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
   return REDISMODULE_OK;
 }
 
-static int Document_Store(Document *doc, RedisSearchCtx *ctx, int nosave, int replace,
+static int Document_Store(Document *doc, RedisSearchCtx *ctx, int options,
                           const char **errorString) {
   const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
   DocTable *table = &ctx->spec->docs;
 
   // if we're in replace mode, first we need to try and delete the older version of the document
-  if (replace) {
+  if (options & DOCUMENT_ADD_REPLACE) {
     DocTable_Delete(table, keystr);
   }
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
@@ -60,7 +95,7 @@ static int Document_Store(Document *doc, RedisSearchCtx *ctx, int nosave, int re
     return -1;
   }
 
-  if (!nosave) {
+  if (!(options & DOCUMENT_ADD_NOSAVE)) {
     // first save the document as hash
     if (REDISMODULE_ERR == Redis_SaveDocument(ctx, doc)) {
       *errorString = "Couldn't save document";
@@ -88,11 +123,13 @@ static void ensureSortingVector(RedisSearchCtx *sctx, indexingContext *ictx) {
   }
 }
 
-static int indexField(RedisSearchCtx *ctx, const DocumentField *field, const char **errorString,
+static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const char **errorString,
                       indexingContext *ictx) {
   // printf("Tokenizing %s: %s\n",
   // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
   //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
+
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
 
   const FieldSpec *fs = IndexSpec_GetField(ctx->spec, field->name, strlen(field->name));
   if (fs == NULL) {
@@ -112,6 +149,7 @@ static int indexField(RedisSearchCtx *ctx, const DocumentField *field, const cha
       ictx->totalTokens = tokenize(c, fs->weight, fs->id, ictx->idx, forwardIndexTokenFunc,
                                    ictx->idx->stemmer, ictx->totalTokens, ctx->spec->stopwords);
       break;
+
     case F_NUMERIC: {
       double score;
 
@@ -120,8 +158,10 @@ static int indexField(RedisSearchCtx *ctx, const DocumentField *field, const cha
         return -1;
       }
 
+      RedisModule_ThreadSafeContextLock(aCtx->thCtx);
       NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
       NumericRangeTree_Add(rt, ictx->doc->docId, score);
+      RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
 
       // If this is a sortable numeric value - copy the value to the sorting vector
       if (fs->sortable) {
@@ -142,7 +182,12 @@ static int indexField(RedisSearchCtx *ctx, const DocumentField *field, const cha
       char *slon = (char *)c, *slat = (char *)pos;
 
       GeoIndex gi = {.ctx = ctx, .sp = fs};
-      if (GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat) == REDISMODULE_ERR) {
+
+      RedisModule_ThreadSafeContextLock(aCtx->thCtx);
+      int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat);
+      RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
+
+      if (rv == REDISMODULE_ERR) {
         *errorString = "Could not index geo value";
         return -1;
       }
@@ -153,14 +198,65 @@ static int indexField(RedisSearchCtx *ctx, const DocumentField *field, const cha
   return 0;
 }
 
+void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
+  // printf("totaltokens :%d\n", totalTokens);
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
+
+  ConcurrentSearchCtx conc;
+  ConcurrentSearchCtx_Init(aCtx->thCtx, &conc);
+
+  ForwardIndexIterator it = ForwardIndex_Iterate(ictx->idx);
+  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->rsCtx.spec->flags);
+
+  while (entry != NULL) {
+    // ForwardIndex_NormalizeFreq(idx, entry);
+    int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
+    if (isNew) {
+      ctx->spec->stats.numTerms += 1;
+      ctx->spec->stats.termsSize += entry->len;
+    }
+    size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, encoder, entry);
+
+    /*******************************************
+    * update stats for the index
+    ********************************************/
+
+    /* record the change in capacity of the buffer */
+    // ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
+    // ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
+    // ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
+    /* record the actual size consumption change */
+    ctx->spec->stats.invertedSize += sz;
+
+    ctx->spec->stats.numRecords++;
+    /* increment the number of terms if this is a new term*/
+
+    /* Record the space saved for offset vectors */
+    if (ctx->spec->flags & Index_StoreTermOffsets) {
+      ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
+      ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
+    }
+    // Redis_CloseWriter(w);
+
+    entry = ForwardIndexIterator_Next(&it);
+    CONCURRENT_CTX_TICK((&conc));
+  }
+  // ctx->spec->stats->numDocuments += 1;
+}
+
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
  * version of it first */
-int Document_AddToIndexes(Document *doc, RedisSearchCtx *ctx, const char **errorString,
-                          int options) {
-  int replace = options & DOCUMENT_ADD_REPLACE;
-  int nosave = options & DOCUMENT_ADD_NOSAVE;
+int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
+  Document *doc = &aCtx->doc;
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
 
-  if (Document_Store(doc, ctx, nosave, replace, errorString) != 0) {
+  RedisModule_ThreadSafeContextLock(aCtx->thCtx);
+  int rv = Document_Store(doc, ctx, aCtx->options, errorString);
+  RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
+
+  if (rv != 0) {
     return REDISMODULE_ERR;
   }
 
@@ -173,62 +269,25 @@ int Document_AddToIndexes(Document *doc, RedisSearchCtx *ctx, const char **error
     // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
     //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
 
-    if (indexField(ctx, &doc->fields[i], errorString, &ictx) == -1) {
+    if (indexField(aCtx, &doc->fields[i], errorString, &ictx) == -1) {
       ourRv = REDISMODULE_ERR;
       goto cleanup;
     }
   }
+
+  RedisModule_ThreadSafeContextLock(aCtx->thCtx);
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
   md->maxFreq = idx->maxFreq;
   if (ictx.sv) {
     DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, ictx.sv);
   }
-
-  // printf("totaltokens :%d\n", totalTokens);
   if (ictx.totalTokens > 0) {
-    ForwardIndexIterator it = ForwardIndex_Iterate(idx);
-
-    ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-
-    IndexEncoder encoder = InvertedIndex_GetEncoder(ctx->spec->flags);
-
-    while (entry != NULL) {
-      // ForwardIndex_NormalizeFreq(idx, entry);
-      int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
-      if (isNew) {
-        ctx->spec->stats.numTerms += 1;
-        ctx->spec->stats.termsSize += entry->len;
-      }
-      size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, encoder, entry);
-
-      /*******************************************
-      * update stats for the index
-      ********************************************/
-
-      /* record the change in capacity of the buffer */
-      // ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
-      // ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
-      // ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
-      /* record the actual size consumption change */
-      ctx->spec->stats.invertedSize += sz;
-
-      ctx->spec->stats.numRecords++;
-      /* increment the number of terms if this is a new term*/
-
-      /* Record the space saved for offset vectors */
-      if (ctx->spec->flags & Index_StoreTermOffsets) {
-        ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
-        ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
-      }
-      // Redis_CloseWriter(w);
-
-      entry = ForwardIndexIterator_Next(&it);
-    }
-    // ctx->spec->stats->numDocuments += 1;
+    addTokensToIndex(&ictx, aCtx);
   }
+
   ctx->spec->stats.numDocuments += 1;
+  RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
 
 cleanup:
   ForwardIndexFree(idx);

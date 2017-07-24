@@ -19,18 +19,29 @@ typedef struct {
 
   const char *payload;
   size_t payloadSize;
+  int stringOwner;
 } Document;
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize);
+
+void Document_Detatch(Document *doc, RedisModuleCtx *srcCtx);
+void Document_FreeDetatched(Document *doc, RedisModuleCtx *anyCtx);
 
 void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_NOSAVE 0x01
 #define DOCUMENT_ADD_REPLACE 0x02
 
-int Document_AddToIndexes(Document *doc, RedisSearchCtx *ctx, const char **errorString,
-                          int options);
+typedef struct {
+  RedisModuleBlockedClient *bc;
+  RedisModuleCtx *thCtx;
+  RedisSearchCtx rsCtx;
+  int options;
+  Document doc;
+} RSAddDocumentCtx;
+
+int Document_AddToIndexes(RSAddDocumentCtx *ctx, const char **errorString);
 
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);

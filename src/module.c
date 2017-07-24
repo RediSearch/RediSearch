@@ -87,6 +87,37 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
+static RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp) {
+  // Block the client and create the context!
+  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
+  aCtx->bc = RedisModule_BlockClient(origCtx, NULL, NULL, NULL, 0);
+  aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+  RedisModule_AutoMemory(aCtx->thCtx);
+  aCtx->rsCtx.redisCtx = aCtx->thCtx;
+  aCtx->rsCtx.spec = sp;
+  return aCtx;
+}
+
+static void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
+  Document_FreeDetatched(&aCtx->doc, aCtx->thCtx);
+  RedisModule_UnblockClient(aCtx->bc, NULL);
+  RedisModule_FreeThreadSafeContext(aCtx->thCtx);
+  free(aCtx);
+}
+
+static void doDocumentAddTh(void *arg) {
+  RSAddDocumentCtx *aCtx = arg;
+  const char *msg = NULL;
+  int rc = Document_AddToIndexes(aCtx, &msg);
+  if (rc == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(aCtx->thCtx, msg ? msg : "Could not index document");
+  } else {
+    RedisModule_ReplyWithSimpleString(aCtx->thCtx, "OK");
+  }
+
+  AddDocumentCtx_Free(aCtx);
+}
+
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
@@ -101,21 +132,13 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    goto cleanup;
-  }
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, "Could not parse document score");
     goto cleanup;
   }
+
   if (ds > 1 || ds < 0) {
     RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
     goto cleanup;
@@ -134,40 +157,35 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   size_t payloadSize = 0;
   RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
 
-  Document doc = {0};
-  Document_Init(&doc, argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE, payload,
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    goto cleanup;
+  }
+
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(ctx, sp);
+  Document *doc = &aCtx->doc;
+  Document_Init(doc, argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE, payload,
                 payloadSize);
 
-  size_t len;
   int n = 0;
   for (int i = fieldsIdx + 1; i < argc - 1; i += 2, n++) {
     // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
     // NULL),
     // RedisModule_StringPtrLen(argv[i+1], NULL));
-    doc.fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
-    doc.fields[n].text = argv[i + 1];
+    doc->fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
+    doc->fields[n].text = argv[i + 1];
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
-           doc.numFields);
-  const char *msg = NULL;
-  int addOpts = 0;
-  if (nosave) {
-    addOpts |= DOCUMENT_ADD_NOSAVE;
-  }
-  if (replace) {
-    addOpts |= DOCUMENT_ADD_REPLACE;
-  }
-  int rc = Document_AddToIndexes(&doc, &sctx, &msg, addOpts);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-  free(doc.fields);
+  Document_Detatch(doc, ctx);
+
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
+           doc->numFields);
+
+  aCtx->options = (nosave ? DOCUMENT_ADD_NOSAVE : 0) | (replace ? DOCUMENT_ADD_REPLACE : 0);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx);
 
 cleanup:
-
   return REDISMODULE_OK;
 }
 
@@ -534,7 +552,6 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
@@ -554,27 +571,25 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  Document doc;
-  if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(ctx, sp);
+  if (Redis_LoadDocument(&aCtx->rsCtx, argv[2], &aCtx->doc) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(aCtx->thCtx, "Could not load document");
+    AddDocumentCtx_Free(aCtx);
   }
-  doc.docKey = argv[2];
-  doc.score = ds;
-  doc.language = lang ? lang : DEFAULT_LANGUAGE;
-  doc.payload = NULL;
-  doc.payloadSize = 0;
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
-           doc.numFields);
-  const char *msg = NULL;
-  int addOpts = DOCUMENT_ADD_NOSAVE | (replace ? DOCUMENT_ADD_REPLACE : 0);
-  int rc = Document_AddToIndexes(&doc, &sctx, &msg, addOpts);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-  free(doc.fields);
+  Document *doc = &aCtx->doc;
+  doc->docKey = argv[2];
+  doc->score = ds;
+  doc->language = lang ? lang : DEFAULT_LANGUAGE;
+  doc->payload = NULL;
+  doc->payloadSize = 0;
+
+  Document_Detatch(doc, ctx);
+
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
+           doc->numFields);
+  aCtx->options = DOCUMENT_ADD_NOSAVE | (replace ? DOCUMENT_ADD_REPLACE : 0);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx);
 
 cleanup:
   return REDISMODULE_OK;
