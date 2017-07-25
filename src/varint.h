@@ -37,6 +37,11 @@ VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, int i);
 size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
+void VVW_Init(VarintVectorWriter *w, size_t cap);
+
+static inline void VVW_Cleanup(VarintVectorWriter *w) {
+  Buffer_Free(&w->buf);
+}
 
 #define VVW_GetCount(vvw) (vvw)->nmemb
 #define VVW_GetByteLength(vvw) (vvw)->buf.offset

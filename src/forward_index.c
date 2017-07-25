@@ -28,7 +28,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
       // rm_free((void *)ent->term);
 
       kh_del(32, idx->hits, k);
-      VVW_Free(ent->vw);
+      VVW_Cleanup(ent->vw);
 
       if (ent->stringFreeable) {
         rm_free((char *)ent->term);
@@ -49,6 +49,11 @@ void ForwardIndexFree(ForwardIndex *idx) {
 //   e->freq = e->freq / idx->maxFreq;
 // }
 
+typedef struct {
+  ForwardIndexEntry ent;
+  VarintVectorWriter vw;
+} khIdxEntry;
+
 int forwardIndexTokenFunc(void *ctx, Token t) {
   ForwardIndex *idx = ctx;
 
@@ -59,6 +64,8 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
   khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
   if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
     /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
+    khIdxEntry *kh = rm_calloc(1, sizeof(*kh));
+    h = &kh->ent;
     h = rm_calloc(1, sizeof(ForwardIndexEntry));
     h->docId = idx->docId;
     h->fieldMask = 0;
@@ -67,7 +74,8 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h->stringFreeable = t.stringFreeable;
     h->freq = 0;
 
-    h->vw = NewVarintVectorWriter(4);
+    h->vw = &kh->vw;
+    VVW_Init(h->vw, 4);
     h->docScore = idx->docScore;
 
     int ret;
