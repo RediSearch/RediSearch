@@ -14,6 +14,9 @@
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
+static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+                                          IndexDecoderCtx decoderCtx, RSIndexResult *record);
+
 static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
@@ -326,9 +329,9 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
 }
 
 IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
-  RSIndexResult *res = NewVirtualResult();
-  res->type = RSResultType_Numeric;
+  RSIndexResult *res = NewNumericResult();
   res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
   res->num.value = 0;
 
   IndexDecoderCtx ctx = {.ptr = flt};
@@ -465,6 +468,22 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
+static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+                                          IndexDecoderCtx decoderCtx, RSIndexResult *record) {
+  IndexReader *ret = rm_malloc(sizeof(IndexReader));
+  ret->currentBlock = 0;
+  ret->lastId = 0;
+  ret->idx = idx;
+
+  ret->record = record;
+  ret->len = 0;
+  ret->atEnd = 0;
+  ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
+  ret->decoder = decoder;
+  ret->decoderCtx = decoderCtx;
+  return ret;
+}
+
 IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
                                 RSQueryTerm *term) {
   if (term) {
@@ -485,22 +504,6 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
   IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
-}
-
-IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
-                                   IndexDecoderCtx decoderCtx, RSIndexResult *record) {
-  IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  ret->currentBlock = 0;
-  ret->lastId = 0;
-  ret->idx = idx;
-
-  ret->record = record;
-  ret->len = 0;
-  ret->atEnd = 0;
-  ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
-  ret->decoder = decoder;
-  ret->decoderCtx = decoderCtx;
-  return ret;
 }
 
 void IR_Free(IndexReader *ir) {

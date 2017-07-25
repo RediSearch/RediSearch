@@ -40,6 +40,8 @@ typedef union {
   uint32_t num;
 } IndexDecoderCtx;
 
+/* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
+ * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num);
@@ -56,6 +58,8 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
  */
 typedef int (*IndexDecoder)(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res);
 
+/* Get the decoder for the index based on the index flags. This is used to externally inject the
+ * endoder/decoder when reading and writing */
 IndexDecoder InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
@@ -67,33 +71,41 @@ typedef struct indexReadCtx {
   // last docId, used for delta encoding/decoding
   t_docId lastId;
   uint32_t currentBlock;
-  // // skip index. If not null and is needed, will be used for intersects
+
+  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
+   * filtering field masks, the pointer for numeric filtering */
   IndexDecoderCtx decoderCtx;
+  /* The decoding function for reading the index */
   IndexDecoder decoder;
 
+  /* The number of records read */
   size_t len;
+
+  /* The record we are decoding into */
   RSIndexResult *record;
 
   int atEnd;
 } IndexReader;
 
-typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId lastId, RSIndexResult *record);
+/* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
+ * delta for encoding */
+typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
-                                       RSIndexResult *record);
-
-/* Write a ForwardIndexEntry into an indexWriter, updating its score and skip
- * indexes if needed. Returns the number of bytes written to the index */
+/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+ */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent);
 
+/* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
+ * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value);
 
-IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
-                                   IndexDecoderCtx decoderCtx, RSIndexResult *record);
-
+/* Create a new index reader for numeric records, optionally using a given filter. If the filter is
+ * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
 
+/* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
+ */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 /* Create a new index reader on an inverted index buffer,

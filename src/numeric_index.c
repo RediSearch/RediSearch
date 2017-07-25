@@ -84,8 +84,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewIndexReaderGeneric(n->entries, InvertedIndex_GetDecoder(Index_StoreNumeric),
-                                          (IndexDecoderCtx){0}, NewNumericResult());
+  IndexReader *ir = NewNumericReader(n->entries, NULL);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
                      res->num.value, 1);
@@ -275,15 +274,12 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 
 IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
 
-  IndexDecoderCtx dc = {.ptr = NULL};
-
   // if this range is at either end of the filter, we need to check each record
-  if (!NumericFilter_Match(f, nr->minVal) || !NumericFilter_Match(f, nr->maxVal)) {
-    dc.ptr = f;
+  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
+    // make the filter NULL so the reader will ignore it
+    f = NULL;
   }
-
-  IndexReader *ir = NewIndexReaderGeneric(nr->entries, InvertedIndex_GetDecoder(Index_StoreNumeric),
-                                          dc, NewNumericResult());
+  IndexReader *ir = NewNumericReader(nr->entries, f);
 
   return NewReadIterator(ir);
 }
@@ -444,9 +440,8 @@ void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (__isLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir =
-        NewIndexReaderGeneric(rng->entries, InvertedIndex_GetDecoder(Index_StoreNumeric),
-                              (IndexDecoderCtx){0}, NewNumericResult());
+    IndexReader *ir = NewNumericReader(rng->entries, NULL);
+
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);
       RedisModule_SaveDouble(rctx->rdb, res->num.value);

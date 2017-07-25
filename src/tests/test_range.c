@@ -95,7 +95,9 @@ int testRangeIterator() {
       if (rc == INDEXREAD_EOF) {
         break;
       }
-      ASSERT(matched[res->docId] == 1);
+
+      ASSERT_EQUAL(matched[res->docId], 1);
+
       matched[res->docId] = (uint8_t)2;
       // printf("rc: %d docId: %d, lookup %f, flt %f..%f\n", rc, res->docId, lookup[res->docId],
       //        flt->min, flt->max);
