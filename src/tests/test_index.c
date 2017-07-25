@@ -26,7 +26,7 @@ int testVarint() {
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
 
-  RSOffsetVector vec = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset};
+  RSOffsetVector vec = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
   // Buffer_Seek(vw->bw.buf, 0);
   RSOffsetIterator it = _offsetVector_iterate(&vec);
   int x = 0;
@@ -63,11 +63,11 @@ int testDistance() {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL);
   tr1->docId = 1;
-  tr1->term.offsets = (RSOffsetVector){.data = vw->bw.buf->data, .len = vw->bw.buf->offset};
+  tr1->term.offsets = (RSOffsetVector)(RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL);
   tr2->docId = 1;
-  tr2->term.offsets = (RSOffsetVector){.data = vw2->bw.buf->data, .len = vw2->bw.buf->offset};
+  tr2->term.offsets = (RSOffsetVector)(RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw2);
 
   RSIndexResult *res = NewIntersectResult(2);
   AggregateResult_AddChild(res, tr1);
@@ -89,7 +89,7 @@ int testDistance() {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL);
   tr3->docId = 1;
-  tr3->term.offsets = (RSOffsetVector){.data = vw3->bw.buf->data, .len = vw3->bw.buf->offset};
+  tr3->term.offsets = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -676,7 +676,7 @@ int testIndexFlags() {
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
-  ASSERT_EQUAL(sz2, sz - Buffer_Offset(h.vw->bw.buf) - 1);
+  ASSERT_EQUAL(sz2, sz - Buffer_Offset(&h.vw->buf) - 1);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreFieldFlags;

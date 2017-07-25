@@ -9,6 +9,11 @@
 
 // static int msb = (int)(~0ULL << 25);
 
+int WriteVarintRaw(int value, Buffer *buf) {
+  BufferWriter bw = {.buf = buf, .pos = buf->data + buf->offset};
+  return WriteVarint(value, &bw);
+}
+
 int WriteVarint(int value, BufferWriter *w) {
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
@@ -28,17 +33,15 @@ size_t varintSize(int value) {
 }
 
 void VVW_Free(VarintVectorWriter *w) {
-  Buffer_Free(w->bw.buf);
-  free(w->bw.buf);
+  Buffer_Free(&w->buf);
   free(w);
 }
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
   VarintVectorWriter *w = malloc(sizeof(VarintVectorWriter));
-  w->bw = NewBufferWriter(NewBuffer(cap));
   w->lastValue = 0;
   w->nmemb = 0;
-
+  Buffer_Init(&w->buf, cap);
   return w;
 }
 
@@ -49,7 +52,7 @@ Write an integer to the vector.
 @retur 0 if we're out of capacity, the varint's actual size otherwise
 */
 size_t VVW_Write(VarintVectorWriter *w, int i) {
-  size_t n = WriteVarint(i - w->lastValue, &w->bw);
+  size_t n = WriteVarintRaw(i - w->lastValue, &w->buf);
   if (n != 0) {
     w->nmemb += 1;
     w->lastValue = i;
@@ -59,5 +62,5 @@ size_t VVW_Write(VarintVectorWriter *w, int i) {
 
 // Truncate the vector
 size_t VVW_Truncate(VarintVectorWriter *w) {
-  return Buffer_Truncate(w->bw.buf, 0);
+  return Buffer_Truncate(&w->buf, 0);
 }

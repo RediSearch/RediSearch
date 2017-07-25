@@ -235,8 +235,8 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
 
     /* Record the space saved for offset vectors */
     if (ctx->spec->flags & Index_StoreTermOffsets) {
-      ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
-      ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
+      ctx->spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
+      ctx->spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
     }
     // Redis_CloseWriter(w);
 
