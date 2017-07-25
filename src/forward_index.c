@@ -77,7 +77,7 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h->freq = 0;
 
     h->vw = &kh->vw;
-    VVW_Init(h->vw, 4);
+    VVW_Init(h->vw, 64);
     h->docScore = idx->docScore;
 
     int ret;
