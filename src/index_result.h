@@ -23,6 +23,8 @@ RSIndexResult *NewUnionResult(size_t cap);
 
 RSIndexResult *NewVirtualResult();
 
+RSIndexResult *NewNumericResult();
+
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 

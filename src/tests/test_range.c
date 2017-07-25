@@ -95,14 +95,18 @@ int testRangeIterator() {
       if (rc == INDEXREAD_EOF) {
         break;
       }
-      ASSERT(matched[res->docId] == 1);
+
+      ASSERT_EQUAL(matched[res->docId], 1);
+
       matched[res->docId] = (uint8_t)2;
       // printf("rc: %d docId: %d, lookup %f, flt %f..%f\n", rc, res->docId, lookup[res->docId],
       //        flt->min, flt->max);
 
+      ASSERT_EQUAL(res->num.value, lookup[res->docId]);
+
       ASSERT(NumericFilter_Match(flt, lookup[res->docId]));
 
-      ASSERT_EQUAL(res->type, RSResultType_Virtual);
+      ASSERT_EQUAL(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT(!RSIndexResult_HasOffsets(res));
       ASSERT(!RSIndexResult_IsAggregate(res));
@@ -122,6 +126,7 @@ int testRangeIterator() {
     it->Free(it);
   }
   free(lookup);
+  free(matched);
 
   ASSERT_EQUAL(t->numRanges, 142);
   ASSERT_EQUAL(t->numEntries, N);
@@ -159,6 +164,7 @@ int benchmarkNumericRangeTree() {
   it->Free(it);
 
   NumericRangeTree_Free(t);
+  NumericFilter_Free(flt);
   return 0;
 }
 

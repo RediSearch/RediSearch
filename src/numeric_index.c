@@ -1,6 +1,7 @@
 #include "numeric_index.h"
 #include "sys/param.h"
 #include "rmutil/vector.h"
+#include "redis_index.h"
 #include "index.h"
 #include <math.h>
 #include "redismodule.h"
@@ -10,36 +11,17 @@
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
-double qselect(double *v, int len, int k) {
-#define SWAP(a, b) \
-  {                \
-    tmp = v[a];    \
-    v[a] = v[b];   \
-    v[b] = tmp;    \
-  }
-  int i, st, tmp;
-
-  for (st = i = 0; i < len - 1; i++) {
-    if (v[i] > v[len - 1]) continue;
-    SWAP(i, st);
-    st++;
-  }
-
-  SWAP(len - 1, st);
-
-  return k == st ? v[st] : st > k ? qselect(v, st, k) : qselect(v + st, len - st, k - st);
-}
-
 /* Returns 1 if the entire numeric range is contained between min and max */
-int NumericRange_Contained(NumericRange *n, double min, double max) {
+static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal >= min && n->maxVal <= max);
+
   // printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
   return rc;
 }
 
 /* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
-int NumericRange_Contains(NumericRange *n, double min, double max) {
+static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal <= min && n->maxVal > max);
   // printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
@@ -55,16 +37,13 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
 }
 
 int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
-  // printf("Adding %d %f to %f..%f\n", docId, value, n->minVal, n->maxVal);
-  if (n->size >= n->cap) {
-    n->cap += n->cap ? MIN(n->cap / 2, 1024 * 1024) : 2;
-    n->entries = RedisModule_Realloc(n->entries, n->cap * sizeof(NumericRangeEntry));
-  }
 
   int add = 1;
   if (checkCard) {
-    for (int i = 0; i < n->size; i++) {
-      if (n->entries[i].value == value) {
+    size_t card = n->card;
+    for (int i = 0; i < card; i++) {
+
+      if (n->values[i] == (float)value) {
         add = 0;
         break;
       }
@@ -74,9 +53,15 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (value < n->minVal || n->card == 0) n->minVal = value;
   if (value > n->maxVal || n->card == 0) n->maxVal = value;
 
-  if (add) ++n->card;
+  if (add) {
+    if (n->card < n->splitCard) {
+      n->values[n->card] = (float)value;
+    }
+    ++n->card;
+  }
 
-  n->entries[n->size++] = (NumericRangeEntry){.docId = docId, .value = value};
+  InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+
   return n->card;
 }
 
@@ -91,17 +76,20 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   // double split = qselect(scores, n->size, n->size / 2);
 
   double split = (n->minVal + n->maxVal) / (double)2;
+
   // printf("split point :%f\n", split);
-  *lp = NewLeafNode(n->size / 2 + 1, n->minVal, split,
+  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->size / 2 + 1, split, n->maxVal,
+  *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
-  for (uint32_t i = 0; i < n->size; i++) {
-    NumericRange_Add(n->entries[i].value < split ? (*lp)->range : (*rp)->range, n->entries[i].docId,
-                     n->entries[i].value, 1);
+  RSIndexResult *res = NULL;
+  IndexReader *ir = NewNumericReader(n->entries, NULL);
+  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
+                     res->num.value, 1);
   }
-  // TimeSampler_End(&ts);
+  IR_Free(ir);
 
   // printf("Splitting node %p %f..%f, card %d size %d took %.04fus\n", n, n->minVal, n->maxVal,
   //        n->card, n->size, (double)TimeSampler_DurationNS(&ts) / 1000.0F);
@@ -121,11 +109,10 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
-                             .cap = cap,
-                             .size = 0,
                              .card = 0,
                              .splitCard = splitCard,
-                             .entries = RedisModule_Calloc(cap, sizeof(NumericRangeEntry))};
+                             .values = RedisModule_Calloc(splitCard, sizeof(float)),
+                             .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
 
@@ -147,7 +134,8 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // we we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        RedisModule_Free(n->range->entries);
+        InvertedIndex_Free(n->range->entries);
+        RedisModule_Free(n->range->values);
         RedisModule_Free(n->range);
         n->range = NULL;
       }
@@ -159,7 +147,11 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   // if this node is a leaf - we add AND check the cardinlity. We only split leaf nodes
   int card = NumericRange_Add(n->range, docId, value, 1);
 
-  if (card >= n->range->splitCard || (n->range->size > NR_MAXRANGE_SIZE && n->range->card > 1)) {
+  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
+  // n->range->minVal,
+  //        n->range->maxVal, card, n->range->entries->numDocs);
+  if (card >= n->range->splitCard ||
+      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && n->range->card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
@@ -224,8 +216,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
-
-    RedisModule_Free(n->range->entries);
+    InvertedIndex_Free(n->range->entries);
+    RedisModule_Free(n->range->values);
     RedisModule_Free(n->range);
     n->range = NULL;
   }
@@ -280,151 +272,16 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   RedisModule_Free(t);
 }
 
-/* Read the next entry from the iterator, into hit *e.
-  *  Returns INDEXREAD_EOF if at the end */
-int NR_Read(void *ctx, RSIndexResult **r) {
-
-  NumericRangeIterator *it = ctx;
-
-  if (it->atEOF || it->rng->size == 0) {
-    goto eof;
-  }
-
-  int match = 0;
-  double lastValue = 0;
-  do {
-    if (it->offset == it->rng->size) {
-      goto eof;
-    }
-    it->lastDocId = it->rng->entries[it->offset].docId;
-    // lastValue = it->rng->entries[it->offset].value;
-    if (it->nf) {
-      match = NumericFilter_Match(it->nf, it->rng->entries[it->offset].value);
-    } else {
-      match = 1;
-    }
-    it->offset++;
-
-    // printf("nf %s filter doc %d (%f): %d\n", it->nf->fieldName, it->lastDocId, lastValue, match);
-  } while (!match);
-
-  if (match) {
-    // match must be true here
-    it->rec->docId = it->lastDocId;
-    *r = it->rec;
-
-    return INDEXREAD_OK;
-  }
-eof:
-  it->atEOF = 1;
-  return INDEXREAD_EOF;
-}
-
-/* Skip to a docid, potentially reading the entry into hit, if the docId
- * matches */
-int NR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
-
-  NumericRangeIterator *it = ctx;
-
-  if (it->atEOF || it->rng->size == 0) {
-    it->atEOF = 1;
-    return INDEXREAD_EOF;
-  }
-
-  // If we are seeking beyond our last docId - just declare EOF
-  if (docId > it->rng->entries[it->rng->size - 1].docId) {
-    it->atEOF = 1;
-    it->rec->docId = 0;
-    return INDEXREAD_EOF;
-  }
-
-  // Find the closest entry to the requested docId
-  int top = (int)it->rng->size - 1, bottom = (int)it->offset;
-  int i = bottom;
-
-  while (bottom <= top) {
-    t_docId did = it->rng->entries[i].docId;
-    if (did == docId) {
-      break;
-    }
-    if (docId <= did) {
-      top = i - 1;
-    } else {
-      bottom = i + 1;
-    }
-    i = (bottom + top) / 2;
-  }
-
-  it->offset = i;
-  it->lastDocId = it->rng->entries[i].docId;
-  it->rec->docId = it->lastDocId;
-
-  // Now read the current entry
-  int rc = NR_Read(it, r);
-
-  // EOF or not found are returned as is
-  if (rc != INDEXREAD_OK) return rc;
-
-  // if we got ok - check if the read document was the one we wanted or not.
-  // If the requested document doesn't match the filter, we should return NOTFOUND
-  return it->lastDocId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-}
-/* the last docId read */
-t_docId NR_LastDocId(void *ctx) {
-  return ((NumericRangeIterator *)ctx)->lastDocId;
-}
-
-/* can we continue iteration? */
-int NR_HasNext(void *ctx) {
-  return !((NumericRangeIterator *)ctx)->atEOF;
-}
-
-/* release the iterator's context and free everything needed */
-void NR_Free(IndexIterator *self) {
-  NumericRangeIterator *it = self->ctx;
-  IndexResult_Free(it->rec);
-  free(self->ctx);
-  free(self);
-}
-
-/* Return the number of results in this iterator. Used by the query execution
- * on the top iterator */
-size_t NR_Len(void *ctx) {
-  return ((NumericRangeIterator *)ctx)->rng->size;
-}
-
-RSIndexResult *NR_Current(void *ctx) {
-  return ((NumericRangeIterator *)ctx)->rec;
-}
-
 IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
-  IndexIterator *ret = malloc(sizeof(IndexIterator));
 
-  NumericRangeIterator *it = malloc(sizeof(NumericRangeIterator));
-
-  it->nf = NULL;
   // if this range is at either end of the filter, we need to check each record
-  if (!NumericFilter_Match(f, nr->minVal) || !NumericFilter_Match(f, nr->maxVal)) {
-    it->nf = f;
+  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
+    // make the filter NULL so the reader will ignore it
+    f = NULL;
   }
+  IndexReader *ir = NewNumericReader(nr->entries, f);
 
-  it->atEOF = 0;
-  it->lastDocId = 0;
-  it->offset = 0;
-  it->rng = nr;
-  it->rec = NewVirtualResult();
-  it->rec->fieldMask = RS_FIELDMASK_ALL;
-  ret->ctx = it;
-
-  ret->Free = NR_Free;
-  ret->Len = NR_Len;
-  ret->HasNext = NR_HasNext;
-  ret->LastDocId = NR_LastDocId;
-  ret->Current = NR_Current;
-  ret->Read = NR_Read;
-  ret->SkipTo = NR_SkipTo;
-
-  return ret;
+  return NewReadIterator(ir);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
@@ -496,9 +353,13 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
   unsigned long *sz = ctx;
   *sz += sizeof(NumericRangeNode);
+
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->cap * sizeof(NumericRangeEntry);
+    *sz += n->range->card * sizeof(float);
+    if (n->range->entries) {
+      *sz += InvertedIndex_MemUsage(n->range->entries);
+    }
   }
 }
 
@@ -525,6 +386,13 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
+
+/* A single entry in a numeric index's single range. Since entries are binned together, each needs
+ * to have the exact value */
+typedef struct {
+  t_docId docId;
+  double value;
+} NumericRangeEntry;
 
 static int __cmd_docId(const void *p1, const void *p2) {
   NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
@@ -571,12 +439,14 @@ void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
 
   if (__isLeaf(n) && n->range) {
     NumericRange *rng = n->range;
+    RSIndexResult *res = NULL;
+    IndexReader *ir = NewNumericReader(rng->entries, NULL);
 
-    for (size_t n = 0; n < rng->size; n++) {
-      RedisModule_SaveUnsigned(rctx->rdb, rng->entries[n].docId);
-      RedisModule_SaveDouble(rctx->rdb, rng->entries[n].value);
-      ++rctx->num;
+    while (INDEXREAD_OK == IR_Read(ir, &res)) {
+      RedisModule_SaveUnsigned(rctx->rdb, res->docId);
+      RedisModule_SaveDouble(rctx->rdb, res->num.value);
     }
+    IR_Free(ir);
   }
 }
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
@@ -592,6 +462,7 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
 
 void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
 }
+
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 }
 

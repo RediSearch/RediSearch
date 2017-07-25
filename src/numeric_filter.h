@@ -21,5 +21,21 @@ void NumericFilter_Free(NumericFilter *nf);
 NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 
-int NumericFilter_Match(NumericFilter *f, double score);
+/*
+A numeric index allows indexing of documents by numeric ranges, and intersection
+of them with fulltext indexes.
+*/
+static inline int NumericFilter_Match(NumericFilter *f, double score) {
+
+  int rc = 0;
+  // match min - -inf or x >/>= score
+  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
+
+  if (matchMin) {
+    // match max - +inf or x </<= score
+    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
+  }
+  return rc;
+}
+
 #endif

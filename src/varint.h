@@ -7,7 +7,21 @@
 
 size_t varintSize(int value);
 
-int ReadVarint(BufferReader *b);
+/* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
+static inline int ReadVarint(BufferReader *b) {
+
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  int val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
 int WriteVarint(int value, BufferWriter *w);
 
 typedef struct {

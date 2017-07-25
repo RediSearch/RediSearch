@@ -45,6 +45,17 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   return res;
 }
 
+RSIndexResult *NewNumericResult() {
+  RSIndexResult *res = rm_new(RSIndexResult);
+
+  *res = (RSIndexResult){.type = RSResultType_Numeric,
+                         .docId = 0,
+                         .fieldMask = RS_FIELDMASK_ALL,
+                         .freq = 1,
+                         .num = (RSNumericRecord){.value = 0}};
+  return res;
+}
+
 RSIndexResult *NewVirtualResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
@@ -141,10 +152,11 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->agg.typeMask != RSResultType_Virtual;
+      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RSResultType_Numeric;
 
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
+    case RSResultType_Numeric:
     default:
       return 0;
   }
@@ -163,6 +175,8 @@ void IndexResult_Free(RSIndexResult *r) {
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
     rm_free(r->agg.children);
     r->agg.children = NULL;
+  } else if (r->type == RSResultType_Term && r->term.term != NULL) {
+    Term_Free(r->term.term);
   }
   rm_free(r);
 }
@@ -275,10 +289,7 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
   return 0;
 }
 
-uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos);
-uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos);
-
-inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
+static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
@@ -290,7 +301,7 @@ inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   return m;
 }
 
-inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
+static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
   for (int i = 1; i < len; i++) {
@@ -352,7 +363,9 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
   */
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
-  if (ir->type == RSResultType_Term || ir->agg.numChildren <= 1) {
+  // check if calculation is even relevant here...
+  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) ||
+      ir->agg.numChildren <= 1) {
     return 1;
   }
   RSAggregateResult *r = &ir->agg;

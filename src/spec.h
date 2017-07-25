@@ -68,12 +68,14 @@ typedef enum {
   Index_StoreScoreIndexes = 0x04,
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
+  Index_StoreNumeric = 0x020,
   Index_DocIdsOnly = 0x00
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
-#define INDEX_STORAGE_MASK (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets)
+#define INDEX_STORAGE_MASK \
+  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric)
 #define INDEX_CURRENT_VERSION 6
 #define INDEX_MIN_COMPAT_VERSION 2
 

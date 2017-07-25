@@ -33,7 +33,6 @@
  * version of it first */
 int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave,
                 int replace) {
-  int isnew = 1;
 
   // if we're in replace mode, first we need to try and delete the older version of the document
   if (replace) {
@@ -45,7 +44,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
   // Make sure the document is not already in the index - it needs to be
   // incremental!
-  if (doc.docId == 0 || !isnew) {
+  if (doc.docId == 0) {
     *errorString = "Document already in index";
     return REDISMODULE_ERR;
   }
@@ -143,6 +142,11 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
 
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+    IndexEncoder enc = InvertedIndex_GetEncoder(ctx->spec->flags);
+    if (enc == NULL) {
+      *errorString = "Error encoding index";
+      goto error;
+    }
     while (entry != NULL) {
       // ForwardIndex_NormalizeFreq(idx, entry);
       int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
@@ -151,7 +155,7 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
         ctx->spec->stats.numTerms += 1;
         ctx->spec->stats.termsSize += entry->len;
       }
-      size_t sz = InvertedIndex_WriteEntry(invidx, entry);
+      size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, enc, entry);
 
       /*******************************************
       * update stats for the index
@@ -757,6 +761,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, err);
   }
 

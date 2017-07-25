@@ -11,10 +11,16 @@
 RedisModuleType *InvertedIndexType;
 
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != 0) {
+  if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
   }
   InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+
+  // If the data was encoded with a version that did not include the store numeric / store freqs
+  // options - we force adding StoreFreqs.
+  if (encver <= INVERTED_INDEX_NOFREQFLAG_VER) {
+    idx->flags |= Index_StoreFreqs;
+  }
   idx->lastId = RedisModule_LoadUnsigned(rdb);
   idx->numDocs = RedisModule_LoadUnsigned(rdb);
   idx->size = RedisModule_LoadUnsigned(rdb);
@@ -55,14 +61,26 @@ void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *
   // NOT IMPLEMENTED YET
 }
 
+unsigned long InvertedIndex_MemUsage(const void *value) {
+  const InvertedIndex *idx = value;
+  unsigned long ret = sizeof(InvertedIndex);
+  for (size_t i = 0; i < idx->size; i++) {
+    ret += sizeof(IndexBlock);
+    ret += sizeof(Buffer);
+    ret += Buffer_Offset(idx->blocks[i].data);
+  }
+  return ret;
+}
+
 int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = InvertedIndex_RdbLoad,
                                .rdb_save = InvertedIndex_RdbSave,
                                .aof_rewrite = InvertedIndex_AofRewrite,
+                               .mem_usage = InvertedIndex_MemUsage,
                                .free = InvertedIndex_Free};
 
-  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", 0, &tm);
+  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
   if (InvertedIndexType == NULL) {
     RedisModule_Log(ctx, "error", "Could not create inverted index type");
     return REDISMODULE_ERR;
@@ -226,7 +244,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
   }
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
-  return NewIndexReader(idx, dt, fieldMask, ctx->spec->flags, NewTerm(tok), singleWordMode);
+
+  return NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
 }
 
 // void Redis_CloseReader(IndexReader *r) {

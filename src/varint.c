@@ -9,20 +9,6 @@
 
 // static int msb = (int)(~0ULL << 25);
 
-inline int ReadVarint(BufferReader *b) {
-
-  register unsigned char c = BUFFER_READ_BYTE(b);
-
-  register int val = c & 127;
-  while (c >> 7) {
-    ++val;
-    c = BUFFER_READ_BYTE(b);
-    val = (val << 7) | (c & 127);
-  }
-
-  return val;
-}
-
 int WriteVarint(int value, BufferWriter *w) {
   unsigned char varint[16];
   unsigned pos = sizeof(varint) - 1;
