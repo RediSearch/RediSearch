@@ -28,19 +28,51 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload
   return ret;
 }
 
+#define RUNE_STATIC_ALLOC_SIZE 127
+typedef struct {
+  int isDynamic;
+  union {
+    rune s[RUNE_STATIC_ALLOC_SIZE + 1];
+    rune *p;
+  } u;
+} runeBuf;
+
+static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
+  // Assume x2 growth.
+  *len = n * 2;
+  if (*len <= RUNE_STATIC_ALLOC_SIZE) {
+    buf->isDynamic = 0;
+    *len = strToRunesN(s, n, buf->u.s);
+    buf->u.s[*len] = 0;
+    return buf->u.s;
+  } else {
+    buf->isDynamic = 1;
+    buf->u.p = strToRunes(s, len);
+    return buf->u.p;
+  }
+}
+
+static inline void runeBufFree(runeBuf *buf) {
+  if (buf->isDynamic) {
+    free(buf->u.p);
+  }
+}
+
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
-  rune *runes = strToRunes(s, &len);
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  int rc;
+
   if (len && len < MAX_STRING_LEN) {
-    int rc =
-        TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-    free(runes);
+    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
-    return rc;
   } else {
-    if (runes != NULL) free(runes);
+    rc = 0;
   }
-  return 0;
+
+  runeBufFree(&buf);
+  return rc;
 }
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
