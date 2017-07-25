@@ -8,15 +8,22 @@
 #include "qint.c"
 #include "numeric_filter.h"
 
+// The number of entries in each index block. A new block will be created after every N entries
 #define INDEX_BLOCK_SIZE 100
-#define INDEX_BLOCK_INITIAL_CAP 2
 
+// Initial capacity (in bytes) of a new block
+#define INDEX_BLOCK_INITIAL_CAP 6
+
+// The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+
+// pointer to the current block while reading the index
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
                                           IndexDecoderCtx decoderCtx, RSIndexResult *record);
 
+/* Add a new block to the index with a given document id as the initial id */
 static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
@@ -53,8 +60,18 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
+/******************************************************************************
+ * Index Encoders Implementations.
+ *
+ * We have 9 distinct ways to encode the index records. Based on the index flags we select the
+ * correct encoder when writing to the index
+ *
+ ******************************************************************************/
+
+#define ENCODER(f) static size_t f(BufferWriter *bw, t_docId delta, RSIndexResult *res)
+
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
-size_t encodeFull(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFull) {
   size_t sz = 0;
   sz = qint_encode4(bw, delta, res->freq, res->fieldMask, res->offsetsSz);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
@@ -62,29 +79,29 @@ size_t encodeFull(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
 }
 
 // 2. (Frequency, Field)
-size_t encodeFreqsFields(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFreqsFields) {
   return qint_encode3(bw, (uint32_t)delta, (uint32_t)res->freq, (uint32_t)res->fieldMask);
 }
 
 // 3. Frequencies only
-size_t encodeFreqsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFreqsOnly) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
 }
 
 // 4. Field mask only
-size_t encodeFieldsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFieldsOnly) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->fieldMask);
 }
 
 // 5. (field, offset)
-size_t encodeFieldsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFieldsOffsets) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 // 6. Offsets only
-size_t encodeOffsetsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeOffsetsOnly) {
 
   size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
@@ -92,24 +109,25 @@ size_t encodeOffsetsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
 }
 
 // 7. Offsets and freqs
-size_t encodeFreqsOffsets(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeFreqsOffsets) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 // 8. Encode only the doc ids
-size_t encodeDocIdsOnly(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
 }
 
 // 9. Special encoder for numeric values
-size_t encodeNumeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+ENCODER(encodeNumeric) {
   size_t sz = WriteVarint(delta, bw);
   sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
   return sz;
 }
 
+/* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 
   switch (flags & INDEX_STORAGE_MASK) {
@@ -181,6 +199,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   return ret;
 }
 
+/** Write a forward-index entry to the index */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent) {
   RSIndexResult rec = (RSIndexResult){
@@ -198,6 +217,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
   return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
 }
 
+/* Write a numeric entry to the index */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value) {
 
   RSIndexResult rec = (RSIndexResult){
@@ -217,19 +237,37 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
 }
 
+/******************************************************************************
+ * Index Decoder Implementations.
+ *
+ * We have 9 distinct ways to decode the index records. Based on the index flags we select the
+ * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
+ * filtering, returning 1 if the record is ok or 0 if it is filtered.
+ *
+ * Term indexes can filter based on fieldMask, and
+
+ *
+ ******************************************************************************/
+
 #define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
+
+#define CHECK_FLAGS(ctx, res)        \
+  if (ctx.num != RS_FIELDMASK_ALL) { \
+    return res->fieldMask & ctx.num; \
+  }                                  \
+  return 1;
 
 DECODER(readFreqsFlags) {
   qint_decode(br, (uint32_t *)res, 3);
   // qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
-  return res->fieldMask & ctx.num;
+  CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFreqOffsetsFlags) {
   qint_decode(br, (uint32_t *)res, 4);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
-  return res->fieldMask & ctx.num;
+  CHECK_FLAGS(ctx, res);
 }
 
 // special decoder for decoding numeric results
@@ -252,14 +290,14 @@ DECODER(readFreqs) {
 
 DECODER(readFlags) {
   qint_decode2(br, &res->docId, &res->fieldMask);
-  return res->fieldMask & ctx.num;
+  CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFlagsOffsets) {
   qint_decode3(br, &res->docId, &res->fieldMask, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
-  return res->fieldMask & ctx.num;
+  CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readOffsets) {
@@ -560,8 +598,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
 
+  if (!encoder || !decoder) {
+    fprintf(stderr, "Could not get decoder/encoder for index\n");
+    return -1;
+  }
   while (!BufferReader_AtEnd(&br)) {
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
@@ -599,6 +641,10 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
   int n = 0;
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
+    // we couldn't repair the block - return 0
+    if (rep == -1) {
+      return 0;
+    }
     if (rep) {
       // printf("Repaired %d holes in block %d\n", rep, startBlock);
     }

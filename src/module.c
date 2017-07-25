@@ -143,7 +143,10 @@ int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
     IndexEncoder enc = InvertedIndex_GetEncoder(ctx->spec->flags);
-
+    if (enc == NULL) {
+      *errorString = "Error encoding index";
+      goto error;
+    }
     while (entry != NULL) {
       // ForwardIndex_NormalizeFreq(idx, entry);
       int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);

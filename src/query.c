@@ -845,7 +845,6 @@ QueryResult *Query_Execute(Query *query) {
   size_t n = MIN(heap_count(pq) - query->offset, query->limit);
   res->numResults = n;
   res->results = calloc(n, sizeof(ResultEntry));
-  // printf("offset %zd, limit %zd, num %d\n", query->offset, query->limit, res->numResults);
 
   // pop from the end of the heap the lowest n results in reverse order
   for (int i = 0; i < n; ++i) {
