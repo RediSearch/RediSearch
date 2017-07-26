@@ -27,19 +27,19 @@ typedef struct {
 
 } tokenContext;
 
-int tokenFunc(void *ctx, Token t) {
+int tokenFunc(void *ctx, const Token *t) {
   // printf("%s %d\n", t.s, t.type);
 
   tokenContext *tx = ctx;
-  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  int ret = strcmp(t->s, tx->expected[tx->num++]);
   assert(ret == 0);
-  assert(t.len == strlen(t.s));
-  assert(t.fieldId == 1);
-  assert(t.pos > 0);
-  assert(t.score == 1);
-  if (t.type == DT_STEM) {
+  assert(t->len == strlen(t->s));
+  assert(t->fieldId == 1);
+  assert(t->pos > 0);
+  assert(t->score == 1);
+  if (t->type == DT_STEM) {
     // printf("%s -> %s\n",t.s, tx->expected[tx->num-2]);
-    assert(strcmp(t.s, tx->expected[tx->num - 2]) != 0);
+    assert(strcmp(t->s, tx->expected[tx->num - 2]) != 0);
   }
   return 0;
 }

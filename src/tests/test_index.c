@@ -511,14 +511,14 @@ typedef struct {
 
 } tokenContext;
 
-int tokenFunc(void *ctx, Token t) {
+int tokenFunc(void *ctx, const Token *t) {
   tokenContext *tx = ctx;
-  int ret = strcmp(t.s, tx->expected[tx->num++]);
+  int ret = strcmp(t->s, tx->expected[tx->num++]);
   assert(ret == 0);
-  assert(t.len == strlen(t.s));
-  assert(t.fieldId == 1);
-  assert(t.pos > 0);
-  assert(t.score == 1);
+  assert(t->len == strlen(t->s));
+  assert(t->fieldId == 1);
+  assert(t->pos > 0);
+  assert(t->score == 1);
   return 0;
 }
 

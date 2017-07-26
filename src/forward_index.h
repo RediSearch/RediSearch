@@ -42,7 +42,7 @@ typedef struct {
   khiter_t k;
 } ForwardIndexIterator;
 
-int forwardIndexTokenFunc(void *ctx, Token t);
+int forwardIndexTokenFunc(void *ctx, const Token *t);
 
 void ForwardIndexFree(ForwardIndex *idx);
 ForwardIndex *NewForwardIndex(Document *doc);

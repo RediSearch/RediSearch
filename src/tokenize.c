@@ -107,7 +107,7 @@ int _tokenize(TokenizerCtx *ctx) {
     Token t = {tok, tlen, ++pos, ctx->fieldScore, ctx->fieldId, DT_WORD, 0};
 
     // let it be handled - and break on non zero response
-    if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
+    if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
       break;
     }
 
@@ -121,7 +121,7 @@ int _tokenize(TokenizerCtx *ctx) {
         t.len = sl;
         t.fieldId = ctx->fieldId;
         t.stringFreeable = 1;
-        if (ctx->tokenFunc(ctx->tokenFuncCtx, t) != 0) {
+        if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
           break;
         }
       }

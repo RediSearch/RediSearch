@@ -57,11 +57,11 @@ static khIdxEntry *allocIdxEntry(ForwardIndex *idx) {
 // void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 //   e->freq = e->freq / idx->maxFreq;
 // }
-int forwardIndexTokenFunc(void *ctx, Token t) {
+int forwardIndexTokenFunc(void *ctx, const Token *t) {
   ForwardIndex *idx = ctx;
 
   // we hash the string ourselves because khash suckz azz
-  uint32_t hval = fnv_32a_buf((void *)t.s, t.len, 0);
+  uint32_t hval = fnv_32a_buf((void *)t->s, t->len, 0);
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
@@ -71,9 +71,9 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h = &kh->ent;
     h->docId = idx->docId;
     h->fieldMask = 0;
-    h->term = t.s;
-    h->len = t.len;
-    h->stringFreeable = t.stringFreeable;
+    h->term = t->s;
+    h->len = t->len;
+    h->stringFreeable = t->stringFreeable;
     h->freq = 0;
 
     h->vw = &kh->vw;
@@ -87,18 +87,18 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
     h = kh_val(idx->hits, k);
   }
 
-  h->fieldMask |= (t.fieldId & RS_FIELDMASK_ALL);
-  float score = (float)t.score;
+  h->fieldMask |= (t->fieldId & RS_FIELDMASK_ALL);
+  float score = (float)t->score;
 
   // stem tokens get lower score
-  if (t.type == DT_STEM) {
+  if (t->type == DT_STEM) {
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
   idx->totalFreq += h->freq;
   idx->uniqueTokens++;
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
-  VVW_Write(h->vw, t.pos);
+  VVW_Write(h->vw, t->pos);
 
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
   return 0;
