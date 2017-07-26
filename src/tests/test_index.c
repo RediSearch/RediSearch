@@ -372,7 +372,7 @@ int testNumericInverted() {
 
   for (int i = 0; i < 75; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (float)(i + 1));
-    printf("written %zd bytes\n", sz);
+    // printf("written %zd bytes\n", sz);
 
     ASSERT(sz > 2);
   }
