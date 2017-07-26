@@ -263,7 +263,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     return REDISMODULE_ERR;
   }
 
-  ForwardIndex *idx = NewForwardIndex(doc);
+  ForwardIndex *idx = NewForwardIndex(doc, ctx->spec->flags);
   indexingContext ictx = {.idx = idx, .doc = doc, .totalTokens = 0};
   int ourRv = REDISMODULE_OK;
 

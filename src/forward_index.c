@@ -12,13 +12,14 @@ typedef struct {
   VarintVectorWriter vw;
 } khIdxEntry;
 
-ForwardIndex *NewForwardIndex(Document *doc) {
+ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
   idx->hits = kh_init(32);
   idx->docScore = doc->score;
   idx->docId = doc->docId;
   idx->totalFreq = 0;
+  idx->idxFlags = idxFlags;
   idx->uniqueTokens = 0;
   idx->maxFreq = 0;
   idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
@@ -29,10 +30,18 @@ ForwardIndex *NewForwardIndex(Document *doc) {
 
 static void clearEntry(void *p) {
   ForwardIndexEntry *fwEnt = p;
-  VVW_Cleanup(fwEnt->vw);
+  if (fwEnt->vw) {
+    VVW_Cleanup(fwEnt->vw);
+  }
+}
+
+static inline int hasOffsets(const ForwardIndex *idx) {
+  return (idx->idxFlags & Index_StoreTermOffsets);
 }
 
 void ForwardIndexFree(ForwardIndex *idx) {
+  size_t elemSize = hasOffsets(idx) ? sizeof(khIdxEntry) : sizeof(ForwardIndexEntry);
+
   BlkAlloc_FreeAll(&idx->entries, clearEntry, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&idx->terms, NULL, 0);
 
@@ -82,8 +91,10 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     h->len = t->len;
     h->freq = 0;
 
-    h->vw = &kh->vw;
-    VVW_Init(h->vw, 64);
+    if (hasOffsets(idx)) {
+      h->vw = &kh->vw;
+      VVW_Init(h->vw, 64);
+    }
     h->docScore = idx->docScore;
 
     int ret;
@@ -104,7 +115,9 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
   idx->totalFreq += h->freq;
   idx->uniqueTokens++;
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
-  VVW_Write(h->vw, t->pos);
+  if (h->vw) {
+    VVW_Write(h->vw, t->pos);
+  }
 
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
   return 0;

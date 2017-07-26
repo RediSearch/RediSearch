@@ -29,6 +29,7 @@ typedef struct {
   t_docId docId;
   uint32_t totalFreq;
   uint32_t maxFreq;
+  uint32_t idxFlags;
   float docScore;
   int uniqueTokens;
   Stemmer *stemmer;
@@ -44,7 +45,7 @@ typedef struct {
 int forwardIndexTokenFunc(void *ctx, const Token *t);
 
 void ForwardIndexFree(ForwardIndex *idx);
-ForwardIndex *NewForwardIndex(Document *doc);
+ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
