@@ -4,7 +4,7 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include <time.h>
-#include "dep/thpool/thpool.h"
+#include <dep/thpool/thpool.h>
 
 /** Concurrent Search Exection Context.
  *
@@ -26,10 +26,22 @@
  * we sample the elapsed time every 20 "cycles" of the query processor.
  *
  */
+
+typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
+typedef struct {
+  RedisModuleKey *key;
+  RedisModuleString *keyName;
+  void *ctx;
+  ConcurrentReopenCallback cb;
+  int keyFlags;
+} ConcurrentKeyCtx;
+
 typedef struct {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
+  ConcurrentKeyCtx *openKeys;
+  size_t numOpenKeys;
 } ConcurrentSearchCtx;
 
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
@@ -39,11 +51,14 @@ typedef struct {
 
 /** The number of execution "ticks" per elapsed time check. This is intended to reduce the number of
  * calls to clock_gettime() */
-#define CONCURRENT_TICK_CHECK 50
+#define CONCURRENT_TICK_CHECK 25
 
 /** The timeout after which we try to switch to another query thread - in Nanoseconds */
-#define CONCURRENT_TIMEOUT_NS 200000
+#define CONCURRENT_TIMEOUT_NS 50000
 
+void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
+                             RedisModuleString *keyName, ConcurrentReopenCallback cb,
+                             void *privdata);
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
 
@@ -55,6 +70,8 @@ void ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
 
 /** Initialize and reset a concurrent search ctx */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
+
+void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
