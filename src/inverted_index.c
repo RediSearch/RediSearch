@@ -497,15 +497,18 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     return IR_Read(ctx, hit);
   }
 
+  if (ir->atEnd) {
+    goto eof;
+  }
+
   /* check if the id is out of range */
   if (docId > ir->idx->lastId) {
-    ir->atEnd = 1;
-    return INDEXREAD_EOF;
+    goto eof;
   }
   // try to skip to the current block
   if (!IndexReader_SkipToBlock(ir, docId)) {
     if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      return INDEXREAD_EOF;
+      goto eof;
     }
     return INDEXREAD_NOTFOUND;
   }
@@ -518,6 +521,7 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     if (rid == docId) return INDEXREAD_OK;
     return INDEXREAD_NOTFOUND;
   }
+eof:
   ir->atEnd = 1;
   return INDEXREAD_EOF;
 }

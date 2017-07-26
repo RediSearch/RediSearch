@@ -11,18 +11,39 @@
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
+typedef struct {
+  UnionContext *ui;
+  uint32_t lastRevId;
+} NumericUnionCtx;
 void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
-  UnionContext *ui = privdata;
+  NumericUnionCtx *nu = privdata;
+  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
   // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
-  if (k == NULL) {
-    ui->atEnd = 1;
+  if (k == NULL || t == NULL) {
+    nu->ui->atEnd = 1;
     // Now tell all our childern they are done, and remove the reference to the underlying range
     // object, so it will not get double-free'd
-    for (int i = 0; i < ui->num; i++) {
-      IndexIterator *it = ui->its[i];
+    for (int i = 0; i < nu->ui->num; i++) {
+      IndexIterator *it = nu->ui->its[i];
       if (it) {
         IndexReader *ri = it->ctx;
         ri->atEnd = 1;
+        ri->idx = NULL;
+      }
+    }
+    return;
+  }
+
+  if (t->revisionId != nu->lastRevId) {
+    nu->ui->atEnd = 1;
+    // Now tell all our childern they are done, and remove the reference to the underlying range
+    // object, so it will not get double-free'd
+    for (int i = 0; i < nu->ui->num; i++) {
+      IndexIterator *it = nu->ui->its[i];
+      if (it) {
+        IndexReader *ri = it->ctx;
+        ri->atEnd = 1;
+        ri->idx = NULL;
       }
     }
     return;
@@ -305,7 +326,8 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the
  * filter */
-IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
+IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f,
+                                        ConcurrentSearchCtx *csx) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -337,7 +359,12 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
     its[i] = NewNumericRangeIterator(rng, f);
   }
   Vector_Free(v);
-  return NewUnionIterator(its, n, NULL, 1);
+
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1);
+  NumericUnionCtx *ucx = malloc(sizeof(*ucx));
+  ucx->lastRevId = t->revisionId;
+  ucx->ui = it->ctx;
+  return it;
 }
 
 RedisModuleType *NumericIndexType = NULL;

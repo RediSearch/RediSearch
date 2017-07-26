@@ -341,7 +341,7 @@ static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
     return NULL;
   }
 
-  return NewNumericFilterIterator(t, node->nf);
+  return NewNumericFilterIterator(t, node->nf, &q->conc);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {

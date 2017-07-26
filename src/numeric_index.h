@@ -46,6 +46,8 @@ typedef struct {
   size_t numRanges;
   size_t numEntries;
   size_t card;
+
+  uint32_t revisionId;
 } NumericRangeTree;
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
