@@ -2,9 +2,12 @@
 #define __FORWARD_INDEX_H__
 #include "redisearch.h"
 #include "util/khash.h"
+#include "util/block_alloc.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"
+
+struct fwIdxMemBlock;
 
 typedef struct {
   t_docId docId;
@@ -14,8 +17,7 @@ typedef struct {
   float docScore;
   t_fieldMask fieldMask;
   VarintVectorWriter *vw;
-  int stringFreeable : 1;
-  int vvwOwner : 1;
+  int stringFreeable;
 } ForwardIndexEntry;
 
 KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
@@ -31,6 +33,8 @@ typedef struct {
   float docScore;
   int uniqueTokens;
   Stemmer *stemmer;
+  BlkAlloc entries;
+  BlkAlloc terms;
 } ForwardIndex;
 
 typedef struct {

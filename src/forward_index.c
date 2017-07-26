@@ -4,7 +4,13 @@
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
+#include <assert.h>
 #include "rmalloc.h"
+
+typedef struct {
+  ForwardIndexEntry ent;
+  VarintVectorWriter vw;
+} khIdxEntry;
 
 ForwardIndex *NewForwardIndex(Document *doc) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
@@ -16,44 +22,41 @@ ForwardIndex *NewForwardIndex(Document *doc) {
   idx->uniqueTokens = 0;
   idx->maxFreq = 0;
   idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
-
+  memset(&idx->entries, 0, sizeof idx->entries);
+  memset(&idx->terms, 0, sizeof idx->terms);
   return idx;
 }
 
-void ForwardIndexFree(ForwardIndex *idx) {
-  khiter_t k;
-  for (k = kh_begin(idx->hits); k != kh_end(idx->hits); ++k) {
-    if (kh_exist(idx->hits, k)) {
-      ForwardIndexEntry *ent = kh_value(idx->hits, k);
-      // rm_free((void *)ent->term);
-
-      kh_del(32, idx->hits, k);
-      VVW_Cleanup(ent->vw);
-
-      if (ent->stringFreeable) {
-        rm_free((char *)ent->term);
-      }
-      rm_free(ent);
-    }
+static void clearEntry(void *p) {
+  ForwardIndexEntry *fwEnt = p;
+  VVW_Cleanup(fwEnt->vw);
+  if (fwEnt->stringFreeable) {
+    rm_free((char *)fwEnt->term);
   }
+}
+
+void ForwardIndexFree(ForwardIndex *idx) {
+  BlkAlloc_FreeAll(&idx->entries, clearEntry, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&idx->terms, NULL, 0);
+
   kh_destroy(32, idx->hits);
 
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
   }
   rm_free(idx);
-  // TODO: check if we need to rm_free each entry separately
+}
+
+#define ENTRIES_PER_BLOCK 32
+#define TERM_BLOCK_SIZE 128
+
+static khIdxEntry *allocIdxEntry(ForwardIndex *idx) {
+  return BlkAlloc_Alloc(&idx->entries, sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
 }
 
 // void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 //   e->freq = e->freq / idx->maxFreq;
 // }
-
-typedef struct {
-  ForwardIndexEntry ent;
-  VarintVectorWriter vw;
-} khIdxEntry;
-
 int forwardIndexTokenFunc(void *ctx, Token t) {
   ForwardIndex *idx = ctx;
 
@@ -64,9 +67,8 @@ int forwardIndexTokenFunc(void *ctx, Token t) {
   khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
   if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
     /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
-    khIdxEntry *kh = rm_calloc(1, sizeof(*kh));
+    khIdxEntry *kh = allocIdxEntry(idx);
     h = &kh->ent;
-    h = rm_calloc(1, sizeof(ForwardIndexEntry));
     h->docId = idx->docId;
     h->fieldMask = 0;
     h->term = t.s;
