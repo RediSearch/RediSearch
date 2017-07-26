@@ -86,23 +86,36 @@ void ConcurrentSearch_ThreadPoolStart();
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg);
 
-/** Check the elapsed timer, and release the lock if enough time has passed */
-void ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
+/** Check the elapsed timer, and release the lock if enough time has passed.
+ * Return 1 if switching took place
+ */
+int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
 
 /** Initialize and reset a concurrent search ctx */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
 
+/** Reset the clock variables in the concurrent search context */
+void ConcurrentSearchCtx_ResetClock(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
+
 /* Free the execution context's dynamically allocated resources */
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx);
+
+void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
+
+void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
  */
-#define CONCURRENT_CTX_TICK(x)                           \
-  {                                                      \
-    if (x && ++x->ticker % CONCURRENT_TICK_CHECK == 0) { \
-      ConcurrentSearch_CheckTimer(x);                    \
-    }                                                    \
-  }
+#define CONCURRENT_CTX_TICK(x)                               \
+  ({                                                         \
+    int conctx__didSwitch = 0;                               \
+    if ((x) && ++(x)->ticker % CONCURRENT_TICK_CHECK == 0) { \
+      if (ConcurrentSearch_CheckTimer((x))) {                \
+        conctx__didSwitch = 1;                               \
+      }                                                      \
+    }                                                        \
+    conctx__didSwitch;                                       \
+  })
 
 #endif
