@@ -1055,6 +1055,25 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             for combo in combinations(('NOOFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
                 self._test_create_options_real(*combo)
 
+    def testInfoCommand(self):
+        from itertools import combinations
+
+        for x in range(1, 5):
+            for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS'), x):
+                options = list(combo) + ['schema', 'f1', 'text']
+                try:
+                    self.cmd('ft.drop', 'idx')
+                except:
+                    pass
+
+                self.assertCmdOk('ft.create', 'idx', *options)
+                info = self.cmd('ft.info', 'idx')
+                ix = info.index('index_options')
+                self.assertFalse(ix == -1)
+                value = info[ix + 1]
+                for option in combo:
+                    self.assertTrue(option in value)
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
