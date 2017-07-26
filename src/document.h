@@ -3,6 +3,7 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
+#include "concurrent_ctx.h"
 
 typedef struct {
   const char *name;
@@ -34,11 +35,12 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x02
 
 typedef struct {
+  Document doc;
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *thCtx;
   RedisSearchCtx rsCtx;
   int options;
-  Document doc;
+  ConcurrentSearchCtx conc;
 } RSAddDocumentCtx;
 
 int Document_AddToIndexes(RSAddDocumentCtx *ctx, const char **errorString);
@@ -60,5 +62,8 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int
                               const char **fields, int numFields, int *nump);
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
+
+RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp);
+void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 #endif

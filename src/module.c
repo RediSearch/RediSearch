@@ -87,23 +87,6 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
-static RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp) {
-  // Block the client and create the context!
-  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
-  aCtx->bc = RedisModule_BlockClient(origCtx, NULL, NULL, NULL, 0);
-  aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
-  RedisModule_AutoMemory(aCtx->thCtx);
-  aCtx->rsCtx.redisCtx = aCtx->thCtx;
-  aCtx->rsCtx.spec = sp;
-  return aCtx;
-}
-
-static void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
-  Document_FreeDetatched(&aCtx->doc, aCtx->thCtx);
-  RedisModule_UnblockClient(aCtx->bc, NULL);
-  RedisModule_FreeThreadSafeContext(aCtx->thCtx);
-  free(aCtx);
-}
 
 static void doDocumentAddTh(void *arg) {
   RSAddDocumentCtx *aCtx = arg;

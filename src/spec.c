@@ -267,21 +267,30 @@ void IndexSpec_Free(void *ctx) {
   rm_free(spec);
 }
 
-/* Load the spec from the saved version */
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
+                            RedisModuleKey **keyp) {
+  RedisModuleKey *key_s = NULL;
+  if (!keyp) {
+    keyp = &key_s;
+  }
 
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name),
-                          REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
+  *keyp = RedisModule_OpenKey(ctx, formattedKey,
+                              REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
 
   // we do not allow empty indexes when loading an existing index
-  if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
-      RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+  if (*keyp == NULL || RedisModule_KeyType(*keyp) == REDISMODULE_KEYTYPE_EMPTY ||
+      RedisModule_ModuleTypeGetType(*keyp) != IndexSpecType) {
     return NULL;
   }
 
-  IndexSpec *ret = RedisModule_ModuleTypeGetValue(k);
+  IndexSpec *ret = RedisModule_ModuleTypeGetValue(*keyp);
   return ret;
+}
+
+/* Load the spec from the saved version */
+IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
+  return IndexSpec_LoadEx(ctx, s, openWrite, NULL);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {

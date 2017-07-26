@@ -117,6 +117,46 @@ typedef struct {
   size_t totalTokens;
 } indexingContext;
 
+static void reopenCb(RedisModuleKey *k, void *arg) {
+  // Index Key
+  RSAddDocumentCtx *aCtx = arg;
+  // we do not allow empty indexes when loading an existing index
+  if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
+      RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+    aCtx->rsCtx.spec = NULL;
+  }
+  aCtx->rsCtx.spec = RedisModule_ModuleTypeGetValue(k);
+}
+
+RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp) {
+  // Block the client and create the context!
+  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
+  aCtx->bc = RedisModule_BlockClient(origCtx, NULL, NULL, NULL, 0);
+  aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+  RedisModule_AutoMemory(aCtx->thCtx);
+  aCtx->rsCtx.redisCtx = aCtx->thCtx;
+  aCtx->rsCtx.spec = sp;
+
+  RedisModuleString *indexName =
+      RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
+
+  ConcurrentSearchCtx_Init(aCtx->thCtx, &aCtx->conc);
+
+  ConcurrentSearch_AddKey(&aCtx->conc, NULL, REDISMODULE_READ | REDISMODULE_WRITE, indexName,
+                          reopenCb, aCtx, NULL);
+  return aCtx;
+}
+
+void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
+  Document_FreeDetatched(&aCtx->doc, aCtx->thCtx);
+  ConcurrentSearchCtx_Free(&aCtx->conc);
+  RedisModule_UnblockClient(aCtx->bc, NULL);
+  RedisModule_FreeThreadSafeContext(aCtx->thCtx);
+  free(aCtx);
+}
+
+#define ACTX_SPEC(actx) (actx)->rsCtx.spec
+
 static void ensureSortingVector(RedisSearchCtx *sctx, indexingContext *ictx) {
   if (!ictx->sv) {
     ictx->sv = NewSortingVector(sctx->spec->sortables->len);
@@ -124,19 +164,9 @@ static void ensureSortingVector(RedisSearchCtx *sctx, indexingContext *ictx) {
 }
 
 static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const char **errorString,
-                      indexingContext *ictx) {
-  // printf("Tokenizing %s: %s\n",
-  // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
-  //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
+                      indexingContext *ictx, const FieldSpec *fs) {
 
   RedisSearchCtx *ctx = &aCtx->rsCtx;
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->spec, field->name, strlen(field->name));
-  if (fs == NULL) {
-    LG_DEBUG("Skipping field %s not in index!", field->name);
-    return 0;
-  }
-
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
 
   switch (fs->type) {
@@ -158,10 +188,12 @@ static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const 
         return -1;
       }
 
-      RedisModule_ThreadSafeContextLock(aCtx->thCtx);
-      NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
-      NumericRangeTree_Add(rt, ictx->doc->docId, score);
-      RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
+      ConcurrentSearchCtx_Lock(&aCtx->conc);
+      if (ACTX_SPEC(aCtx) != NULL) {
+        NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
+        NumericRangeTree_Add(rt, ictx->doc->docId, score);
+      }
+      ConcurrentSearchCtx_Unlock(&aCtx->conc);
 
       // If this is a sortable numeric value - copy the value to the sorting vector
       if (fs->sortable) {
@@ -183,9 +215,9 @@ static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const 
 
       GeoIndex gi = {.ctx = ctx, .sp = fs};
 
-      RedisModule_ThreadSafeContextLock(aCtx->thCtx);
+      ConcurrentSearchCtx_Lock(&aCtx->conc);
       int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat);
-      RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
+      ConcurrentSearchCtx_Unlock(&aCtx->conc);
 
       if (rv == REDISMODULE_ERR) {
         *errorString = "Could not index geo value";
@@ -202,12 +234,11 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
   // printf("totaltokens :%d\n", totalTokens);
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
-  ConcurrentSearchCtx conc;
-  ConcurrentSearchCtx_Init(aCtx->thCtx, &conc);
-
   ForwardIndexIterator it = ForwardIndex_Iterate(ictx->idx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->rsCtx.spec->flags);
+
+  ConcurrentSearchCtx_ResetClock(aCtx->thCtx, &aCtx->conc);
 
   while (entry != NULL) {
     // ForwardIndex_NormalizeFreq(idx, entry);
@@ -244,7 +275,13 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
     RedisModule_CloseKey(idxKey);
 
     entry = ForwardIndexIterator_Next(&it);
-    CONCURRENT_CTX_TICK((&conc));
+
+    if (CONCURRENT_CTX_TICK(&aCtx->conc)) {
+      if (ACTX_SPEC(aCtx) == NULL) {
+        // Spec is gone!
+        return;
+      }
+    }
   }
   // ctx->spec->stats->numDocuments += 1;
 }
@@ -254,31 +291,60 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   Document *doc = &aCtx->doc;
   RedisSearchCtx *ctx = &aCtx->rsCtx;
+  FieldSpec *fieldSpecs = malloc(aCtx->doc.numFields * sizeof(*fieldSpecs));
+  int ourRv = REDISMODULE_OK;
+  ForwardIndex *idx = NULL;
 
-  RedisModule_ThreadSafeContextLock(aCtx->thCtx);
-  int rv = Document_Store(doc, ctx, aCtx->options, errorString);
-  RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
-
-  if (rv != 0) {
-    return REDISMODULE_ERR;
+#define ENSURE_SPEC()                                        \
+  if (ACTX_SPEC(aCtx) == NULL) {                             \
+    LG_DEBUG("Someone deleted the index while processing!"); \
+    ourRv = REDISMODULE_ERR;                                 \
+    goto cleanup;                                            \
   }
 
-  ForwardIndex *idx = NewForwardIndex(doc, ctx->spec->flags);
+  ConcurrentSearchCtx_Lock(&aCtx->conc);
+  ENSURE_SPEC();
+
+  int rv = Document_Store(doc, ctx, aCtx->options, errorString);
+  uint32_t specFlags = ACTX_SPEC(aCtx)->flags;
+
+  // Also, get the field specs. We cache this here because the context is unlocked
+  // during the actual tokenization
+  for (int i = 0; i < doc->numFields; i++) {
+    const DocumentField *f = doc->fields + i;
+    FieldSpec *fs = IndexSpec_GetField(aCtx->rsCtx.spec, f->name, strlen(f->name));
+    if (fs) {
+      fieldSpecs[i] = *fs;
+    } else {
+      fieldSpecs[i].name = NULL;
+    }
+  }
+
+  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+
+  if (rv != 0) {
+    ourRv = REDISMODULE_ERR;
+    goto cleanup;
+  }
+
+  idx = NewForwardIndex(doc, specFlags);
   indexingContext ictx = {.idx = idx, .doc = doc, .totalTokens = 0};
-  int ourRv = REDISMODULE_OK;
 
   for (int i = 0; i < doc->numFields; i++) {
-    // printf("Tokenizing %s: %s\n",
-    // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
-    //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
+    const FieldSpec *fs = fieldSpecs + i;
+    if (fs->name == NULL) {
+      LG_DEBUG("Skipping field %s not in index!", doc->fields[i].name);
+      continue;
+    }
 
-    if (indexField(aCtx, &doc->fields[i], errorString, &ictx) == -1) {
+    if (indexField(aCtx, &doc->fields[i], errorString, &ictx, fs) == -1) {
       ourRv = REDISMODULE_ERR;
       goto cleanup;
     }
   }
 
-  RedisModule_ThreadSafeContextLock(aCtx->thCtx);
+  ConcurrentSearchCtx_Lock(&aCtx->conc);
+  ENSURE_SPEC();
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
   md->maxFreq = idx->maxFreq;
@@ -290,9 +356,12 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   }
 
   ctx->spec->stats.numDocuments += 1;
-  RedisModule_ThreadSafeContextUnlock(aCtx->thCtx);
+  ConcurrentSearchCtx_Unlock(&aCtx->conc);
 
 cleanup:
-  ForwardIndexFree(idx);
+  if (idx != NULL) {
+    ForwardIndexFree(idx);
+  }
+  free(fieldSpecs);
   return ourRv;
 }
