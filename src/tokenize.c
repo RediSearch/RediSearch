@@ -80,6 +80,9 @@ static char *mySep(char **s) {
   return orig;
 }
 
+// Shortest word which can/should actually be stemmed
+#define MIN_STEM_CANDIDATE_LEN 4
+
 // tokenize the text in the context
 int _tokenize(TokenizerCtx *ctx) {
   u_int pos = ctx->lastOffset + 1;
@@ -112,7 +115,7 @@ int _tokenize(TokenizerCtx *ctx) {
     }
 
     // if we support stemming - try to stem the word
-    if (ctx->stemmer) {
+    if (ctx->stemmer && tlen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
       const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
       if (stem && strncmp(stem, tok, tlen)) {
