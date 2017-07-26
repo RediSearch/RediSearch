@@ -224,7 +224,6 @@ InvertedIndex *createIndex(int size, int idStep) {
     h.fieldMask = 1;
     h.freq = 1;
     h.docScore = 1;
-    h.stringFreeable = 0;
     h.term = "hello";
     h.len = 5;
 

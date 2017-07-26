@@ -30,9 +30,6 @@ ForwardIndex *NewForwardIndex(Document *doc) {
 static void clearEntry(void *p) {
   ForwardIndexEntry *fwEnt = p;
   VVW_Cleanup(fwEnt->vw);
-  if (fwEnt->stringFreeable) {
-    rm_free((char *)fwEnt->term);
-  }
 }
 
 void ForwardIndexFree(ForwardIndex *idx) {
@@ -54,6 +51,12 @@ static khIdxEntry *allocIdxEntry(ForwardIndex *idx) {
   return BlkAlloc_Alloc(&idx->entries, sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
 }
 
+static char *copyTempString(ForwardIndex *idx, const char *s, size_t n) {
+  char *dst = BlkAlloc_Alloc(&idx->terms, n, MAX(n, TERM_BLOCK_SIZE));
+  memcpy(dst, s, n);
+  return dst;
+}
+
 // void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
 //   e->freq = e->freq / idx->maxFreq;
 // }
@@ -71,9 +74,12 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     h = &kh->ent;
     h->docId = idx->docId;
     h->fieldMask = 0;
-    h->term = t->s;
+    if (t->stringFreeable) {
+      h->term = copyTempString(idx, t->s, t->len);
+    } else {
+      h->term = t->s;
+    }
     h->len = t->len;
-    h->stringFreeable = t->stringFreeable;
     h->freq = 0;
 
     h->vw = &kh->vw;

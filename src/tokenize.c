@@ -116,7 +116,7 @@ int _tokenize(TokenizerCtx *ctx) {
       size_t sl;
       const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
       if (stem && strncmp(stem, tok, tlen)) {
-        t.s = rm_strndup(stem, sl);
+        t.s = stem;
         t.type = DT_STEM;
         t.len = sl;
         t.fieldId = ctx->fieldId;
