@@ -60,6 +60,23 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
+void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
+
+  IndexReader *ir = privdata;
+  // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
+  if (k == NULL) {
+    ir->atEnd = 1;
+    ir->idx = NULL;
+    ir->br.buf = NULL;
+    return;
+  }
+
+  ir->idx = RedisModule_ModuleTypeGetValue(k);
+  size_t offset = ir->br.pos;
+  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br.pos = offset;
+}
+
 /******************************************************************************
  * Index Encoders Implementations.
  *
@@ -123,6 +140,7 @@ ENCODER(encodeDocIdsOnly) {
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
   size_t sz = WriteVarint(delta, bw);
+
   sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
   return sz;
 }
@@ -379,13 +397,14 @@ IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
-
+  if (ir->atEnd) {
+    goto eof;
+  }
   do {
     if (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
-        ir->atEnd = 1;
-        return INDEXREAD_EOF;
+        goto eof;
       }
       IndexReader_AdvanceBlock(ir);
     }
@@ -403,6 +422,9 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     return INDEXREAD_OK;
 
   } while (1);
+eof:
+  ir->atEnd = 1;
+  return INDEXREAD_EOF;
 }
 
 RSIndexResult *IR_Current(void *ctx) {

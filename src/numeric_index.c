@@ -11,6 +11,24 @@
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
+void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
+  UnionContext *ui = privdata;
+  // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
+  if (k == NULL) {
+    ui->atEnd = 1;
+    // Now tell all our childern they are done, and remove the reference to the underlying range
+    // object, so it will not get double-free'd
+    for (int i = 0; i < ui->num; i++) {
+      IndexIterator *it = ui->its[i];
+      if (it) {
+        IndexReader *ri = it->ctx;
+        ri->atEnd = 1;
+      }
+    }
+    return;
+  }
+}
+
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;

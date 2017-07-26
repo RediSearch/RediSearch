@@ -232,11 +232,11 @@ InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, si
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
-                              t_fieldMask fieldMask) {
+                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx) {
 
   RedisModuleString *termKey = fmtRedisTermKey(ctx, tok->str, tok->len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
-  RedisModule_FreeString(ctx->redisCtx, termKey);
+  // RedisModule_FreeString(ctx->redisCtx, termKey);
   // we do not allow empty indexes when loading an existing index
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
       RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
@@ -245,7 +245,11 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
 
-  return NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
+  IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
+  if (csx) {
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret);
+  }
+  return ret;
 }
 
 // void Redis_CloseReader(IndexReader *r) {

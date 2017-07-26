@@ -16,6 +16,7 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
 }
 
 void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
+
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
     RedisModule_CloseKey(ctx->openKeys[i].key);

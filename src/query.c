@@ -205,8 +205,8 @@ IndexIterator *Query_EvalTokenNode(Query *q, QueryNode *qn) {
 
   int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
 
-  IndexReader *ir =
-      Redis_OpenReader(q->ctx, &qn->tn, q->docTable, isSingleWord, q->fieldMask & qn->fieldMask);
+  IndexReader *ir = Redis_OpenReader(q->ctx, &qn->tn, q->docTable, isSingleWord,
+                                     q->fieldMask & qn->fieldMask, &q->conc);
   if (ir == NULL) {
     return NULL;
   }
@@ -249,7 +249,8 @@ static IndexIterator *Query_EvalPrefixNode(Query *q, QueryNode *qn) {
     tok.str = runesToStr(rstr, slen, &tok.len);
 
     // Open an index reader
-    IndexReader *ir = Redis_OpenReader(q->ctx, &tok, q->docTable, 0, q->fieldMask & qn->fieldMask);
+    IndexReader *ir =
+        Redis_OpenReader(q->ctx, &tok, q->docTable, 0, q->fieldMask & qn->fieldMask, &q->conc);
 
     free(tok.str);
     if (!ir) continue;
