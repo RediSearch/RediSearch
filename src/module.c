@@ -414,20 +414,22 @@ int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithSimpleString(ctx, v); \
   n += 2
 
-static void genOptionsStr(uint32_t options, char *out) {
-  size_t noptions = 0;
-#define MAYBE_ADD_OPTION(o, inverse) \
-  if (!(options & o)) {              \
-    strcat(out, inverse ", ");       \
-    noptions++;                      \
+static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
+
+#define ADD_NEGATIVE_OPTION(flag, str)                        \
+  if (!(sp->flags & flag)) {                                  \
+    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str)); \
+    n++;                                                      \
   }
-  MAYBE_ADD_OPTION(Index_StoreFieldFlags, "NOFIELDS");
-  MAYBE_ADD_OPTION(Index_StoreTermOffsets, "NOOFFSETS");
-  MAYBE_ADD_OPTION(Index_StoreFreqs, "NOFREQS");
-  if (noptions) {
-    size_t len = strlen(out);
-    out[len - 2] = '\0';
-  }
+
+  RedisModule_ReplyWithSimpleString(ctx, "index_options");
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  int n = 0;
+  ADD_NEGATIVE_OPTION(Index_StoreFreqs, "NOFREQS");
+  ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, "NOFIELDS");
+  ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, "NOOFFSETS");
+  RedisModule_ReplySetArrayLength(ctx, n);
+  return 2;
 }
 
 /* FT.INFO {index}
@@ -447,9 +449,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVSTR(n, "index_name", sp->name);
 
-  char indexOptionsStr[256] = {0};
-  genOptionsStr(sp->flags, indexOptionsStr);
-  REPLY_KVSTR(n, "index_options", indexOptionsStr);
+  n += renderIndexOptions(ctx, sp);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
@@ -474,14 +474,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
   REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
   REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+  // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
-  REPLY_KVNUM(n, "inverted_cap_ovh", 0);
+  // REPLY_KVNUM(n, "inverted_cap_ovh", 0);
   //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   REPLY_KVNUM(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  REPLY_KVNUM(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
+  // REPLY_KVNUM(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
+  //  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
