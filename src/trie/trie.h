@@ -17,8 +17,8 @@ typedef uint16_t t_len;
 
 #pragma pack(1)
 typedef struct {
-   uint32_t len; //4G payload is more than enough!!!!
-   char data[]; // this means the data will not take an extra pointer.
+  uint32_t len;  // 4G payload is more than enough!!!!
+  char data[];   // this means the data will not take an extra pointer.
 } TriePayload;
 #pragma pack()
 
@@ -53,43 +53,44 @@ typedef struct {
 
   // the string of the current node
   rune str[];
-  // ... now come the children, to be accessed with __trieNode_children
+  // ... now come the children, to be accessed with TrieNode_Children
 } TrieNode;
 #pragma pack()
-
-
 
 void TrieNode_Print(TrieNode *n, int idx, int depth);
 
 /* The byte size of a node, based on its internal string length and number of
  * children */
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
+static inline size_t TrieNode_SizeOf(t_len numChildren, t_len slen) {
+  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
+}
 
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen, t_len numChildren, float score,
-                        int terminal);
+TrieNode *NewTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+                      t_len numChildren, float score, int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
  * memory saving reasons */
-#define __trieNode_children(n) \
+#define TrieNode_Children(n) \
   ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
 
-#define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
+#define TrieNode_IsTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
-#define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
+#define TrieNode_IsDeleted(n) (n->flags & TRIENODE_DELETED)
 
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload, float score);
+TrieNode *TrieNode_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+                            float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
 * up until offset, and
 * a single child holding The old score of n, and its score */
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
+TrieNode *TrieNode_Split(TrieNode *n, t_len offset);
 
 typedef enum {
   ADD_REPLACE,
@@ -142,10 +143,10 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[MAX_STRING_LEN+1];
+  rune buf[MAX_STRING_LEN + 1];
   t_len bufOffset;
 
-  stackNode stack[MAX_STRING_LEN+1];
+  stackNode stack[MAX_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
   float minScore;
@@ -154,28 +155,6 @@ typedef struct TrieIterator {
   StackPopCallback popCallback;
   void *ctx;
 } TrieIterator;
-
-/* push a new trie iterator stack node  */
-void __ti_Push(TrieIterator *it, TrieNode *node, int skipped);
-
-/* the current top of the iterator stack */
-#define __ti_current(it) &it->stack[it->stackOffset - 1]
-
-/* pop a node from the iterator's stcak */
-void __ti_Pop(TrieIterator *it);
-
-/* Step itearator return codes below: */
-
-/* Stop the iteration */
-#define __STEP_STOP 0
-/* Continue to next node  */
-#define __STEP_CONT 1
-/* We found a match, return the state to the user but continue afterwards */
-#define __STEP_MATCH 3
-
-/* Single step iteration, feeding the given filter/automaton with the next
- * character */
-int __ti_step(TrieIterator *it, void *matchCtx);
 
 /* Iterate the tree with a step filter, which tells the iterator whether to
  * continue down the trie
@@ -190,6 +169,7 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
+                      void *matchCtx);
 
 #endif

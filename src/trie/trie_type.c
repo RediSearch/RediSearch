@@ -15,7 +15,7 @@
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
-  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
+  tree->root = NewTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
   tree->size = 0;
   free(rs);
   return tree;

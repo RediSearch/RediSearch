@@ -108,7 +108,7 @@ int testRuneUtil() {
 
 int testPayload() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = NewTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
   ASSERT(root != NULL)
   free(rootRunes);
 
@@ -147,7 +147,7 @@ int testPayload() {
 
 int testTrie() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = NewTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
   ASSERT(root != NULL)
   free(rootRunes);
 
@@ -197,7 +197,7 @@ int testUnicode() {
   char *str = "\xc4\x8c\xc4\x87";
 
   rune *rn = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = NewTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0);
   free(rn);
   ASSERT(root != NULL)
 
@@ -224,7 +224,7 @@ int testDFAFilter() {
   ssize_t read;
   size_t rlen;
   rune *runes = strToRunes("root", &rlen);
-  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0);
+  TrieNode *root = NewTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0);
   ASSERT(root != NULL)
   free(runes);
   int i = 0;
