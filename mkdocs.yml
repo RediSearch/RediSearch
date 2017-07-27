@@ -20,6 +20,7 @@ extra:
 pages:
     - 'RediSearch': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
+    - 'Client Libraris': 'Clients.md'
     - 'Commands': 'Commands.md'       
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Sortable Values': 'Sorting.md'
