@@ -6,7 +6,8 @@ before_script:
 - git clone -b 4.0.0 --depth 1 https://github.com/antirez/redis.git
 - cd redis
 - make
-- pip install redis ramp-packer rmtest
+- pip install redis ramp-packer
+- pip install git+http://github.com/RedisLabs/rmtest@c337b583acb996fe61f27bf40d5d854ef8e0399b
 - cd ..
 env:
 - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/redisearch.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
