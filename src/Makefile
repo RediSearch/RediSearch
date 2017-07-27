@@ -79,14 +79,18 @@ query_parser:
 	$(MAKE) -C $@
 .PHONY: query_parser
 
-test: $(MODULE)
+build_tests: redisearch.so libredisearch.a
+	$(MAKE) -C tests build
+
+test: $(MODULE) build_tests
 	# low level redis-independant tests
-	$(MAKE) -C ./tests clean build test
+	$(MAKE) -C ./tests test
 	# high level python integration tests
 	$(MAKE) -C pytest test
 	# Triemap tests
 	$(MAKE) -C dep/triemap/test test
 
+buildall: redisearch.so libredisearch.a build_tests
 
 # Build the module...
 redisearch.so: $(MODULE) version.h
@@ -97,13 +101,14 @@ redisearch.so: $(MODULE) version.h
 # Build a stand-alone static library without the module entry point.
 # This is used to include the module's functionality in other modules
 libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
-libredisearch.a: $(MODULE) version.h
+libredisearch.a: $(CC_OBJECTS) version.h
 	ar rcs $@ $(CC_OBJECTS)
 
 staticlib: libredisearch.a
 
 clean:
-	rm -fv *.o trie/*.o query_parser/*.o ext/*.o 
+	rm -fv *.o trie/*.o query_parser/*.o ext/*.o
+	$(MAKE) -C tests clean
 
 distclean:
 	find . -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' \) -delete -print
