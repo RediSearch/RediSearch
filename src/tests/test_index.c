@@ -392,6 +392,26 @@ int testNumericInverted() {
   return 0;
 }
 
+int testAbort() {
+
+  InvertedIndex *w = createIndex(1000, 1);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);  //
+
+  IndexIterator *it = NewReadIterator(r);
+  int n = 0;
+  RSIndexResult *res;
+  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+    if (n == 50) {
+      it->Abort(it->ctx);
+    }
+    n++;
+  }
+  ASSERT_EQUAL(51, n);
+  it->Free(it);
+  InvertedIndex_Free(w);
+  return 0;
+}
+
 int testIntersection() {
 
   InvertedIndex *w = createIndex(100000, 4);
@@ -795,22 +815,22 @@ TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-
+  TESTFUNC(testAbort)
   TESTFUNC(testNumericInverted);
 
-  // TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
-  // TESTFUNC(testNot);
-  // TESTFUNC(testUnion);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
+  TESTFUNC(testNot);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
-  // TESTFUNC(testDocTable);
-  // TESTFUNC(testSortable);
+  TESTFUNC(testBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
+  TESTFUNC(testSortable);
 });

@@ -6,6 +6,7 @@
 #include "rmalloc.h"
 #include "qint.h"
 #include "qint.c"
+#include "redis_index.h"
 #include "numeric_filter.h"
 
 // The number of entries in each index block. A new block will be created after every N entries
@@ -58,6 +59,26 @@ void InvertedIndex_Free(void *ctx) {
   }
   rm_free(idx->blocks);
   rm_free(idx);
+}
+
+/* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
+ * underlying term key. We check for changes in the underlying key, or possible deletion of it */
+void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
+
+  IndexReader *ir = privdata;
+  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
+  if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
+    ir->atEnd = 1;
+    ir->idx = NULL;
+    ir->br.buf = NULL;
+    return;
+  }
+
+  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
+  ir->idx = RedisModule_ModuleTypeGetValue(k);
+  size_t offset = ir->br.pos;
+  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br.pos = offset;
 }
 
 /******************************************************************************
@@ -123,6 +144,7 @@ ENCODER(encodeDocIdsOnly) {
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
   size_t sz = WriteVarint(delta, bw);
+
   sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
   return sz;
 }
@@ -379,13 +401,14 @@ IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
-
+  if (ir->atEnd) {
+    goto eof;
+  }
   do {
     if (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
-        ir->atEnd = 1;
-        return INDEXREAD_EOF;
+        goto eof;
       }
       IndexReader_AdvanceBlock(ir);
     }
@@ -403,6 +426,9 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     return INDEXREAD_OK;
 
   } while (1);
+eof:
+  ir->atEnd = 1;
+  return INDEXREAD_EOF;
 }
 
 RSIndexResult *IR_Current(void *ctx) {
@@ -475,15 +501,18 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     return IR_Read(ctx, hit);
   }
 
+  if (ir->atEnd) {
+    goto eof;
+  }
+
   /* check if the id is out of range */
   if (docId > ir->idx->lastId) {
-    ir->atEnd = 1;
-    return INDEXREAD_EOF;
+    goto eof;
   }
   // try to skip to the current block
   if (!IndexReader_SkipToBlock(ir, docId)) {
     if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      return INDEXREAD_EOF;
+      goto eof;
     }
     return INDEXREAD_NOTFOUND;
   }
@@ -496,6 +525,7 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     if (rid == docId) return INDEXREAD_OK;
     return INDEXREAD_NOTFOUND;
   }
+eof:
   ir->atEnd = 1;
   return INDEXREAD_EOF;
 }
@@ -550,6 +580,11 @@ void IR_Free(IndexReader *ir) {
   rm_free(ir);
 }
 
+void IR_Abort(void *ctx) {
+  IndexReader *it = ctx;
+  it->atEnd = 1;
+}
+
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
     return;
@@ -573,6 +608,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
   ri->Current = IR_Current;
+  ri->Abort = IR_Abort;
   return ri;
 }
 

@@ -11,6 +11,31 @@
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
+typedef struct {
+  IndexIterator *it;
+  uint32_t lastRevId;
+} NumericUnionCtx;
+
+/* A callback called after a concurrent context regains execution context. When this happen we need
+ * to make sure the key hasn't been deleted or its structure changed, which will render the
+ * underlying iterators invalid */
+void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
+  NumericUnionCtx *nu = privdata;
+  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
+
+  /* If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
+   * We simply abort the root iterator which is either a union of many ranges or a single range
+   *
+   * If the numeric range tree has chaned (split, nodes deleted, etc) since we last closed it,
+   * We cannot continue iterating it, since the underlying pointers might be screwed.
+   * For now we will just stop processing this query. This causes the query to return bad results,
+   * so in the future we can try an reset the state here
+   */
+  if (k == NULL || t == NULL || t->revisionId != nu->lastRevId) {
+    nu->it->Abort(nu->it->ctx);
+  }
+}
+
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
@@ -66,14 +91,6 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
-  // TimeSample ts;
-  // TimeSampler_Start(&ts);
-  // double scores[n->size];
-  // for (size_t i = 0; i < n->size; i++) {
-  //   scores[i] = n->entries[i].value;
-  // }
-
-  // double split = qselect(scores, n->size, n->size / 2);
 
   double split = (n->minVal + n->maxVal) / (double)2;
 
@@ -235,17 +252,21 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->root = NewLeafNode(2, 0, 0, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
+  ret->revisionId = 0;
   return ret;
 }
 
 int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
 
   int rc = NumericRangeNode_Add(t->root, docId, value);
+  // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
+  // we increment the revision id of the tree, so currently running query iterators on it
+  // will abort the next time they get execution context
+  if (rc) {
+    t->revisionId++;
+  }
   t->numRanges += rc;
   t->numEntries++;
-  //
-  // printf("range tree added %d, size now %zd docs %zd ranges\n", docId, t->numEntries,
-  // t->numRanges);
 
   return rc;
 }
@@ -285,9 +306,8 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
- * the
- * filter */
-IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
+ * the filter */
+IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -319,7 +339,10 @@ IndexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f) {
     its[i] = NewNumericRangeIterator(rng, f);
   }
   Vector_Free(v);
-  return NewUnionIterator(its, n, NULL, 1);
+
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1);
+
+  return it;
 }
 
 RedisModuleType *NumericIndexType = NULL;
@@ -328,6 +351,27 @@ RedisModuleType *NumericIndexType = NULL;
 RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
                                         field);
+}
+
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx) {
+  RedisModuleString *s = fmtRedisNumericIndexKey(ctx, flt->fieldName);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
+  if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+    return NULL;
+  }
+  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
+
+  IndexIterator *it = createNumericIterator(t, flt);
+  if (!it) {
+    return NULL;
+  }
+
+  NumericUnionCtx *uc = malloc(sizeof(*uc));
+  uc->lastRevId = t->revisionId;
+  uc->it = it;
+  ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free);
+  return it;
 }
 
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {

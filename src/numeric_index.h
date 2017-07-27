@@ -8,6 +8,7 @@
 #include "index_result.h"
 #include "redismodule.h"
 #include "search_ctx.h"
+#include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
@@ -46,11 +47,14 @@ typedef struct {
   size_t numRanges;
   size_t numEntries;
   size_t card;
+
+  uint32_t revisionId;
 } NumericRangeTree;
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
 
-struct indexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f);
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.

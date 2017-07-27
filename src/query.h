@@ -49,6 +49,8 @@ typedef struct RSQuery {
   // Whether phrases are in order or not
   int inOrder;
 
+  int aborted;
+
   // Query expander
   RSQueryTokenExpander expander;
   RSFreeFunction expanderFree;
