@@ -61,6 +61,24 @@ int RMUtil_ParseArgsAfter(const char *token, RedisModuleString **argv, int argc,
 
 int rmutil_vparseArgs(RedisModuleString **argv, int argc, int offset, const char *fmt, va_list ap);
 
+#define RMUTIL_VARARGS_BADARG ((size_t)-1)
+/**
+ * Parse arguments in the form of KEYWORD {len} {arg} .. {arg}_len.
+ * If keyword is present, returns the position within `argv` containing the arguments.
+ * Returns NULL if the keyword is not found.
+ * If a parse error has occurred, `nargs` is set to RMUTIL_VARARGS_BADARG, but
+ * the return value is not NULL.
+ */
+RedisModuleString **RMUtil_ParseVarArgs(RedisModuleString **argv, int argc, int offset,
+                                        const char *keyword, size_t *nargs);
+
+/**
+ * Default implementation of an AoF rewrite function that simply calls DUMP/RESTORE
+ * internally. To use this function, pass it as the .aof_rewrite value in
+ * RedisModuleTypeMethods
+ */
+void RMUtil_DefaultAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
+
 // A single key/value entry in a redis info map
 typedef struct {
   const char *key;
@@ -129,20 +147,5 @@ typedef enum {
  * @return a value in the @ref RMUtil_TryGetValueStatus enum.
  */
 int RedisModule_TryGetValue(RedisModuleKey *key, const RedisModuleType *type, void **out);
-
-/**
- * Compares a RedisModuleString against an actual string buffer, avoiding
- * keeping a temporary value for RedisModule_StringPtrLen.
- * @param s1 the RedisModuleString
- * @param s2 the buffer
- * @param n the length of the C string.
- * Returns 0 if the strings are equal.
- */
-int RedisModule_Strncasecmp(const RedisModuleString *s1, const char *s2, size_t n);
-
-/**
- * Exactly like RedisModule_Strncasecmp, except that `s2` is NUL-terminated
- */
-int RedisModule_Strcasecmp(const RedisModuleString *s, const char *s2);
 
 #endif
