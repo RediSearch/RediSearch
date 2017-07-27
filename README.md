@@ -11,19 +11,11 @@
 
 # Client Libraries
 
-* **Python**: [https://github.com/RedisLabs/redisearch-py](https://github.com/RedisLabs/redisearch-py)
+## Client Libraries
 
-* **Java**: [https://github.com/RedisLabs/JRediSearch](https://github.com/RedisLabs/JRediSearch)
+Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
+See [the Clients Page on redisearch.io](http://redisearch.io/Clients/)
 
-## Community Libraries:
-
-* **PHP**: [https://github.com/ethanhann/redisearch-php](https://github.com/ethanhann/redisearch-php) (By Ethan Hann)
-
-* **Ruby on Rails**: [https://github.com/dmitrypol/redi_search_rails](https://github.com/dmitrypol/redi_search_rails) (By Dmitry Polyakovsky)
-
-* **Ruby**: [https://github.com/vruizext/redisearch-rb](https://github.com/vruizext/redisearch-rb) (By Victor Ruiz)
-
-* **.Net**: [https://libraries.io/nuget/NRediSearch](https://libraries.io/nuget/NRediSearch) (By Marc Gravell)
 
 # Overview
 
