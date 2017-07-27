@@ -168,6 +168,8 @@
       
         
       
+        
+      
     </ul>
   </div>
 </nav>
@@ -231,6 +233,18 @@
   <li class="md-nav__item">
     <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
       Quick Start
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraris" class="md-nav__link">
+      Client Libraris
     </a>
   </li>
 
@@ -581,7 +595,7 @@
 <h2 id="registering-extensions">Registering Extensions<a class="headerlink" href="#registering-extensions" title="Permanent link">&para;</a></h2>
 <p>Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. </p>
 <p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
-<p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be atuomated.</p>
+<p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be automated.</p>
 <p>Here is an example of an extension initialization function:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
