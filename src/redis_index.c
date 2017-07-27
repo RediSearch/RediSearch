@@ -108,18 +108,27 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
-  if (!sp) {
+
+  RedisModuleString *keyName = RedisModule_CreateStringPrintf(
+      ctx, INDEX_SPEC_KEY_FMT, RedisModule_StringPtrLen(indexName, NULL));
+
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+  // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
+  // we do not allow empty indexes when loading an existing index
+  if (k == NULL || RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
     return NULL;
   }
+  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  sctx->spec = sp;
-  sctx->redisCtx = ctx;
+  *sctx = (RedisSearchCtx){
+      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
+  };
   return sctx;
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
+
   rm_free(sctx);
 }
 /*
@@ -236,10 +245,11 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 
   RedisModuleString *termKey = fmtRedisTermKey(ctx, tok->str, tok->len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
-  // RedisModule_FreeString(ctx->redisCtx, termKey);
+
   // we do not allow empty indexes when loading an existing index
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
       RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
+    RedisModule_FreeString(ctx->redisCtx, termKey);
     return NULL;
   }
 
@@ -247,7 +257,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 
   IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, NewTerm(tok));
   if (csx) {
-    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret);
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL);
   }
   return ret;
 }

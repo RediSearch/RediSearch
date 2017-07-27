@@ -336,12 +336,8 @@ static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
   if (!fs || fs->type != F_NUMERIC) {
     return NULL;
   }
-  NumericRangeTree *t = OpenNumericIndex(q->ctx, node->nf->fieldName);
-  if (!t) {
-    return NULL;
-  }
 
-  return NewNumericFilterIterator(t, node->nf, &q->conc);
+  return NewNumericFilterIterator2(q->ctx, node->nf, &q->conc);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
@@ -476,6 +472,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->stopwords = stopwords;
   ret->payload = payload;
   ret->sortKey = sk;
+  ret->aborted = 0;
   ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
 
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
@@ -705,7 +702,24 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
   return RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
+void Query_OnReopen(RedisModuleKey *k, void *privdata) {
+  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
+  Query *q = privdata;
+  if (k == NULL || sp == NULL) {
+    q->aborted = 1;
+    q->ctx->spec = NULL;
+    return;
+  }
+
+  q->ctx->spec = sp;
+  q->docTable = &sp->docs;
+}
+
 QueryResult *Query_Execute(Query *query) {
+
+  ConcurrentSearch_AddKey(&query->conc, query->ctx->key, REDISMODULE_READ, query->ctx->keyName,
+                          Query_OnReopen, query, NULL);
+
   // QueryNode_Print(query, query->root, 0);
   QueryResult *res = malloc(sizeof(QueryResult));
   res->error = 0;
@@ -780,6 +794,7 @@ QueryResult *Query_Execute(Query *query) {
     h->docId = r->docId;
 
     CONCURRENT_CTX_TICK(cxc);
+    if (query->aborted) goto cleanup;
 
     if (heap_count(pq) < heap_size(pq)) {
       heap_offerx(pq, h);

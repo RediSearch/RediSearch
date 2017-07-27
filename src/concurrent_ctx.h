@@ -31,9 +31,11 @@ typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
 typedef struct {
   RedisModuleKey *key;
   RedisModuleString *keyName;
-  void *ctx;
+  void *privdata;
   ConcurrentReopenCallback cb;
   int keyFlags;
+  // A custom callback to free privdata. If NULL we don't do anything
+  void (*freePrivData)(void *);
 } ConcurrentKeyCtx;
 
 typedef struct {
@@ -58,7 +60,7 @@ typedef struct {
 
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
-                             void *privdata);
+                             void *privdata, void (*freePrivDataCallback)(void *));
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
 

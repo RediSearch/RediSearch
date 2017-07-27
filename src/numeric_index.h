@@ -8,6 +8,7 @@
 #include "index_result.h"
 #include "redismodule.h"
 #include "search_ctx.h"
+#include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
@@ -51,6 +52,9 @@ typedef struct {
 } NumericRangeTree;
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
+
+struct indexIterator *NewNumericFilterIterator2(RedisSearchCtx *ctx, NumericFilter *flt,
+                                                ConcurrentSearchCtx *csx);
 
 struct indexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f);
 

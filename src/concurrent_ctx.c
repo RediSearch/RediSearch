@@ -19,7 +19,9 @@ void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
 
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
-    RedisModule_CloseKey(ctx->openKeys[i].key);
+    if (ctx->openKeys[i].key) {
+      RedisModule_CloseKey(ctx->openKeys[i].key);
+    }
   }
 }
 
@@ -28,7 +30,7 @@ void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
   for (size_t i = 0; i < sz; i++) {
     ConcurrentKeyCtx *kx = &ctx->openKeys[i];
     kx->key = RedisModule_OpenKey(ctx->ctx, kx->keyName, kx->keyFlags);
-    kx->cb(kx->key, kx->ctx);
+    kx->cb(kx->key, kx->privdata);
   }
 }
 
@@ -71,18 +73,29 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
 }
 
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
+  // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
+    // Close the monitored key and free its reopen string
     RedisModule_CloseKey(ctx->openKeys[i].key);
     RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
+
+    // free the private data if needed
+    if (ctx->openKeys[i].freePrivData) {
+      ctx->openKeys[i].freePrivData(ctx->openKeys[i].privdata);
+    }
   }
   free(ctx->openKeys);
 }
 
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
-                             void *privdata) {
+                             void *privdata, void (*freePrivDataCallback)(void *)) {
   ctx->numOpenKeys++;
   ctx->openKeys = realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
-  ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){
-      .key = key, .keyName = keyName, .keyFlags = openFlags, .cb = cb, .ctx = privdata};
+  ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.key = key,
+                                                           .keyName = keyName,
+                                                           .keyFlags = openFlags,
+                                                           .cb = cb,
+                                                           .privdata = privdata,
+                                                           .freePrivData = freePrivDataCallback};
 }

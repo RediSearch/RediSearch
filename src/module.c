@@ -259,7 +259,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     goto cleanup;
   }
 
-  RedisSearchCtx sctx = {ctx, sp};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   // Load the document score
   double ds = 0;
@@ -510,7 +510,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   size_t qlen;
   const char *qs = RedisModule_StringPtrLen(argv[2], &qlen);
-  RedisSearchCtx sctx = {ctx, sp};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   Query *q = NewQuery(&sctx, (char *)qs, qlen, 0, 10, RS_FIELDMASK_ALL, 0, "en", sp->stopwords,
                       NULL, -1, 0, NULL, (RSPayload){}, NULL);
 
@@ -646,8 +646,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
 
-  RedisSearchCtx sctx = {ctx, sp};
-
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
@@ -891,8 +890,7 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   sp->stats.scoreIndexesSize = 0;
   sp->stats.skipIndexesSize = 0;
 
-  RedisSearchCtx sctx = {ctx, sp};
-
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
   size_t len;
   const char *prefix = RedisModule_StringPtrLen(pf, &len);
@@ -922,8 +920,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  RedisSearchCtx sctx = {ctx, sp};
-
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   Redis_DropIndex(&sctx, 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
