@@ -53,10 +53,8 @@ typedef struct {
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
 
-struct indexIterator *NewNumericFilterIterator2(RedisSearchCtx *ctx, NumericFilter *flt,
-                                                ConcurrentSearchCtx *csx);
-
-struct indexIterator *NewNumericFilterIterator(NumericRangeTree *t, NumericFilter *f);
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.

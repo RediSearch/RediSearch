@@ -52,6 +52,9 @@ int testNumericRangeTree() {
 #define _min(x, y) (x < y ? x : y)
 #define _max(x, y) (x < y ? y : x)
 
+// declaration for an internal function implemented in numeric_index.c
+IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f);
+
 int testRangeIterator() {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT(t != NULL);
@@ -84,7 +87,7 @@ int testRangeIterator() {
     }
 
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = NewNumericFilterIterator(t, flt);
+    IndexIterator *it = createNumericIterator(t, flt);
 
     int xcount = 0;
     RSIndexResult *res = NULL;
@@ -153,7 +156,7 @@ int benchmarkNumericRangeTree() {
   TimeSample ts;
 
   NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
-  IndexIterator *it = NewNumericFilterIterator(t, flt);
+  IndexIterator *it = createNumericIterator(t, flt);
   ASSERT(it->HasNext(it->ctx));
 
   // ASSERT_EQUAL(it->Len(it->ctx), N);

@@ -576,6 +576,11 @@ void IR_Free(IndexReader *ir) {
   rm_free(ir);
 }
 
+void IR_Abort(void *ctx) {
+  IndexReader *it = ctx;
+  it->atEnd = 1;
+}
+
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
     return;
@@ -599,6 +604,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
   ri->Current = IR_Current;
+  ri->Abort = IR_Abort;
   return ri;
 }
 

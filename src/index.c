@@ -15,6 +15,16 @@ inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionContext *)ctx)->minDocId;
 }
 
+void UI_Abort(void *ctx) {
+  UnionContext *it = ctx;
+  it->atEnd = 1;
+  for (int i = 0; i < it->num; i++) {
+    if (it->its[i]) {
+      it->its[i]->Abort(it->its[i]->ctx);
+    }
+  }
+}
+
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit) {
   // create union context
   UnionContext *ctx = calloc(1, sizeof(UnionContext));
@@ -36,6 +46,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->HasNext = UI_HasNext;
   it->Free = UnionIterator_Free;
   it->Len = UI_Len;
+  it->Abort = UI_Abort;
   return it;
 }
 
@@ -252,6 +263,16 @@ void IntersectIterator_Free(IndexIterator *it) {
   free(it);
 }
 
+void II_Abort(void *ctx) {
+  IntersectContext *it = ctx;
+  it->atEnd = 1;
+  for (int i = 0; i < it->num; i++) {
+    if (it->its[i]) {
+      it->its[i]->Abort(it->its[i]->ctx);
+    }
+  }
+}
+
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder) {
 
@@ -278,6 +299,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   it->HasNext = II_HasNext;
   it->Len = II_Len;
   it->Free = IntersectIterator_Free;
+  it->Abort = II_Abort;
   return it;
 }
 
@@ -440,6 +462,11 @@ size_t II_Len(void *ctx) {
   return ((IntersectContext *)ctx)->len;
 }
 
+void NI_Abort(void *ctx) {
+  NotContext *nc = ctx;
+  nc->child->Abort(nc->child->ctx);
+}
+
 void NI_Free(IndexIterator *it) {
 
   NotContext *nc = it->ctx;
@@ -535,6 +562,7 @@ IndexIterator *NewNotIterator(IndexIterator *it) {
   ret->Len = NI_Len;
   ret->Read = NI_Read;
   ret->SkipTo = NI_SkipTo;
+  ret->Abort = NI_Abort;
   return ret;
 }
 
@@ -606,6 +634,11 @@ int OI_HasNext(void *ctx) {
   return 1;
 }
 
+void OI_Abort(void *ctx) {
+  OptionalMatchContext *nc = ctx;
+  nc->child->Abort(nc->child->ctx);
+}
+
 /* Return the current hit */
 RSIndexResult *OI_Current(void *ctx) {
   OptionalMatchContext *nc = ctx;
@@ -643,6 +676,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it) {
   ret->Len = OI_Len;
   ret->Read = OI_Read;
   ret->SkipTo = OI_SkipTo;
+  ret->Abort = OI_Abort;
   return ret;
 }
 
@@ -691,6 +725,11 @@ int WI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+void WI_Abort(void *ctx) {
+  WildcardIteratorCtx *nc = ctx;
+  nc->current = nc->topId + 1;
+}
+
 /* We always have next, in case anyone asks... ;) */
 int WI_HasNext(void *ctx) {
   WildcardIteratorCtx *nc = ctx;
@@ -735,5 +774,6 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->Len = WI_Len;
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
+  ret->Abort = WI_Abort;
   return ret;
 }
