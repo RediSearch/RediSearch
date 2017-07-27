@@ -5,7 +5,6 @@
 #include "stemmer.h"
 #include "stopwords.h"
 #include "redisearch.h"
-#include "util/khash.h"
 #include "varint.h"
 #include <ctype.h>
 #include <stdlib.h>

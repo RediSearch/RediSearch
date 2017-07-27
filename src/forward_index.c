@@ -15,7 +15,7 @@ typedef struct {
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
 
-  idx->hits = kh_init(32);
+  idx->hits = NewTrieMap();
   idx->docScore = doc->score;
   idx->docId = doc->docId;
   idx->totalFreq = 0;
@@ -39,13 +39,15 @@ static inline int hasOffsets(const ForwardIndex *idx) {
   return (idx->idxFlags & Index_StoreTermOffsets);
 }
 
+void dummyFree(void *arg) {
+}
+
 void ForwardIndexFree(ForwardIndex *idx) {
-  size_t elemSize = hasOffsets(idx) ? sizeof(khIdxEntry) : sizeof(ForwardIndexEntry);
+  size_t elemSize = sizeof(khIdxEntry);
 
   BlkAlloc_FreeAll(&idx->entries, clearEntry, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&idx->terms, NULL, 0);
-
-  kh_destroy(32, idx->hits);
+  TrieMap_Free(idx->hits, dummyFree);
 
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
@@ -72,14 +74,12 @@ static char *copyTempString(ForwardIndex *idx, const char *s, size_t n) {
 int forwardIndexTokenFunc(void *ctx, const Token *t) {
   ForwardIndex *idx = ctx;
 
-  // we hash the string ourselves because khash suckz azz
-  uint32_t hval = fnv_32a_buf((void *)t->s, t->len, 0);
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
+  khIdxEntry *kh = TrieMap_Find(idx->hits, t->s, t->len);
   ForwardIndexEntry *h = NULL;
-  khiter_t k = kh_get(32, idx->hits, hval);  // first have to get ieter
-  if (k == kh_end(idx->hits)) {              // k will be equal to kh_end if key not present
-    /// LG_DEBUG("new entry %.*s\n", t.len, t.s);
-    khIdxEntry *kh = allocIdxEntry(idx);
+
+  if (kh == TRIEMAP_NOTFOUND) {
+    kh = allocIdxEntry(idx);
     h = &kh->ent;
     h->docId = idx->docId;
     h->fieldMask = 0;
@@ -96,12 +96,9 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
       VVW_Init(h->vw, 64);
     }
     h->docScore = idx->docScore;
-
-    int ret;
-    k = kh_put(32, idx->hits, hval, &ret);
-    kh_value(idx->hits, k) = h;
+    TrieMap_Add(idx->hits, t->s, t->len, kh, NULL);
   } else {
-    h = kh_val(idx->hits, k);
+    h = &kh->ent;
   }
 
   h->fieldMask |= (t->fieldId & RS_FIELDMASK_ALL);
@@ -126,23 +123,19 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
   ForwardIndexIterator iter;
   iter.idx = i;
-  iter.k = kh_begin(i->hits);
+  iter.iter = TrieMap_Iterate(i->hits, NULL, 0);
 
   return iter;
 }
 
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
-  // advance the iterator while it's empty
-  while (iter->k != kh_end(iter->idx->hits) && !kh_exist(iter->idx->hits, iter->k)) {
-    ++iter->k;
+  char *ptr_dummy;
+  tm_len_t len_dummy;
+  ForwardIndexEntry *ent = NULL;
+  int rv = TrieMapIterator_Next(iter->iter, &ptr_dummy, &len_dummy, (void **)&ent);
+  if (rv) {
+    return ent;
+  } else {
+    return NULL;
   }
-
-  // if we haven't reached the end, return the current iterator's entry
-  if (iter->k != kh_end(iter->idx->hits) && kh_exist(iter->idx->hits, iter->k)) {
-    ForwardIndexEntry *entry = kh_value(iter->idx->hits, iter->k);
-    ++iter->k;
-    return entry;
-  }
-
-  return NULL;
 }

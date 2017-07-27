@@ -1,8 +1,8 @@
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
 #include "redisearch.h"
-#include "util/khash.h"
 #include "util/block_alloc.h"
+#include "dep/triemap/triemap.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"
@@ -19,13 +19,12 @@ typedef struct {
   VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
-KHASH_MAP_INIT_INT(32, ForwardIndexEntry *)
-
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct {
-  khash_t(32) * hits;
+  // khash_t(32) * hits;
+  TrieMap *hits;
   t_docId docId;
   uint32_t totalFreq;
   uint32_t maxFreq;
@@ -39,7 +38,7 @@ typedef struct {
 
 typedef struct {
   ForwardIndex *idx;
-  khiter_t k;
+  TrieMapIterator *iter;
 } ForwardIndexIterator;
 
 int forwardIndexTokenFunc(void *ctx, const Token *t);
