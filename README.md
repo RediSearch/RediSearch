@@ -9,12 +9,6 @@
 
 ### Latest Release: [0.19.3 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
 
-# Client Libraries
-
-## Client Libraries
-
-Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
-See [the Clients Page on redisearch.io](http://redisearch.io/Clients/)
 
 
 # Overview
@@ -27,6 +21,21 @@ indexing and search speed, and low memory footprint.
 
 This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
 that are not possible or efficient with traditional redis search approaches. 
+
+# Client Libraries
+
+Official (Redis Labs) and community Clients:
+
+| Language | Library | Author | License | Comments |
+|---|---|---|---|---|
+|Python | [redisearch-py](https://github.com/RedisLabs/redisearch-py) | Redis Labs | BSD | Usually the most up-to-date client library |
+| Java | [JRediSearch](https://github.com/RedisLabs/JRediSearch) | Redis Labs | BSD | |
+| Go | [redisearch-go](https://github.com/RedisLabs/redisearch-go) | Redis Labs | BSD | Incomplete API | 
+| JavaScript | [RedRediSearch](https://github.com/stockholmux/redredisearch) | Kyle J. Davis | MIT | Partial API, compatible with [Reds](https://github.com/tj/reds) |
+| C# | [NRediSearch](https://libraries.io/nuget/NRediSearch) | Marc Gravell | MIT | Part of StackExchange.Redis |
+| PHP | [redisearch-php](https://github.com/ethanhann/redisearch-php) | Ethan Hann | MIT |
+| Ruby on Rails | [redi_search_rails](https://github.com/dmitrypol/redi_search_rails)  | Dmitry Polyakovsky | MIT | |
+| Ruby | [redisearch-rb](https://github.com/vruizext/redisearch-rb) | Victor Ruiz | MIT | |
 
 ## Primary Features:
 
