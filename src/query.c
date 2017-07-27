@@ -702,15 +702,19 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
   return RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
+/* A callback called when we regain concurrent execution context, and the index spec key is
+ * reopened. We protect against the case that the spec has been deleted during query execution */
 void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
   Query *q = privdata;
+  // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
     q->aborted = 1;
     q->ctx->spec = NULL;
     return;
   }
 
+  // The spec might have changed while we were sleeping - for example a realloc of the doc table
   q->ctx->spec = sp;
   q->docTable = &sp->docs;
 }

@@ -25,6 +25,7 @@ void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
   }
 }
 
+/* Reopen all the monitored keys */
 void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
@@ -87,6 +88,19 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   free(ctx->openKeys);
 }
 
+/* Add a "monitored" key to the context. When keys are open during concurrent execution, they need
+ * to be closed before we yield execution and release the GIL, and reopened when we get back the
+ * execution context.
+ * To simplify this, each place in the program that holds a reference to a redis key
+ * based data, registers itself and the key to be automatically reopened.
+ *
+ * After reopening, a callback
+ * is being called to notify the key holder that it has been reopened, and handle the consequences.
+ * This is used by index iterators to avoid holding reference to deleted keys or changed data.
+ *
+ * We register the key, the flags to reopen it, a string holding its name for reopening, a callback
+ * for notification, and private callback data. if freePrivDataCallback is provided, we will call it
+ * when the context is freed to release the private data. If NULL is passed, we do nothing */
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
                              void *privdata, void (*freePrivDataCallback)(void *)) {

@@ -6,6 +6,7 @@
 #include "rmalloc.h"
 #include "qint.h"
 #include "qint.c"
+#include "redis_index.h"
 #include "numeric_filter.h"
 
 // The number of entries in each index block. A new block will be created after every N entries
@@ -60,17 +61,20 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
+/* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
+ * underlying term key. We check for changes in the underlying key, or possible deletion of it */
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
   IndexReader *ir = privdata;
-  // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
-  if (k == NULL) {
+  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
+  if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
     ir->atEnd = 1;
     ir->idx = NULL;
     ir->br.buf = NULL;
     return;
   }
 
+  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   ir->idx = RedisModule_ModuleTypeGetValue(k);
   size_t offset = ir->br.pos;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
