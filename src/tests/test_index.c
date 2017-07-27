@@ -478,7 +478,7 @@ int testBuffer() {
   l = WriteVarint(1337654, &w);
   ASSERT(l == 3);
   ASSERT_EQUAL(Buffer_Offset(w.buf), 15);
-  ASSERT_EQUAL(Buffer_Capacity(w.buf), 32);
+  ASSERT_EQUAL(Buffer_Capacity(w.buf), 17);
 
   Buffer_Truncate(w.buf, 0);
 

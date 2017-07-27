@@ -9,31 +9,52 @@
 
 // static int msb = (int)(~0ULL << 25);
 
+typedef uint8_t varintBuf[16];
+
+static size_t varintEncode(int value, uint8_t *vbuf) {
+  unsigned pos = sizeof(varintBuf) - 1;
+  vbuf[pos] = value & 127;
+  while (value >>= 7) {
+    vbuf[--pos] = 128 | (--value & 127);
+  }
+  return pos;
+}
+
+#define VARINT_BUF(buf, pos) ((buf) + pos)
+#define VARINT_LEN(pos) (16 - (pos))
+
 size_t WriteVarintRaw(int value, char *buf) {
-  unsigned char varint[16];
-  unsigned pos = sizeof(varint) - 1;
-  varint[pos] = value & 127;
-  while (value >>= 7) varint[--pos] = 128 | (--value & 127);
-  size_t size = 16 - pos;
-  memcpy(buf, varint + pos, size);
-  return size;
+  varintBuf varint;
+  size_t pos = varintEncode(value, varint);
+  memcpy(buf, VARINT_BUF(varint, pos), VARINT_LEN(pos));
+  return VARINT_LEN(pos);
 }
 
 size_t WriteVarintBuffer(int value, Buffer *buf) {
-  Buffer_Reserve(buf, 16);
-  size_t n = WriteVarintRaw(value, buf->data + buf->offset);
+  varintBuf varint;
+  size_t pos = varintEncode(value, varint);
+  size_t n = VARINT_LEN(pos);
+  Buffer_Reserve(buf, n);
+  memcpy(buf->data + buf->offset, VARINT_BUF(varint, pos), n);
   buf->offset += n;
   return n;
 }
 
 int WriteVarint(int value, BufferWriter *w) {
   // printf("writing %d bytes\n", 16 - pos);
-  if (Buffer_Reserve(w->buf, 16)) {
+  varintBuf varint;
+  size_t pos = varintEncode(value, varint);
+  size_t nw = VARINT_LEN(pos);
+
+  if (Buffer_Reserve(w->buf, nw)) {
     w->pos = w->buf->data + w->buf->offset;
   }
-  size_t nw = WriteVarintRaw(value, w->pos);
+
+  memcpy(w->pos, VARINT_BUF(varint, pos), nw);
+
   w->buf->offset += nw;
   w->pos += nw;
+
   return nw;
 }
 
