@@ -73,7 +73,7 @@
         {
             "location": "/Clients/", 
             "text": "RediSearch Client Libraries\n\n\nRediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. \n\n\nWhile it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it. \n\n\nCurrently available Libraries\n\n\n\n\n\n\n\n\nLanguage\n\n\nLibrary\n\n\nAuthor\n\n\nLicense\n\n\nComments\n\n\n\n\n\n\n\n\n\n\nPython\n\n\nredisearch-py\n\n\nRedis Labs\n\n\nBSD\n\n\nUsually the most up-to-date client library\n\n\n\n\n\n\nJava\n\n\nJRediSearch\n\n\nRedis Labs\n\n\nBSD\n\n\n\n\n\n\n\n\nGo\n\n\nredisearch-go\n\n\nRedis Labs\n\n\nBSD\n\n\nIncomplete API\n\n\n\n\n\n\nJavaScript\n\n\nRedRediSearch\n\n\nKyle J. Davis\n\n\nMIT\n\n\nPartial API, compatible with \nReds\n\n\n\n\n\n\nC#\n\n\nNRediSearch\n\n\nMarc Gravell\n\n\nMIT\n\n\nPart of StackExchange.Redis\n\n\n\n\n\n\nPHP\n\n\nredisearch-php\n\n\nEthan Hann\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby on Rails\n\n\nredi_search_rails\n\n\nDmitry Polyakovsky\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby\n\n\nredisearch-rb\n\n\nVictor Ruiz\n\n\nMIT", 
-            "title": "Client Libraris"
+            "title": "Client Libraries"
         }, 
         {
             "location": "/Clients/#redisearch-client-libraries", 
