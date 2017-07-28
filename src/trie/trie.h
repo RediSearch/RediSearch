@@ -14,6 +14,7 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED 0x1
 #define TRIENODE_TERMINAL 0x2
 #define TRIENODE_DELETED 0x4
+#define TRIENODE_OPAQUE_PAYLOAD 0x8
 
 #pragma pack(1)
 typedef struct {
@@ -49,7 +50,10 @@ typedef struct {
   float maxChildScore;
 
   // the payload of terminal node. could be NULL if it's not terminal
-  TriePayload *payload;
+  union {
+    TriePayload *managed;
+    void *opaque;
+  } uPayload;
 
   // the string of the current node
   rune str[];
@@ -68,8 +72,10 @@ static inline size_t TrieNode_SizeOf(t_len numChildren, t_len slen) {
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *NewTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                      t_len numChildren, float score, int terminal);
+TrieNode *NewTrieNodeEx(rune *str, t_len offset, t_len len, t_len numChildren, float score,
+                        int terminal);
+
+#define NewTrieNode(rs) NewTrieNodeEx(rs, 0, 0, 0, 0, 0)
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
@@ -84,7 +90,7 @@ TrieNode *NewTrieNode(rune *str, t_len offset, t_len len, const char *payload, s
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *TrieNode_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+TrieNode *TrieNode_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, TrieNode **entry,
                             float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
@@ -100,22 +106,43 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, rune *str, t_len len, TrieNode **entry, float score, TrieAddOp op);
 
-/* Find the entry with a given string and length, and return its score. Returns
+/**
+ * Set a payload for a given node. The value of `data` depends on the options:
+ *
+ * if options contains TN_PAYLOAD_COPY then data is an RSPayload pointer whose
+ * contents will be copied to the node. Otherwise the pointer is simply stored.
+ * Note that you can (should) pass the free function later on, when deleting
+ * and/or freeing nodes.
+ *
+ * Setting the payload to NULL will free the old payload, if managed.
+ *
+ */
+void TrieNode_SetPayload(TrieNode *n, void *data, int options);
+#define TN_PAYLOAD_COPY 0x1
+
+/* Find the entry with a given string and length, Returns
 * 0 if the entry was
 * not found.
 * Note that you cannot put entries with zero score */
-float TrieNode_Find(TrieNode *n, rune *str, t_len len);
+TrieNode *TrieNode_Find(TrieNode *n, rune *str, t_len len);
+
+static inline float TrieNode_FindScore(TrieNode *n, rune *str, t_len len) {
+  n = TrieNode_Find(n, str, len);
+  return n ? n->score : 0;
+}
+
+typedef void (*TrieNode_CleanFunc)(void *);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
 * anything,
 * but the node will not be persisted to disk, thus deleted after reload.
 * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, rune *str, t_len len);
+int TrieNode_Delete(TrieNode *n, rune *str, t_len len, TrieNode_CleanFunc cleaner);
 
 /* Free the trie's root and all its children recursively */
-void TrieNode_Free(TrieNode *n);
+void TrieNode_Free(TrieNode *n, TrieNode_CleanFunc cleaner);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {
@@ -169,7 +196,12 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
-                      void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, TrieNode **np, rune **s, t_len *slen, void *matchCtx);
+
+/**
+ * This only populates `payload` if it's managed.
+ */
+int TrieIterator_NextCompat(TrieIterator *iter, rune **rstr, t_len *slen, RSPayload *payload,
+                            float *score, void *matchCtx);
 
 #endif

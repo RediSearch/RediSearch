@@ -15,7 +15,7 @@
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
-  tree->root = NewTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
+  tree->root = NewTrieNode(rs);
   tree->size = 0;
   free(rs);
   return tree;
@@ -33,10 +33,17 @@ int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr
   RuneBuf buf;
   rune *runes = RuneBuf_Fill(s, len, &buf, &len);
   int rc;
+  TrieNode *newNode = NULL;
 
   if (len && len < MAX_STRING_LEN) {
-    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+    rc = TrieNode_Add(&t->root, runes, len, &newNode, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
+    // printf("Added node (%.*s) with score %f (effective=%f).\n", (int)len, s, score, newNode->score);
+    // TrieNode_Print(t->root, 0, 0);
+
+    if (newNode != NULL) {
+      TrieNode_SetPayload(newNode, payload, TN_PAYLOAD_COPY);
+    }
   } else {
     rc = 0;
   }
@@ -48,7 +55,7 @@ int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr
 int Trie_Delete(Trie *t, char *s, size_t len) {
 
   rune *runes = strToRunes(s, &len);
-  int rc = TrieNode_Delete(t->root, runes, len);
+  int rc = TrieNode_Delete(t->root, runes, len, NULL);
   t->size -= rc;
   free(runes);
   return rc;
@@ -104,7 +111,7 @@ Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, in
 
   TrieSearchResult *pooledEntry = NULL;
   int dist = maxDist + 1;
-  while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, &dist)) {
+  while (TrieIterator_NextCompat(it, &rstr, &slen, &payload, &score, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry = malloc(sizeof(TrieSearchResult));
       pooledEntry->str = NULL;
@@ -262,7 +269,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     float score;
     RSPayload payload = {.data = NULL, .len = 0};
 
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
+    while (TrieIterator_NextCompat(it, &rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
@@ -299,7 +306,7 @@ void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     float score;
     RSPayload payload = {.data = NULL, .len = 0};
 
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
+    while (TrieIterator_NextCompat(it, &rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_EmitAOF(aof, RS_SUGADD_CMD, "sbdbb", key, s, slen, (double)score, "PAYLOAD", 7,
@@ -319,7 +326,7 @@ void TrieType_Free(void *value) {
   Trie *tree = value;
   if (tree->root) {
 
-    TrieNode_Free(tree->root);
+    TrieNode_Free(tree->root, NULL);
   }
 
   RedisModule_Free(tree);

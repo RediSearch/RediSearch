@@ -485,7 +485,7 @@ static void rewriteAofTerms(RedisModuleIO *io, const char *indexName, TrieNode *
   RSPayload *payload;
   float score;
 
-  while (TrieIterator_Next(iter, &runeStr, &runeStrLen, NULL, &score, NULL)) {
+  while (TrieIterator_NextCompat(iter, &runeStr, &runeStrLen, NULL, &score, NULL)) {
     size_t bufLen;
     char *buf = runesToStr(runeStr, runeStrLen, &bufLen);
 
