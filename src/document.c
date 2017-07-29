@@ -563,11 +563,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
-      // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
-
-      RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, fwent->term, fwent->len, 1);
 
       if (invidx == NULL) {
         continue;
@@ -596,10 +592,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
       }
 
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
-      }
-
       if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
         aCtx->errorString = "ERR Index is no longer valid!";
         return -1;
@@ -621,13 +613,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
 
   while (entry != NULL) {
-    RedisModuleKey *idxKey = NULL;
-
-    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-
-    assert(ctx);
-
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
       assert(entry->docId);

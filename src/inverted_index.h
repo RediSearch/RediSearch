@@ -20,10 +20,25 @@ typedef struct {
   Buffer *data;
 } IndexBlock;
 
+typedef enum {
+  // The index has been opened for reading or writing
+  InvertedIndex_Open = 0x01,
+  // The index has been deleted from the DB
+  InvertedIndex_Deleted = 0x02
+} InvertedIndexFlags;
+
 typedef struct {
   IndexBlock *blocks;
   uint32_t size;
-  IndexFlags flags;
+  IndexFlags flags : 16;
+
+  // Index is shared with trie
+  uint8_t shared : 1;
+
+  // Index has been deleted from redis
+  uint8_t deletedFromDb : 1;
+
+  // InvertedIndexFlags iixFlags : 16;
   t_docId lastId;
   uint32_t numDocs;
 } InvertedIndex;

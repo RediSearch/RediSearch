@@ -7,6 +7,7 @@
 #include "util/logging.h"
 #include "rmalloc.h"
 #include <stdio.h>
+#include <assert.h>
 
 RedisModuleType *InvertedIndexType;
 
@@ -223,48 +224,155 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
   return NULL;
 }
-// ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
-//   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len), BUFFER_READ);
-//   if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {
-//     return NULL;
-//   }
-//   return NewScoreIndex(b);
-// }
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp) {
+static void writeInvToDB(RedisSearchCtx *ctx, const char *term, size_t len, InvertedIndex *idx) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey,
-                                          REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
-
+  RedisModuleKey *k =
+      RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ | REDISMODULE_WRITE);
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  InvertedIndex *idx = NULL;
 
-  // check that the key is empty
+  assert(k != NULL);
+  assert(RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY);
+  RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
+  RedisModule_CloseKey(k);
+
+  ctx->spec->stats.numTerms++;
+  ctx->spec->stats.termsSize += len;
+}
+
+static InvertedIndex *openInvFromDB(RedisSearchCtx *ctx, const char *term, size_t len,
+                                    RedisModuleKey **keyp, int mode) {
+  RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
+  RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, mode);
+  // printf("Opening (for writing): %s => %p\n", RedisModule_StringPtrLen(termKey, NULL), k);
+  RedisModule_FreeString(ctx->redisCtx, termKey);
+
   if (k == NULL) {
+    *keyp = NULL;
     return NULL;
   }
-
-  int kType = RedisModule_KeyType(k);
-
-  if (kType == REDISMODULE_KEYTYPE_EMPTY) {
-    if (write) {
-      idx = NewInvertedIndex(ctx->spec->flags, 1);
-      RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
-    }
-  } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
-             RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {
-    idx = RedisModule_ModuleTypeGetValue(k);
-  }
-  if (idx == NULL) {
-    RedisModule_CloseKey(k);
-    return NULL;
-  } else {
-    if (keyp) {
+  switch (RedisModule_KeyType(k)) {
+    case REDISMODULE_KEYTYPE_EMPTY:
       *keyp = k;
-    }
-    return idx;
+      return NULL;
+    case REDISMODULE_KEYTYPE_MODULE:
+      if (RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {
+        *keyp = k;
+        return RedisModule_ModuleTypeGetValue(k);
+      } else { /* fallthrough */
+      }
+    default:
+      RedisModule_CloseKey(k);
+      *keyp = NULL;
+      return NULL;
   }
+}
+
+static void dumpInvertedIndex(const InvertedIndex *idx) {
+  printf("Idx=%p\n", idx);
+  printf("  Deleted? %d\n", idx->deletedFromDb);
+  printf("  Shared? %d\n", idx->shared);
+  printf("  Blocks: %d (arr @%p)\n", idx->size, idx->blocks);
+  for (size_t ii = 0; ii < idx->size; ++ii) {
+    printf("    Block #%lu @%p. NumDocs=%d\n", ii, idx->blocks[ii].data, idx->blocks[ii].numDocs);
+  }
+}
+
+static InvertedIndex *openInvRO(RedisSearchCtx *ctx, rune *rune, size_t runeLen, const char *s,
+                                size_t slen) {
+  // TODO: We should use trie_type abstractions, but this should be sufficient for now
+  IndexSpec *spec = ctx->spec;
+  TrieNode *n = TrieNode_Find(spec->terms->root, rune, runeLen);
+  InvertedIndex *ret = NULL;
+
+  if (n && n->uPayload.opaque) {
+    ret = n->uPayload.opaque;
+    if (!ret->deletedFromDb) {
+      return n->uPayload.opaque;
+    } else {
+      // Keep the entry for completion, but remove the payload
+      free(n->uPayload.opaque);
+      TrieNode_SetPayload(n, NULL, 0);
+    }
+  }
+
+  // Doesn't exist here? let's try the DB
+  RedisModuleKey *key = NULL;
+  ret = openInvFromDB(ctx, s, slen, &key, REDISMODULE_READ);
+
+  if (ret != NULL) {
+    assert(!ret->shared);
+    // Insert into the trie
+    if (!n) {
+      TrieNode_Add(&spec->terms->root, rune, runeLen, &n, 1, ADD_INCR);
+      // printf("Added %.*s\n", (int)slen, s);
+      spec->terms->size++;
+    }
+    TrieNode_SetPayload(n, ret, TRIENODE_OPAQUE_PAYLOAD);
+
+    ret->shared = 1;
+    ret->deletedFromDb = 0;
+  }
+
+  RedisModule_CloseKey(key);
+  return ret;
+}
+
+static InvertedIndex *openInvWR(RedisSearchCtx *ctx, rune *rune, size_t runeLen, const char *s,
+                                size_t slen) {
+  TrieNode *entry = NULL;
+  IndexSpec *spec = ctx->spec;
+  InvertedIndex *ret = NULL;
+
+  int isNew = TrieNode_Add(&spec->terms->root, rune, runeLen, &entry, 1, ADD_INCR);
+  assert(entry != NULL);
+  if (isNew) {
+    spec->terms->size++;
+    spec->stats.numTerms++;
+  }
+
+  if (isNew == 0 && (ret = entry->uPayload.opaque)) {
+    // Existing entry. No need for new pointer
+    if (ret->deletedFromDb) {
+      free(ret);
+      isNew = 1;
+    } else {
+      return ret;
+    }
+  }
+
+  // We might have an entry in the DB
+  RedisModuleKey *key = NULL;
+  InvertedIndex *dbEnt = openInvFromDB(ctx, s, slen, &key, REDISMODULE_READ | REDISMODULE_WRITE);
+  if (dbEnt != NULL) {
+    ret = dbEnt;
+  } else {
+    ret = NewInvertedIndex(spec->flags, 1);
+    RedisModule_ModuleTypeSetValue(key, InvertedIndexType, ret);
+  }
+
+  TrieNode_SetPayload(entry, ret, TRIENODE_OPAQUE_PAYLOAD);
+
+  RedisModule_CloseKey(key);
+  ret->shared = 1;
+  ret->deletedFromDb = 0;
+  return ret;
+}
+
+InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
+                                       int write) {
+
+  RuneBuf buf;
+  size_t runeLen;
+  rune *rune = RuneBuf_Fill(term, len, &buf, &runeLen);
+  InvertedIndex *ret;
+  if (write) {
+    ret = openInvWR(ctx, rune, runeLen, term, len);
+  } else {
+    ret = openInvRO(ctx, rune, runeLen, term, len);
+  }
+  RuneBuf_Release(&buf);
+  return ret;
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
