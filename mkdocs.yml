@@ -11,14 +11,16 @@ google_analytics:
 markdown_extensions:
   - codehilite
   - toc(permalink=true)
+  - admonition
+  
 extra:
   palette:
     primary: 'indigo'
     
   feature:
-    tabs: true
+    tabs: false
 pages:
-    - 'RediSearch': 'index.md'
+    - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Client Libraries': 'Clients.md'
     - 'Commands': 'Commands.md'       
@@ -29,6 +31,8 @@ pages:
     - 'Python API': python_client.md
     - 'Java API': java_client.md
     - 'Document Payloads': payloads.md
+    - Articles:
+      - 'Multi-Threading in RediSearch': Threading.md
     
 
 #google_analytics: ['UA-89573912-1', 'redisearch']

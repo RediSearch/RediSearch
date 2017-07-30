@@ -2,11 +2,17 @@
 
 # RediSearch - Redis Powered Search Engine
 
-RediSearch is a Full-Text search over Redis, developed by RedisLabs. 
+RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
 
-The source code is available at [https://github.com/RedisLabsModules/RediSearch](https://github.com/RedisLabsModules/RediSearch).
+!!! note "Quick Links:"
+    * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).
+    * [Latest Release: 0.19.3 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
+    * [Quick Start Guide](/Quick_Start)
 
-### Latest Release: [0.19.3 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
+!!! tip "Supported Platforms"
+    RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
+
+    i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. 
 
 ## Overview
 
@@ -34,12 +40,11 @@ See [Clients Page](/Clients)
 * Exact Phrase Search, Slop based search.
 * Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
-* Limiting searches to specific document fields (up to 8 fields supported).
+* Limiting searches to specific document fields (**up to 32 fields supported**).
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands. 
-* Supports any utf-8 encoded text.
+* Unicode support (UTF-8 input required)
 * Retrieve full document content or just ids
-* Automatically index existing HASH keys as documents.
 * Document deletion and updating with index garbage collection.
 
 

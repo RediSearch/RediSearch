@@ -1,5 +1,7 @@
 # Multi-Threading in RediSearch
 
+*By Dvir Volk, July 2017*
+
 ## 1. One Thread To Rule Them All
 
 Redis has been, from its inception, single threaded - and will remain so at least in 4.0. I'm not going to get into the reasons of why that is - but up until now it has been a reality that Redis apps, and more recently Redis Modules such as RediSearch - have to deal with. 
@@ -46,7 +48,7 @@ To allow concurrency, we adapted the following design:
 
 Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently. 
 
-### Figure 1: Serial vs. Concurrent Search
+> ### Figure 1: Serial vs. Concurrent Search
 > ![Figure 1: Serial vs. Concurrent Search](concurrency.png "Concurrency")
 >
 > **On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.**
