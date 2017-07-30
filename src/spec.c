@@ -239,7 +239,12 @@ failure:  // on failure free the spec fields array and return an error
 }
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  return Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
+  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
+  if (isNew) {
+    sp->stats.numTerms++;
+    sp->stats.termsSize += len;
+  }
+  return isNew;
 }
 
 void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score) {

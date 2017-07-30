@@ -261,24 +261,14 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
   ConcurrentSearchCtx_ResetClock(aCtx->thCtx, &aCtx->conc);
 
   while (entry != NULL) {
-    // ForwardIndex_NormalizeFreq(idx, entry);
-    int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
     RedisModuleKey *idxKey;
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
-    if (isNew) {
-      ctx->spec->stats.numTerms += 1;
-      ctx->spec->stats.termsSize += entry->len;
-    }
     size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, encoder, entry);
 
     /*******************************************
     * update stats for the index
     ********************************************/
-
-    /* record the change in capacity of the buffer */
-    // ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
-    // ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
-    // ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
     /* record the actual size consumption change */
     ctx->spec->stats.invertedSize += sz;
 
@@ -303,7 +293,6 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
       }
     }
   }
-  // ctx->spec->stats->numDocuments += 1;
 }
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
