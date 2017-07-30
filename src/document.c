@@ -313,6 +313,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   RedisSearchCtx *ctx = &aCtx->rsCtx;
   FieldSpec *fieldSpecs = malloc(aCtx->doc.numFields * sizeof(*fieldSpecs));
   int ourRv = REDISMODULE_OK;
+  int isLocked = 0;
   ForwardIndex *idx = NULL;
 
 #define ENSURE_SPEC()                                        \
@@ -322,7 +323,14 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     goto cleanup;                                            \
   }
 
-  ConcurrentSearchCtx_Lock(&aCtx->conc);
+#define DO_LOCK()                        \
+  ConcurrentSearchCtx_Lock(&aCtx->conc); \
+  isLocked = 1;
+#define DO_UNLOCK()                        \
+  ConcurrentSearchCtx_Unlock(&aCtx->conc); \
+  isLocked = 0;
+
+  DO_LOCK();
   ENSURE_SPEC();
 
   int rv = Document_Store(doc, ctx, aCtx->options, errorString);
@@ -340,7 +348,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     }
   }
 
-  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+  DO_UNLOCK();
 
   if (rv != 0) {
     ourRv = REDISMODULE_ERR;
@@ -363,22 +371,29 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     }
   }
 
-  ConcurrentSearchCtx_Lock(&aCtx->conc);
+  DO_LOCK();
   ENSURE_SPEC();
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
   md->maxFreq = idx->maxFreq;
   if (ictx.sv) {
     DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, ictx.sv);
+    // Sorting vector is now shared - so we shouldn't touch this afterwards
+    ictx.sv = NULL;
   }
   if (ictx.totalTokens > 0) {
     addTokensToIndex(&ictx, aCtx);
   }
 
-  ctx->spec->stats.numDocuments += 1;
-  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+  if (ctx->spec != NULL) {
+    ctx->spec->stats.numDocuments += 1;
+  }
+  DO_UNLOCK();
 
 cleanup:
+  if (isLocked) {
+    DO_UNLOCK();
+  }
   if (idx != NULL) {
     ForwardIndexFree(idx);
   }
