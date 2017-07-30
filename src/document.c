@@ -163,67 +163,86 @@ static void ensureSortingVector(RedisSearchCtx *sctx, indexingContext *ictx) {
   }
 }
 
+static int handleFulltextField(RSAddDocumentCtx *aCtx, indexingContext *ictx,
+                               const DocumentField *field, const FieldSpec *fs,
+                               const char **errorString) {
+  const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
+
+  if (fs->sortable) {
+    ensureSortingVector(ctx, ictx);
+    RSSortingVector_Put(ictx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+  }
+
+  ictx->totalTokens = tokenize(c, fs->weight, fs->id, ictx->idx, forwardIndexTokenFunc,
+                               ictx->idx->stemmer, ictx->totalTokens, ctx->spec->stopwords);
+  return 0;
+}
+
+static int handleNumericField(RSAddDocumentCtx *aCtx, indexingContext *ictx,
+                              const DocumentField *field, const FieldSpec *fs,
+                              const char **errorString) {
+  double score;
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
+
+  if (RedisModule_StringToDouble(field->text, &score) == REDISMODULE_ERR) {
+    *errorString = "Could not parse numeric index value";
+    return -1;
+  }
+
+  ConcurrentSearchCtx_Lock(&aCtx->conc);
+  if (ACTX_SPEC(aCtx) != NULL) {
+    NumericRangeTree *rt = OpenNumericIndex(&aCtx->rsCtx, fs->name);
+    NumericRangeTree_Add(rt, ictx->doc->docId, score);
+  }
+  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+
+  // If this is a sortable numeric value - copy the value to the sorting vector
+  if (fs->sortable) {
+    ensureSortingVector(ctx, ictx);
+    RSSortingVector_Put(ictx->sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
+  }
+  return 0;
+}
+
+static int handleGeoField(RSAddDocumentCtx *aCtx, indexingContext *ictx, const DocumentField *field,
+                          const FieldSpec *fs, const char **errorString) {
+
+  const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
+
+  char *pos = strpbrk(c, " ,");
+  if (!pos) {
+    *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+    return -1;
+  }
+  *pos = '\0';
+  pos++;
+  char *slon = (char *)c, *slat = (char *)pos;
+
+  GeoIndex gi = {.ctx = ctx, .sp = fs};
+
+  ConcurrentSearchCtx_Lock(&aCtx->conc);
+  int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat);
+  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+
+  if (rv == REDISMODULE_ERR) {
+    *errorString = "Could not index geo value";
+    return -1;
+  }
+  return 0;
+}
+
 static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const char **errorString,
                       indexingContext *ictx, const FieldSpec *fs) {
 
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
-  const char *c = RedisModule_StringPtrLen(field->text, NULL);
-
   switch (fs->type) {
     case F_FULLTEXT:
-      if (fs->sortable) {
-        ensureSortingVector(ctx, ictx);
-        RSSortingVector_Put(ictx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
-      }
-
-      ictx->totalTokens = tokenize(c, fs->weight, fs->id, ictx->idx, forwardIndexTokenFunc,
-                                   ictx->idx->stemmer, ictx->totalTokens, ctx->spec->stopwords);
-      break;
-
-    case F_NUMERIC: {
-      double score;
-
-      if (RedisModule_StringToDouble(field->text, &score) == REDISMODULE_ERR) {
-        *errorString = "Could not parse numeric index value";
-        return -1;
-      }
-
-      ConcurrentSearchCtx_Lock(&aCtx->conc);
-      if (ACTX_SPEC(aCtx) != NULL) {
-        NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
-        NumericRangeTree_Add(rt, ictx->doc->docId, score);
-      }
-      ConcurrentSearchCtx_Unlock(&aCtx->conc);
-
-      // If this is a sortable numeric value - copy the value to the sorting vector
-      if (fs->sortable) {
-        ensureSortingVector(ctx, ictx);
-        RSSortingVector_Put(ictx->sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
-      }
-      break;
-    }
-    case F_GEO: {
-
-      char *pos = strpbrk(c, " ,");
-      if (!pos) {
-        *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
-        return -1;
-      }
-      *pos = '\0';
-      pos++;
-      char *slon = (char *)c, *slat = (char *)pos;
-
-      GeoIndex gi = {.ctx = ctx, .sp = fs};
-
-      ConcurrentSearchCtx_Lock(&aCtx->conc);
-      int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat);
-      ConcurrentSearchCtx_Unlock(&aCtx->conc);
-
-      if (rv == REDISMODULE_ERR) {
-        *errorString = "Could not index geo value";
-        return -1;
-      }
-    }
+      return handleFulltextField(aCtx, ictx, field, fs, errorString);
+    case F_NUMERIC:
+      return handleNumericField(aCtx, ictx, field, fs, errorString);
+    case F_GEO:
+      return handleGeoField(aCtx, ictx, field, fs, errorString);
     default:
       break;
   }
