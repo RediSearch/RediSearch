@@ -64,22 +64,22 @@ While this is not magic, and if all your queries are slow they will remain slow,
 
 ## 6. Some Numbers!
 
-I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up:
+I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up.
 
-* The dataset consists of about 1,000,000 reddit comments.
-* Two clients using Redis-benchmark were running  - first separately, then in parallel:
-  * One client doing a very intensive query - "i" which has 200,000 results with 5 concurrent connections.
-  * One client is doing a very light query - "Obama", which has about 500 resuls - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).
-  * Both clients and the server running on my personal laptop - Macbook Pro with an Intel Quad Core i7 @ 2.2Ghz.
+!!! note "Benchmark Setup"
+    * The dataset consists of about 1,000,000 reddit comments.
+    * Two clients using Redis-benchmark were running  - first separately, then in parallel:
+      * One client doing a very intensive query - "i" which has 200,000 results with 5 concurrent connections.
+      * One client is doing a very light query - "Obama", which has about 500 resuls - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).
+      * Both clients and the server running on my personal laptop - Macbook Pro with an Intel Quad Core i7 @ 2.2Ghz.
 
 ### The Results:
 
-| Search Type | "Obama" r/s | "Obama" Latency (ms) | "I" r/s | "I" latency |
-|----| --- | --- | --- | --- |
-| Single Thread | **111** | **93** |114 | 87 |
-| Concurrent | **6382** | **2.5**| 80 | 138 |
+![Throughput](img/throughput.png "Throughput Benchmark")
+![Latency](img/latency.png "Latency Benchmark")
 
-While we can see that light queries are significantly slower when running in concerrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. 
+!!! note 
+    While we can see that light queries are significantly slower when running in concerrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. 
 
 ## 7. Parting Words
 
