@@ -1,7 +1,8 @@
 #include "numeric_index.h"
+#include "redis_index.h"
 #include "sys/param.h"
 #include "rmutil/vector.h"
-#include "redis_index.h"
+#include "rmutil/util.h"
 #include "index.h"
 #include <math.h>
 #include "redismodule.h"
@@ -505,6 +506,7 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+  RMUtil_DefaultAofRewrite(aof, key, value);
 }
 
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {

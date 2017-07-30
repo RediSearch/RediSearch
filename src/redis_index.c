@@ -58,7 +58,8 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
 void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  // NOT IMPLEMENTED YET
+  // TODO: Write something more optimal
+  RMUtil_DefaultAofRewrite(aof, key, value);
 }
 
 unsigned long InvertedIndex_MemUsage(const void *value) {

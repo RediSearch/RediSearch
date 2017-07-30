@@ -6,7 +6,6 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <string.h>
-#include <strings.h>
 #include <redismodule.h>
 #include "util.h"
 
@@ -41,7 +40,7 @@ int RMUtil_ArgIndex(const char *arg, RedisModuleString **argv, int argc) {
     if (l != larg) continue;
     if (carg != NULL && strncasecmp(carg, arg, larg) == 0) {
       return offset;
-    } \
+    }
   }
   return -1;
 }
@@ -246,15 +245,48 @@ int RedisModule_TryGetValue(RedisModuleKey *key, const RedisModuleType *type, vo
   }
 }
 
-int RedisModule_Strncasecmp(const RedisModuleString *rs1, const char *s2, size_t n) {
-  size_t n2;
-  const char *s1 = RedisModule_StringPtrLen(rs1, &n2);
-  if (n != n2) {
-    return -1;
+RedisModuleString **RMUtil_ParseVarArgs(RedisModuleString **argv, int argc, int offset,
+                                        const char *keyword, size_t *nargs) {
+  if (offset > argc) {
+    return NULL;
   }
-  return strncasecmp(s1, s2, n);
+
+  argv += offset;
+  argc -= offset;
+
+  int ix = RMUtil_ArgIndex(keyword, argv, argc);
+  if (ix < 0) {
+    return NULL;
+  } else if (ix >= argc - 1) {
+    *nargs = RMUTIL_VARARGS_BADARG;
+    return argv;
+  }
+
+  argv += (ix + 1);
+  argc -= (ix + 1);
+
+  long long n = 0;
+  RMUtil_ParseArgs(argv, argc, 0, "l", &n);
+  if (n > argc - 1 || n < 0) {
+    *nargs = RMUTIL_VARARGS_BADARG;
+    return argv;
+  }
+
+  *nargs = n;
+  return argv + 1;
 }
 
-int RedisModule_Strcasecmp(const RedisModuleString *s1, const char *s2) {
-  return RedisModule_Strncasecmp(s1, s2, strlen(s2));
+void RMUtil_DefaultAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+  RedisModuleCallReply *rep =
+      RedisModule_Call(RedisModule_GetContextFromIO(aof), "DUMP", "%s", key);
+  if (rep != NULL && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_STRING) {
+    size_t n;
+    const char *s = RedisModule_CallReplyStringPtr(rep, &n);
+    RedisModule_EmitAOF(aof, "RESTORE", "%sb", key, s, n);
+  } else {
+    RedisModule_Log(RedisModule_GetContextFromIO(aof), "warning", "Failed to emit AOF");
+  }
+  if (rep != NULL) {
+    RedisModule_FreeCallReply(rep);
+  }
 }

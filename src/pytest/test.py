@@ -1058,7 +1058,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
     def testInfoCommand(self):
         from itertools import combinations
 
-        
         with self.redis() as r:
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'NOFIELDS', 'schema', 'title', 'text'))
@@ -1069,26 +1068,22 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             for _ in r.retry_with_rdb_reload():
 
                 res = r.execute_command('ft.info', 'idx')
-                d = {res[i]: res[i+1] for i in range(0, len(res), 2)}
-                
+                d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+
                 self.assertEqual(d['index_name'], 'idx')
-                self.assertEqual(d[ 'index_options'], ['NOFIELDS'])
+                self.assertEqual(d['index_options'], ['NOFIELDS'])
                 self.assertListEqual(d['fields'], [['title', 'type', 'TEXT', 'weight', '1']])
                 self.assertEquals(int(d['num_docs']), N)
-                self.assertEquals(int(d['num_terms']), N+1)
+                self.assertEquals(int(d['num_terms']), N + 1)
                 self.assertEquals(int(d['max_doc_id']), N)
                 self.assertEquals(int(d['records_per_doc_avg']), 2)
-                self.assertEquals(int(d['num_records']), N*2)
+                self.assertEquals(int(d['num_records']), N * 2)
 
-                
                 self.assertGreater(float(d['offset_vectors_sz_mb']), 0)
                 self.assertGreater(float(d['key_table_size_mb']), 0)
                 self.assertGreater(float(d['inverted_sz_mb']), 0)
                 self.assertGreater(float(d['bytes_per_record_avg']), 0)
                 self.assertGreater(float(d['doc_table_size_mb']), 0)
-                
-
-
 
         for x in range(1, 5):
             for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
@@ -1102,14 +1097,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 info = self.cmd('ft.info', 'idx')
                 ix = info.index('index_options')
                 self.assertFalse(ix == -1)
-                
-                opts = info[ix+1]
+
+                opts = info[ix + 1]
                 # make sure that an empty opts string returns no options in info
                 if not combo:
                     self.assertListEqual([], opts)
 
-                for option in  filter(None, combo):
+                for option in filter(None, combo):
                     self.assertTrue(option in opts)
+
+    def testAof(self):
+        self.spawn_server(appendonly='yes')
+        self.cmd('ft.create', 'idx', 'schema', 'field1', 'text', 'field2', 'numeric')
+        self.server.dump_and_reload()
+        self.assertCmdOk('ft.add', 'idx', 'doc1', 1.0, 'fields', 'field1', 'myText', 'field2', 666)
+        self.server.dump_and_reload()
+        ret = self.cmd('ft.search', 'idx', 'myt*')
+        self.assertEqual([1L, 'doc1', ['field1', 'myText', 'field2', '666']], ret)
 
 
 def grouper(iterable, n, fillvalue=None):
