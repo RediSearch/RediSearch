@@ -98,6 +98,7 @@ static void doDocumentAddTh(void *arg) {
     RedisModule_ReplyWithSimpleString(aCtx->thCtx, "OK");
   }
 
+  RedisModule_UnblockClient(aCtx->bc, NULL);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -146,7 +147,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     goto cleanup;
   }
 
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(ctx, sp);
+  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp);
   Document *doc = &aCtx->doc;
   Document_Init(doc, argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE, payload,
                 payloadSize);
@@ -160,7 +162,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     doc->fields[n].text = argv[i + 1];
   }
 
-  Document_Detatch(doc, ctx);
+  Document_Detach(doc, ctx);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
            doc->numFields);
@@ -554,7 +556,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(ctx, sp);
+  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp);
   if (Redis_LoadDocument(&aCtx->rsCtx, argv[2], &aCtx->doc) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(aCtx->thCtx, "Could not load document");
     AddDocumentCtx_Free(aCtx);
@@ -567,7 +570,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc->payload = NULL;
   doc->payloadSize = 0;
 
-  Document_Detatch(doc, ctx);
+  Document_Detach(doc, ctx);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
            doc->numFields);

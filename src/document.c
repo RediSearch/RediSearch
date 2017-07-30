@@ -27,7 +27,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
   doc->payloadSize = payloadSize;
 }
 
-void Document_Detatch(Document *doc, RedisModuleCtx *srcCtx) {
+void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
   RedisModule_RetainString(srcCtx, doc->docKey);
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *f = doc->fields + ii;
@@ -47,7 +47,7 @@ void Document_Free(Document *doc) {
   free(doc->fields);
 }
 
-void Document_FreeDetatched(Document *doc, RedisModuleCtx *anyCtx) {
+void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
   RedisModule_FreeString(anyCtx, doc->docKey);
 
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -124,14 +124,16 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
       RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
     aCtx->rsCtx.spec = NULL;
+    return;
   }
+
   aCtx->rsCtx.spec = RedisModule_ModuleTypeGetValue(k);
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp) {
+RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp) {
   // Block the client and create the context!
   RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
-  aCtx->bc = RedisModule_BlockClient(origCtx, NULL, NULL, NULL, 0);
+  aCtx->bc = client;
   aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
   RedisModule_AutoMemory(aCtx->thCtx);
   aCtx->rsCtx.redisCtx = aCtx->thCtx;
@@ -148,9 +150,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp) {
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
-  Document_FreeDetatched(&aCtx->doc, aCtx->thCtx);
+  Document_FreeDetached(&aCtx->doc, aCtx->thCtx);
   ConcurrentSearchCtx_Free(&aCtx->conc);
-  RedisModule_UnblockClient(aCtx->bc, NULL);
   RedisModule_FreeThreadSafeContext(aCtx->thCtx);
   free(aCtx);
 }

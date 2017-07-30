@@ -23,12 +23,41 @@ typedef struct {
   int stringOwner;
 } Document;
 
+/**
+ * Initialize document structure with the relevant fields. numFields will allocate
+ * the fields array, but you must still actually copy the data along.
+ *
+ * Note that this function assumes that the pointers passed in will remain valid
+ * throughout the lifetime of the document. If you need to make independent copies
+ * of the data within the document, call Document_Detach on the document (after
+ * calling this function).
+ */
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize);
 
-void Document_Detatch(Document *doc, RedisModuleCtx *srcCtx);
-void Document_FreeDetatched(Document *doc, RedisModuleCtx *anyCtx);
+/**
+ * Copy any data from the document into its own independent copies. srcCtx is
+ * the context owning any RedisModuleString items - which are assigned using
+ * RedisModule_RetainString.
+ *
+ * If the document contains fields, the field data is also retained.
+ */
+void Document_Detach(Document *doc, RedisModuleCtx *srcCtx);
 
+/**
+ * Free any copied data within the document. anyCtx is any non-NULL
+ * RedisModuleCtx. The reason for requiring a context is more related to the
+ * Redis Module API requiring a context for AutoMemory purposes, though in
+ * this case, the pointers are already removed from AutoMemory manangement
+ * anyway.
+ *
+ * This function also calls Document_Free
+ */
+void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx);
+
+/**
+ * Free the document's internals (like the field array).
+ */
 void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_NOSAVE 0x01
@@ -61,9 +90,22 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
                               const char **fields, int numFields, int *nump);
 
+/**
+ * Save a document in the index. Used for returning contents in search results.
+ */
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
 
-RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleCtx *origCtx, IndexSpec *sp);
+/**
+ * Creates a new context used for adding documents. Once created, call
+ * Document_AddToIndexes on it.
+ *
+ * When done, call AddDocumentCtx_Free
+ */
+RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp);
+
+/**
+ * Free the AddDocumentCtx
+ */
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 #endif
