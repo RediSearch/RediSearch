@@ -4,7 +4,7 @@
     
     <url>
      <loc>http://redisearch.io/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -12,7 +12,7 @@
     
     <url>
      <loc>http://redisearch.io/Quick_Start/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -20,7 +20,7 @@
     
     <url>
      <loc>http://redisearch.io/Clients/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -28,7 +28,7 @@
     
     <url>
      <loc>http://redisearch.io/Commands/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -36,7 +36,7 @@
     
     <url>
      <loc>http://redisearch.io/Query_Syntax/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -44,7 +44,7 @@
     
     <url>
      <loc>http://redisearch.io/Sorting/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -52,7 +52,7 @@
     
     <url>
      <loc>http://redisearch.io/Extensions/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -60,7 +60,7 @@
     
     <url>
      <loc>http://redisearch.io/Stemming/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -68,7 +68,7 @@
     
     <url>
      <loc>http://redisearch.io/python_client/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -76,7 +76,7 @@
     
     <url>
      <loc>http://redisearch.io/java_client/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -84,9 +84,19 @@
     
     <url>
      <loc>http://redisearch.io/payloads/</loc>
-     <lastmod>2017-07-27</lastmod>
+     <lastmod>2017-07-30</lastmod>
      <changefreq>daily</changefreq>
     </url>
+    
+
+    
+        
+    <url>
+     <loc>http://redisearch.io/Threading/</loc>
+     <lastmod>2017-07-30</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
     
 
 </urlset>

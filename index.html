@@ -78,7 +78,7 @@
             
               
             
-            RediSearch
+            Home
           
         </span>
       </div>
@@ -134,46 +134,6 @@
     <div class="md-container">
       
       
-        
-
-<nav class="md-tabs" data-md-component="tabs">
-  <div class="md-tabs__inner md-grid">
-    <ul class="md-tabs__list">
-      
-        
-  <li class="md-tabs__item">
-    
-      <a href="." title="RediSearch" class="md-tabs__link md-tabs__link--active">
-        RediSearch
-      </a>
-    
-  </li>
-
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    </ul>
-  </div>
-</nav>
-      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -228,11 +188,11 @@
     
     
       <label class="md-nav__link md-nav__link--active" for="toc">
-        RediSearch
+        Home
       </label>
     
-    <a href="." title="RediSearch" class="md-nav__link md-nav__link--active">
-      RediSearch
+    <a href="." title="Home" class="md-nav__link md-nav__link--active">
+      Home
     </a>
     
       
@@ -244,13 +204,6 @@
   
     <label class="md-nav__title" for="toc">Table of contents</label>
     <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#latest-release-0193-preview" title="Latest Release: 0.19.3 (Preview)" class="md-nav__link">
-    Latest Release: 0.19.3 (Preview)
-  </a>
-  
-</li>
       
         <li class="md-nav__item">
   <a href="#overview" title="Overview" class="md-nav__link">
@@ -400,6 +353,42 @@
   </li>
 
     
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-12" type="checkbox" id="nav-12">
+    
+    <label class="md-nav__link" for="nav-12">
+      Articles
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-12">
+        Articles
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Threading/" title="Multi-Threading in RediSearch" class="md-nav__link">
+      Multi-Threading in RediSearch
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
   </ul>
 </nav>
                   </div>
@@ -419,13 +408,6 @@
   
     <label class="md-nav__title" for="toc">Table of contents</label>
     <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#latest-release-0193-preview" title="Latest Release: 0.19.3 (Preview)" class="md-nav__link">
-    Latest Release: 0.19.3 (Preview)
-  </a>
-  
-</li>
       
         <li class="md-nav__item">
   <a href="#overview" title="Overview" class="md-nav__link">
@@ -465,9 +447,20 @@
                 
                 <p><center><img alt="logo.png" src="./logo.png" /></center></p>
 <h1 id="redisearch-redis-powered-search-engine">RediSearch - Redis Powered Search Engine<a class="headerlink" href="#redisearch-redis-powered-search-engine" title="Permanent link">&para;</a></h1>
-<p>RediSearch is a Full-Text search over Redis, developed by RedisLabs. </p>
-<p>The source code is available at <a href="https://github.com/RedisLabsModules/RediSearch">https://github.com/RedisLabsModules/RediSearch</a>.</p>
-<h3 id="latest-release-0193-preview">Latest Release: <a href="https://github.com/RedisLabsModules/RediSearch/releases">0.19.3 (Preview)</a><a class="headerlink" href="#latest-release-0193-preview" title="Permanent link">&para;</a></h3>
+<p>RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by <a href="http://redislabs.com">Redis Labs</a>. </p>
+<div class="admonition note">
+<p class="admonition-title">Quick Links:</p>
+<ul>
+<li><a href="https://github.com/RedisLabsModules/RediSearch">Source Code at GitHub</a>.</li>
+<li><a href="https://github.com/RedisLabsModules/RediSearch/releases">Latest Release: 0.19.3 (Preview)</a></li>
+<li><a href="./Quick_Start">Quick Start Guide</a></li>
+</ul>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Supported Platforms</p>
+<p>RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.</p>
+<p>i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. </p>
+</div>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>Redisearch implements a search engine on top of Redis, but unlike other Redis 
 search libraries, it does not use internal data structures like sorted sets.</p>
@@ -489,12 +482,11 @@ See <a href="./Clients">Clients Page</a></p>
 <li>Exact Phrase Search, Slop based search.</li>
 <li>Stemming based query expansion in <a href="./Stemming/">many languages</a> (using <a href="http://snowballstem.org/">Snowball</a>).</li>
 <li>Support for custom functions for query expansion and scoring (see <a href="./Extensions">Extensions</a>).</li>
-<li>Limiting searches to specific document fields (up to 8 fields supported).</li>
+<li>Limiting searches to specific document fields (<strong>up to 32 fields supported</strong>).</li>
 <li>Numeric filters and ranges.</li>
 <li>Geo filtering using Redis' own Geo-commands. </li>
-<li>Supports any utf-8 encoded text.</li>
+<li>Unicode support (UTF-8 input required)</li>
 <li>Retrieve full document content or just ids</li>
-<li>Automatically index existing HASH keys as documents.</li>
 <li>Document deletion and updating with index garbage collection.</li>
 </ul>
               
