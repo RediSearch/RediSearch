@@ -48,6 +48,7 @@ Thus the operating system's scheduler makes sure all query threads get CPU time 
 
 ### Figure 1: Serial vs. Concurrent Search
 > ![Figure 1: Serial vs. Concurrent Search](concurrency.png "Concurrency")
+>
 > **On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.**
 
 
