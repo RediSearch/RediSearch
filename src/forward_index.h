@@ -32,6 +32,14 @@ typedef struct {
   float docScore;
   int uniqueTokens;
   Stemmer *stemmer;
+
+  /**
+   * Block allocators: This dramatically reduces the number of times the token handler
+   * needs to call malloc/free, thereby significantly boosting performance. We have two
+   * block allocators. One allocator is used for the fixed-size entry struct and
+   * the other allocator is used for stemmed term entries. These allocators are
+   * separate because this allows aligned reads when scanning entries.
+   */
   BlkAlloc entries;
   BlkAlloc terms;
 } ForwardIndex;
