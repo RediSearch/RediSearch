@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include "rmutil/vector.h"
 #include "trie/trie_type.h"
+#include "redis_index.h"
 #include <math.h>
 #include <ctype.h>
 #include "rmalloc.h"
@@ -407,6 +408,27 @@ void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
+void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value);
+void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver);
+
+static void doSaveInvidx(RedisModuleIO *rdb, void *value) {
+  if (value == NULL) {
+    RedisModule_SaveUnsigned(rdb, 0);
+  } else {
+    RedisModule_SaveUnsigned(rdb, 1);
+    InvertedIndex_RdbSave(rdb, value);
+  }
+}
+
+static void *doLoadInvidx(RedisModuleIO *rdb, int encver) {
+  unsigned isPresent = RedisModule_LoadUnsigned(rdb);
+  if (isPresent) {
+    return InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
+  } else {
+    return NULL;
+  }
+}
+
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
@@ -442,7 +464,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   DocTable_RdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->terms = TrieType_Load(rdb, doLoadInvidx, 0);
   } else {
     sp->terms = NewTrie();
   }
@@ -469,8 +491,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
   __indexStats_rdbSave(rdb, &sp->stats);
   DocTable_RdbSave(&sp->docs, rdb);
+
   // save trie of terms
-  TrieType_GenericSave(rdb, sp->terms, 0);
+  TrieType_Save(rdb, sp->terms, doSaveInvidx, 0);
 
   // If we have custom stopwords, save them
   if (sp->flags & Index_HasCustomStopwords) {

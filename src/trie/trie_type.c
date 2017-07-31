@@ -11,6 +11,7 @@
 #include <time.h>
 #include <string.h>
 #include <limits.h>
+#include <assert.h>
 
 Trie *NewTrie() {
   Trie *tree = RedisModule_Alloc(sizeof(Trie));
@@ -28,8 +29,8 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload
   return ret;
 }
 
-int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
-                            RSPayload *payload) {
+static int Trie_InsertStringBufferEx(Trie *t, char *s, size_t len, double score, int incr,
+                                     TrieNode **nodeOut) {
   RuneBuf buf;
   rune *runes = RuneBuf_Fill(s, len, &buf, &len);
   int rc;
@@ -38,17 +39,28 @@ int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr
   if (len && len < MAX_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, &newNode, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
-    // printf("Added node (%.*s) with score %f (effective=%f).\n", (int)len, s, score, newNode->score);
+    // printf("Added node (%.*s) with score %f (effective=%f).\n", (int)len, s, score,
+    // newNode->score);
     // TrieNode_Print(t->root, 0, 0);
 
     if (newNode != NULL) {
-      TrieNode_SetPayload(newNode, payload, TN_PAYLOAD_COPY);
+      *nodeOut = newNode;
     }
   } else {
     rc = 0;
   }
 
   RuneBuf_Release(&buf);
+  return rc;
+}
+
+int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
+                            RSPayload *payload) {
+  TrieNode *node = NULL;
+  int rc = Trie_InsertStringBufferEx(t, s, len, score, incr, &node);
+  if (node) {
+    TrieNode_SetPayload(node, payload, TN_PAYLOAD_COPY);
+  }
   return rc;
 }
 
@@ -230,24 +242,38 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
+Trie *TrieType_Load(RedisModuleIO *rdb, TrieTypePayloadLoad loader, int isGeneric) {
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
   Trie *tree = NewTrie();
 
   while (elements--) {
     size_t len;
-    RSPayload payload = {.data = NULL, .len = 0};
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
-    if (loadPayloads) {
+    // printf("Attempting to load %s\n", str);
+    TrieNode *node = NULL;
+    Trie_InsertStringBufferEx(tree, str, len - 1, score, 0, &node);
+    if (node == NULL) {
+      // printf("Failed to load for node %s\n", str);
+      abort();
+    }
+
+    if (isGeneric) {
+      RSPayload payload;
       payload.data = RedisModule_LoadStringBuffer(rdb, &payload.len);
       // load an extra space for the null terminator
       payload.len--;
+      TrieNode_SetPayload(node, &payload, TN_PAYLOAD_COPY);
+      RedisModule_Free(payload.data);
+    } else if (loader) {
+      void *payload = loader(rdb, 0);
+      if (payload) {
+        TrieNode_SetPayload(node, payload, 0);
+      }
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL);
+
     RedisModule_Free(str);
-    if (payload.data != NULL) RedisModule_Free(payload.data);
   }
   // TrieNode_Print(tree->root, 0, 0);
   return tree;
@@ -257,7 +283,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
   TrieType_GenericSave(rdb, (Trie *)value, 1);
 }
 
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
+void TrieType_Save(RedisModuleIO *rdb, Trie *tree, TrieTypePayloadSave saver, int saveGeneric) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
@@ -266,24 +292,31 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
     rune *rstr;
     t_len len;
-    float score;
-    RSPayload payload = {.data = NULL, .len = 0};
+    TrieNode *node;
 
-    while (TrieIterator_NextCompat(it, &rstr, &len, &payload, &score, NULL)) {
+    while (TrieIterator_Next(it, &node, &rstr, &len, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_SaveStringBuffer(rdb, s, slen + 1);
-      RedisModule_SaveDouble(rdb, (double)score);
 
-      if (savePayloads) {
-        // save an extra space for the null terminator to make the payload null terminated on load
-        if (payload.data != NULL && payload.len > 0) {
-          RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
+      // printf("Saving %.*s; fn=%p\n", (int)len, s, saver);
+      RedisModule_SaveStringBuffer(rdb, s, slen + 1);
+      RedisModule_SaveDouble(rdb, (double)node->score);
+
+      if (saveGeneric) {
+        TriePayload *payload = node->uPayload.managed;
+
+        // save an extra space for the null terminator to make the payload null terminated on
+        // load
+        if (payload && payload->len > 0) {
+          RedisModule_SaveStringBuffer(rdb, payload->data, payload->len + 1);
         } else {
           // If there's no payload - we save an empty string
           RedisModule_SaveStringBuffer(rdb, "", 1);
         }
+      } else if (saver) {
+        saver(rdb, node->uPayload.managed);
       }
+
       // TODO: Save a marker for empty payload!
       free(s);
       count++;

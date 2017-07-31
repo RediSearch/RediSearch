@@ -252,7 +252,7 @@ static void sendReply(RSAddDocumentCtx *aCtx) {
 }
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
-#define SELF_EXEC_THRESHOLD 1024
+#define SELF_EXEC_THRESHOLD 75
 
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options) {
   aCtx->options = options;

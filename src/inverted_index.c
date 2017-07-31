@@ -38,8 +38,8 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
-  idx->shared = 0;
-  idx->deletedFromDb = 0;
+  // idx->shared = 0;
+  // idx->deletedFromDb = 0;
   idx->flags = flags;
   idx->numDocs = 0;
   if (initBlock) {
@@ -59,11 +59,12 @@ void InvertedIndex_Free(void *ctx) {
     indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
-  if (idx->shared) {
-    idx->deletedFromDb = 1;
-  } else {
-    rm_free(idx);
-  }
+  rm_free(idx);
+  // if (idx->shared) {
+  // idx->deletedFromDb = 1;
+  // } else {
+  // rm_free(idx);
+  // }
 }
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the

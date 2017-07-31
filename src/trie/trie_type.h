@@ -43,8 +43,28 @@ TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist)
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
+
+/**
+ * These functions save and load payloads with a specified 'loader' and 'saver' routine.
+ */
+
+/**
+ * Serialize the trie payload provided.
+ * Note that 'payload' may be NULL. This function should write something that
+ * a corresponding 'loader' can decode later on
+ */
+typedef void (*TrieTypePayloadSave)(RedisModuleIO *rdb, void *payload);
+
+// Options should be set to 0, and is used internally
+void TrieType_Save(RedisModuleIO *rdb, Trie *tree, TrieTypePayloadSave saver, int options);
+
+typedef void *(*TrieTypePayloadLoad)(RedisModuleIO *rdb, int encver);
+// Options should be set to 0, and is used internally.
+Trie *TrieType_Load(RedisModuleIO *rdb, TrieTypePayloadLoad loader, int options);
+
+#define TrieType_GenericLoad(rdb, loadPayloads) TrieType_Load(rdb, NULL, loadPayloads)
+#define TrieType_GenericSave(rdb, t, savePayloads) TrieType_Save(rdb, t, NULL, savePayloads)
+
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);

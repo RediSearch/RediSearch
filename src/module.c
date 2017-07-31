@@ -763,13 +763,13 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   sp->stats.skipIndexesSize = 0;
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
-  size_t len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &len);
+  // RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
+  // size_t len;
+  // const char *prefix = RedisModule_StringPtrLen(pf, &len);
 
   // RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int num = Redis_ScanKeys(ctx, prefix, Redis_OptimizeScanHandler, &sctx);
-  return RedisModule_ReplyWithLongLong(ctx, num);
+  // int num = Redis_ScanKeys(ctx, prefix, Redis_OptimizeScanHandler, &sctx);
+  return RedisModule_ReplyWithLongLong(ctx, 0);
 }
 
 /*

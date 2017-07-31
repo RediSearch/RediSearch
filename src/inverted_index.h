@@ -31,14 +31,6 @@ typedef struct {
   IndexBlock *blocks;
   uint32_t size;
   IndexFlags flags : 16;
-
-  // Index is shared with trie
-  uint8_t shared : 1;
-
-  // Index has been deleted from redis
-  uint8_t deletedFromDb : 1;
-
-  // InvertedIndexFlags iixFlags : 16;
   t_docId lastId;
   uint32_t numDocs;
 } InvertedIndex;
