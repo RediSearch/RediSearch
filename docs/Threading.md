@@ -14,7 +14,7 @@ While keeping things single-threaded makes Redis simple and fast - the down-side
 
 While it is extremely fast and uses highy optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your dataset and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked. 
 
-Think, for exapmle, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, interect and rank each result in one nanosecond, [which is impossible with current hardware](https://gist.github.com/jboner/2841832). The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.
+Think, for example, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond, [which is impossible with current hardware](https://gist.github.com/jboner/2841832). The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.
 
 So taking into account that in the real world, search queries may not behave like your average Redis O(1) command, and block the entire server for long periods of time. Of course, you could and should split your search index into a cluster, and a cluster version of RediSearch will soon be available as part of Redis Labs Enterprise cluster - but even if we distribute the data across cluster nodes, some queries will be slow.
 
@@ -24,11 +24,11 @@ Luckily, Redis BDFL [Salvatore Sanfilippo](https://twitter.com/antirez) has adde
 
 The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
 
-We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other quries time to properly run by yielding this lock from time to time.
+We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time.
 
 ## 4. Making Search Concurrent
 
-Up until now, the flow of a search query was simple - the query would arrive at a **Command Handler** callbak in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result. 
+Up until now, the flow of a search query was simple - the query would arrive at a **Command Handler** callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result. 
 
 To allow concurrency, we adapted the following design:
 
@@ -67,11 +67,11 @@ While this is not magic, and if all your queries are slow they will remain slow,
 I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up.
 
 !!! note "Benchmark Setup"
-    * The dataset consists of about 1,000,000 reddit comments.
+    * The data-set consists of about 1,000,000 reddit comments.
     * Two clients using Redis-benchmark were running  - first separately, then in parallel:
       * One client doing a very intensive query - "i" which has 200,000 results with 5 concurrent connections.
-      * One client is doing a very light query - "Obama", which has about 500 resuls - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).
-      * Both clients and the server running on my personal laptop - Macbook Pro with an Intel Quad Core i7 @ 2.2Ghz.
+      * One client is doing a very light query - "Obama", which has about 500 results - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).
+      * Both clients and the server running on my personal laptop - MacBook Pro with an Intel Quad Core i7 @ 2.2Ghz.
 
 ### The Results:
 
@@ -79,10 +79,10 @@ I've benchmarked both versions of the module - simple single threaded, and concu
 ![Latency](img/latency.png "Latency Benchmark")
 
 !!! note 
-    While we can see that light queries are significantly slower when running in concerrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. 
+    While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. 
 
 ## 7. Parting Words
 
 This little Global Lock feature and Thread Safe Contexts, is perhaps the most powerful thing that the Modules API offers. We touched only the problem of concurrency here, but it also enables background tasks, real parallel processing of data that does not touch the Redis keyspace, and more.
 
-For RediSeach, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge datasets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.
+For RediSeach, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.
