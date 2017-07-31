@@ -48,7 +48,8 @@ typedef struct {
   struct timespec lastTime;
   RedisModuleCtx *ctx;
   ConcurrentKeyCtx *openKeys;
-  size_t numOpenKeys;
+  uint32_t numOpenKeys;
+  uint32_t isLocked;
 } ConcurrentSearchCtx;
 
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
@@ -95,7 +96,7 @@ int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
 
 /** Reset the clock variables in the concurrent search context */
-void ConcurrentSearchCtx_ResetClock(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
+void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx);
 
 /* Free the execution context's dynamically allocated resources */
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx);

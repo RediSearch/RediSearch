@@ -258,7 +258,7 @@ void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->rsCtx.spec->flags);
 
-  ConcurrentSearchCtx_ResetClock(aCtx->thCtx, &aCtx->conc);
+  ConcurrentSearchCtx_ResetClock(&aCtx->conc);
 
   while (entry != NULL) {
     IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);

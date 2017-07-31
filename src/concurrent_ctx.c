@@ -43,25 +43,22 @@ int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
 
   // Timeout - release the thread safe context lock and let other threads run as well
   if (durationNS > CONCURRENT_TIMEOUT_NS) {
-    ConcurrentSearch_CloseKeys(ctx);
-    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+    ConcurrentSearchCtx_Unlock(ctx);
 
     // Right after releasing, we try to acquire the lock again.
     // If other threads are waiting on it, the kernel will decide which one
     // will get the chance to run again. Calling sched_yield is not necessary here.
     // See http://blog.firetree.net/2005/06/22/thread-yield-after-mutex-unlock/
-    RedisModule_ThreadSafeContextLock(ctx->ctx);
-    ConcurrentSearch_ReopenKeys(ctx);
+    ConcurrentSearchCtx_Lock(ctx);
     // Right after re-acquiring the lock, we sample the current time.
     // This will be used to calculate the elapsed running time
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
-    ctx->ticker = 0;
+    ConcurrentSearchCtx_ResetClock(ctx);
     return 1;
   }
   return 0;
 }
 
-void ConcurrentSearchCtx_ResetClock(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
+void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx) {
   clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
   ctx->ticker = 0;
 }
@@ -74,12 +71,15 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
   ctx->ctx = rctx;
   ctx->numOpenKeys = 0;
   ctx->openKeys = NULL;
-  ConcurrentSearchCtx_ResetClock(rctx, ctx);
+  ConcurrentSearchCtx_ResetClock(ctx);
 }
 
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
+    if (ctx->isLocked) {
+      RedisModule_CloseKey(ctx->openKeys[i].key);
+    }
     RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
 
     // free the private data if needed
@@ -118,10 +118,12 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
   RedisModule_ThreadSafeContextLock(ctx->ctx);
+  ctx->isLocked = 1;
   ConcurrentSearch_ReopenKeys(ctx);
 }
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
   ConcurrentSearch_CloseKeys(ctx);
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+  ctx->isLocked = 0;
 }
