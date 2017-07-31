@@ -95,15 +95,26 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 * TODO: Add index name to it
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  char buf[1024] = {"ft:"};
+  char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = strlen(ctx->spec->name);
+
+  char *buf, *bufDyn = NULL;
+  if (nameLen + len + 10 > sizeof(buf)) {
+    buf = bufDyn = calloc(1, nameLen + len + 10);
+    strcpy(buf, "ft:");
+  } else {
+    buf = buf_s;
+  }
+
   memcpy(buf + offset, ctx->spec->name, nameLen);
   offset += nameLen;
   buf[offset++] = '/';
   memcpy(buf + offset, term, len);
   offset += len;
-  return RedisModule_CreateString(ctx->redisCtx, buf, offset);
+  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, buf, offset);
+  free(bufDyn);
+  return ret;
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
