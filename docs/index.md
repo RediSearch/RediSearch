@@ -6,7 +6,7 @@ RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, 
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).
-    * [Latest Release: 0.19.3 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
+    * [Latest Release: 0.19.4 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
     * [Quick Start Guide](/Quick_Start)
 
 !!! tip "Supported Platforms"
