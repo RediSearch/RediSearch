@@ -91,7 +91,7 @@ static int Document_Store(Document *doc, RedisSearchCtx *ctx, int options,
   // Make sure the document is not already in the index - it needs to be
   // incremental!
   if (doc->docId == 0) {
-    *errorString = "Couldn't allocate new document table entry";
+    *errorString = "Document already exists";
     return -1;
   }
 
