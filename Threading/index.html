@@ -567,14 +567,14 @@
 <h2 id="2-redisearch-and-the-single-thread-issue">2. RediSearch and the Single Thread Issue<a class="headerlink" href="#2-redisearch-and-the-single-thread-issue" title="Permanent link">&para;</a></h2>
 <p><a href="https://Redisearch.io">RediSearch</a> is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine. </p>
 <p>While it is extremely fast and uses highy optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your dataset and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked. </p>
-<p>Think, for exapmle, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, interect and rank each result in one nanosecond, <a href="https://gist.github.com/jboner/2841832">which is impossible with current hardware</a>. The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.</p>
+<p>Think, for example, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond, <a href="https://gist.github.com/jboner/2841832">which is impossible with current hardware</a>. The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.</p>
 <p>So taking into account that in the real world, search queries may not behave like your average Redis O(1) command, and block the entire server for long periods of time. Of course, you could and should split your search index into a cluster, and a cluster version of RediSearch will soon be available as part of Redis Labs Enterprise cluster - but even if we distribute the data across cluster nodes, some queries will be slow.</p>
 <h2 id="3-enter-the-redis-gil">3. Enter the Redis GIL<a class="headerlink" href="#3-enter-the-redis-gil" title="Permanent link">&para;</a></h2>
 <p>Luckily, Redis BDFL <a href="https://twitter.com/antirez">Salvatore Sanfilippo</a> has added a revolutionary change just near the finish line of Redis 4.0 and the release of the modules API - <strong>Thread Safe Contexts</strong> and the <strong>Global Lock</strong>.</p>
 <p>The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the <strong>Global Lock</strong> when it needs to access Redis data, operate on it, and release it. </p>
-<p>We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other quries time to properly run by yielding this lock from time to time.</p>
+<p>We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time.</p>
 <h2 id="4-making-search-concurrent">4. Making Search Concurrent<a class="headerlink" href="#4-making-search-concurrent" title="Permanent link">&para;</a></h2>
-<p>Up until now, the flow of a search query was simple - the query would arrive at a <strong>Command Handler</strong> callbak in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result. </p>
+<p>Up until now, the flow of a search query was simple - the query would arrive at a <strong>Command Handler</strong> callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result. </p>
 <p>To allow concurrency, we adapted the following design:</p>
 <ol>
 <li>
@@ -614,11 +614,11 @@
 <div class="admonition note">
 <p class="admonition-title">Benchmark Setup</p>
 <ul>
-<li>The dataset consists of about 1,000,000 reddit comments.</li>
+<li>The data-set consists of about 1,000,000 reddit comments.</li>
 <li>Two clients using Redis-benchmark were running  - first separately, then in parallel:</li>
 <li>One client doing a very intensive query - "i" which has 200,000 results with 5 concurrent connections.</li>
-<li>One client is doing a very light query - "Obama", which has about 500 resuls - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).</li>
-<li>Both clients and the server running on my personal laptop - Macbook Pro with an Intel Quad Core i7 @ 2.2Ghz.</li>
+<li>One client is doing a very light query - "Obama", which has about 500 results - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).</li>
+<li>Both clients and the server running on my personal laptop - MacBook Pro with an Intel Quad Core i7 @ 2.2Ghz.</li>
 </ul>
 </div>
 <h3 id="the-results">The Results:<a class="headerlink" href="#the-results" title="Permanent link">&para;</a></h3>
@@ -626,11 +626,11 @@
 <img alt="Latency" src="../img/latency.png" title="Latency Benchmark" /></p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>While we can see that light queries are significantly slower when running in concerrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. </p>
+<p>While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. </p>
 </div>
 <h2 id="7-parting-words">7. Parting Words<a class="headerlink" href="#7-parting-words" title="Permanent link">&para;</a></h2>
 <p>This little Global Lock feature and Thread Safe Contexts, is perhaps the most powerful thing that the Modules API offers. We touched only the problem of concurrency here, but it also enables background tasks, real parallel processing of data that does not touch the Redis keyspace, and more.</p>
-<p>For RediSeach, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge datasets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.</p>
+<p>For RediSeach, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.</p>
               
               
             </article>
