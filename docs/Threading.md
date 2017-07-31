@@ -12,7 +12,7 @@ While keeping things single-threaded makes Redis simple and fast - the down-side
 
 [RediSearch](https://Redisearch.io) is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine. 
 
-While it is extremely fast and uses highy optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your dataset and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked. 
+While it is extremely fast and uses highly optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your data-set and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked. 
 
 Think, for example, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond, [which is impossible with current hardware](https://gist.github.com/jboner/2841832). The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.
 
@@ -42,9 +42,9 @@ To allow concurrency, we adapted the following design:
 
 5. Since the search execution is basically an iterator running in a cycle, we simply sample the elapsed time every several iterations (sampling on each iteration would slow things down as it has a cost of its own).
 
-6. If enough time has elapsed, the query processor releases the Global Lock, and immediately tries to acquire it agian. When the lock is released, the kernel will schedule another thread to run - be it Redis' main thread, or another query thread.
+6. If enough time has elapsed, the query processor releases the Global Lock, and immediately tries to acquire it again. When the lock is released, the kernel will schedule another thread to run - be it Redis' main thread, or another query thread.
 
-7. When the lock is acquired again - we reopen all redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been "sleeping"), and continue work from the previous state. 
+7. When the lock is acquired again - we reopen all Redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been "sleeping"), and continue work from the previous state. 
 
 Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently. 
 
@@ -54,7 +54,7 @@ Thus the operating system's scheduler makes sure all query threads get CPU time 
 > **On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.**
 
 
-The same approach is applied to indexing. If a document is big and tokenizing and indexing it will block redis for a long time - we break that into many smaller iterations and allow redis to do other things instead of blocking for a very long time. In fact, in the case of indexing there is enough work to be done in parallel using multiple cores - namely tokenizing and normalizing the document. This is especially effective for very big documents.
+The same approach is applied to indexing. If a document is big and tokenizing and indexing it will block Redis for a long time - we break that into many smaller iterations and allow Redis to do other things instead of blocking for a very long time. In fact, in the case of indexing there is enough work to be done in parallel using multiple cores - namely tokenizing and normalizing the document. This is especially effective for very big documents.
 
 As a side note - this could have been implemented with a single thread switching between all the query execution loops, but the code refactoring required for that was much larger, and the effect with reasonable load would have remained similar, so we opted to keep this for a future release.
 
@@ -67,10 +67,10 @@ While this is not magic, and if all your queries are slow they will remain slow,
 I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up.
 
 !!! note "Benchmark Setup"
-    * The data-set consists of about 1,000,000 reddit comments.
+    * The data-set consists of about 1,000,000 Reddit comments.
     * Two clients using Redis-benchmark were running  - first separately, then in parallel:
       * One client doing a very intensive query - "i" which has 200,000 results with 5 concurrent connections.
-      * One client is doing a very light query - "Obama", which has about 500 results - with 10 concurrent connections (we assue in a normal situation there will be more lightweight queries than heavy queries).
+      * One client is doing a very light query - "Obama", which has about 500 results - with 10 concurrent connections (we assume in a normal situation there will be more lightweight queries than heavy queries).
       * Both clients and the server running on my personal laptop - MacBook Pro with an Intel Quad Core i7 @ 2.2Ghz.
 
 ### The Results:
@@ -85,4 +85,4 @@ I've benchmarked both versions of the module - simple single threaded, and concu
 
 This little Global Lock feature and Thread Safe Contexts, is perhaps the most powerful thing that the Modules API offers. We touched only the problem of concurrency here, but it also enables background tasks, real parallel processing of data that does not touch the Redis keyspace, and more.
 
-For RediSeach, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.
+For RediSearch, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.
