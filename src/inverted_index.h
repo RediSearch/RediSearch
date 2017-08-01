@@ -16,7 +16,6 @@ typedef struct {
   t_docId firstId;
   t_docId lastId;
   uint16_t numDocs;
-
   Buffer *data;
 } IndexBlock;
 
@@ -26,6 +25,7 @@ typedef struct {
   IndexFlags flags;
   t_docId lastId;
   uint32_t numDocs;
+  uint32_t gcMarker;
 } InvertedIndex;
 
 struct indexReadCtx;
@@ -85,6 +85,7 @@ typedef struct indexReadCtx {
   RSIndexResult *record;
 
   int atEnd;
+  uint32_t gcMarker;
 } IndexReader;
 
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);

@@ -39,7 +39,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
-
+  idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
   if (initBlock) {
@@ -77,9 +77,26 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   ir->idx = RedisModule_ModuleTypeGetValue(k);
-  size_t offset = ir->br.pos;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
-  ir->br.pos = offset;
+
+  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  if (ir->gcMarker == ir->idx->gcMarker) {
+    // no GC - we just go to the same offset we were at
+    size_t offset = ir->br.pos;
+    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br.pos = offset;
+  } else {
+    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+    // anymore. This means that we need to seek to last docId we were at
+
+    // reset the state of the reader
+    t_docId lastId = ir->lastId;
+    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->lastId = 0;
+
+    // seek to the previous last id
+    RSIndexResult *dummy = NULL;
+    IR_SkipTo(ir, lastId, &dummy);
+  }
 }
 
 /******************************************************************************
@@ -845,6 +862,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
 
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num) {
   int n = 0;
+  ++idx->gcMarker;
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
     // we couldn't repair the block - return 0
@@ -852,6 +870,8 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
       return 0;
     }
     if (rep) {
+      idx->numDocs -= rep;
+      assert(idx->numDocs >= 0);
       // printf("Repaired %d holes in block %d\n", rep, startBlock);
     }
     n++;
