@@ -87,6 +87,6 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 /* Emit special FT.DTADD commands to recreate the table */
-void DocTable_AOFRewrite(DocTable *t, RedisModuleString *k, RedisModuleIO *aof);
+void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof);
 
 #endif
