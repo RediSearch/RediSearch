@@ -9,7 +9,7 @@
 #include "qint.c"
 #include "redis_index.h"
 #include "numeric_filter.h"
-
+#include "redismodule.h"
 // The number of entries in each index block. A new block will be created after every N entries
 #define INDEX_BLOCK_SIZE 100
 
@@ -422,7 +422,6 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
  * filtering, returning 1 if the record is ok or 0 if it is filtered.
  *
  * Term indexes can filter based on fieldMask, and
-
  *
  ******************************************************************************/
 
@@ -835,7 +834,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
     if (md->flags & Document_Deleted) {
-      frags += 1;
+      frags += sz;
       // printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
     } else {
 
@@ -860,18 +859,24 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
   return frags;
 }
 
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num) {
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
+                         size_t *bytesCollected) {
   int n = 0;
-  ++idx->gcMarker;
+
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
     // we couldn't repair the block - return 0
     if (rep == -1) {
       return 0;
     }
-    if (rep) {
+
+    if (rep > 0) {
+      *bytesCollected += rep;
       idx->numDocs -= rep;
       assert(idx->numDocs >= 0);
+
+      // increase the GC marker so other queries can tell that we did something
+      ++idx->gcMarker;
       // printf("Repaired %d holes in block %d\n", rep, startBlock);
     }
     n++;

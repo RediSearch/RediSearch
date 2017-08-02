@@ -51,6 +51,11 @@ static void *rmutilTimer_Loop(void *ctx) {
   return NULL;
 }
 
+/* set a new frequency for the timer. This will take effect AFTER the next trigger */
+void RMUtilTimer_SetInterval(struct RMUtilTimer *t, struct timespec newInterval) {
+  t->interval = newInterval;
+}
+
 RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct timespec interval) {
   RMUtilTimer *ret = malloc(sizeof(*ret));
   *ret = (RMUtilTimer){

@@ -18,6 +18,9 @@ typedef void (*RMutilTimerFunc)(RedisModuleCtx *ctx, void *privdata);
 struct RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata,
                                             struct timespec interval);
 
+/* set a new frequency for the timer. This will take effect AFTER the next trigger */
+void RMUtilTimer_SetInterval(struct RMUtilTimer *t, struct timespec newInterval);
+
 /* Stop the timer loop. This should return immediately and join the thread */
 int RMUtilTimer_Stop(struct RMUtilTimer *t);
 

@@ -44,7 +44,8 @@ typedef union {
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num);
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
+                         size_t *bytesCollected);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
