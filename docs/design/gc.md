@@ -95,7 +95,7 @@ We start with a frequency F for the random sampler of the garbage collector. At 
 Then, we do the following:
     * Each time a document is deleted or updated we increase the frequency a bit.
     * Each time we find a key with garbage we increase the frequency a bit.
-    * Each time we sample a key with garbage we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.
+    * Each time we sample a key with NO garbage found, we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.
 
 The frequency is of course bounded to a maximum which we will never surpass. Thus when a lot of garbage is created, the frequency will be at its maximum, and will eventually decay to 0 or a pre-configured minimum - until more documents will be deleted. 
 
