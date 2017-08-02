@@ -64,12 +64,6 @@ rune *strToRunes(const char *str, size_t *len) {
   return ret;
 }
 
-static char *rune_32to16(uint32_t cp, char *encoded) {
-  uint16_t enc = cp & 0xFFFF;
-  memcpy(encoded, &enc, sizeof enc);
-  return encoded + sizeof enc;
-}
-
 size_t strToRunesN(const char *src, size_t slen, rune *out) {
   const char *end = src + slen;
   size_t nout = 0;
