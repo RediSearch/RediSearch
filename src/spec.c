@@ -6,6 +6,7 @@
 #include "trie/trie_type.h"
 #include <math.h>
 #include <ctype.h>
+#include <assert.h>
 #include "rmalloc.h"
 
 RedisModuleType *IndexSpecType;
@@ -62,7 +63,11 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, err);
+  IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, err);
+  if (ret) {
+    IndexSpec_StartGC(ctx, ret, GC_DEFAULT_HZ);
+  }
+  return ret;
 }
 
 int __findOffset(const char *arg, const char **argv, int argc) {
@@ -277,16 +282,19 @@ size_t weightedRandom(double weights[], size_t len) {
   return 0;
 }
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
+
   if (sampleSize > sp->terms->size) {
     sampleSize = sp->terms->size;
   }
+  if (!sampleSize) return NULL;
+
   char *samples[sampleSize];
   double weights[sampleSize];
   for (int i = 0; i < sampleSize; i++) {
     char *ret = NULL;
-    t_len len;
-    double d;
-    if (!Trie_RandomKey(sp->terms, &ret, &len, &d)) {
+    t_len len = 0;
+    double d = 0;
+    if (!Trie_RandomKey(sp->terms, &ret, &len, &d) || len == 0) {
       return NULL;
     }
     samples[i] = ret;
@@ -299,11 +307,16 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
       free(samples[i]);
     }
   }
-  printf("Selected %s --> %f\n", samples[selection], weights[selection]);
+  // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
   return samples[selection];
 }
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
+
+  if (spec->gc) {
+    GC_Stop(spec->gc);
+    GC_Free(spec->gc);
+  }
 
   if (spec->terms) {
     TrieType_Free(spec->terms);
@@ -402,8 +415,19 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->sortables = NULL;
+  sp->gc = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
+}
+
+void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
+  assert(sp->gc == NULL);
+  if (sp->gc == NULL) {
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
+    RedisModule_RetainString(ctx, keyName);
+    sp->gc = NewGarbageCollector(keyName, initialHZ);
+    GC_Start(sp->gc);
+  }
 }
 
 void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
@@ -457,6 +481,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
   }
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->terms = NULL;
   sp->docs = NewDocTable(1000);
@@ -498,6 +523,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   } else {
     sp->stopwords = DefaultStopWordList();
   }
+
+  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   return sp;
 }
 

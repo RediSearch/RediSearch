@@ -8,6 +8,7 @@
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
+#include "gc.h"
 
 typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
@@ -106,6 +107,8 @@ typedef struct {
 
   StopWordList *stopwords;
 
+  void *gc;
+
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
@@ -133,6 +136,9 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, char **err);
+
+/* Start the garbage collection loop on the index spec */
+void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);

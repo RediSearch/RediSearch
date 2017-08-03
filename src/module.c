@@ -311,6 +311,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
 
+  RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
+  GC_RenderStats(ctx, sp->gc);
+  n += 2;
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
@@ -441,7 +445,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
   if (rc == 1) {
     sp->stats.numDocuments--;
+    GC_OnDelete(sp->gc);
   }
+
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
@@ -1096,7 +1102,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1);
 
-  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1) ==
+  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1)
+  // ==
   //     REDISMODULE_ERR)
   //   return REDISMODULE_ERR;
 

@@ -556,7 +556,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
 
   while (steps < minSteps || !__trieNode_isTerminal(stack[stackSz - 1])) {
 
-    TrieNode *n = stack[stackSz - 1];
+    n = stack[stackSz - 1];
 
     /* select the next step - -1 means walk back up one level */
     int rnd = (rand() % (n->numChildren + 1)) - 1;
@@ -565,6 +565,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
       if (stackSz > 1) {
         steps++;
         stackSz--;
+
         bufCap -= n->len;
       }
       continue;
@@ -576,18 +577,19 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
     steps++;
     if (stackSz == stackCap) {
       stackCap += minSteps;
-      stack = realloc(stack, stackCap);
+      stack = realloc(stack, stackCap * sizeof(TrieNode *));
     }
 
     bufCap += child->len;
   }
 
   /* Return the node at the top of the stack */
+
   n = stack[stackSz - 1];
 
   /* build the string by walking the stack and copying all node strings */
   rune *buf = calloc(bufCap + 1, sizeof(rune));
-  buf[bufCap] = 0;
+
   t_len bufSize = 0;
   for (size_t i = 0; i < stackSz; i++) {
     memcpy(&buf[bufSize], stack[i]->str, sizeof(rune) * stack[i]->len);

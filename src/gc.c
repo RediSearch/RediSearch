@@ -1,12 +1,14 @@
 #define RS_GC_C_
+
 #include <math.h>
 #include <assert.h>
 #include <sys/param.h>
-#include "gc.h"
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "spec.h"
 #include "redismodule.h"
+
+#include "gc.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -52,15 +54,16 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
   char *term = IndexSpec_GetRandomTerm(sctx->spec, 10);
   if (!term) {
-    printf("No term for GC to inspect\n");
+    // printf("No term for GC to inspect\n");
     return;
   }
-  printf("Garbage collecting for term '%s'\n", term);
+  RedisModule_Log(ctx, "info", "Garbage collecting for term '%s'", term);
 
   InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1);
   size_t totalRemoved = 0;
+  size_t totalCollected = 0;
   if (idx) {
-    printf("Garbage collecting for term %s\n", term);
+    // printf("Garbage collecting for term %s\n", term);
     int blockNum = 0;
     int num = 10;
     size_t bytesCollected = 0;
@@ -72,6 +75,9 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
       totalRemoved += recordsRemoved;
       sctx->spec->stats.numRecords -= recordsRemoved;
       sctx->spec->stats.invertedSize -= bytesCollected;
+      gc->stats.totalCollected += bytesCollected;
+      totalCollected += bytesCollected;
+
       // 0 means error or we've finished
       if (!blockNum) break;
       // yield execution
@@ -82,7 +88,14 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     } while (idx != NULL);
   }
 
+  if (totalRemoved) {
+    RedisModule_Log(ctx, "notice", "Garbage collected %zd bytes in %zd records for term '%s'",
+                    totalCollected, totalRemoved, term);
+  }
+
   free(term);
+  gc->stats.numCycles++;
+  gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;
 
   // if we didn't remove anything - reduce the frequency a bit.
   // if we did  - increase the frequency a bit
@@ -94,7 +107,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
-  printf("New HZ: %f\n", gc->hz);
+  RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 }
 
 // Start the collector thread
@@ -128,4 +141,20 @@ GCStats *GC_GetStats(GarbageCollectorCtx *ctx) {
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(GarbageCollectorCtx *ctx) {
   ctx->hz = MIN(ctx->hz * 1.5, GC_MAX_HZ);
+}
+
+void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
+#define REPLY_KVNUM(n, k, v)                   \
+  RedisModule_ReplyWithSimpleString(ctx, k);   \
+  RedisModule_ReplyWithDouble(ctx, (double)v); \
+  n += 2
+
+  int n = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  REPLY_KVNUM(n, "current_hz", gc->hz);
+  REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
+  REPLY_KVNUM(
+      n, "effectiv_cycles_rate",
+      (double)gc->stats.effectiveCycles / (double)(gc->stats.numCycles ? gc->stats.numCycles : 1));
+  RedisModule_ReplySetArrayLength(ctx, n);
 }

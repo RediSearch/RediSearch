@@ -7,6 +7,7 @@
 // the maximum frequency we are allowed to run in
 #define GC_MAX_HZ 100
 #define GC_MIN_HZ 1
+#define GC_DEFAULT_HZ 10
 
 #define NUM_CYCLES_HISTORY 10
 
@@ -42,6 +43,8 @@ struct GCStats *GC_GetStats(GarbageCollectorCtx *ctx);
 
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(GarbageCollectorCtx *ctx);
+
+void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc);
 
 #endif  // RS_GC_C_
 #endif
