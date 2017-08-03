@@ -17,8 +17,8 @@ typedef uint16_t t_len;
 
 #pragma pack(1)
 typedef struct {
-   uint32_t len; //4G payload is more than enough!!!!
-   char data[]; // this means the data will not take an extra pointer.
+  uint32_t len;  // 4G payload is more than enough!!!!
+  char data[];   // this means the data will not take an extra pointer.
 } TriePayload;
 #pragma pack()
 
@@ -57,8 +57,6 @@ typedef struct {
 } TrieNode;
 #pragma pack()
 
-
-
 void TrieNode_Print(TrieNode *n, int idx, int depth);
 
 /* The byte size of a node, based on its internal string length and number of
@@ -68,8 +66,8 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen, t_len numChildren, float score,
-                        int terminal);
+TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+                        t_len numChildren, float score, int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
@@ -84,7 +82,8 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload, float score);
+TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+                          float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
 * up until offset, and
@@ -142,10 +141,10 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[MAX_STRING_LEN+1];
+  rune buf[MAX_STRING_LEN + 1];
   t_len bufOffset;
 
-  stackNode stack[MAX_STRING_LEN+1];
+  stackNode stack[MAX_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
   float minScore;
@@ -190,6 +189,8 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
+                      void *matchCtx);
 
+TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 #endif

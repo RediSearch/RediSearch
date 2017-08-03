@@ -29,6 +29,7 @@
 #include "ext/default.h"
 #include "search_request.h"
 #include "config.h"
+#include "gc.h"
 #include "rmalloc.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
@@ -209,45 +210,12 @@ cleanup:
  */
 int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc != 1 && argc != 4) return RedisModule_WrongArity(ctx);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  RedisModule_RetainString(ctx, argv[1]);
+  GarbageCollectorCtx *gc = NewGarbageCollector(argv[1], 10);
+  GC_Start(gc);
 
-  const char *term = NULL;
-  size_t len = 0;
-  long long startBlock = 0;
-  RedisSearchCtx sctx = {ctx, NULL};
-
-  if (argc != 4) {
-    term = Redis_SelectRandomTerm(&sctx, &len);
-  } else {
-
-    sctx.spec = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-    if (sctx.spec == NULL) {
-      return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    }
-
-    term = RedisModule_StringPtrLen(argv[2], &len);
-
-    if (RedisModule_StringToLongLong(argv[3], &startBlock) == REDISMODULE_ERR || startBlock < 0) {
-      return RedisModule_ReplyWithError(ctx, "Invalid start offset");
-    }
-  }
-  if (!term || sctx.spec == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Could not find a term");
-  }
-  // printf("Selected idx %s term %.*s\n", sctx.spec->name, (int)len, term);
-
-  RedisModule_Log(ctx, "debug", "Repairing term %.*s", (int)len, term);
-
-  InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, term, len, 1);
-  if (idx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Could not open term index");
-  }
-
-  int rc = InvertedIndex_Repair(idx, &sctx.spec->docs, startBlock, 10);
-  RedisModule_ReplyWithArray(ctx, 3);
-  RedisModule_ReplyWithStringBuffer(ctx, sctx.spec->name, strlen(sctx.spec->name));
-  RedisModule_ReplyWithStringBuffer(ctx, term, len);
-  return RedisModule_ReplyWithLongLong(ctx, rc);
+  return REDISMODULE_OK;
 }
 
 #define REPLY_KVNUM(n, k, v)                   \

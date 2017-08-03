@@ -806,7 +806,11 @@ typedef struct {
 
 } RepairContext;
 
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
+/* Repair an index block by removing garbage - records pointing at deleted documents.
+ * Returns the number of records collected, and puts the number of bytes collected in the given
+ * pointer. If an error occurred - returns -1
+ */
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *bytesCollected) {
   t_docId lastReadId = 0;
   blk->lastId = 0;
   Buffer repair = *blk->data;
@@ -834,7 +838,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
     if (md->flags & Document_Deleted) {
-      frags += sz;
+      ++frags;
+      if (bytesCollected) *bytesCollected += sz;
       // printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
     } else {
 
@@ -860,20 +865,19 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
 }
 
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
-                         size_t *bytesCollected) {
+                         size_t *bytesCollected, size_t *recordsRemoved) {
   int n = 0;
 
   while (startBlock < idx->size && (num <= 0 || n < num)) {
-    int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
+    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, bytesCollected);
     // we couldn't repair the block - return 0
-    if (rep == -1) {
+    if (repaired == -1) {
       return 0;
     }
 
-    if (rep > 0) {
-      *bytesCollected += rep;
-      idx->numDocs -= rep;
-      assert(idx->numDocs >= 0);
+    if (repaired > 0) {
+      // record the number of records removed for gc stats
+      *recordsRemoved += repaired;
 
       // increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;

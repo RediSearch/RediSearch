@@ -148,6 +148,7 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
  */
 void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score);
 
+char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
 /*
 * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
 * and should be on the request's stack

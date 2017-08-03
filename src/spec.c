@@ -256,6 +256,36 @@ void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double s
   Trie_InsertStringBuffer(sp->terms, (char *)term, len, score, 0, NULL);
 }
 
+char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
+  if (sampleSize > sp->terms->size) {
+    sampleSize = sp->terms->size;
+  }
+  char *samples[sampleSize];
+  char weights[sampleSize];
+  double totalWeight = 0;
+  for (int i = 0; i < sampleSize; i++) {
+    char *ret = NULL;
+    t_len len;
+    double d;
+    if (!Trie_RandomKey(sp->terms, &ret, &len, &d)) {
+      return NULL;
+    }
+    samples[i] = ret;
+    weights[i] = d;
+    totalWeight += d;
+    printf("Sampled %s --> %f\n", ret, d);
+  }
+
+  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
+  for (int i = 0; i < sampleSize; i++) {
+    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
+      printf("Selected %s %f\n", samples[i], weights[i]);
+      return samples[i];
+    }
+  }
+
+  return samples[sampleSize - 1];
+}
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 

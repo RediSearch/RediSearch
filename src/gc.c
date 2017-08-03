@@ -1,8 +1,12 @@
 #define RS_GC_C_
+#include <math.h>
+#include <assert.h>
+#include <sys/param.h>
 #include "gc.h"
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "spec.h"
+#include "redismodule.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -41,37 +45,50 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   GarbageCollectorCtx *gc = privdata;
   assert(gc);
 
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, gc->keyName);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   if (!sctx) {
-    RedisModule_Log(ctx, "notice", "No index spec for GC");
+    printf("No index spec for GC %s", RedisModule_StringPtrLen(gc->keyName, NULL));
+    return;
   }
-
-  const char *term = IndexSpec_GetRandomTerm(sctx->spec);
+  char *term = IndexSpec_GetRandomTerm(sctx->spec, 10);
   if (!term) {
-    RedisModule_Log(ctx, "notice", "No term for GC to inspect");
+    printf("No term for GC to inspect\n");
+    return;
   }
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(ctx, term, 1, NULL);
+  printf("Garbage collecting for term '%s'\n", term);
+
+  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1);
 
   if (idx) {
+    printf("Garbage collecting for term %s\n", term);
     int blockNum = 0;
     int num = 10;
     size_t bytesCollected = 0;
+    size_t recordsRemoved = 0;
+
     do {
-      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, -1, &bytesCollected);
+      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, num, &bytesCollected,
+                                      &recordsRemoved);
+      sctx->spec->stats.numRecords -= recordsRemoved;
+      sctx->spec->stats.invertedSize -= bytesCollected;
+      // 0 means error or we've finished
       if (!blockNum) break;
       // yield execution
-      RedisModule_ThreadSafeCtxUnlock(ctx);
-      RedisModule_ThreadSafeCtxLock(ctx);
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      RedisModule_ThreadSafeContextLock(ctx);
       // TODO: Close key
-      idx = Redis_OpenInvertedIndexEx(ctx, term, 1, NULL);
+      idx = Redis_OpenInvertedIndex(sctx, term, 1, 1);
     } while (idx != NULL);
   }
+
+  free(term);
 }
 
 // Start the collector thread
 int GC_Start(GarbageCollectorCtx *ctx) {
   assert(ctx->timer == NULL);
   ctx->timer = RMUtil_NewPeriodicTimer(GC_PeriodicCallback, ctx, hzToTimeSpec(ctx->hz));
+  return REDISMODULE_OK;
 }
 
 int GC_Stop(GarbageCollectorCtx *ctx) {
@@ -80,6 +97,7 @@ int GC_Stop(GarbageCollectorCtx *ctx) {
     RMUtilTimer_Free(ctx->timer);
     ctx->timer = NULL;
   }
+  return REDISMODULE_OK;
 }
 
 void GC_Free(GarbageCollectorCtx *ctx) {
