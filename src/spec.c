@@ -256,13 +256,32 @@ void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double s
   Trie_InsertStringBuffer(sp->terms, (char *)term, len, score, 0, NULL);
 }
 
+/// given an array of random weights, return the a weighted random selection, as the index in the
+/// array
+size_t weightedRandom(double weights[], size_t len) {
+
+  double totalWeight = 0;
+  for (size_t i = 0; i < len; i++) {
+    totalWeight += weights[i];
+  }
+  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
+
+  totalWeight = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
+      return i;
+    }
+    totalWeight += weights[i];
+  }
+  // fallback
+  return 0;
+}
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   if (sampleSize > sp->terms->size) {
     sampleSize = sp->terms->size;
   }
   char *samples[sampleSize];
-  char weights[sampleSize];
-  double totalWeight = 0;
+  double weights[sampleSize];
   for (int i = 0; i < sampleSize; i++) {
     char *ret = NULL;
     t_len len;
@@ -272,19 +291,16 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
     }
     samples[i] = ret;
     weights[i] = d;
-    totalWeight += d;
-    printf("Sampled %s --> %f\n", ret, d);
   }
 
-  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
+  size_t selection = weightedRandom(weights, sampleSize);
   for (int i = 0; i < sampleSize; i++) {
-    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
-      printf("Selected %s %f\n", samples[i], weights[i]);
-      return samples[i];
+    if (i != selection) {
+      free(samples[i]);
     }
   }
-
-  return samples[sampleSize - 1];
+  printf("Selected %s --> %f\n", samples[selection], weights[selection]);
+  return samples[selection];
 }
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;

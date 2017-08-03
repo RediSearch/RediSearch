@@ -252,10 +252,8 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
     return 0;
   }
   size_t sz;
-  printf("Converting runes of size %d\n", rlen);
   *str = runesToStr(rstr, rlen, &sz);
   *len = sz;
-  printf("str: %s, utf size: %zd %d\n", *str, sz, *len);
   free(rstr);
 
   *score = n->score;

@@ -105,6 +105,7 @@ typedef struct {
   DocTable docs;
 
   StopWordList *stopwords;
+
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

@@ -58,7 +58,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   printf("Garbage collecting for term '%s'\n", term);
 
   InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1);
-
+  size_t totalRemoved = 0;
   if (idx) {
     printf("Garbage collecting for term %s\n", term);
     int blockNum = 0;
@@ -69,6 +69,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     do {
       blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, num, &bytesCollected,
                                       &recordsRemoved);
+      totalRemoved += recordsRemoved;
       sctx->spec->stats.numRecords -= recordsRemoved;
       sctx->spec->stats.invertedSize -= bytesCollected;
       // 0 means error or we've finished
@@ -82,6 +83,18 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   free(term);
+
+  // if we didn't remove anything - reduce the frequency a bit.
+  // if we did  - increase the frequency a bit
+
+  if (totalRemoved > 0) {
+    gc->hz = MIN(gc->hz * 1.05, GC_MAX_HZ);
+  } else {
+    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+  }
+
+  RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
+  printf("New HZ: %f\n", gc->hz);
 }
 
 // Start the collector thread
@@ -114,5 +127,5 @@ GCStats *GC_GetStats(GarbageCollectorCtx *ctx) {
 
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(GarbageCollectorCtx *ctx) {
-  ctx->hz = MIN(ctx->hz + 1, GC_MAX_HZ);
+  ctx->hz = MIN(ctx->hz * 1.5, GC_MAX_HZ);
 }
