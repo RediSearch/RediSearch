@@ -27,6 +27,7 @@
 #include "extension.h"
 #include "ext/default.h"
 #include "search_request.h"
+#include "config.h"
 #include "rmalloc.h"
 
 /* Add a parsed document to the index. If replace is set, we will add it be deleting an older
@@ -784,9 +785,14 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, err);
   }
 
-  int rc = RSSearchRequest_Process(ctx, req);
-  SearchCtx_Free(sctx);
-  return rc;
+  // in concurrent mode - process the request in the thread pool
+  if (RSGlobalConfig.concurrentMode) {
+    int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
+    SearchCtx_Free(sctx);
+    return rc;
+  } else {  // "safe" mode - process the request in the main thread
+    return RSSearchRequest_ProcessMainThread(sctx, req);
+  }
 }
 
 /*
@@ -1179,27 +1185,34 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
-  RedisModule_Log(ctx, "debug", "Loading RediSearch module!");
+  RedisModule_Log(ctx, "verbose", "Loading RediSearch module!");
+
+  const char *err;
+  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
+    return REDISMODULE_ERR;
+  }
+  RedisModule_Log(ctx, "notice", "Configuration: concurrent mode: %d, ext load: %s",
+                  RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad);
+
   // Init extension mechanism
   Extensions_Init();
 
   ConcurrentSearch_ThreadPoolStart();
-  printf("Initialized thread pool!\n");
-  /* Load extensions if needed */
-  if (argc > 0 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
-    const char *ext = NULL;
-    RMUtil_ParseArgsAfter("EXTLOAD", argv, argc, "c", &ext);
+  RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
-    if (ext) {
-      char *errMsg = NULL;
-      // Load the extension so TODO: pass with param
-      if (Extension_LoadDynamic(ext, &errMsg) == REDISMODULE_ERR) {
-        RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", ext, errMsg);
-        free(errMsg);
-        return REDISMODULE_ERR;
-      }
-      RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", ext);
+  /* Load extensions if needed */
+  if (RSGlobalConfig.extLoad != NULL) {
+
+    char *errMsg = NULL;
+    // Load the extension so TODO: pass with param
+    if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad,
+                      errMsg);
+      free(errMsg);
+      return REDISMODULE_ERR;
     }
+    RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
   }
 
   // Register the default hard coded extension

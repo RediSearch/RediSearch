@@ -1059,6 +1059,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         from itertools import combinations
 
         with self.redis() as r:
+            r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'NOFIELDS', 'schema', 'title', 'text'))
             N = 50

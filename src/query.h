@@ -51,6 +51,8 @@ typedef struct RSQuery {
 
   int aborted;
 
+  int concurrentMode;
+
   // Query expander
   RSQueryTokenExpander expander;
   RSFreeFunction expanderFree;
@@ -70,6 +72,10 @@ typedef struct RSQuery {
 
   RSPayload payload;
 } Query;
+
+/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
+ * resulting in the query not performing context switches */
+void Query_SetConcurrentMode(Query *q, int concurrent);
 
 typedef struct {
   const char *id;

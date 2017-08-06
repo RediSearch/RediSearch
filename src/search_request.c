@@ -272,21 +272,12 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   free(req);
 }
 
-void threadProcessQuery(void *p) {
-  RSSearchRequest *req = p;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(req->bc);
-  RedisModule_AutoMemory(ctx);
-
-  RedisModule_ThreadSafeContextLock(ctx);
-
-  req->sctx =
-      NewSearchCtx(ctx, RedisModule_CreateString(ctx, req->indexName, strlen(req->indexName)));
-  if (!req->sctx) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    goto end;
-  }
+int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
   Query *q = NewQueryFromRequest(req);
+  Query_SetConcurrentMode(q, concurrentMode);
+  RedisModuleCtx *ctx = req->sctx->redisCtx;
+
   char *err;
   if (!Query_Parse(q, &err)) {
 
@@ -300,7 +291,7 @@ void threadProcessQuery(void *p) {
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
     Query_Free(q);
-    goto end;
+    goto err;
   }
 
   Query_Expand(q);
@@ -330,14 +321,36 @@ void threadProcessQuery(void *p) {
   QueryResult *r = Query_Execute(q);
   if (r == NULL) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-    goto end;
+    Query_Free(q);
+    goto err;
   }
 
   QueryResult_Serialize(r, req->sctx, req);
   QueryResult_Free(r);
   Query_Free(q);
 
-end:
+  return REDISMODULE_OK;
+
+err:
+  return REDISMODULE_ERR;
+}
+
+// process the query in the thread pool - thread pool callback
+void threadProcessQuery(void *p) {
+  RSSearchRequest *req = p;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(req->bc);
+  RedisModule_AutoMemory(ctx);
+
+  RedisModule_ThreadSafeContextLock(ctx);
+  req->sctx =
+      NewSearchCtx(ctx, RedisModule_CreateString(ctx, req->indexName, strlen(req->indexName)));
+
+  if (!req->sctx) {
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  } else {
+    runQueryGeneric(req, 1);
+  }
+
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_UnblockClient(req->bc, NULL);
   RSSearchRequest_Free(req);
@@ -347,8 +360,17 @@ end:
   //  return REDISMODULE_OK;
 }
 
-int RSSearchRequest_Process(RedisModuleCtx *ctx, RSSearchRequest *req) {
+int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req) {
   req->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   ConcurrentSearch_ThreadPoolRun(threadProcessQuery, req);
   return REDISMODULE_OK;
+}
+
+int RSSearchRequest_ProcessMainThread(RedisSearchCtx *sctx, RSSearchRequest *req) {
+  req->sctx = sctx;
+  req->bc = NULL;
+
+  int rc = runQueryGeneric(req, 0);
+  RSSearchRequest_Free(req);
+  return rc;
 }

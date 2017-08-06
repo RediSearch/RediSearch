@@ -74,6 +74,9 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
 void RSSearchRequest_Free(RSSearchRequest *req);
 
-int RSSearchRequest_Process(RedisModuleCtx *ctx, RSSearchRequest *req);
+/* Process the request in the thread pool concurrently */
+int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req);
 
+/* Process the request in the main thread without context switching */
+int RSSearchRequest_ProcessMainThread(RedisSearchCtx *sctx, RSSearchRequest *req);
 #endif

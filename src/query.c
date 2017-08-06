@@ -454,6 +454,13 @@ Query *NewQueryFromRequest(RSSearchRequest *req) {
 
   return q;
 }
+
+/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
+ * resulting in the query not performing context switches */
+void Query_SetConcurrentMode(Query *q, int concurrent) {
+  q->concurrentMode = concurrent;
+}
+
 Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
                 t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
                 const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
@@ -474,6 +481,8 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->sortKey = sk;
   ret->aborted = 0;
   ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
+
+  ret->concurrentMode = 1;
 
   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
   ret->language = lang ? lang : DEFAULT_LANGUAGE;
@@ -759,7 +768,7 @@ QueryResult *Query_Execute(Query *query) {
   double minScore = 0;
   int numDeleted = 0;
   RSIndexResult *r = NULL;
-  ConcurrentSearchCtx *cxc = &query->conc;
+  ConcurrentSearchCtx *cxc = query->concurrentMode ? &query->conc : NULL;
 
   // iterate the root iterator and push everything to the PQ
   while (1) {
