@@ -24,7 +24,7 @@ Luckily, Redis BDFL [Salvatore Sanfilippo](https://twitter.com/antirez) has adde
 
 The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
 
-We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning modules, actual parallel processing the background is achievable and easy.
+We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning models, actual parallel processing the background is achievable and easy.
 
 ## 4. Making Search Concurrent
 
