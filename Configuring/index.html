@@ -7,7 +7,7 @@
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
-        <link rel="canonical" href="http://redisearch.io/Clients/">
+        <link rel="canonical" href="http://redisearch.io/Configuring/">
       
       
       
@@ -17,7 +17,7 @@
     
     
       
-        <title>Client Libraries - RediSearch Documentation</title>
+        <title>Configuration - RediSearch Documentation</title>
       
     
     
@@ -78,7 +78,7 @@
             
               
             
-            Client Libraries
+            Configuration
           
         </span>
       </div>
@@ -201,45 +201,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Client Libraries
-      </label>
-    
-    <a href="./" title="Client Libraries" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
       Client Libraries
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#currently-available-libraries" title="Currently available Libraries" class="md-nav__link">
-    Currently available Libraries
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -259,11 +225,20 @@
       
       
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Configuring/" title="Configuration" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+    <a href="./" title="Configuration" class="md-nav__link md-nav__link--active">
       Configuration
     </a>
+    
   </li>
 
     
@@ -404,18 +379,6 @@
     
   
   
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#currently-available-libraries" title="Currently available Libraries" class="md-nav__link">
-    Currently available Libraries
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -425,83 +388,40 @@
           <div class="md-content">
             <article class="md-content__inner md-typeset">
                
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Clients.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Configuring.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
                
               
                 
-                <h1 id="redisearch-client-libraries">RediSearch Client Libraries<a class="headerlink" href="#redisearch-client-libraries" title="Permanent link">&para;</a></h1>
-<p>RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. </p>
-<p>While it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it. </p>
-<h2 id="currently-available-libraries">Currently available Libraries<a class="headerlink" href="#currently-available-libraries" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Language</th>
-<th>Library</th>
-<th>Author</th>
-<th>License</th>
-<th>Comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Python</td>
-<td><a href="https://github.com/RedisLabs/redisearch-py">redisearch-py</a></td>
-<td>Redis Labs</td>
-<td>BSD</td>
-<td>Usually the most up-to-date client library</td>
-</tr>
-<tr>
-<td>Java</td>
-<td><a href="https://github.com/RedisLabs/JRediSearch">JRediSearch</a></td>
-<td>Redis Labs</td>
-<td>BSD</td>
-<td></td>
-</tr>
-<tr>
-<td>Go</td>
-<td><a href="https://github.com/RedisLabs/redisearch-go">redisearch-go</a></td>
-<td>Redis Labs</td>
-<td>BSD</td>
-<td>Incomplete API</td>
-</tr>
-<tr>
-<td>JavaScript</td>
-<td><a href="https://github.com/stockholmux/redredisearch">RedRediSearch</a></td>
-<td>Kyle J. Davis</td>
-<td>MIT</td>
-<td>Partial API, compatible with <a href="https://github.com/tj/reds">Reds</a></td>
-</tr>
-<tr>
-<td>C#</td>
-<td><a href="https://libraries.io/nuget/NRediSearch">NRediSearch</a></td>
-<td>Marc Gravell</td>
-<td>MIT</td>
-<td>Part of StackExchange.Redis</td>
-</tr>
-<tr>
-<td>PHP</td>
-<td><a href="https://github.com/ethanhann/redisearch-php">redisearch-php</a></td>
-<td>Ethan Hann</td>
-<td>MIT</td>
-<td></td>
-</tr>
-<tr>
-<td>Ruby on Rails</td>
-<td><a href="https://github.com/dmitrypol/redi_search_rails">redi_search_rails</a></td>
-<td>Dmitry Polyakovsky</td>
-<td>MIT</td>
-<td></td>
-</tr>
-<tr>
-<td>Ruby</td>
-<td><a href="https://github.com/vruizext/redisearch-rb">redisearch-rb</a></td>
-<td>Victor Ruiz</td>
-<td>MIT</td>
-<td></td>
-</tr>
-</tbody>
-</table>
+                <h1 id="run-time-configuration">Run-Time Configuration<a class="headerlink" href="#run-time-configuration" title="Permanent link">&para;</a></h1>
+<p>RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. </p>
+<div class="admonition tip">
+<p class="admonition-title">Passing Configuration Options</p>
+<p>In general, passing configuration options is done by appending arguments after the <code>--loadmodule</code> argument in command line, <code>loadmodule</code> configurtion directive in a redis config file, or <code>MODULE LOAD</code> when loading modules in command line. For example:</p>
+<p>In redis.conf:</p>
+<p><code>loadmodule redisearch.so OPT1 OPT2</code></p>
+<p>In redis-cli:</p>
+<p><code>127.0.0.6379&gt; MODULE load redisearch.so OPT1 OPT2</code></p>
+<p>In command-line:</p>
+<p><code>$ redis-server --loadmodule ./redisearch.so OPT1 OPT2</code></p>
+</div>
+<h1 id="redisearch-configuration-options">RediSearch Configuration Options<a class="headerlink" href="#redisearch-configuration-options" title="Permanent link">&para;</a></h1>
+<h2 id="safemode">SAFEMODE<a class="headerlink" href="#safemode" title="Permanent link">&para;</a></h2>
+<p>If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.</p>
+<p>This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted durin query processing).</p>
+<h3 id="default">Default:<a class="headerlink" href="#default" title="Permanent link">&para;</a></h3>
+<p>Off (not present)</p>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmoulde ./redisearch.so SAFEMODE
+</pre></div>
+
+
+<h2 id="extload-file_name">EXTLOAD {file_name}<a class="headerlink" href="#extload-file_name" title="Permanent link">&para;</a></h2>
+<p>If present, we try to load a redisearch extension dynamic library from the specified file path. See <a href="../Extensions">Extensions</a> for details.</p>
+<h3 id="default_1">Default:<a class="headerlink" href="#default_1" title="Permanent link">&para;</a></h3>
+<p>None</p>
+<h3 id="example_1">Example:<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+</pre></div>
               
               
             </article>
@@ -515,7 +435,7 @@
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Quick_Start/" title="Quick Start" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Commands/" title="Commands" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -524,19 +444,19 @@
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Quick Start
+                Commands
               </span>
             </div>
           </a>
         
         
-          <a href="../Commands/" title="Commands" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Query_Syntax/" title="Query Syntax" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Commands
+                Query Syntax
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
