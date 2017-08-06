@@ -24,7 +24,7 @@ Luckily, Redis BDFL [Salvatore Sanfilippo](https://twitter.com/antirez) has adde
 
 The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
 
-We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time.
+We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning modules, actual parallel processing the background is achievable and easy.
 
 ## 4. Making Search Concurrent
 
@@ -53,14 +53,20 @@ Thus the operating system's scheduler makes sure all query threads get CPU time 
 >
 > **On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.**
 
-
 The same approach is applied to indexing. If a document is big and tokenizing and indexing it will block Redis for a long time - we break that into many smaller iterations and allow Redis to do other things instead of blocking for a very long time. In fact, in the case of indexing there is enough work to be done in parallel using multiple cores - namely tokenizing and normalizing the document. This is especially effective for very big documents.
+
 
 As a side note - this could have been implemented with a single thread switching between all the query execution loops, but the code refactoring required for that was much larger, and the effect with reasonable load would have remained similar, so we opted to keep this for a future release.
 
 ## 5. The Effect of Concurrency
 
 While this is not magic, and if all your queries are slow they will remain slow, and no real parallel processing is done here - this is revolutionary in Redis terms. Think about the old problem of running `KEYS *` in a busy Redis instance. In single threaded operation, this will cause the instance to hang for seconds if not minutes. No it is possible to implement a concurrent version of KEYS in a module, that will hardly affect performance. In fact, Salvatore has already implemented one!
+
+There is, however, a negative effect as well: we sacrifice atomicity of reads and writes for concurrency to a degree. Consider the following situation: One thread is processing a query that should retrieve document A, then yields the execution context; At the same time, another thread deletes or changes document A. The result - the query run by the first thread will not be able to retrieve the document, as it has already been changed or deleted while the thread was "asleep". 
+
+This is of course only relevant to high update/delete loads, and relatively slow and complex queries. In our view, for most use cases this is a sacrifice worth making, and usually query processing is fast enough that the probability of this happening is very low. However, this can be overcome easily: if strong atomicity of the operations is important, it is possible to have RediSearch operate in "safe mode", making all searches and updates atomic, thus making sure that each query refers to the sate of the index at the moment of its invocation. 
+
+To enable safe mode and disable query concurrency, you can configure RediSearch at load time: `redis-server --loadmodule redisearch.so SAFEMODE` in command line, or by adding `loadmodule redisearch.so SAFEMODE` to your redis.conf - depending on how you load the module.
 
 ## 6. Some Numbers!
 
