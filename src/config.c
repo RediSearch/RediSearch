@@ -2,9 +2,11 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 
-RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
+RSConfig RSGlobalConfig;
 
 int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
+
+  RSGlobalConfig = RS_DEFAULT_CONFIG;
   *err = NULL;
   /* Read the extension we want to load */
   if (argc > 1 && RMUtil_ArgIndex("EXTLOAD", argv, argc) >= 0) {
