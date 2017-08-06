@@ -24,6 +24,7 @@ pages:
     - 'Quick Start': 'Quick_Start.md'
     - 'Client Libraries': 'Clients.md'
     - 'Commands': 'Commands.md'       
+    - 'Configuration': 'Configuring.md'       
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Sortable Values': 'Sorting.md'
     - 'Extension API': Extensions.md
