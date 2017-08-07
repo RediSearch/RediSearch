@@ -1,18 +1,27 @@
 #include "concurrent_ctx.h"
 #include "dep/thpool/thpool.h"
+#include <unistd.h>
 
-threadpool ConcurrentSearchThreadPool = NULL;
+static threadpool ConcurrentSearchThreadPool = NULL;
+static threadpool ConcurrentIndexThreadPool = NULL;
 
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart() {
   if (ConcurrentSearchThreadPool == NULL) {
     ConcurrentSearchThreadPool = thpool_init(CONCURRENT_SEARCH_POOL_SIZE);
+    long numProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (numProcs < 1) {
+      numProcs = CONCURRENT_INDEX_POOL_SIZE;
+    }
+    ConcurrentIndexThreadPool = thpool_init(numProcs);
   }
 }
 
 /* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
-  thpool_add_work(ConcurrentSearchThreadPool, func, arg);
+void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
+  threadpool p =
+      type == CONCURRENT_POOL_INDEX ? ConcurrentIndexThreadPool : ConcurrentSearchThreadPool;
+  thpool_add_work(p, func, arg);
 }
 
 static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {

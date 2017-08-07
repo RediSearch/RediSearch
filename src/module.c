@@ -31,7 +31,6 @@
 #include "config.h"
 #include "rmalloc.h"
 
-
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
     IndexSpec *sptmp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(srcname, NULL), write); \
@@ -168,7 +167,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
            doc->numFields);
 
   aCtx->options = (nosave ? DOCUMENT_ADD_NOSAVE : 0) | (replace ? DOCUMENT_ADD_REPLACE : 0);
-  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
   return REDISMODULE_OK;
@@ -575,7 +574,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
            doc->numFields);
   aCtx->options = DOCUMENT_ADD_NOSAVE | (replace ? DOCUMENT_ADD_REPLACE : 0);
-  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
   return REDISMODULE_OK;

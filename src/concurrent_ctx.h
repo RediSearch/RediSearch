@@ -57,6 +57,17 @@ typedef struct {
  * By default the pool starts with just one thread, and scales up as needed  */
 #define CONCURRENT_SEARCH_POOL_SIZE 100
 
+/**
+ * The maximum number of threads performing indexing on documents.
+ * It's good to set this to approximately the number of CPUs running.
+ *
+ * NOTE: This is merely the *fallback* value if for some reason the number of
+ * CPUs cannot be automatically determined. If you want to force the number
+ * of tokenizer threads, make sure you also disable the CPU detection in the
+ * source file
+ */
+#define CONCURRENT_INDEX_POOL_SIZE 8
+
 /** The number of execution "ticks" per elapsed time check. This is intended to reduce the number of
  * calls to clock_gettime() */
 #define CONCURRENT_TICK_CHECK 25
@@ -84,8 +95,11 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
 
+#define CONCURRENT_POOL_INDEX 1
+#define CONCURRENT_POOL_SEARCH 2
+
 /* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg);
+void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place
