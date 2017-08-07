@@ -13,7 +13,7 @@
 
 # Overview
 
-Redisearch impements a search engine on top of redis, but unlike other redis 
+Redisearch implements a search engine on top of redis, but unlike other redis 
 search libraries, it does not use internal data structures like sorted sets.
 
 Inverted indexes are stored as a special compressed data type that allows for fast
