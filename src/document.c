@@ -78,37 +78,19 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
   return REDISMODULE_OK;
 }
 
-static int Document_Store(Document *doc, RedisSearchCtx *ctx, int options,
+static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
                           const char **errorString) {
   const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
   DocTable *table = &ctx->spec->docs;
-
-  // if we're in replace mode, first we need to try and delete the older version of the document
-  if (options & DOCUMENT_ADD_REPLACE) {
+  if (replace) {
     DocTable_Delete(table, keystr);
   }
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
-
-  // Make sure the document is not already in the index - it needs to be
-  // incremental!
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;
   }
-
-  if (!(options & DOCUMENT_ADD_NOSAVE)) {
-    // first save the document as hash
-    if (REDISMODULE_ERR == Redis_SaveDocument(ctx, doc)) {
-      *errorString = "Couldn't save document";
-      goto fail;
-    }
-  }
-
   return 0;
-
-fail:
-  DocTable_Delete(table, keystr);
-  return -1;
 }
 
 typedef struct {
@@ -323,7 +305,18 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   DO_LOCK();
   ENSURE_SPEC();
 
-  int rv = Document_Store(doc, ctx, aCtx->options, errorString);
+  if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 &&
+      (ourRv = Redis_SaveDocument(ctx, doc)) != REDISMODULE_OK) {
+    *errorString = "Couldn't save document";
+    ourRv = REDISMODULE_ERR;
+    goto cleanup;
+  }
+
+  if (makeDocumentId(doc, ctx, aCtx->options & DOCUMENT_ADD_REPLACE, errorString) != 0) {
+    ourRv = REDISMODULE_ERR;
+    goto cleanup;
+  }
+
   uint32_t specFlags = ACTX_SPEC(aCtx)->flags;
 
   // Also, get the field specs. We cache this here because the context is unlocked
@@ -339,11 +332,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   }
 
   DO_UNLOCK();
-
-  if (rv != 0) {
-    ourRv = REDISMODULE_ERR;
-    goto cleanup;
-  }
 
   idx = NewForwardIndex(doc, specFlags);
   indexingContext ictx = {.idx = idx, .doc = doc, .totalTokens = 0};
