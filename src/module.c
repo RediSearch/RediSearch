@@ -193,6 +193,15 @@ error:
   return REDISMODULE_ERR;
 }
 
+#define LOAD_INDEX(ctx, srcname, write)                                                     \
+  ({                                                                                        \
+    IndexSpec *sptmp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(srcname, NULL), write); \
+    if (sptmp == NULL) {                                                                    \
+      return RedisModule_ReplyWithError(ctx, "Unknown index name");                         \
+    }                                                                                       \
+    sptmp;                                                                                  \
+  })
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS
 <field>
@@ -574,6 +583,37 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                            (u_char)flags, payload, payloadSize);
 
   return RedisModule_ReplyWithLongLong(ctx, d);
+}
+
+/**
+ * FT.TERMADD {index} {term} {score}
+ *
+ * **WARNING** Do NOT use this command. It is for internal AOF rewriting only
+ *
+ * This command is used to incrementally transfer terms (for prefix expansion)
+ * over to the trie.
+ *
+ * This might change once the internal structure of the trie changes
+ */
+int TermAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexSpec *sp = LOAD_INDEX(ctx, argv[1], 1);
+
+  // Add the term to the spec
+  size_t termLen = 0;
+  const char *termStr = RedisModule_StringPtrLen(argv[2], &termLen);
+
+  double score;
+  if (RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERR bad score");
+  }
+
+  IndexSpec_RestoreTerm(sp, termStr, termLen, score);
+  return REDISMODULE_OK;
 }
 
 /* FT.DEL {index} {doc_id}
@@ -1238,6 +1278,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, AddHashCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDTERM_CMD, TermAddCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 

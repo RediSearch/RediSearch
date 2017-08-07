@@ -242,6 +242,10 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   return Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
 }
 
+void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score) {
+  Trie_InsertStringBuffer(sp->terms, (char *)term, len, score, 0, NULL);
+}
+
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
@@ -455,13 +459,33 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 }
 
+static void rewriteAofTerms(RedisModuleIO *io, const char *indexName, TrieNode *root) {
+  TrieIterator *iter = TrieNode_Iterate(root, NULL, NULL, NULL);
+  rune *runeStr;
+  t_len runeStrLen;
+  RSPayload *payload;
+  float score;
+
+  while (TrieIterator_Next(iter, &runeStr, &runeStrLen, NULL, &score, NULL)) {
+    size_t bufLen;
+    char *buf = runesToStr(runeStr, runeStrLen, &bufLen);
+
+    char floatBuf[32] = {0};
+    sprintf(floatBuf, "%f", score);
+
+    RedisModule_EmitAOF(io, "FT.TERMADD", "ccc", indexName, buf, floatBuf);
+    free(buf);
+  }
+
+  TrieIterator_Free(iter);
+}
+
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 #define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
 
 void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-
   IndexSpec *sp = value;
   Vector *args = NewVector(RedisModuleString *, 4 + 4 * sp->numFields);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
@@ -509,10 +533,15 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
     }
   }
 
-  RedisModule_EmitAOF(aof, "FT.CREATE", "sv", key, (RedisModuleString *)args->data,
+  size_t offset = strlen(INDEX_SPEC_KEY_PREFIX);
+  const char *indexName = RedisModule_StringPtrLen(key, NULL);
+  indexName += offset;
+
+  RedisModule_EmitAOF(aof, "FT.CREATE", "cv", indexName, (RedisModuleString *)args->data,
                       Vector_Size(args));
 
-  DocTable_AOFRewrite(&sp->docs, key, aof);
+  DocTable_AOFRewrite(&sp->docs, indexName, aof);
+  rewriteAofTerms(aof, indexName, sp->terms->root);
 
   Vector_Free(args);
 }

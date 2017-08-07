@@ -248,19 +248,19 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   }
 }
 
-void DocTable_AOFRewrite(DocTable *t, RedisModuleString *key, RedisModuleIO *aof) {
+void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
   for (int i = 1; i < t->size; i++) {
 
     RedisModuleString *ss = RedisModule_CreateStringPrintf(ctx, "%f", t->docs[i].score);
     // dump payload if possible
     if (t->docs[i].flags & Document_HasPayload && t->docs[i].payload) {
-      RedisModule_EmitAOF(aof, "FT.DTADD", "sclsb", key, t->docs[i].key,
+      RedisModule_EmitAOF(aof, "FT.DTADD", "cclsb", indexName, t->docs[i].key,
                           (long long)t->docs[i].flags, ss, t->docs[i].payload->data,
                           t->docs[i].payload->len);
     } else {
-      RedisModule_EmitAOF(aof, "FT.DTADD", "scls", key, t->docs[i].key, (long long)t->docs[i].flags,
-                          ss);
+      RedisModule_EmitAOF(aof, "FT.DTADD", "ccls", indexName, t->docs[i].key,
+                          (long long)t->docs[i].flags, ss);
     }
     RedisModule_FreeString(ctx, ss);
   }

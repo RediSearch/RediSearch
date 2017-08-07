@@ -27,7 +27,9 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
 static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
                                       [F_GEO] = GEO_STR, [F_TAG] = SPEC_TAG_STR};
-#define INDEX_SPEC_KEY_FMT "idx:%s"
+
+#define INDEX_SPEC_KEY_PREFIX "idx:"
+#define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
 #define SPEC_MAX_FIELDS 32
 
@@ -131,6 +133,12 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+
+/**
+ * Restores a term. Used by the TERMADD command.
+ */
+void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score);
+
 /*
 * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
 * and should be on the request's stack
