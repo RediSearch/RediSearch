@@ -25,13 +25,14 @@ typedef union {
   } geo;
 } fieldData;
 
-typedef struct {
+typedef struct IndexingContext {
   ForwardIndex *idx;
   RSSortingVector *sv;
   Document *doc;
   FieldSpec *specs;
   fieldData *fdatas;
   size_t totalTokens;
+  const char **errorString;
 } indexingContext;
 
 typedef struct DocumentIndexer {
@@ -39,6 +40,7 @@ typedef struct DocumentIndexer {
   RSAddDocumentCtx *tail;
   pthread_mutex_t lock;
   pthread_cond_t cond;
+  size_t size;
   ConcurrentSearchCtx concCtx;
 } DocumentIndexer;
 
@@ -277,6 +279,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   ictx.idx = aCtx->fwIdx = NewForwardIndex(doc, specFlags);
   ictx.doc = doc;
   ictx.totalTokens = 0;
+  ictx.errorString = errorString;
 
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = ictx.specs + i;
@@ -298,6 +301,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     }
   }
 
+  aCtx->ictx = &ictx;
   if (DocumentIndexer_Add(Indexer_g, aCtx, &ictx, errorString) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
@@ -330,6 +334,7 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
+  entry->indexerState = 1;
 }
 
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
@@ -347,21 +352,94 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
   ConcurrentSearchCtx_ResetClock(&aCtx->conc);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
+  if (!ACTX_SPEC(aCtx)) {
+    ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+    return;
+  }
+
+  indexingContext *ictx = aCtx->ictx;
+  Document *doc = ictx->doc;
+  for (int i = 0; i < doc->numFields; i++) {
+    const FieldSpec *fs = ictx->specs + i;
+    fieldData *fdata = aCtx->ictx->fdatas + i;
+    if (fs->name == NULL) {
+      continue;
+    }
+
+    IndexerFunc ifx = getIndexer(fs->type);
+    if (ifx == NULL) {
+      continue;
+    }
+
+    if (ifx(aCtx, ictx, &doc->fields[i], fs, fdata, ictx->errorString) != 0) {
+      goto cleanup;
+    }
+  }
+
+  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
+  md->maxFreq = aCtx->fwIdx->maxFreq;
+  if (ictx->sv) {
+    DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, ictx->sv);
+    // Sorting vector is now shared - so we shouldn't touch this afterwards
+    ictx->sv = NULL;
+  }
+
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->rsCtx.spec->flags);
+  size_t idxNameLen;
+
+  const char *idxName = RedisModule_StringPtrLen(ctx->keyName, &idxNameLen);
+  idxName += sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
+  idxNameLen -= sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
 
   while (entry != NULL) {
-    entry->docId = aCtx->doc.docId;
+    RedisModuleKey *idxKey = NULL;
+
+    if (entry->indexerState) {
+      // printf("Entry already indexed...\n");
+      goto next_entry;
+    }
 
     IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-    RedisModuleKey *idxKey;
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
+      entry->docId = aCtx->doc.docId;
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
+
+      // Determine if this term is even common
+      const IndexStats *stats = &ctx->spec->stats;
+      double avgFrequency = (double)stats->numRecords / (double)stats->numTerms;
+
+      // Is in the bottom 25% of terms
+      if (invidx->numDocs < (avgFrequency * 10)) {
+        goto next_entry;
+      }
+
+      for (RSAddDocumentCtx *cur = aCtx->next; cur; cur = cur->next) {
+        // Find more tables
+        ForwardIndexEntry *curEnt =
+            ForwardIndex_Find(cur->fwIdx, entry->term, entry->len, entry->hash);
+        if (curEnt == NULL || curEnt->indexerState) {
+          continue;
+        }
+
+        // Compare spec names
+        size_t curNameLen;
+        const char *curName = RedisModule_StringPtrLen(cur->rsCtx.keyName, &curNameLen);
+        curName += sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
+        curNameLen -= sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
+        if (curNameLen != idxNameLen || strncmp(curName, idxName, curNameLen)) {
+          continue;
+        }
+
+        // printf("Writing extra entry..\n");
+        writeIndexEntry(ctx->spec, invidx, encoder, curEnt);
+      }
     }
+
+  next_entry:
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-
     entry = ForwardIndexIterator_Next(&it);
 
     if (CONCURRENT_CTX_TICK(&indexer->concCtx)) {
@@ -371,6 +449,8 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
       }
     }
   }
+
+cleanup:
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
 }
 
@@ -383,6 +463,7 @@ static void *DocumentIndexer_Run(void *p) {
     }
 
     RSAddDocumentCtx *cur = indexer->head;
+    indexer->size--;
 
     if ((indexer->head = cur->next) == NULL) {
       indexer->tail = NULL;
@@ -418,38 +499,9 @@ static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx,
   pthread_mutex_lock(&indexer->lock);
   ConcurrentSearchCtx_Lock(&aCtx->conc);
   isLocked = hasGil = 1;
-
   if (makeDocumentId(doc, ctx, aCtx->options & DOCUMENT_ADD_REPLACE, errorString) != 0) {
     rv = -1;
     goto cleanup;
-  }
-
-  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
-  md->maxFreq = aCtx->fwIdx->maxFreq;
-  if (ictx->sv) {
-    DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, ictx->sv);
-    // Sorting vector is now shared - so we shouldn't touch this afterwards
-    ictx->sv = NULL;
-  }
-
-  // Write the 'bare' indexes
-  // Index all the other fields
-  for (int i = 0; i < doc->numFields; i++) {
-    const FieldSpec *fs = ictx->specs + i;
-    fieldData *fdata = ictx->fdatas + i;
-    if (fs->name == NULL) {
-      continue;
-    }
-
-    IndexerFunc ifx = getIndexer(fs->type);
-    if (ifx == NULL) {
-      continue;
-    }
-
-    if (ifx(aCtx, ictx, &doc->fields[i], fs, fdata, errorString) != 0) {
-      rv = -1;
-      goto cleanup;
-    }
   }
 
   ConcurrentSearchCtx_Unlock(&aCtx->conc);
@@ -463,15 +515,18 @@ static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx,
       indexer->head = indexer->tail = aCtx;
     }
 
-    // Unlock and allow an item to be popped off the queue
-    pthread_mutex_unlock(&indexer->lock);
-    isLocked = 0;
+    indexer->size++;
+    // printf("Added item. Size is %lu\n", indexer->size);
+
+    // // Unlock and allow an item to be popped off the queue
+    // pthread_mutex_unlock(&indexer->lock);
+    // isLocked = 0;
 
     pthread_cond_signal(&indexer->cond);
 
     // Lock it again (so we can unlock via cond_wait)
-    pthread_mutex_lock(&indexer->lock);
-    isLocked = 1;
+    // pthread_mutex_lock(&indexer->lock);
+    // isLocked = 1;
 
     while (!aCtx->done) {
       pthread_cond_wait(&aCtx->cond, &indexer->lock);

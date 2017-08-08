@@ -49,6 +49,10 @@ void ForwardIndexFree(ForwardIndex *idx);
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
+
+// Find an existing entry within the index
+ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n);
+
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 
 #endif

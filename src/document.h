@@ -65,6 +65,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x02
 
 struct ForwardIndex;
+struct IndexingContext;
 
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;
@@ -73,6 +74,7 @@ typedef struct RSAddDocumentCtx {
   RedisModuleCtx *thCtx;
   RedisSearchCtx rsCtx;
   struct ForwardIndex *fwIdx;
+  struct IndexingContext *ictx;
   ConcurrentSearchCtx conc;
   uint8_t options;
   uint8_t done;

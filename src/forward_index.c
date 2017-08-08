@@ -121,13 +121,17 @@ static khIdxEntry *khTable_InsertNewEntry(khTable *table, uint32_t hash, bucketE
  * Return an entry for the given key, creating one if it does not already
  * exist.
  */
-static khIdxEntry *khTable_GetEntry(khTable *table, const char *s, size_t n, int *isNew) {
+static khIdxEntry *khTable_GetEntry(khTable *table, const char *s, size_t n, int create,
+                                    int *isNew) {
   uint32_t hash = fnv_32a_buf((void *)s, n, 0);
   // Find the bucket
   uint32_t ix = hash % table->numBuckets;
   bucketEntry **bucket = table->buckets + ix;
 
   if (*bucket == NULL) {
+    if (!create) {
+      return NULL;
+    }
     *isNew = 1;
     // Most likely case - no need for rehashing
     if (++table->numItems != table->numBuckets) {
@@ -149,6 +153,10 @@ static khIdxEntry *khTable_GetEntry(khTable *table, const char *s, size_t n, int
       *isNew = 0;
       return &cur->self;
     }
+  }
+
+  if (!create) {
+    return NULL;
   }
 
   *isNew = 1;
@@ -224,13 +232,14 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
-  khIdxEntry *kh = khTable_GetEntry(idx->hits, t->s, t->len, &isNew);
+  khIdxEntry *kh = khTable_GetEntry(idx->hits, t->s, t->len, 1, &isNew);
   h = &kh->ent;
 
   if (isNew) {
     // printf("New token %.*s\n", (int)t->len, t->s);
     h->docId = idx->docId;
     h->fieldMask = 0;
+    h->indexerState = 0;
     if (t->stringFreeable) {
       h->term = copyTempString(idx, t->s, t->len);
     } else {
@@ -280,6 +289,16 @@ static void khTable_Dump(const khTable *table) {
     for (; ent; ent = ent->next) {
       printf("   => %.*s\n", (int)ent->self.ent.len, ent->self.ent.term);
     }
+  }
+}
+
+ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n) {
+  int dummy;
+  khIdxEntry *ent = khTable_GetEntry(i->hits, s, n, 0, &dummy);
+  if (ent) {
+    return &ent->ent;
+  } else {
+    return NULL;
   }
 }
 
