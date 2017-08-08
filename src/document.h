@@ -1,5 +1,6 @@
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
+#include <pthread.h>
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
@@ -63,13 +64,19 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_NOSAVE 0x01
 #define DOCUMENT_ADD_REPLACE 0x02
 
-typedef struct {
+struct ForwardIndex;
+
+typedef struct RSAddDocumentCtx {
+  struct RSAddDocumentCtx *next;
   Document doc;
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *thCtx;
   RedisSearchCtx rsCtx;
-  int options;
+  struct ForwardIndex *fwIdx;
   ConcurrentSearchCtx conc;
+  uint8_t options;
+  uint8_t done;
+  pthread_cond_t cond;
 } RSAddDocumentCtx;
 
 int Document_AddToIndexes(RSAddDocumentCtx *ctx, const char **errorString);
@@ -107,5 +114,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
  * Free the AddDocumentCtx
  */
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
+
+struct DocumentIndexer;
+extern struct DocumentIndexer *Indexer_g;
+void StartDocumentIndexer();
 
 #endif

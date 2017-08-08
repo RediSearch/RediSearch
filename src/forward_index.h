@@ -13,7 +13,8 @@ struct khTable;
 typedef struct {
   t_docId docId;
   const char *term;
-  size_t len;
+  uint32_t len;
+  uint32_t indexerState;
   uint32_t freq;
   float docScore;
   t_fieldMask fieldMask;
@@ -23,7 +24,7 @@ typedef struct {
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
-typedef struct {
+typedef struct ForwardIndex {
   struct khTable *hits;
   t_docId docId;
   uint32_t totalFreq;

@@ -68,14 +68,14 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
   RedisModule_AutoMemory(aCtx->thCtx);
   aCtx->rsCtx.redisCtx = aCtx->thCtx;
   aCtx->rsCtx.spec = sp;
+  aCtx->rsCtx.keyName = RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
 
-  RedisModuleString *indexName =
-      RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
+  pthread_cond_init(&aCtx->cond, NULL);
 
   ConcurrentSearchCtx_Init(aCtx->thCtx, &aCtx->conc);
 
-  ConcurrentSearch_AddKey(&aCtx->conc, NULL, REDISMODULE_READ | REDISMODULE_WRITE, indexName,
-                          reopenCb, aCtx, NULL);
+  ConcurrentSearch_AddKey(&aCtx->conc, NULL, REDISMODULE_READ | REDISMODULE_WRITE,
+                          aCtx->rsCtx.keyName, reopenCb, aCtx, NULL);
   return aCtx;
 }
 
@@ -83,6 +83,10 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   Document_FreeDetached(&aCtx->doc, aCtx->thCtx);
   ConcurrentSearchCtx_Free(&aCtx->conc);
   RedisModule_FreeThreadSafeContext(aCtx->thCtx);
+  if (aCtx->fwIdx) {
+    ForwardIndexFree(aCtx->fwIdx);
+  }
+  pthread_cond_destroy(&aCtx->cond);
   free(aCtx);
 }
 
@@ -248,7 +252,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   fieldData *fieldDatas = malloc(aCtx->doc.numFields * sizeof(*fieldDatas));
   int ourRv = REDISMODULE_OK;
   int isLocked = 0;
-  ForwardIndex *idx = NULL;
 
 #define ENSURE_SPEC()                                        \
   if (ACTX_SPEC(aCtx) == NULL) {                             \
@@ -294,9 +297,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   }
 
   DO_UNLOCK();
-
-  idx = NewForwardIndex(doc, specFlags);
-  indexingContext ictx = {.idx = idx, .doc = doc, .totalTokens = 0};
+  aCtx->fwIdx = NewForwardIndex(doc, specFlags);
+  indexingContext ictx = {.idx = aCtx->fwIdx, .doc = doc, .totalTokens = 0};
 
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = fieldSpecs + i;
@@ -322,7 +324,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   ENSURE_SPEC();
 
   RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
-  md->maxFreq = idx->maxFreq;
+  md->maxFreq = aCtx->fwIdx->maxFreq;
   if (ictx.sv) {
     DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, ictx.sv);
     // Sorting vector is now shared - so we shouldn't touch this afterwards
@@ -356,9 +358,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
 cleanup:
   if (isLocked) {
     DO_UNLOCK();
-  }
-  if (idx != NULL) {
-    ForwardIndexFree(idx);
   }
   free(fieldSpecs);
   free(fieldDatas);
