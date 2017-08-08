@@ -1089,6 +1089,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   ConcurrentSearch_ThreadPoolStart();
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
+  StartDocumentIndexer();
+  RedisModule_Log(ctx, "notice", "Started indexer thread");
+
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {
 
@@ -1168,7 +1171,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
-
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 
