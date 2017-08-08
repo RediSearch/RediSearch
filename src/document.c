@@ -16,6 +16,22 @@
 #include "rmalloc.h"
 #include "concurrent_ctx.h"
 
+// Preprocessors can store field data to this location
+typedef union {
+  double numeric;
+  struct {
+    char *slon;
+    char *slat;
+  } geo;
+} fieldData;
+
+typedef struct {
+  ForwardIndex *idx;
+  RSSortingVector *sv;
+  Document *doc;
+  size_t totalTokens;
+} indexingContext;
+
 static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
                           const char **errorString) {
   const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
@@ -30,13 +46,6 @@ static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
   }
   return 0;
 }
-
-typedef struct {
-  ForwardIndex *idx;
-  RSSortingVector *sv;
-  Document *doc;
-  size_t totalTokens;
-} indexingContext;
 
 static void reopenCb(RedisModuleKey *k, void *arg) {
   // Index Key
@@ -85,9 +94,20 @@ static void ensureSortingVector(RedisSearchCtx *sctx, indexingContext *ictx) {
   }
 }
 
-static int handleFulltextField(RSAddDocumentCtx *aCtx, indexingContext *ictx,
-                               const DocumentField *field, const FieldSpec *fs,
-                               const char **errorString) {
+#define FIELD_HANDLER(name)                                                                  \
+  static int name(RSAddDocumentCtx *aCtx, indexingContext *ictx, const DocumentField *field, \
+                  const FieldSpec *fs, fieldData *fdata, const char **errorString)
+
+#define FIELD_INDEXER FIELD_HANDLER
+#define FIELD_PREPROCESSOR FIELD_HANDLER
+
+typedef int (*FieldFunc)(RSAddDocumentCtx *aCtx, indexingContext *ictx, const DocumentField *field,
+                         const FieldSpec *fs, fieldData *fdata, const char **errorString);
+
+typedef FieldFunc PreprocessorFunc;
+typedef FieldFunc IndexerFunc;
+
+FIELD_PREPROCESSOR(fulltextPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
@@ -101,35 +121,27 @@ static int handleFulltextField(RSAddDocumentCtx *aCtx, indexingContext *ictx,
   return 0;
 }
 
-static int handleNumericField(RSAddDocumentCtx *aCtx, indexingContext *ictx,
-                              const DocumentField *field, const FieldSpec *fs,
-                              const char **errorString) {
-  double score;
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
-
-  if (RedisModule_StringToDouble(field->text, &score) == REDISMODULE_ERR) {
+FIELD_PREPROCESSOR(numericPreprocessor) {
+  if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
     *errorString = "Could not parse numeric index value";
     return -1;
   }
 
-  ConcurrentSearchCtx_Lock(&aCtx->conc);
-  if (ACTX_SPEC(aCtx) != NULL) {
-    NumericRangeTree *rt = OpenNumericIndex(&aCtx->rsCtx, fs->name);
-    NumericRangeTree_Add(rt, ictx->doc->docId, score);
-  }
-  ConcurrentSearchCtx_Unlock(&aCtx->conc);
-
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (fs->sortable) {
-    ensureSortingVector(ctx, ictx);
-    RSSortingVector_Put(ictx->sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
+    ensureSortingVector(&aCtx->rsCtx, ictx);
+    RSSortingVector_Put(ictx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
   }
   return 0;
 }
 
-static int handleGeoField(RSAddDocumentCtx *aCtx, indexingContext *ictx, const DocumentField *field,
-                          const FieldSpec *fs, const char **errorString) {
+FIELD_INDEXER(numericIndexer) {
+  NumericRangeTree *rt = OpenNumericIndex(&aCtx->rsCtx, fs->name);
+  NumericRangeTree_Add(rt, ictx->doc->docId, fdata->numeric);
+  return 0;
+}
 
+FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
@@ -140,13 +152,15 @@ static int handleGeoField(RSAddDocumentCtx *aCtx, indexingContext *ictx, const D
   }
   *pos = '\0';
   pos++;
-  char *slon = (char *)c, *slat = (char *)pos;
+  fdata->geo.slon = (char *)c;
+  fdata->geo.slat = (char *)pos;
+  return 0;
+}
 
-  GeoIndex gi = {.ctx = ctx, .sp = fs};
+FIELD_INDEXER(geoIndexer) {
 
-  ConcurrentSearchCtx_Lock(&aCtx->conc);
-  int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, slon, slat);
-  ConcurrentSearchCtx_Unlock(&aCtx->conc);
+  GeoIndex gi = {.ctx = &aCtx->rsCtx, .sp = fs};
+  int rv = GeoIndex_AddStrings(&gi, ictx->doc->docId, fdata->geo.slon, fdata->geo.slat);
 
   if (rv == REDISMODULE_ERR) {
     *errorString = "Could not index geo value";
@@ -155,20 +169,29 @@ static int handleGeoField(RSAddDocumentCtx *aCtx, indexingContext *ictx, const D
   return 0;
 }
 
-static int indexField(RSAddDocumentCtx *aCtx, const DocumentField *field, const char **errorString,
-                      indexingContext *ictx, const FieldSpec *fs) {
-
-  switch (fs->type) {
+static PreprocessorFunc getPreprocessor(const FieldType ft) {
+  switch (ft) {
     case F_FULLTEXT:
-      return handleFulltextField(aCtx, ictx, field, fs, errorString);
+      return fulltextPreprocessor;
     case F_NUMERIC:
-      return handleNumericField(aCtx, ictx, field, fs, errorString);
+      return numericPreprocessor;
     case F_GEO:
-      return handleGeoField(aCtx, ictx, field, fs, errorString);
+      return geoPreprocessor;
     default:
-      break;
+      return NULL;
   }
-  return 0;
+}
+
+static IndexerFunc getIndexer(const FieldType ft) {
+  switch (ft) {
+    case F_NUMERIC:
+      return numericIndexer;
+    case F_GEO:
+      return geoIndexer;
+    case F_FULLTEXT:
+    default:
+      return NULL;
+  }
 }
 
 void addTokensToIndex(indexingContext *ictx, RSAddDocumentCtx *aCtx) {
@@ -222,6 +245,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
   Document *doc = &aCtx->doc;
   RedisSearchCtx *ctx = &aCtx->rsCtx;
   FieldSpec *fieldSpecs = malloc(aCtx->doc.numFields * sizeof(*fieldSpecs));
+  fieldData *fieldDatas = malloc(aCtx->doc.numFields * sizeof(*fieldDatas));
   int ourRv = REDISMODULE_OK;
   int isLocked = 0;
   ForwardIndex *idx = NULL;
@@ -276,12 +300,19 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
 
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = fieldSpecs + i;
+    fieldData *fdata = fieldDatas + i;
     if (fs->name == NULL) {
       LG_DEBUG("Skipping field %s not in index!", doc->fields[i].name);
       continue;
     }
 
-    if (indexField(aCtx, &doc->fields[i], errorString, &ictx, fs) == -1) {
+    // Get handler
+    PreprocessorFunc pp = getPreprocessor(fs->type);
+    if (pp == NULL) {
+      continue;
+    }
+
+    if (pp(aCtx, &ictx, &doc->fields[i], fs, fdata, errorString) != 0) {
       ourRv = REDISMODULE_ERR;
       goto cleanup;
     }
@@ -297,6 +328,25 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, const char **errorString) {
     // Sorting vector is now shared - so we shouldn't touch this afterwards
     ictx.sv = NULL;
   }
+
+  // Index all the other fields
+  for (int i = 0; i < doc->numFields; i++) {
+    const FieldSpec *fs = fieldSpecs + i;
+    fieldData *fdata = fieldDatas + i;
+    if (fs->name == NULL) {
+      continue;
+    }
+    IndexerFunc ifx = getIndexer(fs->type);
+    if (ifx == NULL) {
+      continue;
+    }
+
+    if (ifx(aCtx, &ictx, &doc->fields[i], fs, fdata, errorString) != 0) {
+      ourRv = REDISMODULE_ERR;
+      goto cleanup;
+    }
+  }
+
   if (ictx.totalTokens > 0) {
     addTokensToIndex(&ictx, aCtx);
   }
@@ -311,5 +361,6 @@ cleanup:
     ForwardIndexFree(idx);
   }
   free(fieldSpecs);
+  free(fieldDatas);
   return ourRv;
 }
