@@ -37,6 +37,26 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
                    const char *lang, const char *payload, size_t payloadSize);
 
 /**
+ * Prepare a document for being added to NewAddDocumentCtx.
+ * This calls Document_Init and Document_Detach, and aims to eliminate
+ * common boilerplate when parsing arguments
+ *
+ * doc: The document to initialize
+ * docKey: The string ID of the document
+ * score: Document store
+ * argv: The argv as passed to the command's entry point
+ * fieldsOffset: The index at which the first field name is present
+ * argc: The total length of argv
+ * language: Language to use. DEFAULT_LANGUAGE will be used if this is NULL
+ * payload: Optional payload
+ * ctx: Owning context, used for Detach()
+ *
+ */
+void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
+                            RedisModuleString **argv, size_t fieldsOffset, size_t argc,
+                            const char *language, RedisModuleString *payload, RedisModuleCtx *ctx);
+
+/**
  * Copy any data from the document into its own independent copies. srcCtx is
  * the context owning any RedisModuleString items - which are assigned using
  * RedisModule_RetainString.
@@ -66,6 +86,7 @@ void Document_Free(Document *doc);
 
 struct ForwardIndex;
 struct IndexingContext;
+union FieldData;
 
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;
@@ -74,14 +95,17 @@ typedef struct RSAddDocumentCtx {
   RedisModuleCtx *thCtx;
   RedisSearchCtx rsCtx;
   struct ForwardIndex *fwIdx;
-  struct IndexingContext *ictx;
+  RSSortingVector *sv;
+  FieldSpec *fspecs;
+  union FieldData *fdatas;
+  const char *errorString;
   ConcurrentSearchCtx conc;
+  uint32_t totalTokens;
+  uint32_t specFlags;
   uint8_t options;
-  uint8_t done;
-  pthread_cond_t cond;
 } RSAddDocumentCtx;
 
-int Document_AddToIndexes(RSAddDocumentCtx *ctx, const char **errorString);
+int Document_AddToIndexes(RSAddDocumentCtx *ctx);
 
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
@@ -110,7 +134,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
  *
  * When done, call AddDocumentCtx_Free
  */
-RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp);
+RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp,
+                                    Document *base);
 
 /**
  * Free the AddDocumentCtx

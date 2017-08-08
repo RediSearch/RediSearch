@@ -1,4 +1,5 @@
 #include "document.h"
+#include "stemmer.h"
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize) {
@@ -9,6 +10,29 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
   doc->language = lang;
   doc->payload = payload;
   doc->payloadSize = payloadSize;
+}
+
+void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
+                            RedisModuleString **argv, size_t fieldsOffset, size_t argc,
+                            const char *language, RedisModuleString *payload, RedisModuleCtx *ctx) {
+  size_t payloadSize = 0;
+  const char *payloadStr = NULL;
+  if (payload) {
+    payloadStr = RedisModule_StringPtrLen(payload, &payloadSize);
+  }
+
+  Document_Init(doc, docKey, score, (argc - fieldsOffset) / 2,
+                language ? language : DEFAULT_LANGUAGE, payloadStr, payloadSize);
+  int n = 0;
+  for (int i = fieldsOffset + 1; i < argc - 1; i += 2, n++) {
+    // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
+    // NULL),
+    // RedisModule_StringPtrLen(argv[i+1], NULL));
+    doc->fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
+    doc->fields[n].text = argv[i + 1];
+  }
+
+  Document_Detach(doc, ctx);
 }
 
 void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {

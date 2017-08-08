@@ -89,16 +89,7 @@ Returns OK on success, or an error if something went wrong.
 
 static void doDocumentAddTh(void *arg) {
   RSAddDocumentCtx *aCtx = arg;
-  const char *msg = NULL;
-  int rc = Document_AddToIndexes(aCtx, &msg);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(aCtx->thCtx, msg ? msg : "Could not index document");
-  } else {
-    RedisModule_ReplyWithSimpleString(aCtx->thCtx, "OK");
-  }
-
-  RedisModule_UnblockClient(aCtx->bc, NULL);
-  AddDocumentCtx_Free(aCtx);
+  Document_AddToIndexes(aCtx);
 }
 
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -136,9 +127,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   // Parse the optional payload field
-  const char *payload = NULL;
-  size_t payloadSize = 0;
-  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
+  RedisModuleString *payload = NULL;
+  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "s", &payload);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -146,27 +136,23 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     goto cleanup;
   }
 
-  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp);
-  Document *doc = &aCtx->doc;
-  Document_Init(doc, argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE, payload,
-                payloadSize);
-
-  int n = 0;
-  for (int i = fieldsIdx + 1; i < argc - 1; i += 2, n++) {
-    // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
-    // NULL),
-    // RedisModule_StringPtrLen(argv[i+1], NULL));
-    doc->fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
-    doc->fields[n].text = argv[i + 1];
+  Document doc;
+  Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
+  if (!nosave) {
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+    if (Redis_SaveDocument(&sctx, &doc) != REDISMODULE_OK) {
+      Document_FreeDetached(&doc, ctx);
+      return RedisModule_ReplyWithError(ctx, "ERR couldn't save document");
+    }
   }
 
-  Document_Detach(doc, ctx);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
+           doc.numFields);
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-           doc->numFields);
-
-  aCtx->options = (nosave ? DOCUMENT_ADD_NOSAVE : 0) | (replace ? DOCUMENT_ADD_REPLACE : 0);
+  RedisModuleBlockedClient *client =
+      RedisModule_BlockClient(ctx, NULL, NULL, AddDocumentCtx_Free, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
+  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
   ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
@@ -555,24 +541,24 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp);
-  if (Redis_LoadDocument(&aCtx->rsCtx, argv[2], &aCtx->doc) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(aCtx->thCtx, "Could not load document");
-    AddDocumentCtx_Free(aCtx);
+  Document doc;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
-  Document *doc = &aCtx->doc;
-  doc->docKey = argv[2];
-  doc->score = ds;
-  doc->language = lang ? lang : DEFAULT_LANGUAGE;
-  doc->payload = NULL;
-  doc->payloadSize = 0;
+  doc.docKey = argv[2];
+  doc.score = ds;
+  doc.language = lang ? lang : DEFAULT_LANGUAGE;
+  doc.payload = NULL;
+  doc.payloadSize = 0;
+  Document_Detach(&doc, ctx);
 
-  Document_Detach(doc, ctx);
+  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-           doc->numFields);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
+           doc.numFields);
   aCtx->options = DOCUMENT_ADD_NOSAVE | (replace ? DOCUMENT_ADD_REPLACE : 0);
   ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
