@@ -135,6 +135,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     h->fieldMask = 0;
     h->indexerState = 0;
     h->hash = hash;
+    h->next = NULL;
 
     if (t->stringFreeable) {
       h->term = copyTempString(idx, t->s, t->len);

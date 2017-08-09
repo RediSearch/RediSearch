@@ -8,7 +8,8 @@
 #include "tokenize.h"
 #include "document.h"
 
-typedef struct {
+typedef struct ForwardIndexEntry {
+  struct ForwardIndexEntry *next;
   t_docId docId;
   const char *term;
   uint32_t len;

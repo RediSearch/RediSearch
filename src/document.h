@@ -88,6 +88,9 @@ struct ForwardIndex;
 struct IndexingContext;
 union FieldData;
 
+#define ACTX_F_MERGED 0x01
+#define ACTX_F_FTONLY 0x02
+
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;
   Document doc;
@@ -103,6 +106,7 @@ typedef struct RSAddDocumentCtx {
   uint32_t totalTokens;
   uint32_t specFlags;
   uint8_t options;
+  uint8_t stateFlags;
 } RSAddDocumentCtx;
 
 int Document_AddToIndexes(RSAddDocumentCtx *ctx);

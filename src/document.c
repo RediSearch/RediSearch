@@ -1,4 +1,5 @@
 #include <string.h>
+#include <assert.h>
 
 #include "document.h"
 #include "forward_index.h"
@@ -307,25 +308,199 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
   entry->indexerState = 1;
 }
 
+#define TERMS_PER_BLOCK 128
+
+typedef struct mergedEntry {
+  KHTableEntry base;
+  // size_t count;
+  ForwardIndexEntry *head;
+  ForwardIndexEntry *tail;
+} mergedEntry;
+
+static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
+  mergedEntry *e = (mergedEntry *)ent;
+  if (e->head->hash != h) {
+    return 1;
+  }
+  if (e->head->len != n) {
+    return 1;
+  }
+  return memcmp(e->head->term, s, n);
+}
+
+static uint32_t mergedHash(const KHTableEntry *ent) {
+  mergedEntry *e = (mergedEntry *)ent;
+  return e->head->hash;
+}
+
+static KHTableEntry *mergedAlloc(void *ctx) {
+  BlkAlloc *alloc = ctx;
+  return BlkAlloc_Alloc(alloc, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
+}
+
+static size_t countMerged(mergedEntry *ent) {
+  size_t n = 0;
+  for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
+    n++;
+  }
+  return n;
+}
+
+static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht) {
+  RSAddDocumentCtx *last, *cur;
+  size_t counter = 0;
+  cur = aCtx;
+
+merge_loop:
+  last = cur;
+  for (; last->next; last = last->next) {
+  }
+
+  // Traverse *all* the entries of *all* the tables
+  for (; cur != last->next; cur = cur->next) {
+
+    ForwardIndexIterator it = ForwardIndex_Iterate(cur->fwIdx);
+    ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+
+    while (entry) {
+      // Set the document ID
+      entry->docId = cur->doc.docId;
+      // Get the entry for it.
+      int isNew = 0;
+      mergedEntry *mergedEnt =
+          (mergedEntry *)KHTable_GetEntry(ht, entry->term, entry->len, entry->hash, &isNew);
+
+      if (isNew) {
+        mergedEnt->head = mergedEnt->tail = entry;
+
+      } else {
+        mergedEnt->tail->next = entry;
+        mergedEnt->tail = entry;
+      }
+
+      entry->next = NULL;
+      entry = ForwardIndexIterator_Next(&it);
+    }
+    cur->stateFlags |= ACTX_F_MERGED;
+  }
+
+  assert(cur == last->next);
+  // Check again to see if we have more items in the queue, but if we have a
+  // high workload, don't overfill the hashtable
+  if (cur && ++counter < 100) {
+    goto merge_loop;
+  }
+}
+
+static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, KHTable *ht) {
+  IndexEncoder encoder = InvertedIndex_GetEncoder(ACTX_SPEC(aCtx)->flags);
+
+  // Iterate over all the entries
+  for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
+    for (KHTableEntry *entp = ht->buckets[curBucketIdx]; entp; entp = entp->next) {
+      mergedEntry *merged = (mergedEntry *)entp;
+
+      // Open the inverted index:
+      ForwardIndexEntry *fwent = merged->head;
+      IndexSpec_AddTerm(aCtx->rsCtx.spec, fwent->term, fwent->len);
+
+      RedisModuleKey *idxKey = NULL;
+      InvertedIndex *invidx =
+          Redis_OpenInvertedIndexEx(&aCtx->rsCtx, fwent->term, fwent->len, 1, &idxKey);
+
+      if (invidx == NULL) {
+        continue;
+      }
+
+      size_t curNumMerged = 0;
+      for (; fwent != NULL; fwent = fwent->next) {
+        writeIndexEntry(ACTX_SPEC(aCtx), invidx, encoder, fwent);
+      }
+
+      if (idxKey) {
+        RedisModule_CloseKey(idxKey);
+      }
+
+      if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
+        printf("Spec is NULL!?\n");
+        aCtx->errorString = "ERR Index is no longer valid!";
+        return -1;
+      }
+    }
+  }
+  return 0;
+}
+
+static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
+  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
+  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
+  RedisSearchCtx *ctx = &aCtx->rsCtx;
+
+  while (entry != NULL) {
+    RedisModuleKey *idxKey = NULL;
+
+    if (entry->indexerState) {
+      goto next_entry;
+    }
+
+    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    if (invidx) {
+      entry->docId = aCtx->doc.docId;
+      writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      // // Determine if this term is even common
+      // const IndexStats *stats = &ctx->spec->stats;
+      // double avgFrequency = (double)stats->numRecords / (double)stats->numTerms;
+
+      // if (invidx->numDocs < (avgFrequency * 10)) {
+      //   goto next_entry;
+      // }
+
+      // for (RSAddDocumentCtx *cur = aCtx->next; cur; cur = cur->next) {
+      //   // Find more tables
+      //   ForwardIndexEntry *curEnt =
+      //       ForwardIndex_Find(cur->fwIdx, entry->term, entry->len, entry->hash);
+      //   if (curEnt == NULL || curEnt->indexerState) {
+      //     continue;
+      //   }
+
+      //   writeIndexEntry(ctx->spec, invidx, encoder, curEnt);
+      // }
+    }
+
+  next_entry:
+    entry = ForwardIndexIterator_Next(&it);
+    if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
+      aCtx->errorString = "ERR Index is no longer valid!";
+      return;
+    }
+  }
+}
+
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   // printf("totaltokens :%d\n", totalTokens);
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
+  KHTable mergedEntries;
+  BlkAlloc entriesAlloc;
+  BlkAlloc_Init(&entriesAlloc);
 
-  size_t idxNameLen;
-  const char *idxName = RedisModule_StringPtrLen(ctx->keyName, &idxNameLen);
-  idxName += sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
-  idxNameLen -= sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
+  const int needsFtIndex = !(aCtx->stateFlags & ACTX_F_MERGED);
+  int useHt = 0;
+  static const KHTableProcs procs = {
+      .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
+
+  if (indexer->size > 1 && needsFtIndex) {
+    useHt = 1;
+    KHTable_Init(&mergedEntries, &procs, &entriesAlloc, aCtx->fwIdx->hits->numItems);
+    doMerge(aCtx, &mergedEntries);
+  }
 
   indexer->concCtx.numOpenKeys = 0;
   indexer->concCtx.ctx = aCtx->rsCtx.redisCtx;
   ConcurrentSearch_AddKey(&indexer->concCtx, NULL, REDISMODULE_READ | REDISMODULE_WRITE,
                           ctx->keyName, reopenCb, aCtx, NULL);
-
-  // Build a table of terms
 
   ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
@@ -334,6 +509,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     aCtx->errorString = "ERR Index no longer valid";
     goto cleanup;
   }
+
   Document *doc = &aCtx->doc;
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
@@ -358,58 +534,22 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, aCtx->sv);
   }
 
-  while (entry != NULL) {
-    RedisModuleKey *idxKey = NULL;
-
-    if (entry->indexerState) {
-      goto next_entry;
-    }
-
-    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
-    if (invidx) {
-      entry->docId = aCtx->doc.docId;
-      writeIndexEntry(ctx->spec, invidx, encoder, entry);
-
-      // Determine if this term is even common
-      const IndexStats *stats = &ctx->spec->stats;
-      double avgFrequency = (double)stats->numRecords / (double)stats->numTerms;
-
-      if (invidx->numDocs < (avgFrequency * 10)) {
-        goto next_entry;
-      }
-
-      for (RSAddDocumentCtx *cur = aCtx->next; cur; cur = cur->next) {
-        // Find more tables
-        ForwardIndexEntry *curEnt =
-            ForwardIndex_Find(cur->fwIdx, entry->term, entry->len, entry->hash);
-        if (curEnt == NULL || curEnt->indexerState) {
-          continue;
-        }
-
-        // Compare spec names
-        size_t curNameLen;
-        const char *curName = RedisModule_StringPtrLen(cur->rsCtx.keyName, &curNameLen);
-        curName += sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
-        curNameLen -= sizeof(INDEX_SPEC_KEY_PREFIX) - 1;
-        if (curNameLen != idxNameLen || strncmp(curName, idxName, curNameLen)) {
-          continue;
-        }
-
-        writeIndexEntry(ctx->spec, invidx, encoder, curEnt);
-      }
-    }
-
-  next_entry:
-    entry = ForwardIndexIterator_Next(&it);
-    if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
-      aCtx->errorString = "ERR Index is no longer valid!";
-      goto cleanup;
+  if (needsFtIndex) {
+    if (useHt) {
+      // printf("Going fast! :)\n");
+      writeMergedEntries(indexer, aCtx, &mergedEntries);
+    } else {
+      // printf("Going slow... :'(\n");
+      writeCurEntries(indexer, aCtx);
     }
   }
 
 cleanup:
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+  if (useHt) {
+    BlkAlloc_FreeAll(&entriesAlloc, NULL, 0);
+    KHTable_Free(&mergedEntries);
+  }
 }
 
 static void *DocumentIndexer_Run(void *p) {
@@ -428,7 +568,6 @@ static void *DocumentIndexer_Run(void *p) {
       indexer->tail = NULL;
     }
     pthread_mutex_unlock(&indexer->lock);
-
     DocumentIndexer_Process(indexer, cur);
     sendReply(cur);
   }
@@ -482,8 +621,9 @@ static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx)
     indexer->head = indexer->tail = aCtx;
   }
 
-  indexer->size++;
   pthread_cond_signal(&indexer->cond);
   pthread_mutex_unlock(&indexer->lock);
+
+  indexer->size++;
   return 0;
 }
