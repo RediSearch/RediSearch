@@ -64,8 +64,9 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
 
 int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
-  int add = 1;
+  int add = 0;
   if (checkCard) {
+    add = 1;
     size_t card = n->card;
     for (int i = 0; i < card; i++) {
 
@@ -75,10 +76,8 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
       }
     }
   }
-
-  if (value < n->minVal || n->card == 0) n->minVal = value;
-  if (value > n->maxVal || n->card == 0) n->maxVal = value;
-
+  if (n->minVal == NF_NEGATIVE_INFINITY || value < n->minVal) n->minVal = value;
+  if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
   if (add) {
     if (n->card < n->splitCard) {
       n->values[n->card] = (float)value;
@@ -109,9 +108,10 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   }
   IR_Free(ir);
 
-  // printf("Splitting node %p %f..%f, card %d size %d took %.04fus\n", n, n->minVal, n->maxVal,
-  //        n->card, n->size, (double)TimeSampler_DurationNS(&ts) / 1000.0F);
-  // printf("left node: %d, right: %d\n", (*lp)->range->size, (*rp)->range->size);
+  // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
+  //        n->entries->numDocs);
+  // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
+  //        (*rp)->range->entries->numDocs);
   return split;
 }
 
@@ -191,12 +191,11 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
     // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
     //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
     //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
-    //
     // if the range is completely contained in the search, we can just add it and not inspect any
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       Vector_Push(v, n->range);
-      return;
+       return;
     }
     // No overlap at all - no need to do anything
     if (!NumericRange_Overlaps(n->range, min, max)) {
@@ -225,7 +224,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
   //   NumericRange *rng;
   //   Vector_Get(leaves, i, &rng);
   //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->size, rng->splitCard);
+  //          rng->maxVal - rng->minVal, rng->entries->numDocs, rng->splitCard);
   // }
 
   return leaves;
@@ -250,7 +249,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
 NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
 
-  ret->root = NewLeafNode(2, 0, 0, 2);
+  ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;

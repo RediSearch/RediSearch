@@ -131,7 +131,7 @@ int testRangeIterator() {
   free(lookup);
   free(matched);
 
-  ASSERT_EQUAL(t->numRanges, 142);
+  ASSERT_EQUAL(t->numRanges, 145);
   ASSERT_EQUAL(t->numEntries, N);
   NumericRangeTree_Free(t);
 
