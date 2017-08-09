@@ -1075,9 +1075,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   ConcurrentSearch_ThreadPoolStart();
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
-  StartDocumentIndexer();
-  RedisModule_Log(ctx, "notice", "Started indexer thread");
-
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {
 

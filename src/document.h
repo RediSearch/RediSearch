@@ -145,8 +145,4 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
  */
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
-struct DocumentIndexer;
-extern struct DocumentIndexer *Indexer_g;
-void StartDocumentIndexer();
-
 #endif

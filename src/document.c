@@ -33,6 +33,9 @@ typedef struct DocumentIndexer {
   pthread_cond_t cond;
   size_t size;
   ConcurrentSearchCtx concCtx;
+
+  char *name;
+  struct DocumentIndexer *next;
 } DocumentIndexer;
 
 // Process a single context
@@ -44,6 +47,8 @@ static void *DocumentIndexer_Run(void *arg);
 // Enqueue the context to be written, and return when the context has been written
 // (or an error occurred)
 static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
+
+static DocumentIndexer *GetDocumentIndexer(const char *specname);
 
 static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
                           const char **errorString) {
@@ -272,7 +277,11 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
     }
   }
 
-  if (DocumentIndexer_Add(Indexer_g, aCtx) != 0) {
+  // Get the specname
+  const char *specName = RedisModule_StringPtrLen(aCtx->rsCtx.keyName, NULL);
+  specName += sizeof(INDEX_SPEC_KEY_FMT) - 1;
+
+  if (DocumentIndexer_Add(GetDocumentIndexer(specName), aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -555,16 +564,55 @@ static void *DocumentIndexer_Run(void *p) {
   return NULL;
 }
 
-struct DocumentIndexer *Indexer_g = NULL;
+typedef struct {
+  DocumentIndexer *first;
+  volatile int lockMod;
+} IndexerList;
 
-void StartDocumentIndexer() {
-  Indexer_g = calloc(1, sizeof(*Indexer_g));
-  Indexer_g->head = Indexer_g->tail = NULL;
-  ConcurrentSearchCtx_Init(NULL, &Indexer_g->concCtx);
-  pthread_cond_init(&Indexer_g->cond, NULL);
-  pthread_mutex_init(&Indexer_g->lock, NULL);
+static IndexerList indexers_g = {NULL, 0};
+
+static DocumentIndexer *findDocumentIndexer(const char *specname) {
+  for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
+    if (strcmp(specname, cur->name) == 0) {
+      return cur;
+    }
+  }
+  return NULL;
+}
+
+static DocumentIndexer *NewDocumentIndexer(const char *name) {
+  DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  indexer->head = indexer->tail = NULL;
+  ConcurrentSearchCtx_Init(NULL, &indexer->concCtx);
+  pthread_cond_init(&indexer->cond, NULL);
+  pthread_mutex_init(&indexer->lock, NULL);
   static pthread_t dummyThr;
-  pthread_create(&dummyThr, NULL, DocumentIndexer_Run, Indexer_g);
+  pthread_create(&dummyThr, NULL, DocumentIndexer_Run, indexer);
+
+  indexer->name = strdup(name);
+  indexer->next = NULL;
+  return indexer;
+}
+
+static DocumentIndexer *GetDocumentIndexer(const char *specname) {
+  DocumentIndexer *match = findDocumentIndexer(specname);
+  if (match) {
+    return match;
+  }
+
+  while (!__sync_bool_compare_and_swap(&indexers_g.lockMod, 0, 1)) {
+  }
+
+  match = findDocumentIndexer(specname);
+  if (!match) {
+    // Create a new one
+  }
+
+  DocumentIndexer *newIndexer = NewDocumentIndexer(specname);
+  newIndexer->next = indexers_g.first;
+  indexers_g.first = newIndexer;
+  indexers_g.lockMod = 0;
+  return newIndexer;
 }
 
 static int tryMakeDocId(RSAddDocumentCtx *aCtx) {
