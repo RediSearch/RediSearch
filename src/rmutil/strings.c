@@ -2,6 +2,7 @@
 #include <sys/param.h>
 #include <ctype.h>
 #include "strings.h"
+#include "alloc.h"
 
 #include "sds.h"
 
@@ -66,5 +67,15 @@ void RMUtil_StringToUpper(RedisModuleString *s) {
   for (i = 0; i < l; i++) {
     *c = toupper(*c);
     ++c;
+  }
+}
+
+void RMUtil_StringConvert(RedisModuleString **rs, const char **ss, size_t n, int options) {
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *p = RedisModule_StringPtrLen(rs[ii], NULL);
+    if (options & RMUTIL_STRINGCONVERT_COPY) {
+      p = strdup(p);
+    }
+    ss[ii] = p;
   }
 }
