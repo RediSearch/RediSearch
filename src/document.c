@@ -167,7 +167,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
       aCtx->fspecs[i] = *fs;
-      if (fs->sortable && aCtx->sv == NULL) {
+      if (FieldSpec_IsSortable(fs) && aCtx->sv == NULL) {
         aCtx->sv = NewSortingVector(sp->sortables->len);
       }
     } else {
@@ -211,12 +211,13 @@ typedef FieldFunc IndexerFunc;
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
-  if (fs->sortable) {
+  if (FieldSpec_IsSortable(fs)) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc,
-                               aCtx->fwIdx->stemmer, aCtx->totalTokens, aCtx->stopwords);
+  Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
+  aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
+                               aCtx->totalTokens, aCtx->stopwords);
   return 0;
 }
 
@@ -227,7 +228,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   }
 
   // If this is a sortable numeric value - copy the value to the sorting vector
-  if (fs->sortable) {
+  if (FieldSpec_IsSortable(fs)) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
   }
   return 0;

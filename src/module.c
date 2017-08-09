@@ -306,7 +306,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->fields[i].type == F_FULLTEXT) {
       REPLY_KVNUM(nn, "weight", sp->fields[i].weight);
     }
-    if (sp->fields[i].sortable) {
+    if (FieldSpec_IsSortable(&sp->fields[i])) {
       RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
       ++nn;
     }
@@ -671,7 +671,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /*
 ## FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}]] | [NUMERIC] ...
 
 Creates an index with the given spec. The index name will be used in all the
 key

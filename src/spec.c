@@ -95,7 +95,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   // if we're at the end - fail
   if (*offset >= argc) return 0;
   sp->sortIdx = -1;
-  sp->sortable = 0;
+  sp->options = 0;
   // the field name comes here
   sp->name = rm_strdup(argv[*offset]);
 
@@ -110,6 +110,11 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     sp->weight = 1.0;
     // it's legit to be at the end now
     if (++*offset == argc) return 1;
+
+    if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
+      sp->options |= FieldSpec_NoStemming;
+      if (++*offset == argc) return 1;
+    }
 
     // if we have weight - try and parse it
     if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
@@ -143,7 +148,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     if (sp->type == F_GEO) {
       return 0;
     }
-    sp->sortable = 1;
+    sp->options |= FieldSpec_Sortable;
     ++*offset;
   }
   return 1;
@@ -152,7 +157,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
 void _spec_buildSortingTable(IndexSpec *spec, int len) {
   spec->sortables = NewSortingTable(len);
   for (int i = 0; i < spec->numFields; i++) {
-    if (spec->fields[i].sortable) {
+    if (FieldSpec_IsSortable(&spec->fields[i])) {
       // printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
       SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
     }
@@ -215,7 +220,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       spec->fields[spec->numFields].id = id;
       id *= 2;
     }
-    if (spec->fields[spec->numFields].sortable) {
+    if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
       spec->fields[spec->numFields].sortIdx = sortIdx++;
     }
     spec->numFields++;
@@ -360,7 +365,7 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveUnsigned(rdb, f->id);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveDouble(rdb, f->weight);
-  RedisModule_SaveUnsigned(rdb, f->sortable);
+  RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
 }
 
@@ -371,7 +376,7 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   f->type = RedisModule_LoadUnsigned(rdb);
   f->weight = RedisModule_LoadDouble(rdb);
   if (encver >= 4) {
-    f->sortable = RedisModule_LoadUnsigned(rdb);
+    f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);
   }
 }
@@ -530,6 +535,9 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
           __vpushStr(args, ctx, SPEC_WEIGHT_STR);
           Vector_Push(args, RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].weight));
         }
+        if (FieldSpec_IsNoStem(&sp->fields[i])) {
+          __vpushStr(args, ctx, SPEC_NOSTEM_STR);
+        }
         break;
       case F_NUMERIC:
         __vpushStr(args, ctx, sp->fields[i].name);
@@ -542,7 +550,7 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
 
         break;
     }
-    if (sp->fields[i].sortable) {
+    if (FieldSpec_IsSortable(&sp->fields[i])) {
       __vpushStr(args, ctx, SPEC_SORTABLE_STR);
     }
   }
