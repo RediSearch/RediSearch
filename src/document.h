@@ -88,7 +88,7 @@ struct IndexingContext;
 union FieldData;
 
 #define ACTX_F_MERGED 0x01
-#define ACTX_F_FTONLY 0x02
+#define ACTX_F_ERRORED 0x02
 
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;

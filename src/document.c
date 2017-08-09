@@ -119,6 +119,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
       aCtx->fspecs[i].name = NULL;
     }
   }
+  aCtx->doc.docId = 0;
 
   ConcurrentSearchCtx_Init(aCtx->thCtx, &aCtx->conc);
 
@@ -317,6 +318,7 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 }
 
 #define TERMS_PER_BLOCK 128
+#define MAX_DOCID_ENTRIES 1024
 
 typedef struct mergedEntry {
   KHTableEntry base;
@@ -357,19 +359,24 @@ static size_t countMerged(mergedEntry *ent) {
 }
 
 // Merges all terms in the queue into a single hash table.
-static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht) {
+void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **parentMap) {
   size_t counter = 0;
+  size_t curIdIdx = 0;
   RSAddDocumentCtx *cur = aCtx;
 
   // Traverse *all* the entries of *all* the tables
-  while (cur && ++counter < 1000) {
+  while (cur && ++counter < 1000 && curIdIdx < MAX_DOCID_ENTRIES) {
 
     ForwardIndexIterator it = ForwardIndex_Iterate(cur->fwIdx);
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
     while (entry) {
-      // Set the document ID
-      entry->docId = cur->doc.docId;
+      // Because we don't have the actual document ID at this point, the document
+      // ID field will be used here to point to an index in the parentMap
+      // that will contain the parent. The parent itself will contain the
+      // document ID when assigned (when the lock is held).
+      entry->docId = curIdIdx;
+
       // Get the entry for it.
       int isNew = 0;
       mergedEntry *mergedEnt =
@@ -387,13 +394,17 @@ static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht) {
       entry = ForwardIndexIterator_Next(&it);
     }
     cur->stateFlags |= ACTX_F_MERGED;
+    parentMap[curIdIdx++] = cur;
+
     cur = cur->next;
   }
 }
 
 // Writes all the entries in the hash table to the inverted index.
-static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, KHTable *ht) {
+static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, KHTable *ht,
+                              RSAddDocumentCtx **parentMap) {
   IndexEncoder encoder = InvertedIndex_GetEncoder(ACTX_SPEC(aCtx)->flags);
+  uint32_t docIdMap[MAX_DOCID_ENTRIES] = {0};
 
   // Iterate over all the entries
   for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
@@ -413,6 +424,21 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       }
 
       for (; fwent != NULL; fwent = fwent->next) {
+        // Get the Doc ID for this entry.
+        // Note that we cache the lookup result itself, since accessing the
+        // parent each time causes some memory access overhead. This saves
+        // about 3% overall
+        uint32_t docId = docIdMap[fwent->docId];
+        if (docId == 0) {
+          RSAddDocumentCtx *parent = parentMap[fwent->docId];
+          if ((parent->stateFlags & ACTX_F_ERRORED) || parent->doc.docId == 0) {
+            continue;
+          } else {
+            docId = docIdMap[fwent->docId] = parent->doc.docId;
+          }
+        }
+
+        fwent->docId = docId;
         writeIndexEntry(ACTX_SPEC(aCtx), invidx, encoder, fwent);
       }
 
@@ -442,25 +468,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
+      assert(entry->docId);
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
-      // // Determine if this term is even common
-      // const IndexStats *stats = &ctx->spec->stats;
-      // double avgFrequency = (double)stats->numRecords / (double)stats->numTerms;
-
-      // if (invidx->numDocs < (avgFrequency * 10)) {
-      //   goto next_entry;
-      // }
-
-      // for (RSAddDocumentCtx *cur = aCtx->next; cur; cur = cur->next) {
-      //   // Find more tables
-      //   ForwardIndexEntry *curEnt =
-      //       ForwardIndex_Find(cur->fwIdx, entry->term, entry->len, entry->hash);
-      //   if (curEnt == NULL || curEnt->indexerState) {
-      //     continue;
-      //   }
-
-      //   writeIndexEntry(ctx->spec, invidx, encoder, curEnt);
-      // }
     }
 
     entry = ForwardIndexIterator_Next(&it);
@@ -471,12 +480,39 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 }
 
+static void doAssignIds(RSAddDocumentCtx *cur) {
+  for (; cur; cur = cur->next) {
+    if (cur->stateFlags & ACTX_F_ERRORED) {
+      continue;
+    }
+
+    assert(!cur->doc.docId);
+    int rv = makeDocumentId(&cur->doc, &cur->rsCtx, cur->options & DOCUMENT_ADD_REPLACE,
+                            &cur->errorString);
+    if (rv != 0) {
+      cur->stateFlags |= ACTX_F_ERRORED;
+      continue;
+    }
+
+    RSDocumentMetadata *md = DocTable_Get(&ACTX_SPEC(cur)->docs, cur->doc.docId);
+    md->maxFreq = cur->fwIdx->maxFreq;
+    if (cur->sv) {
+      DocTable_SetSortingVector(&ACTX_SPEC(cur)->docs, cur->doc.docId, cur->sv);
+    }
+  }
+}
+
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
   KHTable mergedEntries;
   BlkAlloc entriesAlloc;
   BlkAlloc_Init(&entriesAlloc);
+  RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
+
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    return;
+  }
 
   const int needsFtIndex = !(aCtx->stateFlags & ACTX_F_MERGED);
   int useHt = 0;
@@ -486,7 +522,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
   if (indexer->size > 1 && needsFtIndex) {
     useHt = 1;
     KHTable_Init(&mergedEntries, &procs, &entriesAlloc, aCtx->fwIdx->hits->numItems);
-    doMerge(aCtx, &mergedEntries);
+    doMerge(aCtx, &mergedEntries, parentMap);
   }
 
   indexer->concCtx.numOpenKeys = 0;
@@ -503,6 +539,36 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
   }
 
   Document *doc = &aCtx->doc;
+
+  /**
+   * Document ID assignment:
+   * In order to hold the GIL for as short a time as possible, we assign
+   * document IDs in bulk. The assumption is made that all aCtxs which have
+   * the MERGED flag set are either merged from a previous aCtx, and therefore
+   * already have a document ID, or they are merged as the beginning of a new
+   * merge table (mergedEntries) and all lack document IDs.
+   *
+   * Assigning IDs in bulk speeds up indexing of smaller documents by about
+   * 10% overall.
+   */
+  if (!doc->docId) {
+    doAssignIds(aCtx);
+    if (aCtx->stateFlags & ACTX_F_ERRORED) {
+      if (useHt) {
+        writeMergedEntries(indexer, aCtx, &mergedEntries, parentMap);
+      }
+      goto cleanup;
+    }
+  }
+
+  if (needsFtIndex) {
+    if (useHt) {
+      writeMergedEntries(indexer, aCtx, &mergedEntries, parentMap);
+    } else {
+      writeCurEntries(indexer, aCtx);
+    }
+  }
+
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
     fieldData *fdata = aCtx->fdatas + i;
@@ -517,20 +583,6 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
     if (ifx(aCtx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
       goto cleanup;
-    }
-  }
-
-  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc->docId);
-  md->maxFreq = aCtx->fwIdx->maxFreq;
-  if (aCtx->sv) {
-    DocTable_SetSortingVector(&ctx->spec->docs, doc->docId, aCtx->sv);
-  }
-
-  if (needsFtIndex) {
-    if (useHt) {
-      writeMergedEntries(indexer, aCtx, &mergedEntries);
-    } else {
-      writeCurEntries(indexer, aCtx);
     }
   }
 
@@ -615,33 +667,9 @@ static DocumentIndexer *GetDocumentIndexer(const char *specname) {
   return newIndexer;
 }
 
-static int tryMakeDocId(RSAddDocumentCtx *aCtx) {
-  int rv = 0;
-
-  ConcurrentSearchCtx_Lock(&aCtx->conc);
-  if (!ACTX_SPEC(aCtx)) {
-    aCtx->errorString = "ERR index was deleted";
-    rv = -1;
-    goto cleanup;
-  }
-
-  if (makeDocumentId(&aCtx->doc, &aCtx->rsCtx, aCtx->options & DOCUMENT_ADD_REPLACE,
-                     &aCtx->errorString) != 0) {
-    rv = -1;
-  }
-
-cleanup:
-  ConcurrentSearchCtx_Unlock(&aCtx->conc);
-  return rv;
-}
-
 static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   pthread_mutex_lock(&indexer->lock);
-  if (tryMakeDocId(aCtx) != 0) {
-    pthread_mutex_unlock(&indexer->lock);
-    return -1;
-  }
 
   if (indexer->tail) {
     indexer->tail->next = aCtx;
