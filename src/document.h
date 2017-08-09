@@ -81,8 +81,7 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx);
  */
 void Document_Free(Document *doc);
 
-#define DOCUMENT_ADD_NOSAVE 0x01
-#define DOCUMENT_ADD_REPLACE 0x02
+#define DOCUMENT_ADD_REPLACE 0x01
 
 struct ForwardIndex;
 struct IndexingContext;

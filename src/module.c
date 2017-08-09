@@ -559,7 +559,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  aCtx->options = DOCUMENT_ADD_NOSAVE | (replace ? DOCUMENT_ADD_REPLACE : 0);
+  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
   ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
