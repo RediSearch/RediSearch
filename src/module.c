@@ -150,7 +150,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
            doc.numFields);
 
   RedisModuleBlockedClient *client =
-      RedisModule_BlockClient(ctx, NULL, NULL, AddDocumentCtx_Free, 0);
+      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
   aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
   ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
