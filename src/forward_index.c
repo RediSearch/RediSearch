@@ -133,7 +133,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     // printf("New token %.*s\n", (int)t->len, t->s);
     h->docId = idx->docId;
     h->fieldMask = 0;
-    h->indexerState = 0;
     h->hash = hash;
     h->next = NULL;
 

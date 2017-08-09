@@ -305,7 +305,6 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
-  entry->indexerState = 1;
 }
 
 #define TERMS_PER_BLOCK 128
@@ -440,10 +439,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
 
-    if (entry->indexerState) {
-      goto next_entry;
-    }
-
     IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
@@ -469,7 +464,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
       // }
     }
 
-  next_entry:
     entry = ForwardIndexIterator_Next(&it);
     if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
       aCtx->errorString = "ERR Index is no longer valid!";
