@@ -337,6 +337,8 @@ static KHTableEntry *mergedAlloc(void *ctx) {
   return BlkAlloc_Alloc(alloc, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
 }
 
+// This function used for debugging, and returns how many items are actually
+// in the list
 static size_t countMerged(mergedEntry *ent) {
   size_t n = 0;
   for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
@@ -345,18 +347,13 @@ static size_t countMerged(mergedEntry *ent) {
   return n;
 }
 
+// Merges all terms in the queue into a single hash table.
 static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht) {
-  RSAddDocumentCtx *last, *cur;
   size_t counter = 0;
-  cur = aCtx;
-
-merge_loop:
-  last = cur;
-  for (; last->next; last = last->next) {
-  }
+  RSAddDocumentCtx *cur = aCtx;
 
   // Traverse *all* the entries of *all* the tables
-  for (; cur != last->next; cur = cur->next) {
+  while (cur && ++counter < 1000) {
 
     ForwardIndexIterator it = ForwardIndex_Iterate(cur->fwIdx);
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -381,16 +378,11 @@ merge_loop:
       entry = ForwardIndexIterator_Next(&it);
     }
     cur->stateFlags |= ACTX_F_MERGED;
-  }
-
-  assert(cur == last->next);
-  // Check again to see if we have more items in the queue, but if we have a
-  // high workload, don't overfill the hashtable
-  if (cur && ++counter < 100) {
-    goto merge_loop;
+    cur = cur->next;
   }
 }
 
+// Writes all the entries in the hash table to the inverted index.
 static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, KHTable *ht) {
   IndexEncoder encoder = InvertedIndex_GetEncoder(ACTX_SPEC(aCtx)->flags);
 
@@ -411,7 +403,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         continue;
       }
 
-      size_t curNumMerged = 0;
       for (; fwent != NULL; fwent = fwent->next) {
         writeIndexEntry(ACTX_SPEC(aCtx), invidx, encoder, fwent);
       }
@@ -421,7 +412,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       }
 
       if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
-        printf("Spec is NULL!?\n");
         aCtx->errorString = "ERR Index is no longer valid!";
         return -1;
       }
@@ -473,7 +463,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 }
 
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  // printf("totaltokens :%d\n", totalTokens);
   RedisSearchCtx *ctx = &aCtx->rsCtx;
 
   KHTable mergedEntries;
@@ -530,10 +519,8 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
   if (needsFtIndex) {
     if (useHt) {
-      // printf("Going fast! :)\n");
       writeMergedEntries(indexer, aCtx, &mergedEntries);
     } else {
-      // printf("Going slow... :'(\n");
       writeCurEntries(indexer, aCtx);
     }
   }
