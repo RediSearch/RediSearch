@@ -6,18 +6,23 @@
 typedef struct BlkAllocBlock {
   struct BlkAllocBlock *next;
   size_t numUsed;
+  size_t capacity;
   char data[0];
 } BlkAllocBlock;
 
 typedef struct BlkAlloc {
   BlkAllocBlock *root;
   BlkAllocBlock *last;
+
+  // Available blocks - used when recycling the allocator
+  BlkAllocBlock *avail;
 } BlkAlloc;
 
 // Initialize a block allocator
 static inline void BlkAlloc_Init(BlkAlloc *alloc) {
   alloc->root = NULL;
   alloc->last = NULL;
+  alloc->avail = NULL;
 }
 
 /**
@@ -30,11 +35,19 @@ static inline void BlkAlloc_Init(BlkAlloc *alloc) {
  */
 void *BlkAlloc_Alloc(BlkAlloc *alloc, size_t elemSize, size_t blockSize);
 
+typedef void (*BlkAllocCleaner)(void *ptr, void *arg);
+
 /**
  * Free all memory allocated by the allocator.
  * If a cleaner function is called, it will be called for each element. Elements
  * are assumed to be elemSize spaces apart from each other.
  */
-void BlkAlloc_FreeAll(BlkAlloc *alloc, void (*cleaner)(void *), size_t elemSize);
+void BlkAlloc_FreeAll(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t elemSize);
+
+/**
+ * Like FreeAll, except the blocks are recycled and placed inside the 'avail'
+ * pool instead.
+ */
+void BlkAlloc_Clear(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t elemSize);
 
 #endif

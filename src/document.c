@@ -710,7 +710,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 cleanup:
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
   if (useHt) {
-    BlkAlloc_FreeAll(&entriesAlloc, NULL, 0);
+    BlkAlloc_FreeAll(&entriesAlloc, NULL, NULL, 0);
     KHTable_Free(&mergedEntries);
   }
 }

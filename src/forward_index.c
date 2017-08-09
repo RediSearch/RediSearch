@@ -78,7 +78,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   return idx;
 }
 
-static void clearEntry(void *p) {
+static void clearEntry(void *p, void *unused) {
   khIdxEntry *ent = p;
   ForwardIndexEntry *fwEnt = &ent->ent;
   if (fwEnt->vw) {
@@ -93,8 +93,8 @@ static inline int hasOffsets(const ForwardIndex *idx) {
 void ForwardIndexFree(ForwardIndex *idx) {
   size_t elemSize = sizeof(khIdxEntry);
 
-  BlkAlloc_FreeAll(&idx->entries, clearEntry, sizeof(khIdxEntry));
-  BlkAlloc_FreeAll(&idx->terms, NULL, 0);
+  BlkAlloc_FreeAll(&idx->entries, clearEntry, NULL, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
   KHTable_Free(idx->hits);
   free(idx->hits);
 
