@@ -21,6 +21,7 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
+#define SPEC_NOSTEM_STR "NOSTEM"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
@@ -33,6 +34,8 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 
 #define SPEC_MAX_FIELDS 32
 
+typedef enum { FieldSpec_Sortable = 0x01, FieldSpec_NoStemming = 0x02 } FieldSpecOptions;
+
 /* The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
@@ -42,14 +45,17 @@ typedef struct fieldSpec {
   FieldType type;
   double weight;
   t_fieldMask id;
+  FieldSpecOptions options;
 
-  int sortable;
   int sortIdx;
 
   // TODO: const char **separators;
   // size_t numSeparators;
   // TODO: More options here..
 } FieldSpec;
+
+#define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
+#define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 
 typedef struct {
   size_t numDocuments;

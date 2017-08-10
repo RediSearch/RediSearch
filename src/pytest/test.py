@@ -472,7 +472,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
             self.assertEqual(r.execute_command(
                 'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
-            #self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
+            # self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
 
     def testInKeys(self):
         with self.redis() as r:
@@ -1120,6 +1120,25 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.restart_and_reload()
         ret = self.cmd('ft.search', 'idx', 'myt*')
         self.assertEqual(exp, ret)
+
+    def testNoStem(self):
+        self.cmd('ft.create', 'idx', 'schema', 'body', 'text', 'name', 'text', 'nostem')
+        for _ in self.retry_with_reload():
+            try:
+                self.cmd('ft.del', 'idx', 'doc')
+            except redis.ResponseError:
+                pass
+
+            # Insert a document
+            self.assertCmdOk('ft.add', 'idx', 'doc', 1.0, 'fields',
+                             'body', "located",
+                             'name', "located")
+
+            # Now search for the fields
+            res_body = self.cmd('ft.search', 'idx', '@body:location')
+            res_name = self.cmd('ft.search', 'idx', '@name:location')
+            self.assertEqual(0, res_name[0])
+            self.assertEqual(1, res_body[0])
 
 
 def grouper(iterable, n, fillvalue=None):

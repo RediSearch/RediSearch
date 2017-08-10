@@ -549,10 +549,11 @@ int testTokenize() {
 
 int testIndexSpec() {
 
-  const char *title = "title", *body = "body", *foo = "foo", *bar = "bar";
-  const char *args[] = {"STOPWORDS", "2",        "hello", "world",   "SCHEMA",  title, "text",
-                        "weight",    "0.1",      body,    "text",    "weight",  "2.0", foo,
-                        "text",      "sortable", bar,     "numeric", "sortable"};
+  const char *title = "title", *body = "body", *foo = "foo", *bar = "bar", *name = "name";
+  const char *args[] = {"STOPWORDS", "2",      "hello", "world",    "SCHEMA", title,
+                        "text",      "weight", "0.1",   body,       "text",   "weight",
+                        "2.0",       foo,      "text",  "sortable", bar,      "numeric",
+                        "sortable",  name,     "text",  "nostem"};
 
   char *err = NULL;
 
@@ -562,7 +563,7 @@ int testIndexSpec() {
   }
   ASSERT(s != NULL);
   ASSERT(err == NULL);
-  ASSERT(s->numFields == 4)
+  ASSERT(s->numFields == 5)
 
   ASSERT(s->stopwords != NULL);
   ASSERT(s->stopwords != DefaultStopWordList());
@@ -581,7 +582,7 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, body) == 0);
   ASSERT(f->weight == 2.0);
   ASSERT(f->id == 2);
-  ASSERT(f->sortable == 0);
+  ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, title, strlen(title));
@@ -590,7 +591,7 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, title) == 0);
   ASSERT(f->weight == 0.1);
   ASSERT(f->id == 1);
-  ASSERT(f->sortable == 0);
+  ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, foo, strlen(foo));
@@ -599,7 +600,7 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, foo) == 0);
   ASSERT(f->weight == 1);
   ASSERT(f->id == 4);
-  ASSERT(f->sortable == 1);
+  ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
@@ -608,9 +609,18 @@ int testIndexSpec() {
   ASSERT(strcmp(f->name, bar) == 0);
   ASSERT(f->weight == 0);
   ASSERT(f->id == 0);
-  ASSERT(f->sortable == 1);
+  ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 1);
   ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
+
+  f = IndexSpec_GetField(s, name, strlen(name));
+  ASSERT(f != NULL);
+  ASSERT(f->type == F_FULLTEXT);
+  ASSERT(strcmp(f->name, name) == 0);
+  ASSERT(f->weight == 1);
+  ASSERT(f->id == 8);
+  ASSERT(f->options == FieldSpec_NoStemming);
+  ASSERT(f->sortIdx == -1);
 
   ASSERT(s->sortables != NULL);
   ASSERT(s->sortables->len == 2);

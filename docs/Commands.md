@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
 
 ### Description:
@@ -38,6 +38,8 @@ so keep it short!
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
     Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+    Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
+    This may be ideal for things like proper names
 
 ### Complexity
 O(1)
