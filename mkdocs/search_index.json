@@ -27,7 +27,7 @@
         }, 
         {
             "location": "/Quick_Start/", 
-            "text": "Quick Start Guide for RediSearch:\n\n\nBuilding and running:\n\n\ngit clone https://github.com/RedisLabsModules/RediSearch.git\n\ncd\n RediSearch/src\nmake all\n\n\n# Assuming you have a redis build from the unstable branch:\n\n/path/to/redis-server --loadmodule ./redisearch.so\n\n\n\n\n\nCreating an index with fields and weights (default weight is 1.0):\n\n\n127.0.0.1:6379\n FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT\nOK \n\n\n\n\n\nAdding documents to the index:\n\n\n127.0.0.1:6379\n FT.ADD myIdx doc1 1.0 FIELDS title \nhello world\n body \nlorem ipsum\n url \nhttp://redis.io\n \nOK\n\n\n\n\n\nSearching the index:\n\n\n127.0.0.1:6379\n FT.SEARCH myIdx \nhello world\n LIMIT 0 10\n1) (integer) 1\n2) \ndoc1\n\n3) 1) \ntitle\n\n   2) \nhello world\n\n   3) \nbody\n\n   4) \nlorem ipsum\n\n   5) \nurl\n\n   6) \nhttp://redis.io\n\n\n\n\n\n\n\n\nNOTE\n: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. \n\n\n\n\nDropping the index:\n\n\n127.0.0.1:6379\n FT.DROP myIdx\nOK\n\n\n\n\n\nAdding and getting Auto-complete suggestions:\n\n\n127.0.0.1:6379\n FT.SUGADD autocomplete \nhello world\n 100\nOK\n\n127.0.0.1:6379\n FT.SUGGET autocomplete \nhe\n\n1) \nhello world", 
+            "text": "Quick Start Guide for RediSearch:\n\n\nRunning with Docker\n\n\ndocker run -p \n6379\n:6379 redislabs/redisearch:latest\n\n\n\n\n\nBuilding and running from source:\n\n\ngit clone https://github.com/RedisLabsModules/RediSearch.git\n\ncd\n RediSearch/src\nmake all\n\n\n# Assuming you have a redis build from the unstable branch:\n\n/path/to/redis-server --loadmodule ./redisearch.so\n\n\n\n\n\nCreating an index with fields and weights (default weight is 1.0):\n\n\n127.0.0.1:6379\n FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT\nOK \n\n\n\n\n\nAdding documents to the index:\n\n\n127.0.0.1:6379\n FT.ADD myIdx doc1 1.0 FIELDS title \nhello world\n body \nlorem ipsum\n url \nhttp://redis.io\n \nOK\n\n\n\n\n\nSearching the index:\n\n\n127.0.0.1:6379\n FT.SEARCH myIdx \nhello world\n LIMIT 0 10\n1) (integer) 1\n2) \ndoc1\n\n3) 1) \ntitle\n\n   2) \nhello world\n\n   3) \nbody\n\n   4) \nlorem ipsum\n\n   5) \nurl\n\n   6) \nhttp://redis.io\n\n\n\n\n\n\n\n\nNOTE\n: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. \n\n\n\n\nDropping the index:\n\n\n127.0.0.1:6379\n FT.DROP myIdx\nOK\n\n\n\n\n\nAdding and getting Auto-complete suggestions:\n\n\n127.0.0.1:6379\n FT.SUGADD autocomplete \nhello world\n 100\nOK\n\n127.0.0.1:6379\n FT.SUGGET autocomplete \nhe\n\n1) \nhello world", 
             "title": "Quick Start"
         }, 
         {
@@ -36,9 +36,14 @@
             "title": "Quick Start Guide for RediSearch:"
         }, 
         {
-            "location": "/Quick_Start/#building-and-running", 
+            "location": "/Quick_Start/#running-with-docker", 
+            "text": "docker run -p  6379 :6379 redislabs/redisearch:latest", 
+            "title": "Running with Docker"
+        }, 
+        {
+            "location": "/Quick_Start/#building-and-running-from-source", 
             "text": "git clone https://github.com/RedisLabsModules/RediSearch.git cd  RediSearch/src\nmake all # Assuming you have a redis build from the unstable branch: \n/path/to/redis-server --loadmodule ./redisearch.so", 
-            "title": "Building and running:"
+            "title": "Building and running from source:"
         }, 
         {
             "location": "/Quick_Start/#creating-an-index-with-fields-and-weights-default-weight-is-10", 

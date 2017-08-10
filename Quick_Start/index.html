@@ -218,8 +218,15 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#building-and-running" title="Building and running:" class="md-nav__link">
-    Building and running:
+  <a href="#running-with-docker" title="Running with Docker" class="md-nav__link">
+    Running with Docker
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-and-running-from-source" title="Building and running from source:" class="md-nav__link">
+    Building and running from source:
   </a>
   
 </li>
@@ -443,8 +450,15 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#building-and-running" title="Building and running:" class="md-nav__link">
-    Building and running:
+  <a href="#running-with-docker" title="Running with Docker" class="md-nav__link">
+    Running with Docker
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-and-running-from-source" title="Building and running from source:" class="md-nav__link">
+    Building and running from source:
   </a>
   
 </li>
@@ -500,7 +514,12 @@
               
                 
                 <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:<a class="headerlink" href="#quick-start-guide-for-redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="building-and-running">Building and running:<a class="headerlink" href="#building-and-running" title="Permanent link">&para;</a></h2>
+<h2 id="running-with-docker">Running with Docker<a class="headerlink" href="#running-with-docker" title="Permanent link">&para;</a></h2>
+<div class="codehilite"><pre><span></span>docker run -p <span class="m">6379</span>:6379 redislabs/redisearch:latest
+</pre></div>
+
+
+<h2 id="building-and-running-from-source">Building and running from source:<a class="headerlink" href="#building-and-running-from-source" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
 <span class="nb">cd</span> RediSearch/src
 make all
