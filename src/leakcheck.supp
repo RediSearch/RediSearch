@@ -1,0 +1,201 @@
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:Ext_RegisterScoringFunction
+   fun:DefaultExtensionInit
+   fun:Extension_Load
+   fun:RediSearch_InitModuleInternal
+   fun:moduleLoad
+   fun:moduleLoadFromQueue
+   fun:main
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:Ext_RegisterQueryExpander
+   fun:DefaultExtensionInit
+   fun:Extension_Load
+   fun:RediSearch_InitModuleInternal
+   fun:moduleLoad
+   fun:moduleLoadFromQueue
+   fun:main
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+   fun:CreateIndexCommand
+   fun:RedisModuleCommandDispatcher
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_Split
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+   fun:CreateIndexCommand
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+   fun:CreateIndexCommand
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__newTrieMapNode
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:realloc
+   fun:__trieMapNode_resizeChildren
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:realloc
+   fun:__trieMapNode_resizeChildren
+   fun:__trieMapNode_AddChild
+   fun:TrieMapNode_Add
+   fun:TrieMapNode_Add
+   fun:TrieMap_Add
+   fun:NewStopWordListCStr
+   fun:DefaultStopWordList
+   fun:NewIndexSpec
+   fun:IndexSpec_Parse
+   fun:IndexSpec_ParseRedisArgs
+   fun:CreateIndexCommand
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:NewDocumentIndexer
+   fun:GetDocumentIndexer
+   fun:Document_AddToIndexes
+   fun:thread_do
+   fun:start_thread
+   fun:clone
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:bioInit
+   fun:initServer
+   fun:main
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:thread_init
+   fun:thpool_init
+   fun:ConcurrentSearch_ThreadPoolStart
+   fun:RediSearch_InitModuleInternal
+   fun:moduleLoad
+   fun:moduleLoadFromQueue
+   fun:main
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:thread_init
+   fun:thpool_init
+   fun:ConcurrentSearch_ThreadPoolStart
+   fun:RediSearch_InitModuleInternal
+   fun:moduleLoad
+   fun:moduleLoadFromQueue
+   fun:main
+}
+
+
