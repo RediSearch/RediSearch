@@ -141,6 +141,7 @@ typedef struct RSAddDocumentCtx {
   // Scratch space used by per-type field preprocessors (see the source)
   union FieldData *fdatas;
   const char *errorString;  // Error message is placed here if there is an error during processing
+  StopWordList *stopwords;  // Reference to stopword entry
   uint32_t totalTokens;     // Number of tokens, used for offset vector
   uint32_t specFlags;       // Cached index flags
   uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx

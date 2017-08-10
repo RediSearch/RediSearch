@@ -145,11 +145,15 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
 
   RedisModule_AutoMemory(aCtx->thCtx);
   aCtx->rsCtx.redisCtx = aCtx->thCtx;
-  aCtx->rsCtx.spec = sp;
   aCtx->next = NULL;
   aCtx->rsCtx.keyName = RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
+  aCtx->rsCtx.spec = NULL;
+
   aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   aCtx->specFlags = sp->flags;
+  aCtx->stopwords = sp->stopwords;
+
+  StopWordList_Ref(sp->stopwords);
 
   // Also, get the field specs. We cache this here because the context is unlocked
   // during the actual tokenization
@@ -160,9 +164,12 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
 
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
-    FieldSpec *fs = IndexSpec_GetField(aCtx->rsCtx.spec, f->name, strlen(f->name));
+    FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
       aCtx->fspecs[i] = *fs;
+      if (fs->sortable && aCtx->sv == NULL) {
+        aCtx->sv = NewSortingVector(sp->sortables->len);
+      }
     } else {
       aCtx->fspecs[i].name = NULL;
     }
@@ -178,6 +185,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   if (aCtx->fwIdx) {
     ForwardIndexFree(aCtx->fwIdx);
   }
+  if (aCtx->stopwords) {
+    StopWordList_Unref(aCtx->stopwords);
+  }
 
   free(aCtx->fspecs);
   free(aCtx->fdatas);
@@ -185,12 +195,6 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 }
 
 #define ACTX_SPEC(actx) (actx)->rsCtx.spec
-
-static void ensureSortingVector(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx) {
-  if (!aCtx->sv) {
-    aCtx->sv = NewSortingVector(sctx->spec->sortables->len);
-  }
-}
 
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
@@ -207,15 +211,12 @@ typedef FieldFunc IndexerFunc;
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
-
   if (fs->sortable) {
-    ensureSortingVector(ctx, aCtx);
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
   aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc,
-                               aCtx->fwIdx->stemmer, aCtx->totalTokens, ctx->spec->stopwords);
+                               aCtx->fwIdx->stemmer, aCtx->totalTokens, aCtx->stopwords);
   return 0;
 }
 
@@ -227,7 +228,6 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (fs->sortable) {
-    ensureSortingVector(&aCtx->rsCtx, aCtx);
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
   }
   return 0;
@@ -241,8 +241,6 @@ FIELD_INDEXER(numericIndexer) {
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
-
   char *pos = strpbrk(c, " ,");
   if (!pos) {
     *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
@@ -256,7 +254,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_INDEXER(geoIndexer) {
-
   GeoIndex gi = {.ctx = &aCtx->rsCtx, .sp = fs};
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
@@ -555,20 +552,19 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 }
 
 /** Assigns a document ID to a single document. */
-static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
-                          const char **errorString) {
+static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const char **errorString) {
   const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
-  DocTable *table = &ctx->spec->docs;
+  DocTable *table = &spec->docs;
   if (replace) {
     DocTable_Delete(table, keystr);
-    --ctx->spec->stats.numDocuments;
+    --spec->stats.numDocuments;
   }
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;
   }
-  ++ctx->spec->stats.numDocuments;
+  ++spec->stats.numDocuments;
 
   return 0;
 }
@@ -580,23 +576,24 @@ static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
  * This function also sets the document's sorting vector, if present.
  */
 static void doAssignIds(RSAddDocumentCtx *cur) {
+  IndexSpec *spec = ACTX_SPEC(cur);
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
     }
 
     assert(!cur->doc.docId);
-    int rv = makeDocumentId(&cur->doc, &cur->rsCtx, cur->options & DOCUMENT_ADD_REPLACE,
-                            &cur->errorString);
+    int rv =
+        makeDocumentId(&cur->doc, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->errorString);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
     }
 
-    RSDocumentMetadata *md = DocTable_Get(&ACTX_SPEC(cur)->docs, cur->doc.docId);
+    RSDocumentMetadata *md = DocTable_Get(&spec->docs, cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     if (cur->sv) {
-      DocTable_SetSortingVector(&ACTX_SPEC(cur)->docs, cur->doc.docId, cur->sv);
+      DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
     }
   }
 }
