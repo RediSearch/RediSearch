@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT NOSTEM [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
 
 ### Description:
