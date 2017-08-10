@@ -27,12 +27,16 @@ struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
 struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);
 
 /* Free a stopword list's memory */
-void StopWordList_Free(struct StopWordList *sl);
+void StopWordList_Unref(struct StopWordList *sl);
+
+#define StopWordList_Free StopWordList_Unref
 
 /* Load a stopword list from RDB */
 struct StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver);
 
 /* Save a stopword list to RDB */
 void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
+
+void StopWordList_Ref(struct StopWordList *sl);
 
 #endif

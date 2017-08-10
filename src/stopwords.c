@@ -6,7 +6,10 @@
 
 #define MAX_STOPWORDLIST_SIZE 1024
 
-typedef struct StopWordList { TrieMap *m; } StopWordList;
+typedef struct StopWordList {
+  TrieMap *m;
+  size_t refcount;
+} StopWordList;
 
 StopWordList *__default_stopwords = NULL;
 
@@ -66,12 +69,20 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     free(t);
   }
-
+  sl->refcount = 1;
   return sl;
 }
 
+void StopWordList_Ref(StopWordList *sl) {
+  __sync_fetch_and_add(&sl->refcount, 1);
+}
+
 /* Free a stopword list's memory */
-void StopWordList_Free(StopWordList *sl) {
+void StopWordList_Unref(StopWordList *sl) {
+  if (__sync_sub_and_fetch(&sl->refcount, 1)) {
+    return;
+  }
+
   if (sl) {
     TrieMap_Free(sl->m, NULL);
   }
