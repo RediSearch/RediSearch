@@ -9,7 +9,7 @@
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
-  FieldSpec *sp;
+  const FieldSpec *sp;
 } GeoIndex;
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat);

@@ -1,22 +1,30 @@
 #include "concurrent_ctx.h"
 #include "dep/thpool/thpool.h"
+#include <unistd.h>
 
-threadpool ConcurrentSearchThreadPool = NULL;
+static threadpool ConcurrentSearchThreadPool = NULL;
+static threadpool ConcurrentIndexThreadPool = NULL;
 
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart() {
   if (ConcurrentSearchThreadPool == NULL) {
     ConcurrentSearchThreadPool = thpool_init(CONCURRENT_SEARCH_POOL_SIZE);
+    long numProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (numProcs < 1) {
+      numProcs = CONCURRENT_INDEX_POOL_SIZE;
+    }
+    ConcurrentIndexThreadPool = thpool_init(numProcs);
   }
 }
 
 /* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
-  thpool_add_work(ConcurrentSearchThreadPool, func, arg);
+void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
+  threadpool p =
+      type == CONCURRENT_POOL_INDEX ? ConcurrentIndexThreadPool : ConcurrentSearchThreadPool;
+  thpool_add_work(p, func, arg);
 }
 
-void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
-
+static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
     if (ctx->openKeys[i].key) {
@@ -25,8 +33,7 @@ void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
   }
 }
 
-/* Reopen all the monitored keys */
-void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
+static void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
     ConcurrentKeyCtx *kx = &ctx->openKeys[i];
@@ -36,7 +43,7 @@ void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
 }
 
 /** Check the elapsed timer, and release the lock if enough time has passed */
-inline void ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
+int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
@@ -45,20 +52,24 @@ inline void ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
 
   // Timeout - release the thread safe context lock and let other threads run as well
   if (durationNS > CONCURRENT_TIMEOUT_NS) {
-    ConcurrentSearch_CloseKeys(ctx);
-    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+    ConcurrentSearchCtx_Unlock(ctx);
 
     // Right after releasing, we try to acquire the lock again.
     // If other threads are waiting on it, the kernel will decide which one
     // will get the chance to run again. Calling sched_yield is not necessary here.
     // See http://blog.firetree.net/2005/06/22/thread-yield-after-mutex-unlock/
-    RedisModule_ThreadSafeContextLock(ctx->ctx);
-    ConcurrentSearch_ReopenKeys(ctx);
+    ConcurrentSearchCtx_Lock(ctx);
     // Right after re-acquiring the lock, we sample the current time.
     // This will be used to calculate the elapsed running time
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
-    ctx->ticker = 0;
+    ConcurrentSearchCtx_ResetClock(ctx);
+    return 1;
   }
+  return 0;
+}
+
+void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx) {
+  clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
+  ctx->ticker = 0;
 }
 
 /** Initialize a concurrent context */
@@ -67,17 +78,17 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
     ctx->ctx = NULL;
   }
   ctx->ctx = rctx;
-  ctx->ticker = 0;
   ctx->numOpenKeys = 0;
   ctx->openKeys = NULL;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
+  ConcurrentSearchCtx_ResetClock(ctx);
 }
 
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
-    // Close the monitored key and free its reopen string
-    RedisModule_CloseKey(ctx->openKeys[i].key);
+    if (ctx->isLocked) {
+      RedisModule_CloseKey(ctx->openKeys[i].key);
+    }
     RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
 
     // free the private data if needed
@@ -112,4 +123,16 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                                                            .cb = cb,
                                                            .privdata = privdata,
                                                            .freePrivData = freePrivDataCallback};
+}
+
+void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
+  RedisModule_ThreadSafeContextLock(ctx->ctx);
+  ctx->isLocked = 1;
+  ConcurrentSearch_ReopenKeys(ctx);
+}
+
+void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
+  ConcurrentSearch_CloseKeys(ctx);
+  RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+  ctx->isLocked = 0;
 }

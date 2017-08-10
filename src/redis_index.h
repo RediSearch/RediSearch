@@ -14,8 +14,10 @@
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
                               t_fieldMask fieldMask, ConcurrentSearchCtx *csx);
 
-InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
-                                       int write);
+InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
+                                         int write, RedisModuleKey **keyp);
+#define Redis_OpenInvertedIndex(ctx, term, len, isWrite) \
+  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, NULL)
 void Redis_CloseReader(IndexReader *r);
 
 /*

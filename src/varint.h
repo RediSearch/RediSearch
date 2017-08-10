@@ -25,7 +25,7 @@ static inline int ReadVarint(BufferReader *b) {
 int WriteVarint(int value, BufferWriter *w);
 
 typedef struct {
-  BufferWriter bw;
+  Buffer buf;
   // how many members we've put in
   size_t nmemb;
   int lastValue;
@@ -37,5 +37,15 @@ VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, int i);
 size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
+void VVW_Init(VarintVectorWriter *w, size_t cap);
 
+static inline void VVW_Cleanup(VarintVectorWriter *w) {
+  Buffer_Free(&w->buf);
+}
+
+#define VVW_GetCount(vvw) (vvw)->nmemb
+#define VVW_GetByteLength(vvw) (vvw)->buf.offset
+#define VVW_GetByteData(vvw) (vvw)->buf.data
+#define VVW_OFFSETVECTOR_INIT(vvw) \
+  { .data = VVW_GetByteData(vvw), .len = VVW_GetByteLength(vvw) }
 #endif

@@ -362,7 +362,7 @@ void threadProcessQuery(void *p) {
 
 int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req) {
   req->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  ConcurrentSearch_ThreadPoolRun(threadProcessQuery, req);
+  ConcurrentSearch_ThreadPoolRun(threadProcessQuery, req, CONCURRENT_POOL_SEARCH);
   return REDISMODULE_OK;
 }
 

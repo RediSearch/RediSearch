@@ -95,7 +95,26 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 * TODO: Add index name to it
 */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, TERM_KEY_FORMAT, ctx->spec->name, len, term);
+  char buf_s[1024] = {"ft:"};
+  size_t offset = 3;
+  size_t nameLen = strlen(ctx->spec->name);
+
+  char *buf, *bufDyn = NULL;
+  if (nameLen + len + 10 > sizeof(buf)) {
+    buf = bufDyn = calloc(1, nameLen + len + 10);
+    strcpy(buf, "ft:");
+  } else {
+    buf = buf_s;
+  }
+
+  memcpy(buf + offset, ctx->spec->name, nameLen);
+  offset += nameLen;
+  buf[offset++] = '/';
+  memcpy(buf + offset, term, len);
+  offset += len;
+  RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, buf, offset);
+  free(bufDyn);
+  return ret;
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
@@ -212,33 +231,40 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 //   return NewScoreIndex(b);
 // }
 
-InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len,
-                                       int write) {
+InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
+                                         int write, RedisModuleKey **keyp) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey,
                                           REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
 
   RedisModule_FreeString(ctx->redisCtx, termKey);
+  InvertedIndex *idx = NULL;
 
   // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_ModuleTypeGetType(k) != InvertedIndexType)) {
+  if (k == NULL) {
     return NULL;
   }
 
-  // on write mode, for an empty key we simply create a new index key
-  if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
+  int kType = RedisModule_KeyType(k);
 
+  if (kType == REDISMODULE_KEYTYPE_EMPTY) {
     if (write) {
-      InvertedIndex *idx = NewInvertedIndex(ctx->spec->flags, 1);
+      idx = NewInvertedIndex(ctx->spec->flags, 1);
       RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
-      return idx;
-    } else {
-      return NULL;
     }
+  } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
+             RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {
+    idx = RedisModule_ModuleTypeGetValue(k);
   }
-
-  return RedisModule_ModuleTypeGetValue(k);
+  if (idx == NULL) {
+    RedisModule_CloseKey(k);
+    return NULL;
+  } else {
+    if (keyp) {
+      *keyp = k;
+    }
+    return idx;
+  }
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, int singleWordMode,
@@ -276,11 +302,6 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
 //   }
 //   free(r);
 // }
-
-void Document_Free(Document doc) {
-  free(doc.fields);
-}
-
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
   doc->numFields = 0;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
@@ -344,20 +365,6 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
   return REDISMODULE_OK;
 }
 
-Document NewDocument(RedisModuleString *docKey, double score, int numFields, const char *lang,
-                     const char *payload, size_t payloadSize) {
-  Document doc;
-  doc.docKey = docKey;
-  doc.score = (float)score;
-  doc.numFields = numFields;
-  doc.fields = calloc(doc.numFields, sizeof(DocumentField));
-  doc.language = lang;
-  doc.payload = payload;
-  doc.payloadSize = payloadSize;
-
-  return doc;
-}
-
 Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
                               const char **fields, int numFields, int *nump) {
   Document *docs = calloc(numKeys, sizeof(Document));
@@ -370,22 +377,6 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int
 
   *nump = n;
   return docs;
-}
-
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
-
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    return REDISMODULE_ERR;
-  }
-
-  for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
-  }
-  return REDISMODULE_OK;
 }
 
 int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {

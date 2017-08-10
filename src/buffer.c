@@ -3,17 +3,12 @@
 #include <assert.h>
 #include <sys/param.h>
 
-int Buffer_Reserve(Buffer *buf, size_t extraLen) {
-  if (buf->offset + extraLen <= buf->cap) {
-    return 0;
-  }
-
+void Buffer_Grow(Buffer *buf, size_t extraLen) {
   do {
     buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
   } while (buf->offset + extraLen > buf->cap);
 
   buf->data = rm_realloc(buf->data, buf->cap);
-  return 1;
 }
 
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {

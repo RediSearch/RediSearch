@@ -5,7 +5,6 @@
 #include "stemmer.h"
 #include "stopwords.h"
 #include "redisearch.h"
-#include "util/khash.h"
 #include "varint.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -37,7 +36,7 @@ typedef struct {
 } Token;
 
 // A TokenFunc handles tokens in a tokenizer, for example aggregates them, or builds the query tree
-typedef int (*TokenFunc)(void *ctx, Token t);
+typedef int (*TokenFunc)(void *ctx, const Token *t);
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);

@@ -86,7 +86,15 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
 // Ensure that at least extraLen new bytes can be added to the buffer.
 // Returns 0 if no realloc was performed. 1 if realloc was performed.
-int Buffer_Reserve(Buffer *b, size_t extraLen);
+void Buffer_Grow(Buffer *b, size_t extraLen);
+
+static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
+  if (buf->offset + n <= buf->cap) {
+    return 0;
+  }
+  Buffer_Grow(buf, n);
+  return 1;
+}
 
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);

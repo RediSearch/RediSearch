@@ -224,18 +224,17 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /** Write a forward-index entry to the index */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent) {
-  RSIndexResult rec = (RSIndexResult){
-      .type = RSResultType_Term,
-      .docId = ent->docId,
-      .offsetsSz = ent->vw->bw.buf->offset,
-      .freq = ent->freq,
-      .fieldMask = ent->fieldMask,
-      .term = (RSTermRecord){.term = NULL,
-                             .offsets = ent->vw ? (RSOffsetVector){ent->vw->bw.buf->data,
-                                                                   ent->vw->bw.buf->offset}
-                                                : (RSOffsetVector){0, 0}},
+  RSIndexResult rec = {.type = RSResultType_Term,
+                       .docId = ent->docId,
+                       .offsetsSz = VVW_GetByteLength(ent->vw),
+                       .freq = ent->freq,
+                       .fieldMask = ent->fieldMask};
 
-  };
+  rec.term.term = NULL;
+  if (ent->vw) {
+    rec.term.offsets.data = VVW_GetByteData(ent->vw);
+    rec.term.offsets.len = VVW_GetByteLength(ent->vw);
+  }
   return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
 }
 

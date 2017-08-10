@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "commands.h"
+#include "document.h"
 #include "version.h"
 #include "forward_index.h"
 #include "geo_index.h"
@@ -29,169 +30,6 @@
 #include "search_request.h"
 #include "config.h"
 #include "rmalloc.h"
-
-/* Add a parsed document to the index. If replace is set, we will add it be deleting an older
- * version of it first */
-int AddDocument(RedisSearchCtx *ctx, Document doc, const char **errorString, int nosave,
-                int replace) {
-
-  // if we're in replace mode, first we need to try and delete the older version of the document
-  if (replace) {
-    DocTable_Delete(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL));
-  }
-
-  doc.docId = DocTable_Put(&ctx->spec->docs, RedisModule_StringPtrLen(doc.docKey, NULL), doc.score,
-                           0, doc.payload, doc.payloadSize);
-
-  // Make sure the document is not already in the index - it needs to be
-  // incremental!
-  if (doc.docId == 0) {
-    *errorString = "Document already in index";
-    return REDISMODULE_ERR;
-  }
-
-  // first save the document as hash
-  if (nosave == 0 && Redis_SaveDocument(ctx, &doc) != REDISMODULE_OK) {
-    *errorString = "Could not save document data";
-    return REDISMODULE_ERR;
-  }
-
-  ForwardIndex *idx = NewForwardIndex(doc);
-  RSSortingVector *sv = NULL;
-  if (ctx->spec->sortables) {
-    sv = NewSortingVector(ctx->spec->sortables->len);
-  }
-
-  int totalTokens = 0;
-
-  for (int i = 0; i < doc.numFields; i++) {
-    // printf("Tokenizing %s: %s\n",
-    // RedisModule_StringPtrLen(doc.fields[i].name, NULL),
-    //        RedisModule_StringPtrLen(doc.fields[i].text, NULL));
-
-    size_t len;
-    const char *f = doc.fields[i].name;
-    len = strlen(f);
-    const char *c = RedisModule_StringPtrLen(doc.fields[i].text, NULL);
-
-    FieldSpec *fs = IndexSpec_GetField(ctx->spec, f, len);
-    if (fs == NULL) {
-      LG_DEBUG("Skipping field %s not in index!", c);
-      continue;
-    }
-
-    switch (fs->type) {
-      case F_FULLTEXT:
-        if (sv && fs->sortable) {
-          RSSortingVector_Put(sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
-        }
-
-        totalTokens = tokenize(c, fs->weight, fs->id, idx, forwardIndexTokenFunc, idx->stemmer,
-                               totalTokens, ctx->spec->stopwords);
-        break;
-      case F_NUMERIC: {
-        double score;
-
-        if (RedisModule_StringToDouble(doc.fields[i].text, &score) == REDISMODULE_ERR) {
-          *errorString = "Could not parse numeric index value";
-          goto error;
-        }
-
-        NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
-        NumericRangeTree_Add(rt, doc.docId, score);
-
-        // If this is a sortable numeric value - copy the value to the sorting vector
-        if (sv && fs->sortable) {
-          RSSortingVector_Put(sv, fs->sortIdx, &score, RS_SORTABLE_NUM);
-        }
-        break;
-      }
-      case F_GEO: {
-
-        char *pos = strpbrk(c, " ,");
-        if (!pos) {
-          *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
-          goto error;
-        }
-        *pos = '\0';
-        pos++;
-        char *slon = (char *)c, *slat = (char *)pos;
-
-        GeoIndex gi = {.ctx = ctx, .sp = fs};
-        if (GeoIndex_AddStrings(&gi, doc.docId, slon, slat) == REDISMODULE_ERR) {
-          *errorString = "Could not index geo value";
-          goto error;
-        }
-      }
-
-      break;
-
-      default:
-        break;
-    }
-  }
-
-  RSDocumentMetadata *md = DocTable_Get(&ctx->spec->docs, doc.docId);
-  md->maxFreq = idx->maxFreq;
-  if (sv) {
-    DocTable_SetSortingVector(&ctx->spec->docs, doc.docId, sv);
-  }
-
-  // printf("totaltokens :%d\n", totalTokens);
-  if (totalTokens > 0) {
-    ForwardIndexIterator it = ForwardIndex_Iterate(idx);
-
-    ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-
-    IndexEncoder enc = InvertedIndex_GetEncoder(ctx->spec->flags);
-    if (enc == NULL) {
-      *errorString = "Error encoding index";
-      goto error;
-    }
-    while (entry != NULL) {
-      // ForwardIndex_NormalizeFreq(idx, entry);
-      int isNew = IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1);
-      if (isNew) {
-        ctx->spec->stats.numTerms += 1;
-        ctx->spec->stats.termsSize += entry->len;
-      }
-      size_t sz = InvertedIndex_WriteForwardIndexEntry(invidx, enc, entry);
-
-      /*******************************************
-      * update stats for the index
-      ********************************************/
-
-      /* record the change in capacity of the buffer */
-      // ctx->spec->stats.invertedCap += w->bw.buf->cap - cap;
-      // ctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap - skcap;
-      // ctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap - sccap;
-      /* record the actual size consumption change */
-      ctx->spec->stats.invertedSize += sz;
-
-      ctx->spec->stats.numRecords++;
-      /* increment the number of terms if this is a new term*/
-
-      /* Record the space saved for offset vectors */
-      if (ctx->spec->flags & Index_StoreTermOffsets) {
-        ctx->spec->stats.offsetVecsSize += entry->vw->bw.buf->offset;
-        ctx->spec->stats.offsetVecRecords += entry->vw->nmemb;
-      }
-      // Redis_CloseWriter(w);
-
-      entry = ForwardIndexIterator_Next(&it);
-    }
-    // ctx->spec->stats->numDocuments += 1;
-  }
-  ctx->spec->stats.numDocuments += 1;
-  ForwardIndexFree(idx);
-  return REDISMODULE_OK;
-
-error:
-  ForwardIndexFree(idx);
-
-  return REDISMODULE_ERR;
-}
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -248,6 +86,12 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
+
+static void doDocumentAddTh(void *arg) {
+  RSAddDocumentCtx *aCtx = arg;
+  Document_AddToIndexes(aCtx);
+}
+
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
@@ -262,21 +106,13 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    goto cleanup;
-  }
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, "Could not parse document score");
     goto cleanup;
   }
+
   if (ds > 1 || ds < 0) {
     RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
     goto cleanup;
@@ -291,36 +127,35 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   // Parse the optional payload field
-  const char *payload = NULL;
-  size_t payloadSize = 0;
-  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "b", &payload, &payloadSize);
+  RedisModuleString *payload = NULL;
+  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "s", &payload);
 
-  Document doc = NewDocument(argv[2], ds, (argc - fieldsIdx) / 2, lang ? lang : DEFAULT_LANGUAGE,
-                             payload, payloadSize);
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    goto cleanup;
+  }
 
-  size_t len;
-  int n = 0;
-  for (int i = fieldsIdx + 1; i < argc - 1; i += 2, n++) {
-    // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
-    // NULL),
-    // RedisModule_StringPtrLen(argv[i+1], NULL));
-    doc.fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
-    doc.fields[n].text = argv[i + 1];
+  Document doc;
+  Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
+  if (!nosave) {
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+    if (Redis_SaveDocument(&sctx, &doc) != REDISMODULE_OK) {
+      Document_FreeDetached(&doc, ctx);
+      return RedisModule_ReplyWithError(ctx, "ERR couldn't save document");
+    }
   }
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  const char *msg = NULL;
-  int rc = AddDocument(&sctx, doc, &msg, nosave, replace);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-  free(doc.fields);
+
+  RedisModuleBlockedClient *client =
+      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
+  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
-
   return REDISMODULE_OK;
 }
 
@@ -687,7 +522,6 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
@@ -708,25 +542,25 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   Document doc;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
+
   doc.docKey = argv[2];
   doc.score = ds;
   doc.language = lang ? lang : DEFAULT_LANGUAGE;
   doc.payload = NULL;
   doc.payloadSize = 0;
+  Document_Detach(&doc, ctx);
+
+  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  const char *msg = NULL;
-  int rc = AddDocument(&sctx, doc, &msg, 1, replace);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, msg ? msg : "Could not index document");
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-  free(doc.fields);
+  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
+  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
 
 cleanup:
   return REDISMODULE_OK;
@@ -1320,7 +1154,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
-
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 

@@ -132,6 +132,9 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
+IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
+                            RedisModuleKey **keyp);
+
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /**
