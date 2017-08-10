@@ -10,6 +10,7 @@
 #include "redis_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
+#include "util/mempool.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -107,6 +108,8 @@
  * [GIL Unlocked, Reply Sent]
  * At this point, the document has been indexed.
  */
+// Memory pool for RSAddDocumentContext contexts
+static mempool_t *actxPool_g = NULL;
 
 // Preprocessors can store field data to this location
 typedef union FieldData {
@@ -127,6 +130,9 @@ typedef struct DocumentIndexer {
 
   char *name;  // The name of the index this structure belongs to. For use with the list of indexers
   struct DocumentIndexer *next;  // Next structure in the indexer list
+  KHTable mergeHt;               // Hashtable and block allocator for merging
+  BlkAlloc alloc;
+
 } DocumentIndexer;
 
 // For documentation, see these functions' definitions
@@ -135,12 +141,39 @@ static void *DocumentIndexer_Run(void *arg);
 static int DocumentIndexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
 static DocumentIndexer *GetDocumentIndexer(const char *specname);
 
+static void *allocDocumentContext(void) {
+  // See if there's one in the pool?
+  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
+  return aCtx;
+}
+
+static void freeDocumentContext(void *p) {
+  RSAddDocumentCtx *aCtx = p;
+  if (aCtx->fwIdx) {
+    ForwardIndexFree(aCtx->fwIdx);
+  }
+
+  free(aCtx->fspecs);
+  free(aCtx->fdatas);
+  free(aCtx);
+}
+
 RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp,
                                     Document *base) {
-  // Block the client and create the context!
-  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
+
+  if (!actxPool_g) {
+    actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
+  }
+
+  // Get a new context
+  RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
+  // RSAddDocumentCtx *aCtx = allocDocumentContext();
+
+  // Per-client fields; these must always be recreated
   aCtx->bc = client;
   aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+
+  size_t oldFieldCount = aCtx->doc.numFields;
   aCtx->doc = *base;
 
   RedisModule_AutoMemory(aCtx->thCtx);
@@ -149,18 +182,39 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
   aCtx->rsCtx.keyName = RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
   aCtx->rsCtx.spec = NULL;
 
-  aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+  if (aCtx->fwIdx) {
+    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
+    aCtx->stateFlags = 0;
+    aCtx->specFlags = 0;
+    aCtx->errorString = NULL;
+    aCtx->totalTokens = 0;
+  } else {
+    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+  }
+
   aCtx->specFlags = sp->flags;
   aCtx->stopwords = sp->stopwords;
 
   StopWordList_Ref(sp->stopwords);
 
-  // Also, get the field specs. We cache this here because the context is unlocked
+  // Also, get the field specs. We cache this here because the
+  // context is unlocked
   // during the actual tokenization
   Document *doc = &aCtx->doc;
 
-  aCtx->fspecs = malloc(sizeof(*aCtx->fspecs) * doc->numFields);
-  aCtx->fdatas = malloc(sizeof(*aCtx->fdatas) * doc->numFields);
+  // We might be able to use the old block of fields. But, if it's too small,
+  // just free and call malloc again; that's basically what realloc does
+  // anyway.
+  if (oldFieldCount != 0 && oldFieldCount < doc->numFields) {
+    free(aCtx->fspecs);
+    free(aCtx->fdatas);
+    oldFieldCount = 0;
+  }
+
+  if (oldFieldCount == 0) {
+    aCtx->fspecs = malloc(sizeof(*aCtx->fspecs) * doc->numFields);
+    aCtx->fdatas = malloc(sizeof(*aCtx->fdatas) * doc->numFields);
+  }
 
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
@@ -179,19 +233,18 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
+  // Destroy the common fields:
   Document_FreeDetached(&aCtx->doc, aCtx->thCtx);
   RedisModule_FreeThreadSafeContext(aCtx->thCtx);
-
-  if (aCtx->fwIdx) {
-    ForwardIndexFree(aCtx->fwIdx);
+  if (aCtx->sv) {
+    SortingVector_Free(aCtx->sv);
+    aCtx->sv = NULL;
   }
   if (aCtx->stopwords) {
     StopWordList_Unref(aCtx->stopwords);
   }
 
-  free(aCtx->fspecs);
-  free(aCtx->fdatas);
-  free(aCtx);
+  mempool_release(actxPool_g, aCtx);
 }
 
 #define ACTX_SPEC(actx) (actx)->rsCtx.spec
@@ -595,6 +648,7 @@ static void doAssignIds(RSAddDocumentCtx *cur) {
     md->maxFreq = cur->fwIdx->maxFreq;
     if (cur->sv) {
       DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
+      cur->sv = NULL;
     }
   }
 }
@@ -622,12 +676,6 @@ static const KHTableProcs mergedHtProcs = {
  */
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RedisSearchCtx *ctx = &aCtx->rsCtx;
-
-  KHTable mergedEntries;
-  BlkAlloc entriesAlloc;
-  BlkAlloc_Init(&entriesAlloc);
-
-  // No need to intialize this
   RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
 
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
@@ -637,14 +685,10 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
   // If this document's tokens are merged or not
   const int needsFtIndex = !(aCtx->stateFlags & ACTX_F_MERGED);
-  int useHt = 0;  // Whether we're using the merged hashtable
-
-  // Only use merging if there is more than one item in the queue and the current
-  // document is not already merged
+  int useHt = 0;
   if (indexer->size > 1 && needsFtIndex) {
     useHt = 1;
-    KHTable_Init(&mergedEntries, &mergedHtProcs, &entriesAlloc, aCtx->fwIdx->hits->numItems);
-    doMerge(aCtx, &mergedEntries, parentMap);
+    doMerge(aCtx, &indexer->mergeHt, parentMap);
   }
 
   ConcurrentSearch_SetKey(&indexer->concCtx, aCtx->rsCtx.redisCtx, ctx->keyName, aCtx);
@@ -674,7 +718,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     doAssignIds(aCtx);
     if (aCtx->stateFlags & ACTX_F_ERRORED) {
       if (useHt) {
-        writeMergedEntries(indexer, aCtx, &mergedEntries, parentMap);
+        writeMergedEntries(indexer, aCtx, &indexer->mergeHt, parentMap);
       }
       goto cleanup;
     }
@@ -682,7 +726,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
   if (needsFtIndex) {
     if (useHt) {
-      writeMergedEntries(indexer, aCtx, &mergedEntries, parentMap);
+      writeMergedEntries(indexer, aCtx, &indexer->mergeHt, parentMap);
     } else {
       writeCurEntries(indexer, aCtx);
     }
@@ -710,8 +754,8 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 cleanup:
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
   if (useHt) {
-    BlkAlloc_FreeAll(&entriesAlloc, NULL, 0);
-    KHTable_Free(&mergedEntries);
+    BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
+    KHTable_Clear(&indexer->mergeHt);
   }
 }
 
@@ -796,6 +840,12 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 static DocumentIndexer *NewDocumentIndexer(const char *name) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
   indexer->head = indexer->tail = NULL;
+
+  BlkAlloc_Init(&indexer->alloc);
+  static const KHTableProcs procs = {
+      .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
+  KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
+
   ConcurrentSearchCtx_Init(NULL, &indexer->concCtx);
   pthread_cond_init(&indexer->cond, NULL);
   pthread_mutex_init(&indexer->lock, NULL);
