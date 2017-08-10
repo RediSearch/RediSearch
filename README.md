@@ -9,8 +9,6 @@
 
 ### Latest Release: [0.19.5 (Preview)](https://github.com/RedisLabsModules/RediSearch/releases)
 
-
-
 # Overview
 
 Redisearch implements a search engine on top of redis, but unlike other redis 
@@ -21,6 +19,14 @@ indexing and search speed, and low memory footprint.
 
 This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
 that are not possible or efficient with traditional redis search approaches. 
+
+# Docker Image 
+
+[https://hub.docker.com/r/redislabs/redisearch/](https://hub.docker.com/r/redislabs/redisearch/)
+
+```sh
+$ docker run -p 6379:6379 redislabs/redisearch:latest
+```
 
 # Client Libraries
 
