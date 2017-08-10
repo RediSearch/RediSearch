@@ -56,7 +56,7 @@ Official (Redis Labs) and community Clients:
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Limiting searches to specific document fields (up to 32 fields supported).
 * Numeric filters and ranges.
-* Geographical search utlizing redis' own GEO commands.
+* Geographical search utilizing redis' own GEO commands.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids.
 * Automatically index existing HASH keys as documents.
