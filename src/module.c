@@ -310,6 +310,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
       ++nn;
     }
+    if (FieldSpec_IsNoStem(&sp->fields[i])) {
+      RedisModule_ReplyWithSimpleString(ctx, "NOSTEM");
+      ++nn;
+    }
     RedisModule_ReplySetArrayLength(ctx, nn);
   }
   n += 2;
