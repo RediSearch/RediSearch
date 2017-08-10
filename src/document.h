@@ -113,6 +113,7 @@ union FieldData;
 
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
+#define ACTX_F_
 
 /**
  * Context used when indexing documents.
