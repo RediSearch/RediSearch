@@ -106,8 +106,9 @@ void ForwardIndexFree(ForwardIndex *idx) {
 }
 
 static char *copyTempString(ForwardIndex *idx, const char *s, size_t n) {
-  char *dst = BlkAlloc_Alloc(&idx->terms, n, MAX(n, TERM_BLOCK_SIZE));
+  char *dst = BlkAlloc_Alloc(&idx->terms, n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
   memcpy(dst, s, n);
+  dst[n] = '\0';
   return dst;
 }
 
