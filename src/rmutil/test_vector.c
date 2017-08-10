@@ -1,6 +1,6 @@
 #include "vector.h"
 #include <stdio.h>
-#include "test_util.h"
+#include "test.h"
 
 int testVector() {
 

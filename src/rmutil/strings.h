@@ -25,4 +25,14 @@ void RMUtil_StringToLower(RedisModuleString *s);
 
 /* Converts a redis string to uppercase in place without reallocating anything */
 void RMUtil_StringToUpper(RedisModuleString *s);
+
+// If set, copy the strings using strdup rather than simply storing pointers.
+#define RMUTIL_STRINGCONVERT_COPY 1
+
+/**
+ * Convert one or more RedisModuleString objects into `const char*`.
+ * Both rs and ss are arrays, and should be of <n> length.
+ * Options may be 0 or `RMUTIL_STRINGCONVERT_COPY`
+ */
+void RMUtil_StringConvert(RedisModuleString **rs, const char **ss, size_t n, int options);
 #endif
