@@ -82,6 +82,5 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
     RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
                         NULL);
   }
-  ctx->spec->stats.numDocuments++;
   return REDISMODULE_OK;
 }

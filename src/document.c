@@ -56,12 +56,15 @@ static int makeDocumentId(Document *doc, RedisSearchCtx *ctx, int replace,
   DocTable *table = &ctx->spec->docs;
   if (replace) {
     DocTable_Delete(table, keystr);
+    --ctx->spec->stats.numDocuments;
   }
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;
   }
+ ++ctx->spec->stats.numDocuments;
+
   return 0;
 }
 
