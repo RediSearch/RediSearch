@@ -101,11 +101,18 @@ test_blkalloc: blkalloc
 	./test_blkalloc
 .PHONY: test_blkalloc
 
-build: stemmer trie index range extensions query stopwords blkalloc
+khtable: test_khtable.o
+	$(CC) $(CFLAGS) -o test_khtable $^ $(DEPS) $(LDFLAGS)
+
+test_khtable: khtable
+	./test_khtable
+.PHONY: test_khtable
+
+build: stemmer trie index range extensions query stopwords blkalloc khtable
 
 	
 test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords \
-	test_qint test_blkalloc
+	test_qint test_blkalloc test_khtable
 
 all: build test bench-decoder
 

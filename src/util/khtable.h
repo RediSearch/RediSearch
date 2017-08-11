@@ -46,6 +46,11 @@ void KHTable_Init(KHTable *table, const KHTableProcs *procs, void *ctx, size_t e
 void KHTable_Free(KHTable *table);
 
 /**
+ * Resets the table but does not free the internals.
+ */
+void KHTable_Clear(KHTable *table);
+
+/**
  * Get an entry from the hash table.
  * s, n are the buffer and length of the key. hash must be provided and is the
  * hashed value of the key. This should be consistent with whatever procs.Hash()
