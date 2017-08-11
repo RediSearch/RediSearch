@@ -115,6 +115,8 @@ union FieldData;
 #define ACTX_F_ERRORED 0x02
 #define ACTX_F_
 
+struct DocumentIndexer;
+
 /**
  * Context used when indexing documents.
  */
@@ -124,12 +126,11 @@ typedef struct RSAddDocumentCtx {
   RedisModuleBlockedClient *bc;   // Client
   RedisModuleCtx *thCtx;          // used for memory allocations
 
-  //  This contains things like the IndexSpec and the key for the IndexSpec, which is
-  //  used when the context is reopened
-  RedisSearchCtx rsCtx;
-
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
+
+  struct DocumentIndexer *indexer;
+  IndexSpec *sp_;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well

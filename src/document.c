@@ -128,6 +128,9 @@ typedef struct DocumentIndexer {
   size_t size;                  // number of items in the queue
   ConcurrentSearchCtx concCtx;  // GIL locking. This is repopulated with the relevant key data
 
+  RedisModuleCtx *redisCtx;  // Context for keeping the spec key
+  RedisModuleString *specKeyName;
+
   char *name;  // The name of the index this structure belongs to. For use with the list of indexers
   struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
@@ -167,7 +170,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
 
   // Get a new context
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
-  // RSAddDocumentCtx *aCtx = allocDocumentContext();
 
   // Per-client fields; these must always be recreated
   aCtx->bc = client;
@@ -177,10 +179,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
   aCtx->doc = *base;
 
   RedisModule_AutoMemory(aCtx->thCtx);
-  aCtx->rsCtx.redisCtx = aCtx->thCtx;
   aCtx->next = NULL;
-  aCtx->rsCtx.keyName = RedisModule_CreateStringPrintf(aCtx->thCtx, INDEX_SPEC_KEY_FMT, sp->name);
-  aCtx->rsCtx.spec = NULL;
 
   if (aCtx->fwIdx) {
     ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
@@ -194,6 +193,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
 
   aCtx->specFlags = sp->flags;
   aCtx->stopwords = sp->stopwords;
+  aCtx->indexer = GetDocumentIndexer(sp->name);
 
   StopWordList_Ref(sp->stopwords);
 
@@ -236,18 +236,23 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   // Destroy the common fields:
   Document_FreeDetached(&aCtx->doc, aCtx->thCtx);
   RedisModule_FreeThreadSafeContext(aCtx->thCtx);
+
   if (aCtx->sv) {
     SortingVector_Free(aCtx->sv);
     aCtx->sv = NULL;
   }
+
   if (aCtx->stopwords) {
     StopWordList_Unref(aCtx->stopwords);
+    aCtx->stopwords = NULL;
   }
 
   mempool_release(actxPool_g, aCtx);
 }
 
-#define ACTX_SPEC(actx) (actx)->rsCtx.spec
+#define ACTX_SPEC(actx) (actx)->sp_
+#define RSCTX_INIT_ACTX(aCtx) SEARCH_CTX_STATIC(aCtx->thCtx, ACTX_SPEC(aCtx))
+#define ACTX_RSCTX(aCtx) RSCTX_INIT_ACTX(aCtx)
 
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
@@ -288,7 +293,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = OpenNumericIndex(&aCtx->rsCtx, fs->name);
+  NumericRangeTree *rt = OpenNumericIndex(&ACTX_RSCTX(aCtx), fs->name);
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
   return 0;
 }
@@ -308,7 +313,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_INDEXER(geoIndexer) {
-  GeoIndex gi = {.ctx = &aCtx->rsCtx, .sp = fs};
+  RedisSearchCtx rsCtx = RSCTX_INIT_ACTX(aCtx);
+  GeoIndex gi = {.ctx = &rsCtx, .sp = fs};
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
   if (rv == REDISMODULE_ERR) {
@@ -354,8 +360,6 @@ static void sendReply(RSAddDocumentCtx *aCtx) {
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
-
   int ourRv = REDISMODULE_OK;
 
   for (int i = 0; i < doc->numFields; i++) {
@@ -379,10 +383,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
   }
 
   // Get the specname
-  const char *specName = RedisModule_StringPtrLen(aCtx->rsCtx.keyName, NULL);
-  specName += sizeof(INDEX_SPEC_KEY_FMT) - 1;
-
-  if (DocumentIndexer_Add(GetDocumentIndexer(specName), aCtx) != 0) {
+  if (DocumentIndexer_Add(aCtx->indexer, aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -528,11 +529,11 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       ForwardIndexEntry *fwent = merged->head;
 
       // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(aCtx->rsCtx.spec, fwent->term, fwent->len);
+      IndexSpec_AddTerm(ACTX_SPEC(aCtx), fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
       InvertedIndex *invidx =
-          Redis_OpenInvertedIndexEx(&aCtx->rsCtx, fwent->term, fwent->len, 1, &idxKey);
+          Redis_OpenInvertedIndexEx(&ACTX_RSCTX(aCtx), fwent->term, fwent->len, 1, &idxKey);
 
       if (invidx == NULL) {
         continue;
@@ -584,17 +585,17 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
+  RedisSearchCtx ctx = RSCTX_INIT_ACTX(aCtx);
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
 
-    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    IndexSpec_AddTerm(ctx.spec, entry->term, entry->len);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(&ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
       assert(entry->docId);
-      writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      writeIndexEntry(ctx.spec, invidx, encoder, entry);
     }
 
     entry = ForwardIndexIterator_Next(&it);
@@ -659,11 +660,11 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
   // we do not allow empty indexes when loading an existing index
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
       RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-    aCtx->rsCtx.spec = NULL;
+    aCtx->sp_ = NULL;
     return;
   }
 
-  aCtx->rsCtx.spec = RedisModule_ModuleTypeGetValue(k);
+  aCtx->sp_ = RedisModule_ModuleTypeGetValue(k);
 }
 
 // Routines for the merged hash table
@@ -675,7 +676,6 @@ static const KHTableProcs mergedHtProcs = {
  * the tokens of further entries in the queue
  */
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  RedisSearchCtx *ctx = &aCtx->rsCtx;
   RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
 
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
@@ -691,7 +691,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     doMerge(aCtx, &indexer->mergeHt, parentMap);
   }
 
-  ConcurrentSearch_SetKey(&indexer->concCtx, aCtx->rsCtx.redisCtx, ctx->keyName, aCtx);
+  ConcurrentSearch_SetKey(&indexer->concCtx, aCtx->thCtx, indexer->specKeyName, aCtx);
   ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
@@ -853,6 +853,9 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
   pthread_create(&dummyThr, NULL, DocumentIndexer_Run, indexer);
   indexer->name = strdup(name);
   indexer->next = NULL;
+  indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
+  indexer->specKeyName =
+      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, indexer->name);
 
   ConcurrentSearchCtx_InitEx(&indexer->concCtx, REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
