@@ -1,4 +1,6 @@
 #include "khtable.h"
+#include <stdlib.h>
+#include <string.h>
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
                             409ul,       823ul,       1741ul,    3469ul,     6949ul,     14033ul,
@@ -28,6 +30,11 @@ void KHTable_Init(KHTable *table, const KHTableProcs *procs, void *ctx, size_t e
 
 void KHTable_Free(KHTable *table) {
   free(table->buckets);
+}
+
+void KHTable_Clear(KHTable *table) {
+  memset(table->buckets, 0, sizeof(*table->buckets) * table->numBuckets);
+  table->numItems = 0;
 }
 
 static int KHTable_Rehash(KHTable *table) {
