@@ -83,6 +83,15 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
   ConcurrentSearchCtx_ResetClock(ctx);
 }
 
+void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentReopenCallback cb) {
+  ctx->ctx = NULL;
+  ctx->isLocked = 0;
+  ctx->numOpenKeys = 1;
+  ctx->openKeys = calloc(1, sizeof(*ctx->openKeys));
+  ctx->openKeys->cb = cb;
+  ctx->openKeys->keyFlags = mode;
+}
+
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {

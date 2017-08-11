@@ -92,6 +92,21 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
                              void *privdata, void (*freePrivDataCallback)(void *));
 
+/**
+ * Replace the key at a given position. The context must not be locked. It
+ * is assumed that the callback for the key remains the same
+ * - redisCtx is the redis module context which owns this key
+ * - keyName is the name of the new key
+ * - pos is the position at which the key resides (usually 0)
+ * - arg is the new arg to be passed to the callback
+ */
+static inline void ConcurrentSearch_SetKey(ConcurrentSearchCtx *ctx, RedisModuleCtx *redisCtx,
+                                           RedisModuleString *keyName, void *privdata) {
+  ctx->openKeys[0].keyName = keyName;
+  ctx->openKeys[0].privdata = privdata;
+  ctx->ctx = redisCtx;
+}
+
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
 
@@ -108,6 +123,12 @@ int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
 
 /** Initialize and reset a concurrent search ctx */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
+
+/**
+ * Initialize a concurrent context to contain a single key. This key can be swapped
+ * out via SetKey()
+ */
+void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentReopenCallback cb);
 
 /** Reset the clock variables in the concurrent search context */
 void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx);
