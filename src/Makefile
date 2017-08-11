@@ -82,7 +82,7 @@ query_parser:
 build_tests: redisearch.so libredisearch.a
 	$(MAKE) -C tests build
 
-test: $(MODULE) build_tests
+test: $(MODULE) libredisearch.a
 	# low level redis-independant tests
 	$(MAKE) -C ./tests test
 	# high level python integration tests
