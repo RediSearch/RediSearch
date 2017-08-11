@@ -647,14 +647,7 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     doMerge(aCtx, &mergedEntries, parentMap);
   }
 
-  // FIXME: ConcurrentSearchCtx should be done in ConcurrentSearchCtx.
-  // This line of code sets the key for the indexer's concurrent context. This
-  // is because the indexer itself has no RedisModuleCtx of its own
-  indexer->concCtx.numOpenKeys = 0;
-  indexer->concCtx.ctx = aCtx->rsCtx.redisCtx;
-  ConcurrentSearch_AddKey(&indexer->concCtx, NULL, REDISMODULE_READ | REDISMODULE_WRITE,
-                          ctx->keyName, reopenCb, aCtx, NULL);
-
+  ConcurrentSearch_SetKey(&indexer->concCtx, aCtx->rsCtx.redisCtx, ctx->keyName, aCtx);
   ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
@@ -808,9 +801,10 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
   pthread_mutex_init(&indexer->lock, NULL);
   static pthread_t dummyThr;
   pthread_create(&dummyThr, NULL, DocumentIndexer_Run, indexer);
-
   indexer->name = strdup(name);
   indexer->next = NULL;
+
+  ConcurrentSearchCtx_InitEx(&indexer->concCtx, REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
 }
 
