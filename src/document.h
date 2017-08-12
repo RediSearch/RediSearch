@@ -113,7 +113,9 @@ union FieldData;
 
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
-#define ACTX_F_
+
+// The context also has non-text fields
+#define ACTX_F_NONTXTFLDS 0x04
 
 struct DocumentIndexer;
 
