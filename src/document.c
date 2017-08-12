@@ -221,6 +221,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
       if (FieldSpec_IsSortable(fs) && aCtx->sv == NULL) {
         aCtx->sv = NewSortingVector(sp->sortables->len);
       }
+      if (fs->type != F_FULLTEXT) {
+        aCtx->stateFlags |= ACTX_F_NONTXTFLDS;
+      }
     } else {
       aCtx->fspecs[i].name = NULL;
     }
@@ -703,6 +706,13 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
   // If this document's tokens are merged or not
   const int needsFtIndex = !(aCtx->stateFlags & ACTX_F_MERGED);
+
+  // If all its text fields have been merged and it doesn't need any non-text field
+  // handling, return and save ourselves allocating new contexts.
+  if (!needsFtIndex && (aCtx->stateFlags & ACTX_F_NONTXTFLDS) == 0) {
+    return;
+  }
+
   int useHt = 0;
   if (indexer->size > 1 && needsFtIndex) {
     useHt = 1;
