@@ -251,11 +251,28 @@ static void sendReply(RSAddDocumentCtx *aCtx) {
   RedisModule_UnblockClient(aCtx->bc, aCtx);
 }
 
+// How many bytes in a document to warrant it being tokenized in a separate thread
+#define SELF_EXEC_THRESHOLD 1024
+
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options) {
   aCtx->options = options;
   aCtx->bc = RedisModule_BlockClient(ctx, replyCallback, NULL, NULL, 0);
   assert(aCtx->bc);
-  ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
+  size_t totalSize = 0;
+  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (fs->name && fs->type == F_FULLTEXT) {
+      size_t n;
+      RedisModule_StringPtrLen(aCtx->doc.fields[ii].text, &n);
+      totalSize += n;
+    }
+  }
+
+  if (totalSize >= SELF_EXEC_THRESHOLD) {
+    ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
+  } else {
+    Document_AddToIndexes(aCtx);
+  }
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
