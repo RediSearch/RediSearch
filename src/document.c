@@ -161,8 +161,7 @@ static void freeDocumentContext(void *p) {
   free(aCtx);
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp,
-                                    Document *base) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
 
   if (!actxPool_g) {
     actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
@@ -172,13 +171,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
 
   // Per-client fields; these must always be recreated
-  aCtx->bc = client;
-  aCtx->thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+  aCtx->bc = NULL;
 
   size_t oldFieldCount = aCtx->doc.numFields;
   aCtx->doc = *base;
 
-  RedisModule_AutoMemory(aCtx->thCtx);
   aCtx->next = NULL;
 
   if (aCtx->fwIdx) {
@@ -232,10 +229,35 @@ RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec 
   return aCtx;
 }
 
+static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (aCtx->errorString) {
+    RedisModule_ReplyWithError(ctx, aCtx->errorString);
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  AddDocumentCtx_Free(aCtx);
+  return REDISMODULE_OK;
+}
+
+static void threadCallback(void *p) {
+  Document_AddToIndexes(p);
+}
+
+static void sendReply(RSAddDocumentCtx *aCtx) {
+  RedisModule_UnblockClient(aCtx->bc, aCtx);
+}
+
+void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options) {
+  aCtx->options = options;
+  aCtx->bc = RedisModule_BlockClient(ctx, replyCallback, NULL, NULL, 0);
+  assert(aCtx->bc);
+  ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
+}
+
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   // Destroy the common fields:
-  Document_FreeDetached(&aCtx->doc, aCtx->thCtx);
-  RedisModule_FreeThreadSafeContext(aCtx->thCtx);
+  Document_FreeDetached(&aCtx->doc, aCtx->indexer->redisCtx);
 
   if (aCtx->sv) {
     SortingVector_Free(aCtx->sv);
@@ -258,14 +280,17 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
                   fieldData *fdata, const char **errorString)
 
-#define FIELD_INDEXER FIELD_HANDLER
+#define FIELD_INDEXER(name)                                                                \
+  static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field, \
+                  const FieldSpec *fs, fieldData *fdata, const char **errorString)
+
 #define FIELD_PREPROCESSOR FIELD_HANDLER
 
-typedef int (*FieldFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs,
-                         fieldData *fdata, const char **errorString);
+typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                                const FieldSpec *fs, fieldData *fdata, const char **errorString);
 
-typedef FieldFunc PreprocessorFunc;
-typedef FieldFunc IndexerFunc;
+typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+                           const FieldSpec *fs, fieldData *fdata, const char **errorString);
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
@@ -293,7 +318,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = OpenNumericIndex(&ACTX_RSCTX(aCtx), fs->name);
+  NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
   return 0;
 }
@@ -313,8 +338,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_INDEXER(geoIndexer) {
-  RedisSearchCtx rsCtx = RSCTX_INIT_ACTX(aCtx);
-  GeoIndex gi = {.ctx = &rsCtx, .sp = fs};
+  GeoIndex gi = {.ctx = ctx, .sp = fs};
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
   if (rv == REDISMODULE_ERR) {
@@ -347,15 +371,6 @@ static IndexerFunc getIndexer(const FieldType ft) {
     default:
       return NULL;
   }
-}
-
-static void sendReply(RSAddDocumentCtx *aCtx) {
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(aCtx->thCtx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(aCtx->thCtx, "OK");
-  }
-  RedisModule_UnblockClient(aCtx->bc, aCtx);
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
@@ -511,10 +526,10 @@ static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **pare
 // parentMap contains the actual mapping between the `docID` field and the actual
 // RSAddDocumentCtx which contains the document itself, which by this time should
 // have been assigned an ID via makeDocumentId()
-static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, KHTable *ht,
-                              RSAddDocumentCtx **parentMap) {
+static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                              KHTable *ht, RSAddDocumentCtx **parentMap) {
 
-  IndexEncoder encoder = InvertedIndex_GetEncoder(ACTX_SPEC(aCtx)->flags);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(ctx->spec->flags);
 
   // This is used as a cache layer, so that we don't need to derefernce the
   // RSAddDocumentCtx each time.
@@ -529,11 +544,10 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       ForwardIndexEntry *fwent = merged->head;
 
       // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ACTX_SPEC(aCtx), fwent->term, fwent->len);
+      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx =
-          Redis_OpenInvertedIndexEx(&ACTX_RSCTX(aCtx), fwent->term, fwent->len, 1, &idxKey);
+      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
 
       if (invidx == NULL) {
         continue;
@@ -559,14 +573,14 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
-        writeIndexEntry(ACTX_SPEC(aCtx), invidx, encoder, fwent);
+        writeIndexEntry(ctx->spec, invidx, encoder, fwent);
       }
 
       if (idxKey) {
         RedisModule_CloseKey(idxKey);
       }
 
-      if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
+      if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
         aCtx->errorString = "ERR Index is no longer valid!";
         return -1;
       }
@@ -581,25 +595,27 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
  * it's simpler to forego building the merged dictionary because there is
  * nothing to merge.
  */
-static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
+static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
-  RedisSearchCtx ctx = RSCTX_INIT_ACTX(aCtx);
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
 
-    IndexSpec_AddTerm(ctx.spec, entry->term, entry->len);
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(&ctx, entry->term, entry->len, 1, &idxKey);
+    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+
+    assert(ctx);
+
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
       assert(entry->docId);
-      writeIndexEntry(ctx.spec, invidx, encoder, entry);
+      writeIndexEntry(ctx->spec, invidx, encoder, entry);
     }
 
     entry = ForwardIndexIterator_Next(&it);
-    if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ACTX_SPEC(aCtx) == NULL) {
+    if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
       aCtx->errorString = "ERR Index is no longer valid!";
       return;
     }
@@ -630,8 +646,8 @@ static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const cha
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(RSAddDocumentCtx *cur) {
-  IndexSpec *spec = ACTX_SPEC(cur);
+static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
+  IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
@@ -656,15 +672,15 @@ static void doAssignIds(RSAddDocumentCtx *cur) {
 
 static void reopenCb(RedisModuleKey *k, void *arg) {
   // Index Key
-  RSAddDocumentCtx *aCtx = arg;
+  RedisSearchCtx *ctx = arg;
   // we do not allow empty indexes when loading an existing index
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
       RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-    aCtx->sp_ = NULL;
+    ctx->spec = NULL;
     return;
   }
 
-  aCtx->sp_ = RedisModule_ModuleTypeGetValue(k);
+  ctx->spec = RedisModule_ModuleTypeGetValue(k);
 }
 
 // Routines for the merged hash table
@@ -677,6 +693,8 @@ static const KHTableProcs mergedHtProcs = {
  */
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
+  RedisModuleCtx *thCtx = NULL;
+  RedisSearchCtx ctx = {NULL};
 
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
     // Document has an error, no need for further processing
@@ -691,11 +709,15 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
     doMerge(aCtx, &indexer->mergeHt, parentMap);
   }
 
-  ConcurrentSearch_SetKey(&indexer->concCtx, aCtx->thCtx, indexer->specKeyName, aCtx);
+  // Force a context at this point:
+  thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+  ctx.redisCtx = thCtx;
+
+  ConcurrentSearch_SetKey(&indexer->concCtx, thCtx, indexer->specKeyName, &ctx);
   ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
-  if (!ACTX_SPEC(aCtx)) {
+  if (!ctx.spec) {
     aCtx->errorString = "ERR Index no longer valid";
     aCtx->stateFlags |= ACTX_F_ERRORED;
     goto cleanup;
@@ -715,10 +737,10 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
    * 10% overall.
    */
   if (!doc->docId) {
-    doAssignIds(aCtx);
+    doAssignIds(aCtx, &ctx);
     if (aCtx->stateFlags & ACTX_F_ERRORED) {
       if (useHt) {
-        writeMergedEntries(indexer, aCtx, &indexer->mergeHt, parentMap);
+        writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
       }
       goto cleanup;
     }
@@ -726,9 +748,9 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
   if (needsFtIndex) {
     if (useHt) {
-      writeMergedEntries(indexer, aCtx, &indexer->mergeHt, parentMap);
+      writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
     } else {
-      writeCurEntries(indexer, aCtx);
+      writeCurEntries(indexer, aCtx, &ctx);
     }
   }
 
@@ -745,13 +767,16 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
       continue;
     }
 
-    if (ifx(aCtx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
+    if (ifx(aCtx, &ctx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
       aCtx->stateFlags |= ACTX_F_ERRORED;
       goto cleanup;
     }
   }
 
 cleanup:
+  if (thCtx) {
+    RedisModule_FreeThreadSafeContext(thCtx);
+  }
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
   if (useHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
