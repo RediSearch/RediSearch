@@ -67,11 +67,7 @@ static void vvwFree(void *p) {
 }
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
-  idx->docScore = doc->score;
-  idx->docId = doc->docId;
-  idx->totalFreq = 0;
   idx->idxFlags = idxFlags;
-  idx->uniqueTokens = 0;
   idx->maxFreq = 0;
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
@@ -163,7 +159,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
 
   if (isNew) {
     // printf("New token %.*s\n", (int)t->len, t->s);
-    h->docId = idx->docId;
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
@@ -184,7 +179,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
       h->vw = NULL;
     }
 
-    h->docScore = idx->docScore;
   } else {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
@@ -197,8 +191,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
-  idx->totalFreq += h->freq;
-  idx->uniqueTokens++;
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
   if (h->vw) {
     VVW_Write(h->vw, t->pos);

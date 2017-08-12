@@ -136,7 +136,6 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
     h.docId = i;
     h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
-    h.docScore = (1 + (i + 2) % 30) / (float)31;
 
     h.vw = NewVarintVectorWriter(8);
     for (int n = 0; n < i % 4; n++) {
@@ -224,7 +223,6 @@ InvertedIndex *createIndex(int size, int idStep) {
     h.docId = id;
     h.fieldMask = 1;
     h.freq = 1;
-    h.docScore = 1;
     h.term = "hello";
     h.len = 5;
 
@@ -768,7 +766,6 @@ int testIndexFlags() {
   h.docId = 1234;
   h.fieldMask = 0x01;
   h.freq = 1;
-  h.docScore = 100;
   h.vw = NewVarintVectorWriter(8);
   for (int n = 0; n < 10; n++) {
     VVW_Write(h.vw, n);
