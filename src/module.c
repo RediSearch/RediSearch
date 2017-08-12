@@ -88,11 +88,6 @@ English.
 Returns OK on success, or an error if something went wrong.
 */
 
-static void doDocumentAddTh(void *arg) {
-  RSAddDocumentCtx *aCtx = arg;
-  Document_AddToIndexes(aCtx);
-}
-
 int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
@@ -149,12 +144,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-
-  RedisModuleBlockedClient *client =
-      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
-  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
-  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+  AddDocumentCtx_Submit(aCtx, ctx, replace ? DOCUMENT_ADD_REPLACE : 0);
 
 cleanup:
   return REDISMODULE_OK;
@@ -512,14 +503,10 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc.payloadSize = 0;
   Document_Detach(&doc, ctx);
 
-  RedisModuleBlockedClient *client =
-      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
-
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  aCtx->options = (replace ? DOCUMENT_ADD_REPLACE : 0);
-  ConcurrentSearch_ThreadPoolRun(doDocumentAddTh, aCtx, CONCURRENT_POOL_INDEX);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+  AddDocumentCtx_Submit(aCtx, ctx, replace ? DOCUMENT_ADD_REPLACE : 0);
 
 cleanup:
   return REDISMODULE_OK;
