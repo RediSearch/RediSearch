@@ -801,10 +801,12 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
   }
 
 cleanup:
+  ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+
   if (thCtx) {
     RedisModule_FreeThreadSafeContext(thCtx);
   }
-  ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+
   if (useHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
