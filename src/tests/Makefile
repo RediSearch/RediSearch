@@ -94,11 +94,18 @@ test_qint: qint
 	./test_qint
 .PHONY: test_qint
 
-build: stemmer trie index range extensions query stopwords
+blkalloc: test_blkalloc.o
+	$(CC) $(CFLAGS) -o test_blkalloc $^ $(DEPS) $(LDFLAGS)
+
+test_blkalloc: blkalloc
+	./test_blkalloc
+.PHONY: test_blkalloc
+
+build: stemmer trie index range extensions query stopwords blkalloc
 
 	
 test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords \
-	test_qint
+	test_qint test_blkalloc
 
 all: build test bench-decoder
 
