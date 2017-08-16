@@ -343,7 +343,7 @@ static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
 static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
 
   FieldSpec *fs = IndexSpec_GetField(q->ctx->spec, node->gf->property, strlen(node->gf->property));
-  if (fs->type != F_GEO) {
+  if (fs == NULL || fs->type != F_GEO) {
     return NULL;
   }
 
