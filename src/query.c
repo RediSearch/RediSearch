@@ -885,8 +885,9 @@ QueryResult *Query_Execute(Query *query) {
       // For sort key based queries, the score is the inverse of the rank
       if (sortByMode) {
         h->score = (double)i + 1;
-
-        sv = RSSortingVector_Get(h->sv, query->sortKey);
+        if (h->sv) {
+          sv = RSSortingVector_Get(h->sv, query->sortKey);
+        }
       }
       res->results[n - i - 1] =
           (ResultEntry){.id = dmd->key, .score = h->score, .payload = dmd->payload, .sortKey = sv};

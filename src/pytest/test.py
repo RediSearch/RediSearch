@@ -1141,11 +1141,18 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertEqual(1, res_body[0])
 
     def testSearchNonexistField(self):
+        # GH Issue 133
         self.cmd('ft.create', 'idx', 'schema', 'title', 'text',
                  'weight', 5.0, 'body', 'text', 'url', 'text')
         self.cmd('ft.add', 'idx', 'd1', 1.0, 'nosave', 'fields', 'title',
                  'hello world', 'body', 'lorem dipsum', 'place', '-77.0366 38.8977')
         self.cmd('ft.search', 'idx', 'Foo', 'GEOFILTER', 'place', '-77.0366', '38.8977', '1', 'km')
+
+    def testSortbyMissingField(self):
+        # GH Issue 131
+        self.cmd('ft.create', 'ix', 'schema', 'txt', 'text', 'num', 'numeric', 'sortable')
+        self.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
+        self.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
 
 
 def grouper(iterable, n, fillvalue=None):
