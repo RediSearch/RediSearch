@@ -127,15 +127,14 @@ typedef struct DocumentIndexer {
   pthread_cond_t cond;          // condition - used to wait on items added to the queue
   size_t size;                  // number of items in the queue
   ConcurrentSearchCtx concCtx;  // GIL locking. This is repopulated with the relevant key data
-
-  RedisModuleCtx *redisCtx;  // Context for keeping the spec key
+  RedisModuleCtx *redisCtx;     // Context for keeping the spec key
   RedisModuleString *specKeyName;
+  int isDbSelected;
 
   char *name;  // The name of the index this structure belongs to. For use with the list of indexers
   struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
-
 } DocumentIndexer;
 
 // For documentation, see these functions' definitions
@@ -713,7 +712,6 @@ static const KHTableProcs mergedHtProcs = {
  */
 static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
-  RedisModuleCtx *thCtx = NULL;
   RedisSearchCtx ctx = {NULL};
 
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
@@ -737,10 +735,16 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
   }
 
   // Force a context at this point:
-  thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
-  ctx.redisCtx = thCtx;
+  if (!indexer->isDbSelected) {
+    RedisModuleCtx *thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
+    RedisModule_SelectDb(indexer->redisCtx, RedisModule_GetSelectedDb(thCtx));
+    RedisModule_FreeThreadSafeContext(thCtx);
+    indexer->isDbSelected = 1;
+  }
 
-  ConcurrentSearch_SetKey(&indexer->concCtx, thCtx, indexer->specKeyName, &ctx);
+  ctx.redisCtx = indexer->redisCtx;
+
+  ConcurrentSearch_SetKey(&indexer->concCtx, indexer->redisCtx, indexer->specKeyName, &ctx);
   ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
   ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
@@ -802,11 +806,6 @@ static void DocumentIndexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *
 
 cleanup:
   ConcurrentSearchCtx_Unlock(&indexer->concCtx);
-
-  if (thCtx) {
-    RedisModule_FreeThreadSafeContext(thCtx);
-  }
-
   if (useHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
