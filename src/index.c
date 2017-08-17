@@ -359,7 +359,7 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
   // we add the actual last doc id we read, so if anyone is looking at what we returned it would
   // look sane
-  if (hit) {
+  if (hit != NULL && *hit != NULL) {
     (*hit)->docId = 0;  // ic->lastDocId;
   }
 
