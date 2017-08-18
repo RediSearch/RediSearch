@@ -13,6 +13,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
+#include <float.h>
 
 RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v);
 int testVarint() {
@@ -373,7 +374,7 @@ int testNumericInverted() {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
     // printf("written %zd bytes\n", sz);
 
-    ASSERT(sz > 2);
+    ASSERT(sz > 1);
   }
   ASSERT_EQUAL(75, idx->lastId);
 
@@ -387,6 +388,82 @@ int testNumericInverted() {
     ASSERT_EQUAL(i++, res->docId);
     ASSERT_EQUAL(res->num.value, (float)res->docId);
     // printf("%d %f\n", res->docId, res->num.value);
+  }
+  InvertedIndex_Free(idx);
+  it->Free(it);
+  return 0;
+}
+
+int testNumericVaried() {
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+
+  static const double nums[] = {0,          0.13,          0.001,     -0.1,     1.0,
+                                5.0,        4.323,         65535,     65535.53, 32768.432,
+                                1LLU << 32, -(1LLU << 32), 1LLU << 40};
+  static const size_t numCount = sizeof(nums) / sizeof(double);
+
+  for (size_t i = 0; i < numCount; i++) {
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
+    ASSERT(sz > 1);
+    // printf("[%lu]: Stored %lf\n", i, nums[i]);
+  }
+
+  IndexReader *ir = NewNumericReader(idx, NULL);
+  IndexIterator *it = NewReadIterator(ir);
+  RSIndexResult *res;
+
+  for (size_t i = 0; i < numCount; i++) {
+    // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
+    int rv = it->Read(it->ctx, &res);
+    ASSERT(INDEXREAD_EOF != rv);
+    ASSERT_EQUAL(nums[i], res->num.value);
+  }
+
+  ASSERT_EQUAL(INDEXREAD_EOF, it->Read(it->ctx, &res));
+  InvertedIndex_Free(idx);
+  it->Free(it);
+
+  return 0;
+}
+
+typedef struct {
+  double value;
+  size_t size;
+} encodingInfo;
+static const encodingInfo infos[] = {{0, 2},
+                                     {1, 2},
+                                     {63, 2},
+                                     {-1, 3},
+                                     {-63, 3},
+                                     {64, 3},
+                                     {-64, 3},
+                                     {255, 3},
+                                     {-255, 3},
+                                     {65535, 4},
+                                     {-65535, 4},
+                                     {16777215, 5},
+                                     {-16777215, 5},
+                                     {4294967295, 6},
+                                     {-4294967295, 6},
+                                     {4294967295 + 1, 6},
+                                     {4294967295 + 2, 7},
+                                     {549755813888.0, 6},
+                                     {549755813888.0 + 2, 7},
+                                     {549755813888.0 - 23, 7},
+                                     {-549755813888.0, 6},
+                                     {DBL_MAX, 10},
+                                     {UINT64_MAX >> 12, 9}};
+
+int testNumericEncoding() {
+  DBL_MAX;
+  static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+  // printf("TestNumericEncoding\n");
+
+  for (size_t ii = 0; ii < numInfos; ii++) {
+    // printf("[%lu]: Expected Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, 1, infos[ii].value);
+    ASSERT_EQUAL(infos[ii].size, sz);
   }
   return 0;
 }
@@ -826,6 +903,8 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testAbort)
   TESTFUNC(testNumericInverted);
+  TESTFUNC(testNumericVaried);
+  TESTFUNC(testNumericEncoding);
 
   TESTFUNC(testVarint);
   TESTFUNC(testDistance);

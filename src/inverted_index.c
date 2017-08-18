@@ -141,11 +141,123 @@ ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
 }
 
+/**
+ * Numeric Encoding Design:
+ *
+ * Internally, the number is always normalized as a double, however it may
+ * be stored in different ways depending on the actual size of the number.
+ *
+ * The tax paid up-front for this flexibility is a single byte; however this
+ * byte is never actually wasted.
+ *
+ * The encoding information is stored using the last two bits of the leading
+ * byte, giving us a possibility of 4 different types of encoding.
+ *
+ * For integer values under 2^6, the first 6 bits are used
+ *
+ *
+ */
+typedef enum {
+  // The actual value is a small integer, found in the 6 LSB
+  // DocID is Varint
+  NumEncoding_Tiny = 0x00 << 6,
+
+  // The value is found as qint(docid,num).
+  // Signdedness is determined by the 3rd MSB bit in the header.
+  NumEncoding_Int32 = 0x01 << 6,
+
+  // The value is found as qint(docid,num).
+  // Signdedness is determined by the 3rd MSB in the header
+  NumEncoding_Float32 = 0x02 << 6,
+
+  // The value is found as qint32_64(docid, u64).
+  // If the number is signed, it is encoded as a double
+  NumEncoding_Extended = 0x03 << 6
+} NumEncodingType;
+
+#define NUM_TINY_MAX 0x3F            // Mask/Limit for 'Tiny' value
+#define NUM_F_SIGNED 0x20            // If encoding is not extended, signed bit
+#define NUM_ENCODING_MASK 0xC0       // Mask for two encoding bits
+#define NUM_QINT_VALUEHDR_MASK 0x0F  // Mask for qint value header
+
+typedef union {
+  float f32;
+  uint32_t encoded;
+} NumEncoded;
+
+static inline double myAbsf64(double input) {
+  return input < 0 ? -input : input;
+}
+
+static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
+  while (numBits) {
+    fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
+    numBits--;
+  }
+}
+
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  size_t sz = WriteVarint(delta, bw);
+  const double absVal = myAbsf64(res->num.value);
+  const double realVal = res->num.value;
 
-  sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
+  const uint32_t u32Num = (uint32_t)absVal;
+  const float f32Num = (float)absVal;
+  const uint64_t u64Num = (uint64_t)absVal;
+  const uint8_t u8Num = ((uint8_t)realVal) & NUM_TINY_MAX;
+  size_t sz = 0;
+
+  if ((double)u8Num == realVal) {
+    uint8_t b = NumEncoding_Tiny | u8Num;
+    sz += Buffer_Write(bw, &b, 1);
+    sz += WriteVarint(delta, bw);
+    return sz;
+  }
+
+  uint8_t encoding = 0;
+  size_t pos = bw->buf->offset;
+
+  if ((double)u32Num == absVal) {
+    // -UINT32_MAX <= N <= UINT32_MAX
+    sz += qint_encode2(bw, delta, u32Num);
+    encoding = NumEncoding_Int32;
+    if (realVal < 0) {
+      encoding |= NUM_F_SIGNED;
+    }
+  } else if ((double)f32Num == absVal) {
+    // "Proper" floating point value. We can't really optimize this because
+    // of how floats are represented (i.e. exponent and mantissa), but we
+    // can optimize the sign bit.
+    NumEncoded num = {.f32 = f32Num};
+    if (realVal < 0) {
+      encoding |= NUM_F_SIGNED;
+    }
+
+    sz += qint_encode2(bw, delta, num.encoded);
+    encoding |= NumEncoding_Float32;
+
+  } else if ((double)u64Num == realVal) {
+    sz += qint_encode32_64pair(bw, delta, u64Num);
+    encoding |= NumEncoding_Extended;
+    // dumpBits(bw->buf->data[pos], 8, stdout);
+    // printf("\n");
+    // dumpBits(encoding, 8, stdout);
+    // printf("\n");
+  } else {
+    // All bets are off when trying to optimize encoding for a double that's
+    // actually a double and not an integral or floating point value.
+    // Can we do further optimizations here, though?
+    sz += Buffer_Write(bw, &encoding, 1);
+    sz += WriteVarint(delta, bw);
+    sz += Buffer_Write(bw, (void *)&realVal, 8);
+    encoding |= NumEncoding_Extended;
+  }
+
+  bw->buf->data[pos] |= encoding;
+
+  // printf("Encoding=0x%x. Middle(0/1)=%d, Value: %lf. u32Num=%lf, f32Num=%lf\n",
+  //        (encoding & NUM_ENCODING_MASK) >> 6, !!(bw->buf->data[pos] & NUM_QINT_VALUEHDR_MASK),
+  //        res->num.value, (double)u32Num, (double)f32Num);
   return sz;
 }
 
@@ -293,10 +405,47 @@ DECODER(readFreqOffsetsFlags) {
 
 // special decoder for decoding numeric results
 DECODER(readNumeric) {
-  res->docId = ReadVarint(br);
-  Buffer_Read(br, &res->num.encoded, sizeof(uint32_t));
-  // qint_decode2(br, &res->docId, &res->num.encoded);
-  // printf("Decoded %u -> %f\n", res->num.encoded, res->num.val)
+  const uint8_t firstByte = br->buf->data[br->pos];
+  const uint8_t encoding = firstByte & NUM_ENCODING_MASK;
+
+  if (encoding == NumEncoding_Tiny) {
+    br->pos++;
+    res->docId = ReadVarint(br);
+    res->num.value = firstByte & (~NUM_ENCODING_MASK);
+
+  } else if (encoding == NumEncoding_Int32) {
+    uint32_t tmp;
+    qint_decode2(br, &res->docId, &tmp);
+    res->num.value = tmp;
+    if (firstByte & NUM_F_SIGNED) {
+      res->num.value = -(res->num.value);
+    }
+
+  } else if (encoding == NumEncoding_Float32) {
+    float tmp;
+    qint_decode2(br, &res->docId, (uint32_t *)&tmp);
+    // printf("Decoded as %lf\n", tmp);
+    if (firstByte & NUM_F_SIGNED) {
+      tmp = -tmp;
+    }
+    res->num.value = tmp;
+
+  } else if (firstByte & NUM_QINT_VALUEHDR_MASK) {
+    // printf("Reading as 64. firstByte (lower4)=0x%x\n", firstByte & NUM_QINT_VALUEHDR_MASK);
+
+    uint64_t tmp;
+    qint_decode32_64pair(br, &res->docId, &tmp);
+    res->num.value = tmp;
+
+  } else {
+    // Encoding is 8 bytes, as a double.
+    br->pos++;
+    res->docId = ReadVarint(br);
+    Buffer_Read(br, &res->num.value, 8);
+  }
+
+  // printf("Encoding=0x%x, Value: %lf\n", encoding >> 6, res->num.value);
+
   NumericFilter *f = ctx.ptr;
   if (f) {
     return NumericFilter_Match(f, res->num.value);

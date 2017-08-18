@@ -178,12 +178,7 @@ typedef struct {
 
 } RSVirtualRecord;
 
-typedef struct {
-  union {
-    float value;
-    uint32_t encoded;
-  };
-} RSNumericRecord;
+typedef struct { double value; } RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,
