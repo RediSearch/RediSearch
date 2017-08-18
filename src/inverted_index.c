@@ -178,7 +178,7 @@ typedef enum {
 #define NUM_TINY_MAX 0x3F            // Mask/Limit for 'Tiny' value
 #define NUM_F_SIGNED 0x20            // If encoding is not extended, signed bit
 #define NUM_ENCODING_MASK 0xC0       // Mask for two encoding bits
-#define NUM_QINT_VALUEHDR_MASK 0x0F  // Mask for qint value header
+#define NUM_QINT_VALUEHDR_MASK 0x3C  // Mask for qint value header
 
 typedef union {
   float f32;

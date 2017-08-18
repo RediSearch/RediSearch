@@ -455,7 +455,6 @@ static const encodingInfo infos[] = {{0, 2},
                                      {UINT64_MAX >> 12, 9}};
 
 int testNumericEncoding() {
-  DBL_MAX;
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
   // printf("TestNumericEncoding\n");
@@ -465,6 +464,20 @@ int testNumericEncoding() {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, 1, infos[ii].value);
     ASSERT_EQUAL(infos[ii].size, sz);
   }
+
+  IndexReader *ir = NewNumericReader(idx, NULL);
+  IndexIterator *it = NewReadIterator(ir);
+  RSIndexResult *res;
+
+  for (size_t ii = 0; ii < numInfos; ii++) {
+    int rc = it->Read(it->ctx, &res);
+    ASSERT(rc != INDEXREAD_EOF);
+    ASSERT_EQUAL(infos[ii].value, res->num.value);
+  }
+
+  InvertedIndex_Free(idx);
+  it->Free(it);
+
   return 0;
 }
 
