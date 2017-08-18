@@ -37,8 +37,6 @@ QINT_API size_t qint_encode(BufferWriter *bw, uint32_t arr[], int len) {
   return ret;
 }
 
-static size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int offset);
-
 /* internal function to encode just one number out of a larger array at a given offset (<=4) */
 inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int offset) {
   size_t ret = 0;
@@ -54,7 +52,22 @@ inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int off
   // encode the bit length of our integer into the leading byte.
   // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - bytes.
   // we encode it at the i*2th place in the leading byte
-  *leading |= ((n - 1) & 0x03) << (offset * 2);
+  *leading |= (n - 1) << (offset * 2);
+  return ret;
+}
+
+static inline size_t qint__encode64(char *leading, BufferWriter *bw, uint64_t i, int offset) {
+  size_t ret = 0;
+  int n = 0;
+  do {
+    ret += Buffer_Write(bw, (unsigned char *)&i, 1);
+    n++;
+    i >>= 8;
+  } while (i && n < 8);
+
+  // printf("Writing: 0x%d\n", n - 1);
+  *leading |= (n - 1) << (offset * 2);
+  // printf("Leading is 0x%x\n", *leading);
   return ret;
 }
 
@@ -109,26 +122,45 @@ QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_
   return ret;
 }
 
-#define QINT_DECODE_VALUE(lval, bits, ptr, nused) \
-  do {                                            \
-    switch (bits) {                               \
-      case 2:                                     \
-        lval = *(uint32_t *)ptr & 0xFFFFFF;       \
-        nused = 3;                                \
-        break;                                    \
-      case 0:                                     \
-        lval = *ptr;                              \
-        nused = 1;                                \
-        break;                                    \
-      case 1:                                     \
-        lval = *(uint32_t *)ptr & 0xFFFF;         \
-        nused = 2;                                \
-        break;                                    \
-      default:                                    \
-        lval = *(uint32_t *)ptr;                  \
-        nused = 4;                                \
-        break;                                    \
-    }                                             \
+/* Encode a pair of (32,64) integer */
+QINT_API size_t qint_encode32_64pair(BufferWriter *bw, uint32_t n32, uint64_t n64) {
+  size_t ret = 1;
+  char leading = 0;
+  size_t pos = Buffer_Offset(bw->buf);
+  Buffer_Write(bw, "\0", 1);
+  ret += __qint_encode(&leading, bw, n32, 0);
+  ret += qint__encode64(&leading, bw, n64, 1);
+  Buffer_WriteAt(bw, pos, &leading, 1);
+
+  // printf("Encoding %llu,%llu\n", n32, n64);
+
+  return ret;
+}
+
+#define QINT_DECODE_VALUE(lval, bits, ptr, nused)                     \
+  do {                                                                \
+    switch (bits) {                                                   \
+      case 2:                                                         \
+        lval = *(uint32_t *)ptr & 0xFFFFFF;                           \
+        nused = 3;                                                    \
+        break;                                                        \
+      case 0:                                                         \
+        lval = *ptr;                                                  \
+        nused = 1;                                                    \
+        break;                                                        \
+      case 1:                                                         \
+        lval = *(uint32_t *)ptr & 0xFFFF;                             \
+        nused = 2;                                                    \
+        break;                                                        \
+      case 3:                                                         \
+        lval = *(uint32_t *)ptr;                                      \
+        nused = 4;                                                    \
+        break;                                                        \
+      default:                                                        \
+        lval = *(uint64_t *)ptr & ((UINT64_MAX) >> (8 * (7 - bits))); \
+        nused = bits + 1;                                             \
+        break;                                                        \
+    }                                                                 \
   } while (0)
 
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid
@@ -193,6 +225,19 @@ QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
   QINT_DECODE_MULTI(*i2, 1, p, total, tmp);
   QINT_DECODE_MULTI(*i3, 2, p, total, tmp);
   QINT_DECODE_MULTI(*i4, 3, p, total, tmp);
+  Buffer_Skip(br, total + 1);
+  return total + 1;
+}
+
+QINT_API size_t qint_decode32_64pair(BufferReader *br, uint32_t *n32, uint64_t *n64) {
+  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  size_t total = 0, tmp = 0;
+  QINT_DECODE_MULTI(*n32, 0, p, total, tmp);
+  uint8_t numBits = (*p >> 2) & 0x07;
+  // printf("NumBits: %d\n", numBits);
+  QINT_DECODE_VALUE(*n64, ((*p >> 2) & 0x07), (p + total + 1), tmp);
+  total += tmp;
+  // printf("Decoded %llu,%llu\n", *n32, *n64);
   Buffer_Skip(br, total + 1);
   return total + 1;
 }
