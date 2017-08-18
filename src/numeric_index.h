@@ -26,7 +26,7 @@ typedef struct {
 
   u_int16_t card;
   uint32_t splitCard;
-  float *values;
+  double *values;
   InvertedIndex *entries;
 } NumericRange;
 

@@ -255,14 +255,16 @@ int RSIndexResult_HasOffsets(RSIndexResult *res);
 
 int RSIndexResult_IsAggregate(RSIndexResult *r);
 
-/* The context given to a scoring function. It includes the payload set by the user or expander, the
+/* The context given to a scoring function. It includes the payload set by the user or expander,
+ * the
  * private data set by the extensionm and callback functions */
 typedef struct {
   /* Private data set by the extension on initialization time, or during scoring */
   void *privdata;
   /* Payload set by the client or by the query expander */
   RSPayload payload;
-  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms, that
+  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
+   * that
    * can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
 } RSScoringFunctionCtx;

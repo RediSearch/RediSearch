@@ -239,7 +239,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 }
 
 /* Write a numeric entry to the index */
-size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value) {
+size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value) {
 
   RSIndexResult rec = (RSIndexResult){
       .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){.value = value},

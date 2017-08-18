@@ -100,7 +100,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
-size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value);
+size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter is
  * NULL we will return all the records in the index */

@@ -65,7 +65,7 @@ int testRangeIterator() {
   for (int i = 0; i < N; i++) {
 
     t_docId docId = i + 1;
-    float value = (double)(1 + prng() % (N / 5));
+    double value = (double)(1 + prng() % (N / 5));
     lookup[docId] = value;
     // printf("Adding %d > %f\n", docId, value);
     NumericRangeTree_Add(t, docId, value);
@@ -102,8 +102,8 @@ int testRangeIterator() {
       ASSERT_EQUAL(matched[res->docId], 1);
 
       matched[res->docId] = (uint8_t)2;
-      // printf("rc: %d docId: %d, lookup %f, flt %f..%f\n", rc, res->docId, lookup[res->docId],
-      //        flt->min, flt->max);
+      // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
+      //        lookup[res->docId], flt->min, flt->max);
 
       ASSERT_EQUAL(res->num.value, lookup[res->docId]);
 
