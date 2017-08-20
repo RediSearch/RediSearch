@@ -481,7 +481,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.create', 'idx', 'schema', 'a', 'text', 'b', 'text', 'c', 'text', 'd', 'text'))
             for i in range(20):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-
+                                                'a', 'foo', 'b', 'bar', 'c', 'baz', 'd', 'gaz'))
             res = [
                 r.execute_command('ft.search', 'idx', 'foo bar baz gaz', 'nocontent'),
                 r.execute_command('ft.search', 'idx', '@a:foo @b:bar @c:baz @d:gaz', 'nocontent'),
