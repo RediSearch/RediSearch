@@ -72,9 +72,9 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(50, res[0])
 
                 res = r.execute_command(
-                    'ft.search', 'idx', '(hello|world)(hallo|werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
-                self.assertEqual(1, len(res))
-                self.assertEqual(0, res[0])
+                    'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
+                self.assertEqual(51, len(res))
+                self.assertEqual(50, res[0])
 
     def testSearch(self):
         with self.redis() as r:

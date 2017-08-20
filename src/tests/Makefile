@@ -4,7 +4,7 @@ endif
 
 CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR)
-
+.SILENT:
 # Sources
 SOURCEDIR=..
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 

@@ -351,18 +351,17 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     }
   }
 
-  if (nfound == ic->num) {
-    if (hit) {
-      *hit = ic->current;
-    }
-    return INDEXREAD_OK;
-  }
-  // we add the actual last doc id we read, so if anyone is looking at what we returned it would
-  // look sane
-  if (hit != NULL && *hit != NULL) {
-    (*hit)->docId = 0;  // ic->lastDocId;
+  // unless we got an EOF - we put the current record into hit
+  if (hit) {
+    *hit = ic->current;
   }
 
+  // if the requested id was found on all children - we return OK
+  if (nfound == ic->num) {
+    return INDEXREAD_OK;
+  }
+
+  // otherwise - not found
   return INDEXREAD_NOTFOUND;
 }
 
@@ -451,7 +450,7 @@ eof:
 int II_HasNext(void *ctx) {
   IntersectContext *ic = ctx;
   // printf("%p %d\n", ic, ic->atEnd);
-  return ic->atEnd;
+  return !ic->atEnd;
 }
 
 t_docId II_LastDocId(void *ctx) {
