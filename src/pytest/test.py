@@ -474,6 +474,31 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
             # self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
 
+    def testNestedIntersection(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'a', 'text', 'b', 'text', 'c', 'text', 'd', 'text'))
+            for i in range(20):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'a', 'foo', 'b', 'bar', 'c', 'baz', 'd', 'gaz'))
+
+            res = [
+                r.execute_command('ft.search', 'idx', 'foo bar baz gaz', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@a:foo @b:bar @c:baz @d:gaz', 'nocontent'),
+                #r.execute_command('ft.search', 'idx', '@a:foo (@b:bar (@c:baz @d:gaz))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', 'foo (bar baz gaz)', 'nocontent'),
+                r.execute_command('ft.search', 'idx', 'foo (bar (baz gaz))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', 'foo (bar (foo bar) (foo bar))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', 'foo (foo (bar baz (gaz)))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', 'foo (foo (bar (baz (gaz (foo bar (gaz))))))', 'nocontent')]
+            print res
+            for r in res:
+                self.assertListEqual(res[0], r)
+            
+
+
+
     def testInKeys(self):
         with self.redis() as r:
             r.flushdb()
