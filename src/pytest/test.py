@@ -481,18 +481,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.create', 'idx', 'schema', 'a', 'text', 'b', 'text', 'c', 'text', 'd', 'text'))
             for i in range(20):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                                'a', 'foo', 'b', 'bar', 'c', 'baz', 'd', 'gaz'))
 
             res = [
                 r.execute_command('ft.search', 'idx', 'foo bar baz gaz', 'nocontent'),
                 r.execute_command('ft.search', 'idx', '@a:foo @b:bar @c:baz @d:gaz', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@b:bar @a:foo @c:baz @d:gaz', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@c:baz @b:bar @a:foo @d:gaz', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@d:gaz @c:baz @b:bar @a:foo', 'nocontent'),
                 r.execute_command('ft.search', 'idx', '@a:foo (@b:bar (@c:baz @d:gaz))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@c:baz (@a:foo (@b:bar (@c:baz @d:gaz)))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@b:bar (@a:foo (@c:baz @d:gaz))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@d:gaz (@a:foo (@c:baz @b:bar))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar baz gaz)', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar (baz gaz))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar (foo bar) (foo bar))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (foo (bar baz (gaz)))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (foo (bar (baz (gaz (foo bar (gaz))))))', 'nocontent')]
-            print res
+            
             for r in res:
                 self.assertListEqual(res[0], r)
             
