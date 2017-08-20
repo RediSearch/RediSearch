@@ -7,7 +7,6 @@
 %left MODIFIER.
 
 %left TERMLIST.
-
 %right LP.
 %left RP.
 %left AND.
@@ -136,17 +135,25 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     A = C; 
 }
 
+expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
+    A = NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len);
+    if (ctx->q->ctx && ctx->q->ctx->spec) {
+        A->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
+    }
+}
+
+
 
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
+    
     C->fieldMask = 0;
-    for (int i = 0; i < Vector_Size(B); i++) {
-        char *p;
-        Vector_Get(B, i, &p);
-
-        if (ctx->q->ctx && ctx->q->ctx->spec) {
+    if (ctx->q->ctx && ctx->q->ctx->spec) {
+        for (int i = 0; i < Vector_Size(B); i++) {
+            char *p;
+            Vector_Get(B, i, &p);
             C->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+            free(p);
         }
-        free(p);
     }
     Vector_Free(B);
     A=C;

@@ -416,6 +416,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
 
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   QueryPhraseNode *pn = &parent->pn;
+  // QueryNode_Print(NULL, parent, 0);
   // printf("parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
   if (child != NULL && (pn->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;
@@ -429,6 +430,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 
   pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
   pn->children[pn->numChildren++] = child;
+  // QueryNode_Print(NULL, parent, 0);
 }
 
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
@@ -562,7 +564,7 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_IDS) {
-    if (!q->ctx) {
+    if (!q || !q->ctx) {
       s = sdscatprintf(s, "@%x", qs->fieldMask);
     } else {
       s = sdscat(s, "@");
