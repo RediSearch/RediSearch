@@ -153,25 +153,51 @@ ENCODER(encodeDocIdsOnly) {
  * The encoding information is stored using the last two bits of the leading
  * byte, giving us a possibility of 4 different types of encoding.
  *
- * For integer values under 2^6, the first 6 bits are used
+ * The actual encoding of the integers can either be qint, varint, or raw,
+ * depending on the value of the encoding bits (the enumeration is defined
+ * immediately below).
  *
+ * When qint encoding is used, the qint encoding header _shares_ the same byte
+ * as the encoding bits. Because the qint encoding will encode at most 3
+ * numbers, we can infer that qint will use 6 bits (if encoding 3 integers)
+ * or 4 bits (if encoding 2 integers). In both cases, the two high bits are left
+ * available for encoding. Thus, the format of the leading byte may be laid
+ * out as:
  *
+ * XX               XXXXXX
+ * Encoding-type    Encoding-specific
  */
 typedef enum {
   // The actual value is a small integer, found in the 6 LSB
-  // DocID is Varint
+  // DocID is Varint.
+  // In this case, the bit pattern is:
+  // 00       XXXXXX
+  // (Tiny)   Integer <= (2^6)-1
   NumEncoding_Tiny = 0x00 << 6,
 
   // The value is found as qint(docid,num).
   // Signdedness is determined by the 3rd MSB bit in the header.
+  // Bit pattern:
+  // 01       X       X         XX                  XX
+  // (Int32)  (sign)  (unused)  (QInt, value bits)  (QInt, delta bits)
   NumEncoding_Int32 = 0x01 << 6,
 
   // The value is found as qint(docid,num).
   // Signdedness is determined by the 3rd MSB in the header
+  // Bit Pattern:
+  // 10         X       XXXXX
+  // (Float32)  (Sign)  (Unused)
   NumEncoding_Float32 = 0x02 << 6,
 
   // The value is found as qint32_64(docid, u64).
   // If the number is signed, it is encoded as a double
+  // Bit Pattern:
+  // 11         XXXXXX
+  // (Extended) (QInt Header)
+  // If all the bits of the qint header are 0, then the delta is encoded using
+  // varint, and afterwards raw double encoding is used (i.e. 8 bits). If any
+  // of the bits are nonzero, then qint encoding is used for the delta, and
+  // the 64 bit integer following
   NumEncoding_Extended = 0x03 << 6
 } NumEncodingType;
 
