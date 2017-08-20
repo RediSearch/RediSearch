@@ -486,7 +486,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             res = [
                 r.execute_command('ft.search', 'idx', 'foo bar baz gaz', 'nocontent'),
                 r.execute_command('ft.search', 'idx', '@a:foo @b:bar @c:baz @d:gaz', 'nocontent'),
-                #r.execute_command('ft.search', 'idx', '@a:foo (@b:bar (@c:baz @d:gaz))', 'nocontent'),
+                r.execute_command('ft.search', 'idx', '@a:foo (@b:bar (@c:baz @d:gaz))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar baz gaz)', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar (baz gaz))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (bar (foo bar) (foo bar))', 'nocontent'),
