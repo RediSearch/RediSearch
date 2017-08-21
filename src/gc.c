@@ -59,6 +59,7 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 }
 
 void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
+
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
   RedisModule_ThreadSafeContextLock(ctx);

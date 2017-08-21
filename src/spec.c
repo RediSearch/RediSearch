@@ -427,6 +427,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
     RedisModule_RetainString(ctx, keyName);
     sp->gc = NewGarbageCollector(keyName, initialHZ);
     GC_Start(sp->gc);
+    RedisModule_Log(ctx, "verbose", "Starting GC for spec %s", sp->name);
   }
 }
 
