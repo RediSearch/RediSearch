@@ -3,6 +3,7 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
+#include <float.h>
 #include "rmalloc.h"
 #include "qint.h"
 #include "qint.c"
@@ -142,79 +143,50 @@ ENCODER(encodeDocIdsOnly) {
 }
 
 /**
- * Numeric Encoding Design:
- *
- * Internally, the number is always normalized as a double, however it may
- * be stored in different ways depending on the actual size of the number.
- *
- * The tax paid up-front for this flexibility is a single byte; however this
- * byte is never actually wasted.
- *
- * The encoding information is stored using the last two bits of the leading
- * byte, giving us a possibility of 4 different types of encoding.
- *
- * The actual encoding of the integers can either be qint, varint, or raw,
- * depending on the value of the encoding bits (the enumeration is defined
- * immediately below).
- *
- * When qint encoding is used, the qint encoding header _shares_ the same byte
- * as the encoding bits. Because the qint encoding will encode at most 3
- * numbers, we can infer that qint will use 6 bits (if encoding 3 integers)
- * or 4 bits (if encoding 2 integers). In both cases, the two high bits are left
- * available for encoding. Thus, the format of the leading byte may be laid
- * out as:
- *
- * XX               XXXXXX
- * Encoding-type    Encoding-specific
+ * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
  */
-typedef enum {
-  // The actual value is a small integer, found in the 6 LSB
-  // DocID is Varint.
-  // In this case, the bit pattern is:
-  // 00       XXXXXX
-  // (Tiny)   Integer <= (2^6)-1
-  NumEncoding_Tiny = 0x00 << 6,
 
-  // The value is found as qint(docid,num).
-  // Signdedness is determined by the 3rd MSB bit in the header.
-  // Bit pattern:
-  // 01       X       X         XX                  XX
-  // (Int32)  (sign)  (unused)  (QInt, value bits)  (QInt, delta bits)
-  NumEncoding_Int32 = 0x01 << 6,
+#define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
-  // The value is found as qint(docid,num).
-  // Signdedness is determined by the 3rd MSB in the header
-  // Bit Pattern:
-  // 10         X       XXXXX
-  // (Float32)  (Sign)  (Unused)
-  NumEncoding_Float32 = 0x02 << 6,
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t zero : 2;
+  uint8_t valueByteCount : 3;
+  uint8_t sign : 1;
+} NumEncodingInt;
 
-  // The value is found as qint32_64(docid, u64).
-  // If the number is signed, it is encoded as a double
-  // Bit Pattern:
-  // 11         XXXXXX
-  // (Extended) (QInt Header)
-  // If all the bits of the qint header are 0, then the delta is encoded using
-  // varint, and afterwards raw double encoding is used (i.e. 8 bits). If any
-  // of the bits are nonzero, then qint encoding is used for the delta, and
-  // the 64 bit integer following
-  NumEncoding_Extended = 0x03 << 6
-} NumEncodingType;
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t zero : 1;
+  uint8_t isTiny : 1;
+  uint8_t tinyValue : 4;
+} NumEncodingTiny;
 
-#define NUM_TINY_MAX 0x3F            // Mask/Limit for 'Tiny' value
-#define NUM_F_SIGNED 0x20            // If encoding is not extended, signed bit
-#define NUM_ENCODING_MASK 0xC0       // Mask for two encoding bits
-#define NUM_QINT_VALUEHDR_MASK 0x3C  // Mask for qint value header
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t isFloat : 1;  // Always set to 1
+  uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
+  uint8_t sign : 1;
+  uint8_t isDouble : 1;  // Read 8 bytes rather than 4
+} NumEncodingFloat;
+
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t isFloat : 1;
+  uint8_t specific : 5;
+} NumEncodingCommon;
 
 typedef union {
-  float f32;
-  uint32_t encoded;
-} NumEncoded;
+  uint8_t storage;
+  NumEncodingCommon encCommon;
+  NumEncodingInt encInt;
+  NumEncodingTiny encTiny;
+  NumEncodingFloat encFloat;
+} EncodingHeader;
 
-static inline double myAbsf64(double input) {
-  return input < 0 ? -input : input;
-}
-
+#define NUM_TINY_MAX 0xF  // Mask/Limit for 'Tiny' value
 static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
   while (numBits) {
     fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
@@ -222,68 +194,96 @@ static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
   }
 }
 
+static void dumpEncoding(EncodingHeader header, FILE *fp) {
+  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
+  fprintf(fp, "Type: ");
+  if (header.encCommon.isFloat) {
+    fprintf(fp, " FLOAT\n");
+    fprintf(fp, "  SubType: %s\n", header.encFloat.isDouble ? "Double" : "Float");
+    fprintf(fp, "  INF: %s\n", header.encFloat.isInf ? "Yes" : "No");
+    fprintf(fp, "  Sign: %c\n", header.encFloat.sign ? '-' : '+');
+  } else if (header.encTiny.isTiny) {
+    fprintf(fp, " TINY\n");
+    fprintf(fp, "  Value: %u\n", header.encTiny.tinyValue);
+  } else {
+    fprintf(fp, " INT\n");
+    fprintf(fp, "  Size: %u\n", header.encInt.valueByteCount + 1);
+    fprintf(fp, "  Sign: %c\n", header.encInt.sign ? '-' : '+');
+  }
+}
+
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  const double absVal = myAbsf64(res->num.value);
+  const double absVal = fabs(res->num.value);
   const double realVal = res->num.value;
+  const float f32Num = absVal;
+  uint64_t u64Num = (uint64_t)absVal;
+  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
 
-  const uint32_t u32Num = (uint32_t)absVal;
-  const float f32Num = (float)absVal;
-  const uint64_t u64Num = (uint64_t)absVal;
-  const uint8_t u8Num = ((uint8_t)realVal) & NUM_TINY_MAX;
-  size_t sz = 0;
+  EncodingHeader header = {.storage = 0};
 
-  if ((double)u8Num == realVal) {
-    uint8_t b = NumEncoding_Tiny | u8Num;
-    sz += Buffer_Write(bw, &b, 1);
-    sz += WriteVarint(delta, bw);
-    return sz;
-  }
+  size_t pos = BufferWriter_Offset(bw);
+  size_t sz = Buffer_Write(bw, "\0", 1);
 
-  uint8_t encoding = 0;
-  size_t pos = bw->buf->offset;
+  // Write the delta
+  size_t numDeltaBytes = 0;
+  do {
+    sz += Buffer_Write(bw, &delta, 1);
+    numDeltaBytes++;
+    delta >>= 8;
+  } while (delta);
+  header.encCommon.deltaEncoding = numDeltaBytes - 1;
 
-  if ((double)u32Num == absVal) {
-    // -UINT32_MAX <= N <= UINT32_MAX
-    sz += qint_encode2(bw, delta, u32Num);
-    encoding = NumEncoding_Int32;
+  if ((double)tinyNum == realVal) {
+    // Number is small enough to fit?
+    header.encTiny.tinyValue = tinyNum;
+    header.encTiny.isTiny = 1;
+
+  } else if ((double)(uint64_t)absVal == absVal) {
+    // Is a whole number
+    uint64_t wholeNum = absVal;
+    NumEncodingInt *encInt = &header.encInt;
+
     if (realVal < 0) {
-      encoding |= NUM_F_SIGNED;
-    }
-  } else if ((double)f32Num == absVal) {
-    // "Proper" floating point value. We can't really optimize this because
-    // of how floats are represented (i.e. exponent and mantissa), but we
-    // can optimize the sign bit.
-    NumEncoded num = {.f32 = f32Num};
-    if (realVal < 0) {
-      encoding |= NUM_F_SIGNED;
+      encInt->sign = 1;
     }
 
-    sz += qint_encode2(bw, delta, num.encoded);
-    encoding |= NumEncoding_Float32;
+    size_t numValueBytes = 0;
+    do {
+      sz += Buffer_Write(bw, &u64Num, 1);
+      numValueBytes++;
+      u64Num >>= 8;
+    } while (u64Num);
+    encInt->valueByteCount = numValueBytes - 1;
 
-  } else if ((double)u64Num == realVal) {
-    sz += qint_encode32_64pair(bw, delta, u64Num);
-    encoding |= NumEncoding_Extended;
-    // dumpBits(bw->buf->data[pos], 8, stdout);
-    // printf("\n");
-    // dumpBits(encoding, 8, stdout);
-    // printf("\n");
+  } else if (!isfinite(realVal)) {
+    header.encCommon.isFloat = 1;
+    header.encFloat.isInf = 1;
+    if (realVal == -INFINITY) {
+      header.encFloat.sign = 1;
+    }
+
   } else {
-    // All bets are off when trying to optimize encoding for a double that's
-    // actually a double and not an integral or floating point value.
-    // Can we do further optimizations here, though?
-    sz += Buffer_Write(bw, &encoding, 1);
-    sz += WriteVarint(delta, bw);
-    sz += Buffer_Write(bw, (void *)&realVal, 8);
-    encoding |= NumEncoding_Extended;
+    // Floating point
+    NumEncodingFloat *encFloat = &header.encFloat;
+    if (fabs(absVal - f32Num) < 0.01) {
+      sz += Buffer_Write(bw, (void *)&f32Num, 4);
+      encFloat->isDouble = 0;
+    } else {
+      sz += Buffer_Write(bw, (void *)&absVal, 8);
+      encFloat->isDouble = 1;
+    }
+
+    encFloat->isFloat = 1;
+    if (realVal < 0) {
+      encFloat->sign = 1;
+    }
   }
 
-  bw->buf->data[pos] |= encoding;
+  *BufferWriter_PtrAt(bw, pos) = header.storage;
+  // printf("== Encoded ==\n");
+  // dumpEncoding(header, stdout);
 
-  // printf("Encoding=0x%x. Middle(0/1)=%d, Value: %lf. u32Num=%lf, f32Num=%lf\n",
-  //        (encoding & NUM_ENCODING_MASK) >> 6, !!(bw->buf->data[pos] & NUM_QINT_VALUEHDR_MASK),
-  //        res->num.value, (double)u32Num, (double)f32Num);
   return sz;
 }
 
@@ -348,7 +348,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId, (int)idx->flags);
+  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId,
+  //  (int)idx->flags);
   size_t ret = encoder(&bw, docId - blk->lastId, entry);
 
   idx->lastId = docId;
@@ -431,46 +432,41 @@ DECODER(readFreqOffsetsFlags) {
 
 // special decoder for decoding numeric results
 DECODER(readNumeric) {
-  const uint8_t firstByte = br->buf->data[br->pos];
-  const uint8_t encoding = firstByte & NUM_ENCODING_MASK;
+  EncodingHeader header;
+  Buffer_Read(br, &header, 1);
 
-  if (encoding == NumEncoding_Tiny) {
-    br->pos++;
-    res->docId = ReadVarint(br);
-    res->num.value = firstByte & (~NUM_ENCODING_MASK);
+  res->docId = 0;
+  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
 
-  } else if (encoding == NumEncoding_Int32) {
-    uint32_t tmp;
-    qint_decode2(br, &res->docId, &tmp);
-    res->num.value = tmp;
-    if (firstByte & NUM_F_SIGNED) {
-      res->num.value = -(res->num.value);
+  if (header.encCommon.isFloat) {
+    if (header.encFloat.isInf) {
+      res->num.value = INFINITY;
+    } else if (header.encFloat.isDouble) {
+      Buffer_Read(br, &res->num.value, 8);
+    } else {
+      float f;
+      Buffer_Read(br, &f, 4);
+      res->num.value = f;
     }
-
-  } else if (encoding == NumEncoding_Float32) {
-    float tmp;
-    qint_decode2(br, &res->docId, (uint32_t *)&tmp);
-    // printf("Decoded as %lf\n", tmp);
-    if (firstByte & NUM_F_SIGNED) {
-      tmp = -tmp;
+    if (header.encFloat.sign) {
+      res->num.value = -res->num.value;
     }
-    res->num.value = tmp;
-
-  } else if (firstByte & NUM_QINT_VALUEHDR_MASK) {
-    // printf("Reading as 64. firstByte (lower4)=0x%x\n", firstByte & NUM_QINT_VALUEHDR_MASK);
-
-    uint64_t tmp;
-    qint_decode32_64pair(br, &res->docId, &tmp);
-    res->num.value = tmp;
+  } else if (header.encTiny.isTiny) {
+    // Is embedded into the header
+    res->num.value = header.encTiny.tinyValue;
 
   } else {
-    // Encoding is 8 bytes, as a double.
-    br->pos++;
-    res->docId = ReadVarint(br);
-    Buffer_Read(br, &res->num.value, 8);
+    // Is a whole number
+    uint64_t num = 0;
+    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
+    res->num.value = num;
+    if (header.encInt.sign) {
+      res->num.value = -res->num.value;
+    }
   }
 
-  // printf("Encoding=0x%x, Value: %lf\n", encoding >> 6, res->num.value);
+  // printf("== Decoded ==\n");
+  // dumpEncoding(header, stdout);
 
   NumericFilter *f = ctx.ptr;
   if (f) {

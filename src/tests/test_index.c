@@ -385,9 +385,10 @@ int testNumericInverted() {
   RSIndexResult *res;
   t_docId i = 1;
   while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+    printf("%d %f\n", res->docId, res->num.value);
+
     ASSERT_EQUAL(i++, res->docId);
     ASSERT_EQUAL(res->num.value, (float)res->docId);
-    // printf("%d %f\n", res->docId, res->num.value);
   }
   InvertedIndex_Free(idx);
   it->Free(it);
@@ -413,10 +414,10 @@ int testNumericVaried() {
   RSIndexResult *res;
 
   for (size_t i = 0; i < numCount; i++) {
-    // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
+    printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     int rv = it->Read(it->ctx, &res);
     ASSERT(INDEXREAD_EOF != rv);
-    ASSERT_EQUAL(nums[i], res->num.value);
+    ASSERT(fabs(nums[i] - res->num.value) < 0.01);
   }
 
   ASSERT_EQUAL(INDEXREAD_EOF, it->Read(it->ctx, &res));
@@ -430,29 +431,34 @@ typedef struct {
   double value;
   size_t size;
 } encodingInfo;
-static const encodingInfo infos[] = {{0, 2},
-                                     {1, 2},
-                                     {63, 2},
-                                     {-1, 3},
-                                     {-63, 3},
-                                     {64, 3},
-                                     {-64, 3},
-                                     {255, 3},
-                                     {-255, 3},
-                                     {65535, 4},
-                                     {-65535, 4},
-                                     {16777215, 5},
-                                     {-16777215, 5},
-                                     {4294967295, 6},
-                                     {-4294967295, 6},
-                                     {4294967295 + 1, 6},
-                                     {4294967295 + 2, 7},
-                                     {549755813888.0, 6},
-                                     {549755813888.0 + 2, 7},
-                                     {549755813888.0 - 23, 7},
-                                     {-549755813888.0, 6},
-                                     {DBL_MAX, 10},
-                                     {UINT64_MAX >> 12, 9}};
+static const encodingInfo infos[] = {
+    {0, 2},                    // 0
+    {1, 2},                    // 1
+    {63, 3},                   // 2
+    {-1, 3},                   // 3
+    {-63, 3},                  // 4
+    {64, 3},                   // 5
+    {-64, 3},                  // 6
+    {255, 3},                  // 7
+    {-255, 3},                 // 8
+    {65535, 4},                // 9
+    {-65535, 4},               // 10
+    {16777215, 5},             // 11
+    {-16777215, 5},            // 12
+    {4294967295, 6},           // 13
+    {-4294967295, 6},          // 14
+    {4294967295 + 1, 7},       // 15
+    {4294967295 + 2, 7},       // 16
+    {549755813888.0, 7},       // 17
+    {549755813888.0 + 2, 7},   // 18
+    {549755813888.0 - 23, 7},  // 19
+    {-549755813888.0, 7},      // 20
+    {1503342028.957225, 10},   // 21
+    {42.4345, 6},              // 22
+    {(float)0.5, 6},           // 23
+    {DBL_MAX, 10},             // 24
+    {UINT64_MAX >> 12, 9}      // 25
+};
 
 int testNumericEncoding() {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
@@ -460,7 +466,7 @@ int testNumericEncoding() {
   // printf("TestNumericEncoding\n");
 
   for (size_t ii = 0; ii < numInfos; ii++) {
-    // printf("[%lu]: Expected Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
+    // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, 1, infos[ii].value);
     ASSERT_EQUAL(infos[ii].size, sz);
   }
@@ -470,9 +476,12 @@ int testNumericEncoding() {
   RSIndexResult *res;
 
   for (size_t ii = 0; ii < numInfos; ii++) {
+    // printf("\nReading [%lu]\n", ii);
+
     int rc = it->Read(it->ctx, &res);
     ASSERT(rc != INDEXREAD_EOF);
-    ASSERT_EQUAL(infos[ii].value, res->num.value);
+    // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
+    ASSERT(fabs(infos[ii].value - res->num.value) < 0.01);
   }
 
   InvertedIndex_Free(idx);
