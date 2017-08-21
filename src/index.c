@@ -7,9 +7,9 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
-
 #include <sys/param.h>
 #include "rmalloc.h"
+
 
 inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionContext *)ctx)->minDocId;
@@ -68,7 +68,7 @@ inline int UI_Read(void *ctx, RSIndexResult **hit) {
   do {
 
     // find the minimal iterator
-    t_docId minDocId = __UINT32_MAX__;
+    t_docId minDocId = UINT32_MAX;
     int minIdx = -1;
     numActive = 0;
     int rc = INDEXREAD_EOF;
@@ -157,7 +157,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   int rc = INDEXREAD_EOF;
   const int num = ui->num;
   const int quickExit = ui->quickExit;
-  t_docId minDocId = __UINT32_MAX__;
+  t_docId minDocId = UINT32_MAX;
   IndexIterator *it;
   RSIndexResult *res;
   // skip all iterators to docId
