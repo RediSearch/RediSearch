@@ -197,27 +197,6 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-/* FT.REPAIR {index} {term} {offset}
- * Repair a key or select a random key for repair.
- *
- * If term is set, we repair the key for the given term. If not, we select a random term key.
- * If offset is set, we start repairing at the given block offset.
- * The returned values are the term repaired, and the block offset we stopped at.
- * In order not to block redis for too long, we work at 10 blocks at most.
- * If we did not finish covering the entire block range, we return the block we stopped at, a-la
- * SCAN. If we finished all the term's blocks, we return 0, which means we can go on to the next
- * term
- */
-int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
-  if (argc != 2) return RedisModule_WrongArity(ctx);
-  RedisModule_RetainString(ctx, argv[1]);
-  GarbageCollectorCtx *gc = NewGarbageCollector(argv[1], 10);
-  GC_Start(gc);
-
-  return REDISMODULE_OK;
-}
-
 #define REPLY_KVNUM(n, k, v)                   \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
@@ -1094,8 +1073,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDTERM_CMD, TermAddCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_REPAIR_CMD, RepairCommand, "write", 0, 0, -1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1,
          1);
