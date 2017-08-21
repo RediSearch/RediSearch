@@ -258,8 +258,7 @@ typedef struct {
   void *privdata;
   /* Payload set by the client or by the query expander */
   RSPayload payload;
-  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
-   * that
+  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms, that
    * can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
 } RSScoringFunctionCtx;
