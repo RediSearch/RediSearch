@@ -487,6 +487,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->docs = NewDocTable(1000);
   sp->sortables = NULL;
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  sp->gc = NULL;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;

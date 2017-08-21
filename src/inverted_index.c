@@ -837,18 +837,24 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     lastReadId = res->docId += lastReadId;
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
-    if (md->flags & Document_Deleted) {
+    // If we found a deleted document, we increment the number of found "frags",
+    // and not write anything, so the reader will advance byt the writer won't.
+    // this will close the "hole" in the index
+    if (!md || md->flags & Document_Deleted) {
       ++frags;
       if (bytesCollected) *bytesCollected += sz;
-      // printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
-    } else {
+    } else {  // valid document
 
+      // if we're already operating in a repaired block, we do nothing if we found no holes yet, or
+      // write back the record at the writer's top end if we've found a hole before
       if (frags) {
-        // printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
-        //        blk->lastId);
+
+        // in this case we are already closing holes, so we need to write back the record at the
+        // writer's position. We also calculate the delta again
         encoder(&bw, res->docId - blk->lastId, res);
 
       } else {
+        // nothing to do - this block is not fragmented as of now, so we just advance the writer
         bw.buf->offset += sz;
         bw.pos += sz;
       }
@@ -856,11 +862,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     }
   }
   if (frags) {
+    // if we deleted stuff from this block, we need to chagne the number of docs and the data
+    // pointer
     blk->numDocs -= frags;
     *blk->data = repair;
     Buffer_Truncate(blk->data, 0);
   }
-  // IndexReader *ir = NewIndexReader()
   return frags;
 }
 
@@ -881,7 +888,6 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
 
       // increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;
-      // printf("Repaired %d holes in block %d\n", rep, startBlock);
     }
     n++;
     startBlock++;
