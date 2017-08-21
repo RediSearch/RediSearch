@@ -29,15 +29,10 @@ QINT_API size_t qint_encode3(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_
 /* Encode 4 integers with one leading byte. return the size of the encoded data written */
 QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4);
 
-/* Specialized function to encode a pair of (u32,u64) integers. Decode with decode32_64_pair */
-QINT_API size_t qint_encode32_64pair(BufferWriter *bw, uint32_t n32, uint64_t n64);
-
-/* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid
- */
+/* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
 QINT_API size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len);
 
-/* Decode one unsinged integer from the buffer. This can only be used if the record has been
- * encoded
+/* Decode one unsinged integer from the buffer. This can only be used if the record has been encoded
  * with encode1 */
 QINT_API size_t qint_decode1(BufferReader *br, uint32_t *i);
 /* Decode two unsinged integers from the buffer. This can only be used if the record has been
@@ -53,8 +48,5 @@ QINT_API size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
  * with encode4 or encoded array of len 4 */
 QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3,
                              uint32_t *i4);
-
-/* Decode a pair encoded with encode32_64pair() */
-QINT_API size_t qint_decode32_64pair(BufferReader *br, uint32_t *n32, uint64_t *n64);
 
 #endif
