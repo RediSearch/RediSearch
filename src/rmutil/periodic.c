@@ -45,6 +45,10 @@ static void *rmutilTimer_Loop(void *ctx) {
       // It's up to the user to decide whether automemory is active there
       if (rctx) RedisModule_FreeThreadSafeContext(rctx);
     }
+    if (rc == EINVAL) {
+      perror("Error waiting for condition");
+      break;
+    }
   }
   //  RedisModule_Log(tm->redisCtx, "notice", "Timer cancelled");
 
