@@ -145,13 +145,16 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   // if we didn't remove anything - reduce the frequency a bit.
   // if we did  - increase the frequency a bit
 
-  if (totalRemoved > 0) {
-    gc->hz = MIN(gc->hz * 1.1, GC_MAX_HZ);
-  } else {
-    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+  if (gc->timer) {  // the timer is NULL if we've been cancelled
+    if (totalRemoved > 0) {
+      gc->hz = MIN(gc->hz * 1.1, GC_MAX_HZ);
+    } else {
+      gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+    }
+
+    RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
   }
 
-  RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 
 end:
