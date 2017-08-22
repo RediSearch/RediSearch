@@ -163,27 +163,31 @@ end:
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
+static void gc_onTerm(void *privdata) {
+  GarbageCollectorCtx *gc = privdata;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModule_ThreadSafeContextLock(ctx);
+  RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  free(gc);
+}
+
 // Start the collector thread
 int GC_Start(GarbageCollectorCtx *ctx) {
   assert(ctx->timer == NULL);
-  ctx->timer = RMUtil_NewPeriodicTimer(GC_PeriodicCallback, ctx, hzToTimeSpec(ctx->hz));
+  ctx->timer = RMUtil_NewPeriodicTimer(GC_PeriodicCallback, gc_onTerm, ctx, hzToTimeSpec(ctx->hz));
   return REDISMODULE_OK;
 }
 
 int GC_Stop(GarbageCollectorCtx *ctx) {
   if (ctx->timer) {
-    RMUtilTimer_Stop(ctx->timer);
-    RMUtilTimer_Free(ctx->timer);
+    RMUtilTimer_Terminate(ctx->timer);
+    // set the timer to NULL so we won't call this twice
     ctx->timer = NULL;
+    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
-}
-
-void GC_Free(GarbageCollectorCtx *ctx) {
-  if (ctx->timer) {
-    GC_Stop(ctx);
-  }
-  free(ctx);
 }
 
 // get the current stats from the collector

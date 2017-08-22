@@ -315,7 +315,7 @@ void IndexSpec_Free(void *ctx) {
 
   if (spec->gc) {
     GC_Stop(spec->gc);
-    GC_Free(spec->gc);
+    // GC_Free(spec->gc);
   }
 
   if (spec->terms) {
