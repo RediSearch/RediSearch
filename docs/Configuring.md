@@ -40,6 +40,8 @@ Off (not present)
 $ redis-server --loadmoulde ./redisearch.so SAFEMODE
 ```
 
+---
+
 ## EXTLOAD {file_name}
 
 If present, we try to load a redisearch extension dynamic library from the specified file path. See [Extensions](/Extensions) for details.
@@ -52,4 +54,20 @@ None
 
 ```
 $ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+```
+
+---
+
+## NOGC
+
+If set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.
+
+### Default:
+
+Not set
+
+### Example:
+
+```
+$ redis-server --loadmoulde ./redisearch.so NOGC
 ```

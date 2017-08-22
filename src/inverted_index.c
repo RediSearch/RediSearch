@@ -729,6 +729,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
   ret->lastId = 0;
   ret->idx = idx;
 
+  ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
   ret->atEnd = 0;

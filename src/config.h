@@ -18,7 +18,7 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 // default configuration
 #define RS_DEFAULT_CONFIG                                  \
   (RSConfig){                                              \
-      .concurrentMode = 1, .extLoad = NULL, .enableGC = 0, \
+      .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, \
   };
 
 #endif
