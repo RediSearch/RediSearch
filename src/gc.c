@@ -51,7 +51,7 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   }
 
   if (!RMUtilInfo_GetInt(info, "loading", &isLoading)) {
-    return 0;
+    isLoading = 0;
   }
 
   RMUtilRedisInfo_Free(info);

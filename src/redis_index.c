@@ -150,7 +150,9 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
-
+  if(sctx->keyName && sctx->redisCtx) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   rm_free(sctx);
 }
 /*

@@ -79,7 +79,7 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
     }
   }
   info->numEntries = i;
-
+  RedisModule_FreeCallReply(r);
   return info;
 }
 void RMUtilRedisInfo_Free(RMUtilInfo *info) {

@@ -869,6 +869,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     *blk->data = repair;
     Buffer_Truncate(blk->data, 0);
   }
+  IndexResult_Free(res);
   return frags;
 }
 
