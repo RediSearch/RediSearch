@@ -31,7 +31,12 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen) {
     newlen = Buffer_Offset(b);
   }
 
-  b->data = newlen == 0 ? NULL : rm_realloc(b->data, newlen);
+  if (newlen == 0) {
+    rm_free(b->data);
+    b->data = NULL;
+  } else {
+    b->data = rm_realloc(b->data, newlen);
+  }
   b->cap = newlen;
   return newlen;
 }

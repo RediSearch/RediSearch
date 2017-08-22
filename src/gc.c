@@ -116,6 +116,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
       // First we close the relevant keys we're touching
       RedisModule_CloseKey(sctx->key);
       RedisModule_CloseKey(idxKey);
+
       SearchCtx_Free(sctx);
 
       // now release the global lock
@@ -160,6 +161,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 end:
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
     SearchCtx_Free(sctx);
   }
   if (idxKey) RedisModule_CloseKey(idxKey);

@@ -511,7 +511,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc.payloadSize = 0;
   Document_Detach(&doc, ctx);
 
-  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModuleBlockedClient *client =
+      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
