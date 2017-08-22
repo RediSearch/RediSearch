@@ -1022,7 +1022,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 return d
             
             stats = get_stats(r)
-            self.assertEqual(10, stats['gc_stats']['current_hz'])
+            self.assertGreater(stats['gc_stats']['current_hz'], 8)
             self.assertEqual(0, stats['gc_stats']['bytes_collected'])
             self.assertGreater(int(stats['num_records']), 0)
             
@@ -1040,7 +1040,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertEqual('100', stats['max_doc_id'])
             self.assertGreater( stats['gc_stats']['current_hz'], 50)
             currentIndexSize = float(stats['inverted_sz_mb'])*1024*1024
-            print initialIndexSize, currentIndexSize, stats['gc_stats']['bytes_collected']
+            #print initialIndexSize, currentIndexSize, stats['gc_stats']['bytes_collected']
             self.assertGreater(initialIndexSize, currentIndexSize)
             self.assertGreater(stats['gc_stats']['bytes_collected'], currentIndexSize)
 
