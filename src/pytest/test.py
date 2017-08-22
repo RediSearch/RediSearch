@@ -1040,6 +1040,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertGreater( stats['gc_stats']['current_hz'], 50)
             self.assertGreater(stats['gc_stats']['bytes_collected'], 3500)
 
+            for i in range(10):
+
+                res = r.execute_command('ft.search', 'idx', 'term%d' % i)
+                self.assertEqual([0], res)
+            
             
 
     def testReturning(self):

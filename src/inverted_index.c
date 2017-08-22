@@ -591,7 +591,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     goto eof;
   }
   do {
-    if (BufferReader_AtEnd(&ir->br)) {
+    while (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
         goto eof;
