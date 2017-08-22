@@ -192,11 +192,13 @@ int GC_Stop(GarbageCollectorCtx *ctx) {
 
 // get the current stats from the collector
 GCStats *GC_GetStats(GarbageCollectorCtx *ctx) {
+  if (!ctx) return NULL;
   return &ctx->stats;
 }
 
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(GarbageCollectorCtx *ctx) {
+  if (!ctx) return;
   ctx->hz = MIN(ctx->hz * 1.5, GC_MAX_HZ);
 }
 
@@ -208,10 +210,12 @@ void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
 
   int n = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  REPLY_KVNUM(n, "current_hz", gc->hz);
-  REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
-  REPLY_KVNUM(
-      n, "effectiv_cycles_rate",
-      (double)gc->stats.effectiveCycles / (double)(gc->stats.numCycles ? gc->stats.numCycles : 1));
+  if (gc) {
+    REPLY_KVNUM(n, "current_hz", gc->hz);
+    REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
+    REPLY_KVNUM(n, "effectiv_cycles_rate",
+                (double)gc->stats.effectiveCycles /
+                    (double)(gc->stats.numCycles ? gc->stats.numCycles : 1));
+  }
   RedisModule_ReplySetArrayLength(ctx, n);
 }

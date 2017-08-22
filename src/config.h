@@ -6,6 +6,7 @@
 typedef struct {
   int concurrentMode;
   const char *extLoad;
+  int enableGC;
 } RSConfig;
 
 extern RSConfig RSGlobalConfig;
@@ -15,9 +16,9 @@ extern RSConfig RSGlobalConfig;
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
 // default configuration
-#define RS_DEFAULT_CONFIG                   \
-  (RSConfig){                               \
-      .concurrentMode = 1, .extLoad = NULL, \
+#define RS_DEFAULT_CONFIG                                  \
+  (RSConfig){                                              \
+      .concurrentMode = 1, .extLoad = NULL, .enableGC = 0, \
   };
 
 #endif

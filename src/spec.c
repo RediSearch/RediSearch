@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <assert.h>
 #include "rmalloc.h"
+#include "config.h"
 
 RedisModuleType *IndexSpecType;
 
@@ -422,12 +423,12 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
 
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(sp->gc == NULL);
-  if (sp->gc == NULL) {
+  if (sp->gc == NULL && RSGlobalConfig.enableGC) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
     sp->gc = NewGarbageCollector(keyName, initialHZ);
     GC_Start(sp->gc);
-    RedisModule_Log(ctx, "verbose", "Starting GC for spec %s", sp->name);
+    RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
 }
 

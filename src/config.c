@@ -18,5 +18,9 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     RSGlobalConfig.concurrentMode = 0;
   }
 
+  if (RMUtil_ArgIndex("NOGC", argv, argc) >= 0) {
+    RSGlobalConfig.enableGC = 0;
+  }
+
   return REDISMODULE_OK;
 }
