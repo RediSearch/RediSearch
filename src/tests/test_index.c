@@ -457,7 +457,9 @@ static const encodingInfo infos[] = {
     {42.4345, 6},              // 22
     {(float)0.5, 6},           // 23
     {DBL_MAX, 10},             // 24
-    {UINT64_MAX >> 12, 9}      // 25
+    {UINT64_MAX >> 12, 9},     // 25
+    {INFINITY, 2},             // 26
+    {-INFINITY, 2}             // 27
 };
 
 int testNumericEncoding() {
@@ -481,7 +483,11 @@ int testNumericEncoding() {
     int rc = it->Read(it->ctx, &res);
     ASSERT(rc != INDEXREAD_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
-    ASSERT(fabs(infos[ii].value - res->num.value) < 0.01);
+    if (fabs(infos[ii].value) == INFINITY) {
+      ASSERT(infos[ii].value == res->num.value);
+    } else {
+      ASSERT(fabs(infos[ii].value - res->num.value) < 0.01);
+    }
   }
 
   InvertedIndex_Free(idx);
