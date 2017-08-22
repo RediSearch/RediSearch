@@ -545,6 +545,8 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len) {
   // create an iteration stack we walk up and down
+  minSteps = MAX(minSteps, 4);
+
   size_t stackCap = minSteps;
   size_t stackSz = 1;
   TrieNode **stack = calloc(stackCap, sizeof(TrieNode *));

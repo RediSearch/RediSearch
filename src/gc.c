@@ -134,7 +134,7 @@ void GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   if (totalRemoved) {
-    RedisModule_Log(ctx, "verbose", "Garbage collected %zd bytes in %zd records for term '%s'",
+    RedisModule_Log(ctx, "notice", "Garbage collected %zd bytes in %zd records for term '%s'",
                     totalCollected, totalRemoved, term);
   }
 

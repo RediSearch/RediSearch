@@ -248,7 +248,7 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
 
   // TODO: deduce steps from cardinality properly
   TrieNode *n =
-      TrieNode_RandomWalk(t->root, rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
+      TrieNode_RandomWalk(t->root, 2 + rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
   if (!n) {
     return 0;
   }
