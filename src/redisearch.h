@@ -178,12 +178,7 @@ typedef struct {
 
 } RSVirtualRecord;
 
-typedef struct {
-  union {
-    float value;
-    uint32_t encoded;
-  };
-} RSNumericRecord;
+typedef struct { double value; } RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,
@@ -255,7 +250,8 @@ int RSIndexResult_HasOffsets(RSIndexResult *res);
 
 int RSIndexResult_IsAggregate(RSIndexResult *r);
 
-/* The context given to a scoring function. It includes the payload set by the user or expander, the
+/* The context given to a scoring function. It includes the payload set by the user or expander,
+ * the
  * private data set by the extensionm and callback functions */
 typedef struct {
   /* Private data set by the extension on initialization time, or during scoring */

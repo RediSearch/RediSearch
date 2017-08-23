@@ -70,7 +70,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     size_t card = n->card;
     for (int i = 0; i < card; i++) {
 
-      if (n->values[i] == (float)value) {
+      if (n->values[i] == value) {
         add = 0;
         break;
       }
@@ -80,7 +80,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
   if (add) {
     if (n->card < n->splitCard) {
-      n->values[n->card] = (float)value;
+      n->values[n->card] = value;
     }
     ++n->card;
   }
@@ -129,7 +129,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
                              .maxVal = max,
                              .card = 0,
                              .splitCard = splitCard,
-                             .values = RedisModule_Calloc(splitCard, sizeof(float)),
+                             .values = RedisModule_Calloc(splitCard, sizeof(double)),
                              .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
@@ -195,7 +195,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       Vector_Push(v, n->range);
-       return;
+      return;
     }
     // No overlap at all - no need to do anything
     if (!NumericRange_Overlaps(n->range, min, max)) {
@@ -400,7 +400,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->card * sizeof(float);
+    *sz += n->range->card * sizeof(double);
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }

@@ -103,6 +103,14 @@ static inline char *BufferReader_Current(BufferReader *b) {
   return b->buf->data + b->pos;
 }
 
+static inline size_t BufferWriter_Offset(BufferWriter *b) {
+  return b->pos - b->buf->data;
+}
+
+static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {
+  return b->buf->data + pos;
+}
+
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 

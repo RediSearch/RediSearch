@@ -3,6 +3,7 @@
 #include "math.h"
 #include "varint.h"
 #include <stdio.h>
+#include <float.h>
 #include "rmalloc.h"
 #include "qint.h"
 #include "qint.c"
@@ -141,11 +142,148 @@ ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
 }
 
+/**
+ * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
+ */
+
+#define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
+
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t zero : 2;
+  uint8_t valueByteCount : 3;
+  uint8_t sign : 1;
+} NumEncodingInt;
+
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t zero : 1;
+  uint8_t isTiny : 1;
+  uint8_t tinyValue : 4;
+} NumEncodingTiny;
+
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t isFloat : 1;  // Always set to 1
+  uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
+  uint8_t sign : 1;
+  uint8_t isDouble : 1;  // Read 8 bytes rather than 4
+} NumEncodingFloat;
+
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t isFloat : 1;
+  uint8_t specific : 5;
+} NumEncodingCommon;
+
+typedef union {
+  uint8_t storage;
+  NumEncodingCommon encCommon;
+  NumEncodingInt encInt;
+  NumEncodingTiny encTiny;
+  NumEncodingFloat encFloat;
+} EncodingHeader;
+
+#define NUM_TINY_MAX 0xF  // Mask/Limit for 'Tiny' value
+static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
+  while (numBits) {
+    fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
+    numBits--;
+  }
+}
+
+static void dumpEncoding(EncodingHeader header, FILE *fp) {
+  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
+  fprintf(fp, "Type: ");
+  if (header.encCommon.isFloat) {
+    fprintf(fp, " FLOAT\n");
+    fprintf(fp, "  SubType: %s\n", header.encFloat.isDouble ? "Double" : "Float");
+    fprintf(fp, "  INF: %s\n", header.encFloat.isInf ? "Yes" : "No");
+    fprintf(fp, "  Sign: %c\n", header.encFloat.sign ? '-' : '+');
+  } else if (header.encTiny.isTiny) {
+    fprintf(fp, " TINY\n");
+    fprintf(fp, "  Value: %u\n", header.encTiny.tinyValue);
+  } else {
+    fprintf(fp, " INT\n");
+    fprintf(fp, "  Size: %u\n", header.encInt.valueByteCount + 1);
+    fprintf(fp, "  Sign: %c\n", header.encInt.sign ? '-' : '+');
+  }
+}
+
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  size_t sz = WriteVarint(delta, bw);
+  const double absVal = fabs(res->num.value);
+  const double realVal = res->num.value;
+  const float f32Num = absVal;
+  uint64_t u64Num = (uint64_t)absVal;
+  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
 
-  sz += Buffer_Write(bw, (char *)&res->num.encoded, sizeof(uint32_t));
+  EncodingHeader header = {.storage = 0};
+
+  size_t pos = BufferWriter_Offset(bw);
+  size_t sz = Buffer_Write(bw, "\0", 1);
+
+  // Write the delta
+  size_t numDeltaBytes = 0;
+  do {
+    sz += Buffer_Write(bw, &delta, 1);
+    numDeltaBytes++;
+    delta >>= 8;
+  } while (delta);
+  header.encCommon.deltaEncoding = numDeltaBytes - 1;
+
+  if ((double)tinyNum == realVal) {
+    // Number is small enough to fit?
+    header.encTiny.tinyValue = tinyNum;
+    header.encTiny.isTiny = 1;
+
+  } else if ((double)(uint64_t)absVal == absVal) {
+    // Is a whole number
+    uint64_t wholeNum = absVal;
+    NumEncodingInt *encInt = &header.encInt;
+
+    if (realVal < 0) {
+      encInt->sign = 1;
+    }
+
+    size_t numValueBytes = 0;
+    do {
+      sz += Buffer_Write(bw, &u64Num, 1);
+      numValueBytes++;
+      u64Num >>= 8;
+    } while (u64Num);
+    encInt->valueByteCount = numValueBytes - 1;
+
+  } else if (!isfinite(realVal)) {
+    header.encCommon.isFloat = 1;
+    header.encFloat.isInf = 1;
+    if (realVal == -INFINITY) {
+      header.encFloat.sign = 1;
+    }
+
+  } else {
+    // Floating point
+    NumEncodingFloat *encFloat = &header.encFloat;
+    if (fabs(absVal - f32Num) < 0.01) {
+      sz += Buffer_Write(bw, (void *)&f32Num, 4);
+      encFloat->isDouble = 0;
+    } else {
+      sz += Buffer_Write(bw, (void *)&absVal, 8);
+      encFloat->isDouble = 1;
+    }
+
+    encFloat->isFloat = 1;
+    if (realVal < 0) {
+      encFloat->sign = 1;
+    }
+  }
+
+  *BufferWriter_PtrAt(bw, pos) = header.storage;
+  // printf("== Encoded ==\n");
+  // dumpEncoding(header, stdout);
+
   return sz;
 }
 
@@ -210,7 +348,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId, (int)idx->flags);
+  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId,
+  //  (int)idx->flags);
   size_t ret = encoder(&bw, docId - blk->lastId, entry);
 
   idx->lastId = docId;
@@ -239,7 +378,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 }
 
 /* Write a numeric entry to the index */
-size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, float value) {
+size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value) {
 
   RSIndexResult rec = (RSIndexResult){
       .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){.value = value},
@@ -293,10 +432,42 @@ DECODER(readFreqOffsetsFlags) {
 
 // special decoder for decoding numeric results
 DECODER(readNumeric) {
-  res->docId = ReadVarint(br);
-  Buffer_Read(br, &res->num.encoded, sizeof(uint32_t));
-  // qint_decode2(br, &res->docId, &res->num.encoded);
-  // printf("Decoded %u -> %f\n", res->num.encoded, res->num.val)
+  EncodingHeader header;
+  Buffer_Read(br, &header, 1);
+
+  res->docId = 0;
+  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
+
+  if (header.encCommon.isFloat) {
+    if (header.encFloat.isInf) {
+      res->num.value = INFINITY;
+    } else if (header.encFloat.isDouble) {
+      Buffer_Read(br, &res->num.value, 8);
+    } else {
+      float f;
+      Buffer_Read(br, &f, 4);
+      res->num.value = f;
+    }
+    if (header.encFloat.sign) {
+      res->num.value = -res->num.value;
+    }
+  } else if (header.encTiny.isTiny) {
+    // Is embedded into the header
+    res->num.value = header.encTiny.tinyValue;
+
+  } else {
+    // Is a whole number
+    uint64_t num = 0;
+    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
+    res->num.value = num;
+    if (header.encInt.sign) {
+      res->num.value = -res->num.value;
+    }
+  }
+
+  // printf("== Decoded ==\n");
+  // dumpEncoding(header, stdout);
+
   NumericFilter *f = ctx.ptr;
   if (f) {
     return NumericFilter_Match(f, res->num.value);
