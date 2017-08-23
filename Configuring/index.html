@@ -336,10 +336,46 @@
       <input class="md-toggle md-nav__toggle" data-md-toggle="nav-13" type="checkbox" id="nav-13">
     
     <label class="md-nav__link" for="nav-13">
-      Articles
+      Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
       <label class="md-nav__title" for="nav-13">
+        Design Documents
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../design/gc/" title="Garbage Collection" class="md-nav__link">
+      Garbage Collection
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-14" type="checkbox" id="nav-14">
+    
+    <label class="md-nav__link" for="nav-14">
+      Articles
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-14">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -415,12 +451,23 @@
 </pre></div>
 
 
+<hr />
 <h2 id="extload-file_name">EXTLOAD {file_name}<a class="headerlink" href="#extload-file_name" title="Permanent link">&para;</a></h2>
 <p>If present, we try to load a redisearch extension dynamic library from the specified file path. See <a href="../Extensions">Extensions</a> for details.</p>
 <h3 id="default_1">Default:<a class="headerlink" href="#default_1" title="Permanent link">&para;</a></h3>
 <p>None</p>
 <h3 id="example_1">Example:<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+</pre></div>
+
+
+<hr />
+<h2 id="nogc">NOGC<a class="headerlink" href="#nogc" title="Permanent link">&para;</a></h2>
+<p>If set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.</p>
+<h3 id="default_2">Default:<a class="headerlink" href="#default_2" title="Permanent link">&para;</a></h3>
+<p>Not set</p>
+<h3 id="example_2">Example:<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmoulde ./redisearch.so NOGC
 </pre></div>
               
               
