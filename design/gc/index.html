@@ -552,12 +552,14 @@
 <p>Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.</p>
 <h2 id="2-garbage-collecting-a-single-term-index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2-garbage-collecting-a-single-term-index" title="Permanent link">&para;</a></h2>
 <p>A single term inverted index is consisted of an array of "blocks" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. </p>
-<p>The algorithm is pretty simple: 
-0. Create a reader and writer for each block
-1. Read each block's records one by one
-2. If no record is invalid, do nothing
-3. Once we found a garbage record, we advance the reader but not the writer.
-4. Once we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.</p>
+<p>The algorithm is pretty simple: </p>
+<ol>
+<li>Create a reader and writer for each block</li>
+<li>Read each block's records one by one</li>
+<li>If no record is invalid, do nothing</li>
+<li>Once we found a garbage record, we advance the reader but not the writer.</li>
+<li>Once we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.</li>
+</ol>
 <p>Pseudo code:</p>
 <div class="codehilite"><pre><span></span>foreach index_block as block:
 
