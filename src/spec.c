@@ -65,10 +65,40 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
   }
 
   IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, err);
-  if (ret) {
-    IndexSpec_StartGC(ctx, ret, GC_DEFAULT_HZ);
-  }
+
   return ret;
+}
+
+IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               char **err) {
+  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
+  if (sp == NULL) {
+    if (!*err) *err = "Could not parse index spec";
+    return NULL;
+  }
+
+  RedisModuleKey *k =
+      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name),
+                          REDISMODULE_READ | REDISMODULE_WRITE);
+
+  // check that the key is empty
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
+    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+      *err = "Wrong type for index key";
+    } else {
+      *err = "Index already exists. Drop it first!";
+    }
+    IndexSpec_Free(sp);
+    return NULL;
+  }
+
+  // Start the garbage collector
+  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+
+  // set the value in redis
+  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
+
+  return sp;
 }
 
 int __findOffset(const char *arg, const char **argv, int argc) {
@@ -282,6 +312,10 @@ size_t weightedRandom(double weights[], size_t len) {
   // fallback
   return 0;
 }
+
+/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
+ * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
+ * enough. Returns NULL if the index is empty */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
   if (sampleSize > sp->terms->size) {
@@ -311,12 +345,12 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
   return samples[selection];
 }
+
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
   if (spec->gc) {
     GC_Stop(spec->gc);
-    // GC_Free(spec->gc);
   }
 
   if (spec->terms) {
@@ -421,6 +455,8 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   return sp;
 }
 
+/* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
+ * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(sp->gc == NULL);
   if (sp->gc == NULL && RSGlobalConfig.enableGC) {

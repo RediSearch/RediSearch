@@ -37,6 +37,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 
     blk->data = Buffer_Wrap(cap > 0 ? data : NULL, cap);
     blk->data->offset = cap;
+    // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
     if (!cap && data) RedisModule_Free(data);
   }
   return idx;
@@ -150,9 +151,7 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
-  // if (sctx->keyName && sctx->redisCtx) {
-  //   RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
-  // }
+
   rm_free(sctx);
 }
 /*
@@ -227,14 +226,6 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
   return NULL;
 }
-// ScoreIndex *LoadRedisScoreIndex(RedisSearchCtx *ctx, const char *term, size_t len) {
-//   Buffer *b = NewRedisBuffer(ctx->redisCtx, fmtRedisScoreIndexKey(ctx, term, len),
-//   BUFFER_READ);
-//   if (b == NULL || b->cap <= sizeof(ScoreIndexEntry)) {
-//     return NULL;
-//   }
-//   return NewScoreIndex(b);
-// }
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, RedisModuleKey **keyp) {
@@ -294,19 +285,6 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSToken *tok, DocTable *dt, i
   return ret;
 }
 
-// void Redis_CloseReader(IndexReader *r) {
-//   // we don't call IR_Free because it frees the underlying memory right now
-
-//   RedisBufferFree(r->buf);
-
-//   if (r->skipIdx != NULL) {
-//     free(r->skipIdx);
-//   }
-//   if (r->scoreIndex != NULL) {
-//     ScoreIndex_Free(r->scoreIndex);
-//   }
-//   free(r);
-// }
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
   doc->numFields = 0;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);

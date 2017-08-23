@@ -86,6 +86,10 @@ typedef struct indexReadCtx {
   RSIndexResult *record;
 
   int atEnd;
+
+  /* This marker lets us know whether the garbage collector has visited this index while the reading
+   * thread was asleep, and reset the state in a deeper way
+   */
   uint32_t gcMarker;
 } IndexReader;
 

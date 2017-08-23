@@ -424,6 +424,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
   if (rc == 1) {
     sp->stats.numDocuments--;
+    // Increment the index's garbage collector's scanning frequency after document deletions
     GC_OnDelete(sp->gc);
   }
 
@@ -668,24 +669,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   char *err;
 
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, &err);
+  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
   if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, err ? err : "Could not parse index spec");
+    return RedisModule_ReplyWithError(ctx, err ? err : "Could not create new index");
   }
-
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name),
-                          REDISMODULE_READ | REDISMODULE_WRITE);
-
-  // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
-    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType)
-      return RedisModule_ReplyWithError(ctx, "Wrong type for index key");
-    else
-      return RedisModule_ReplyWithError(ctx, "Index already exists. Drop it first!");
-  }
-
-  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }

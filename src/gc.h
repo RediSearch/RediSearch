@@ -29,21 +29,23 @@ typedef struct {
 #ifndef RS_GC_C_
 typedef struct GarbageCollectorCtx GarbageCollectorCtx;
 
+/* Create a new garbage collector, with a string for the index name, and initial frequency */
 GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initial_hz);
 
 // Start the collector thread
 int GC_Start(GarbageCollectorCtx *ctx);
 
+/* Stop the garbage collector, and call its termination function asynchronously when its thread is
+ * finished. This also frees the resources allocated for the GC context */
 int GC_Stop(GarbageCollectorCtx *ctx);
 
-void GC_Free(GarbageCollectorCtx *ctx);
-
 // get the current stats from the collector
-struct GCStats *GC_GetStats(GarbageCollectorCtx *ctx);
+const struct GCStats *GC_GetStats(GarbageCollectorCtx *ctx);
 
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(GarbageCollectorCtx *ctx);
 
+/* Render the GC stats to a redis connection, used by FT.INFO */
 void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc);
 
 #endif  // RS_GC_C_

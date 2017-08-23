@@ -591,6 +591,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     goto eof;
   }
   do {
+
+    // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
@@ -839,23 +841,23 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
-    // and not write anything, so the reader will advance byt the writer won't.
+    // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!md || md->flags & Document_Deleted) {
       ++frags;
       if (bytesCollected) *bytesCollected += sz;
     } else {  // valid document
 
-      // if we're already operating in a repaired block, we do nothing if we found no holes yet, or
+      // If we're already operating in a repaired block, we do nothing if we found no holes yet, or
       // write back the record at the writer's top end if we've found a hole before
       if (frags) {
 
-        // in this case we are already closing holes, so we need to write back the record at the
+        // In this case we are already closing holes, so we need to write back the record at the
         // writer's position. We also calculate the delta again
         encoder(&bw, res->docId - blk->lastId, res);
 
       } else {
-        // nothing to do - this block is not fragmented as of now, so we just advance the writer
+        // Nothing to do - this block is not fragmented as of now, so we just advance the writer
         bw.buf->offset += sz;
         bw.pos += sz;
       }
@@ -863,7 +865,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     }
   }
   if (frags) {
-    // if we deleted stuff from this block, we need to chagne the number of docs and the data
+    // If we deleted stuff from this block, we need to chagne the number of docs and the data
     // pointer
     blk->numDocs -= frags;
     *blk->data = repair;
@@ -879,16 +881,16 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, 
 
   while (startBlock < idx->size && (num <= 0 || n < num)) {
     int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, bytesCollected);
-    // we couldn't repair the block - return 0
+    // We couldn't repair the block - return 0
     if (repaired == -1) {
       return 0;
     }
 
     if (repaired > 0) {
-      // record the number of records removed for gc stats
+      // Record the number of records removed for gc stats
       *recordsRemoved += repaired;
 
-      // increase the GC marker so other queries can tell that we did something
+      // Increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;
     }
     n++;
