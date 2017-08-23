@@ -682,6 +682,8 @@ void Query_Free(Query *q) {
     q->scorerFree(q->scorerCtx.privdata);
   }
 
+  ConcurrentSearchCtx_Free(&q->conc);
+
   free(q->raw);
   free(q);
 }

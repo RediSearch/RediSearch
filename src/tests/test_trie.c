@@ -178,6 +178,16 @@ int testTrie() {
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 12);
 
+  double score;
+  char *str;
+  t_len l;
+  TrieNode *rn = TrieNode_RandomWalk(root, 10, &str, &l);
+  ASSERT(rn != NULL);
+  ASSERT(str != NULL);
+  ASSERT(l > 0);
+  // ASSERT(rn->score > 0);
+  fprintf(stderr, " found node: %s\n", str);
+
   rc = TrieNode_Delete(root, runes, rlen);
   ASSERT(rc == 1);
   rc = TrieNode_Delete(root, runes, rlen);

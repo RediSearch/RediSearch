@@ -57,9 +57,11 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
   info->entries = calloc(cap, sizeof(RMUtilInfoEntry));
 
   int i = 0;
-  char *text = (char *)RedisModule_StringPtrLen(RedisModule_CreateStringFromCallReply(r), NULL);
+  size_t sz;
+  char *text = (char *)RedisModule_CallReplyStringPtr(r, &sz);
+
   char *line = text;
-  while (line) {
+  while (line && line < text + sz) {
     char *line = strsep(&text, "\r\n");
     if (line == NULL) break;
 
@@ -68,8 +70,8 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
     }
 
     char *key = strsep(&line, ":");
-    info->entries[i].key = key;
-    info->entries[i].val = line;
+    info->entries[i].key = strdup(key);
+    info->entries[i].val = strdup(line);
     i++;
     if (i >= cap) {
       cap *= 2;
@@ -77,11 +79,14 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
     }
   }
   info->numEntries = i;
-
+  RedisModule_FreeCallReply(r);
   return info;
 }
 void RMUtilRedisInfo_Free(RMUtilInfo *info) {
-
+  for (int i = 0; i < info->numEntries; i++) {
+    free(info->entries[i].key);
+    free(info->entries[i].val);
+  }
   free(info->entries);
   free(info);
 }

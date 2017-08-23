@@ -9,7 +9,7 @@
 #include "qint.c"
 #include "redis_index.h"
 #include "numeric_filter.h"
-
+#include "redismodule.h"
 // The number of entries in each index block. A new block will be created after every N entries
 #define INDEX_BLOCK_SIZE 100
 
@@ -39,7 +39,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
-
+  idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
   if (initBlock) {
@@ -77,9 +77,26 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   ir->idx = RedisModule_ModuleTypeGetValue(k);
-  size_t offset = ir->br.pos;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
-  ir->br.pos = offset;
+
+  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  if (ir->gcMarker == ir->idx->gcMarker) {
+    // no GC - we just go to the same offset we were at
+    size_t offset = ir->br.pos;
+    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br.pos = offset;
+  } else {
+    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+    // anymore. This means that we need to seek to last docId we were at
+
+    // reset the state of the reader
+    t_docId lastId = ir->lastId;
+    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->lastId = 0;
+
+    // seek to the previous last id
+    RSIndexResult *dummy = NULL;
+    IR_SkipTo(ir, lastId, &dummy);
+  }
 }
 
 /******************************************************************************
@@ -405,7 +422,6 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
  * filtering, returning 1 if the record is ok or 0 if it is filtered.
  *
  * Term indexes can filter based on fieldMask, and
-
  *
  ******************************************************************************/
 
@@ -575,7 +591,9 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     goto eof;
   }
   do {
-    if (BufferReader_AtEnd(&ir->br)) {
+
+    // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
+    while (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
         goto eof;
@@ -713,6 +731,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
   ret->lastId = 0;
   ret->idx = idx;
 
+  ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
   ret->atEnd = 0;
@@ -790,7 +809,11 @@ typedef struct {
 
 } RepairContext;
 
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
+/* Repair an index block by removing garbage - records pointing at deleted documents.
+ * Returns the number of records collected, and puts the number of bytes collected in the given
+ * pointer. If an error occurred - returns -1
+ */
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *bytesCollected) {
   t_docId lastReadId = 0;
   blk->lastId = 0;
   Buffer repair = *blk->data;
@@ -817,17 +840,24 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
     lastReadId = res->docId += lastReadId;
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
-    if (md->flags & Document_Deleted) {
-      frags += 1;
-      // printf("ignoring hole in doc %d, frags now %d\n", docId, frags);
-    } else {
+    // If we found a deleted document, we increment the number of found "frags",
+    // and not write anything, so the reader will advance but the writer won't.
+    // this will close the "hole" in the index
+    if (!md || md->flags & Document_Deleted) {
+      ++frags;
+      if (bytesCollected) *bytesCollected += sz;
+    } else {  // valid document
 
+      // If we're already operating in a repaired block, we do nothing if we found no holes yet, or
+      // write back the record at the writer's top end if we've found a hole before
       if (frags) {
-        // printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
-        //        blk->lastId);
+
+        // In this case we are already closing holes, so we need to write back the record at the
+        // writer's position. We also calculate the delta again
         encoder(&bw, res->docId - blk->lastId, res);
 
       } else {
+        // Nothing to do - this block is not fragmented as of now, so we just advance the writer
         bw.buf->offset += sz;
         bw.pos += sz;
       }
@@ -835,24 +865,33 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
     }
   }
   if (frags) {
+    // If we deleted stuff from this block, we need to chagne the number of docs and the data
+    // pointer
     blk->numDocs -= frags;
     *blk->data = repair;
     Buffer_Truncate(blk->data, 0);
   }
-  // IndexReader *ir = NewIndexReader()
+  IndexResult_Free(res);
   return frags;
 }
 
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num) {
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
+                         size_t *bytesCollected, size_t *recordsRemoved) {
   int n = 0;
+
   while (startBlock < idx->size && (num <= 0 || n < num)) {
-    int rep = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags);
-    // we couldn't repair the block - return 0
-    if (rep == -1) {
+    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, bytesCollected);
+    // We couldn't repair the block - return 0
+    if (repaired == -1) {
       return 0;
     }
-    if (rep) {
-      // printf("Repaired %d holes in block %d\n", rep, startBlock);
+
+    if (repaired > 0) {
+      // Record the number of records removed for gc stats
+      *recordsRemoved += repaired;
+
+      // Increase the GC marker so other queries can tell that we did something
+      ++idx->gcMarker;
     }
     n++;
     startBlock++;

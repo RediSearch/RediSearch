@@ -81,8 +81,8 @@ void RMUtil_DefaultAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *
 
 // A single key/value entry in a redis info map
 typedef struct {
-  const char *key;
-  const char *val;
+  char *key;
+  char *val;
 } RMUtilInfoEntry;
 
 // Representation of INFO command response, as a list of k/v pairs

@@ -29,6 +29,7 @@
 #include "ext/default.h"
 #include "search_request.h"
 #include "config.h"
+#include "gc.h"
 #include "rmalloc.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
@@ -196,60 +197,6 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-/* FT.REPAIR {index} {term} {offset}
- * Repair a key or select a random key for repair.
- *
- * If term is set, we repair the key for the given term. If not, we select a random term key.
- * If offset is set, we start repairing at the given block offset.
- * The returned values are the term repaired, and the block offset we stopped at.
- * In order not to block redis for too long, we work at 10 blocks at most.
- * If we did not finish covering the entire block range, we return the block we stopped at, a-la
- * SCAN. If we finished all the term's blocks, we return 0, which means we can go on to the next
- * term
- */
-int RepairCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
-  if (argc != 1 && argc != 4) return RedisModule_WrongArity(ctx);
-
-  const char *term = NULL;
-  size_t len = 0;
-  long long startBlock = 0;
-  RedisSearchCtx sctx = {ctx, NULL};
-
-  if (argc != 4) {
-    term = Redis_SelectRandomTerm(&sctx, &len);
-  } else {
-
-    sctx.spec = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-    if (sctx.spec == NULL) {
-      return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    }
-
-    term = RedisModule_StringPtrLen(argv[2], &len);
-
-    if (RedisModule_StringToLongLong(argv[3], &startBlock) == REDISMODULE_ERR || startBlock < 0) {
-      return RedisModule_ReplyWithError(ctx, "Invalid start offset");
-    }
-  }
-  if (!term || sctx.spec == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Could not find a term");
-  }
-  // printf("Selected idx %s term %.*s\n", sctx.spec->name, (int)len, term);
-
-  RedisModule_Log(ctx, "debug", "Repairing term %.*s", (int)len, term);
-
-  InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, term, len, 1);
-  if (idx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Could not open term index");
-  }
-
-  int rc = InvertedIndex_Repair(idx, &sctx.spec->docs, startBlock, 10);
-  RedisModule_ReplyWithArray(ctx, 3);
-  RedisModule_ReplyWithStringBuffer(ctx, sctx.spec->name, strlen(sctx.spec->name));
-  RedisModule_ReplyWithStringBuffer(ctx, term, len);
-  return RedisModule_ReplyWithLongLong(ctx, rc);
-}
-
 #define REPLY_KVNUM(n, k, v)                   \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
@@ -342,6 +289,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+
+  RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
+  GC_RenderStats(ctx, sp->gc);
+  n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
@@ -473,7 +424,10 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
   if (rc == 1) {
     sp->stats.numDocuments--;
+    // Increment the index's garbage collector's scanning frequency after document deletions
+    GC_OnDelete(sp->gc);
   }
+
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
@@ -558,7 +512,8 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   doc.payloadSize = 0;
   Document_Detach(&doc, ctx);
 
-  RedisModuleBlockedClient *client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModuleBlockedClient *client =
+      RedisModule_BlockClient(ctx, NULL, NULL, (void(*))AddDocumentCtx_Free, 0);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(client, sp, &doc);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
@@ -714,24 +669,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   char *err;
 
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, &err);
+  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
   if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, err ? err : "Could not parse index spec");
+    return RedisModule_ReplyWithError(ctx, err ? err : "Could not create new index");
   }
-
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name),
-                          REDISMODULE_READ | REDISMODULE_WRITE);
-
-  // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
-    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType)
-      return RedisModule_ReplyWithError(ctx, "Wrong type for index key");
-    else
-      return RedisModule_ReplyWithError(ctx, "Index already exists. Drop it first!");
-  }
-
-  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1121,14 +1062,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_REPAIR_CMD, RepairCommand, "write", 0, 0, -1);
-
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1,
          1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1);
 
-  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1) ==
+  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1)
+  // ==
   //     REDISMODULE_ERR)
   //   return REDISMODULE_ERR;
 

@@ -95,7 +95,7 @@ void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentRe
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
-    if (ctx->isLocked) {
+    if (ctx->isLocked && ctx->openKeys[i].key) {
       RedisModule_CloseKey(ctx->openKeys[i].key);
     }
     RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);

@@ -5,6 +5,7 @@
 
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
+  RMUtilTimerTerminationFunc onTerm;
   void *privdata;
   struct timespec interval;
   pthread_t thread;
@@ -45,16 +46,34 @@ static void *rmutilTimer_Loop(void *ctx) {
       // It's up to the user to decide whether automemory is active there
       if (rctx) RedisModule_FreeThreadSafeContext(rctx);
     }
+    if (rc == EINVAL) {
+      perror("Error waiting for condition");
+      break;
+    }
   }
-  //  RedisModule_Log(tm->redisCtx, "notice", "Timer cancelled");
+
+  // call the termination callback if needed
+  if (tm->onTerm != NULL) {
+    tm->onTerm(tm->privdata);
+  }
+
+  // free resources associated with the timer
+  pthread_cond_destroy(&tm->cond);
+  free(tm);
 
   return NULL;
 }
 
-RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct timespec interval) {
+/* set a new frequency for the timer. This will take effect AFTER the next trigger */
+void RMUtilTimer_SetInterval(struct RMUtilTimer *t, struct timespec newInterval) {
+  t->interval = newInterval;
+}
+
+RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationFunc onTerm,
+                                     void *privdata, struct timespec interval) {
   RMUtilTimer *ret = malloc(sizeof(*ret));
   *ret = (RMUtilTimer){
-      .privdata = privdata, .interval = interval, .cb = cb,
+      .privdata = privdata, .interval = interval, .cb = cb, .onTerm = onTerm,
   };
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
@@ -63,14 +82,6 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, void *privdata, struct 
   return ret;
 }
 
-int RMUtilTimer_Stop(RMUtilTimer *t) {
-  int rc;
-  if (0 == (rc = pthread_cond_signal(&t->cond))) {
-    rc = pthread_join(t->thread, NULL);
-  }
-  return rc;
-}
-
-void RMUtilTimer_Free(RMUtilTimer *t) {
-  free(t);
+int RMUtilTimer_Terminate(struct RMUtilTimer *t) {
+  return pthread_cond_signal(&t->cond);
 }

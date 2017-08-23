@@ -3,6 +3,7 @@ import redis
 import unittest
 from hotels import hotels
 import random
+import time
 
 
 class SearchTestCase(ModuleTestCase('../redisearch.so')):
@@ -1001,6 +1002,54 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual(10, res[0])
                 for i in range(1, 30, 3):
                     self.assertEqual(res[i + 1], 'payload %s' % res[i])
+
+    def testGarbageCollector(self):
+        N = 100
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'foo', 'text'))
+            for i in range(N):
+                
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0,
+                                                'fields', 'foo', ' '.join(('term%d' % random.randrange(0, 10) for i in range(10)))))
+
+            def get_stats(r):
+                res = r.execute_command('ft.info', 'idx')
+                d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+                gc_stats = {d['gc_stats'][x]: float(d['gc_stats'][x+1]) for x in range(0, len(d['gc_stats']), 2)}
+                d['gc_stats'] = gc_stats
+                return d
+            
+            stats = get_stats(r)
+            self.assertGreater(stats['gc_stats']['current_hz'], 8)
+            self.assertEqual(0, stats['gc_stats']['bytes_collected'])
+            self.assertGreater(int(stats['num_records']), 0)
+            
+            initialIndexSize = float(stats['inverted_sz_mb'])*1024*1024
+            for i in range(N):
+                self.assertEqual(1, r.execute_command('ft.del', 'idx', 'doc%d' % i))
+            st = time.time()
+            while st + 2 > time.time():
+                time.sleep(0.1)
+                stats = get_stats(r)
+                if stats['num_records'] == '0': 
+                    break
+            self.assertEqual('0', stats['num_docs'])
+            self.assertEqual('0', stats['num_records'])
+            self.assertEqual('100', stats['max_doc_id'])
+            self.assertGreater( stats['gc_stats']['current_hz'], 50)
+            currentIndexSize = float(stats['inverted_sz_mb'])*1024*1024
+            #print initialIndexSize, currentIndexSize, stats['gc_stats']['bytes_collected']
+            self.assertGreater(initialIndexSize, currentIndexSize)
+            self.assertGreater(stats['gc_stats']['bytes_collected'], currentIndexSize)
+
+            for i in range(10):
+
+                res = r.execute_command('ft.search', 'idx', 'term%d' % i)
+                self.assertEqual([0], res)
+            
+            
 
     def testReturning(self):
         self.assertCmdOk('ft.create', 'idx', 'schema', 'f1',

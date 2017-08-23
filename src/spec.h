@@ -8,6 +8,7 @@
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
+#include "gc.h"
 
 typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
@@ -105,6 +106,9 @@ typedef struct {
   DocTable docs;
 
   StopWordList *stopwords;
+
+  void *gc;
+
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
@@ -133,6 +137,14 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, char **err);
 
+/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
+ * If an error occurred - we set an error string in err and return NULL.
+*/
+IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char **err);
+
+/* Start the garbage collection loop on the index spec */
+void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
+
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);
 
@@ -148,6 +160,10 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
  */
 void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score);
 
+/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
+ * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
+ * enough */
+char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
 /*
 * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
 * and should be on the request's stack

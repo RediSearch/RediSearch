@@ -16,7 +16,6 @@ typedef struct {
   t_docId firstId;
   t_docId lastId;
   uint16_t numDocs;
-
   Buffer *data;
 } IndexBlock;
 
@@ -26,6 +25,7 @@ typedef struct {
   IndexFlags flags;
   t_docId lastId;
   uint32_t numDocs;
+  uint32_t gcMarker;
 } InvertedIndex;
 
 struct indexReadCtx;
@@ -44,7 +44,8 @@ typedef union {
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num);
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
+                         size_t *bytesCollected, size_t *recordsRemoved);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
@@ -85,6 +86,11 @@ typedef struct indexReadCtx {
   RSIndexResult *record;
 
   int atEnd;
+
+  /* This marker lets us know whether the garbage collector has visited this index while the reading
+   * thread was asleep, and reset the state in a deeper way
+   */
+  uint32_t gcMarker;
 } IndexReader;
 
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);
