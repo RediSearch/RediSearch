@@ -17,6 +17,7 @@ Thus we want to optimize the index. But we also do not want to disturb the norma
 A single term inverted index is consisted of an array of "blocks" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. 
 
 The algorithm is pretty simple: 
+
 0. Create a reader and writer for each block
 1. Read each block's records one by one
 2. If no record is invalid, do nothing
