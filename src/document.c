@@ -626,6 +626,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       assert(entry->docId);
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
     }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
 
     entry = ForwardIndexIterator_Next(&it);
     if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
