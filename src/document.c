@@ -180,7 +180,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
   if (aCtx->fwIdx) {
     ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
     aCtx->stateFlags = 0;
-    aCtx->specFlags = 0;
     aCtx->errorString = NULL;
     aCtx->totalTokens = 0;
   } else {
@@ -290,10 +289,6 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 
   mempool_release(actxPool_g, aCtx);
 }
-
-#define ACTX_SPEC(actx) (actx)->sp_
-#define RSCTX_INIT_ACTX(aCtx) SEARCH_CTX_STATIC(aCtx->thCtx, ACTX_SPEC(aCtx))
-#define ACTX_RSCTX(aCtx) RSCTX_INIT_ACTX(aCtx)
 
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
@@ -416,7 +411,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
     }
   }
 
-  // Get the specname
   if (DocumentIndexer_Add(aCtx->indexer, aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;

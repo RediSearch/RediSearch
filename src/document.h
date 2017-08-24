@@ -126,7 +126,6 @@ typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
   RedisModuleBlockedClient *bc;   // Client
-  // RedisModuleCtx *thCtx;          // used for memory allocations
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;

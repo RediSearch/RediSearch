@@ -14,7 +14,6 @@ typedef struct {
 
 #define ENTRIES_PER_BLOCK 32
 #define TERM_BLOCK_SIZE 128
-#define DEFAULT_TABLE_SIZE 4096
 
 static int khtCompare(const KHTableEntry *entBase, const void *s, size_t n, uint32_t h) {
   khIdxEntry *ee = (khIdxEntry *)entBase;
@@ -51,7 +50,6 @@ static size_t estimtateTermCount(const Document *doc) {
     nChars += n;
   }
   return nChars / CHARS_PER_TERM;
-  // return 3;
 }
 
 static void *vvwAlloc(void) {
