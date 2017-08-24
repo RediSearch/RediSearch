@@ -403,7 +403,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
 
-inline int IR_HasNext(void *ctx) {
+int IR_HasNext(void *ctx) {
   IndexReader *ir = ctx;
   return !ir->atEnd;
 }
@@ -427,11 +427,7 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
 
 #define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
 
-#define CHECK_FLAGS(ctx, res)        \
-  if (ctx.num != RS_FIELDMASK_ALL) { \
-    return res->fieldMask & ctx.num; \
-  }                                  \
-  return 1;
+#define CHECK_FLAGS(ctx, res) return (res->fieldMask & ctx.num)
 
 DECODER(readFreqsFlags) {
   qint_decode(br, (uint32_t *)res, 3);
@@ -627,31 +623,24 @@ inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   ir->lastId = docId;
 }
 
-int _isPos(InvertedIndex *idx, uint32_t i, t_docId docId) {
-  if (idx->blocks[i].firstId <= docId &&
-      (i == idx->size - 1 || idx->blocks[i + 1].firstId > docId)) {
-    return 1;
-  }
-  return 0;
-}
+#define BLOCK_MATCHES(blk, docId) (blk.firstId <= docId && docId <= blk.lastId)
 
 static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
   InvertedIndex *idx = ir->idx;
-  if (idx->size == 0 || docId < idx->blocks[0].firstId) {
+
+  if (!idx->size || docId < idx->blocks[0].firstId) {
     return 0;
   }
+
   // if we don't need to move beyond the current block
-  if (_isPos(idx, ir->currentBlock, docId)) {
-    return 1;
-  }
+  if (BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) return 1;
 
-  uint32_t top = idx->size, bottom = ir->currentBlock;
-  uint32_t i = bottom;
-  uint32_t newi;
-
+  uint32_t top = idx->size - 1;
+  uint32_t bottom = ir->currentBlock + 1;
+  uint32_t i = bottom;  //(bottom + top) / 2;
   while (bottom <= top) {
-    if (_isPos(idx, i, docId)) {
+    if (BLOCK_MATCHES(idx->blocks[i], docId)) {
       ir->currentBlock = i;
       goto found;
     }
@@ -685,18 +674,13 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   // printf("IR %s skipTo %d\n", ir->term->str, docId);
   /* If we are skipping to 0, it's just like a normal read */
-  if (docId == 0) {
+
+  if (!docId) {
     return IR_Read(ctx, hit);
   }
+  if (ir->atEnd) goto eof;
+  if (docId > ir->idx->lastId) goto eof;
 
-  if (ir->atEnd) {
-    goto eof;
-  }
-
-  /* check if the id is out of range */
-  if (docId > ir->idx->lastId) {
-    goto eof;
-  }
   // try to skip to the current block
   if (!IndexReader_SkipToBlock(ir, docId)) {
     if (IR_Read(ir, hit) == INDEXREAD_EOF) {
@@ -708,8 +692,8 @@ int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   int rc;
   t_docId rid;
   while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
-    rid = (*hit)->docId;
-    if (ir->lastId < docId) continue;
+    rid = ir->lastId;
+    if (rid < docId) continue;
     if (rid == docId) return INDEXREAD_OK;
     return INDEXREAD_NOTFOUND;
   }
