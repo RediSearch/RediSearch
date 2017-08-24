@@ -374,12 +374,22 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilte
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname,
+                                   RedisModuleKey **idxKey) {
 
   RedisModuleString *s = fmtRedisNumericIndexKey(ctx, fname);
-  RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
-  int type = RedisModule_KeyType(key);
-  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+  RedisModuleKey *key_s = NULL;
+
+  if (!idxKey) {
+    idxKey = &key_s;
+  }
+
+  *idxKey = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModule_FreeString(ctx->redisCtx, s);
+
+  int type = RedisModule_KeyType(*idxKey);
+  if (type != REDISMODULE_KEYTYPE_EMPTY &&
+      RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
     return NULL;
   }
 
@@ -387,9 +397,9 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname) {
   NumericRangeTree *t;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     t = NewNumericRangeTree();
-    RedisModule_ModuleTypeSetValue(key, NumericIndexType, t);
+    RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
   } else {
-    t = RedisModule_ModuleTypeGetValue(key);
+    t = RedisModule_ModuleTypeGetValue(*idxKey);
   }
   return t;
 }

@@ -332,8 +332,10 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name);
+  RedisModuleKey *idxKey;
+  NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name, &idxKey);
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  RedisModule_CloseKey(idxKey);
   return 0;
 }
 
