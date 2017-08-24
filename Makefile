@@ -9,9 +9,11 @@ clean:
 
 distclean:
 	$(MAKE) -C ./src $@
+.PHONY: distclean
 
 package: all
 	$(MAKE) -C ./src package
+.PHONY: package
 
 buildall:
 	$(MAKE) -C ./src $@
@@ -23,3 +25,9 @@ deploydocs:
 
 staticlib:
 	$(MAKE) -C ./src $@
+
+docker: distclean
+	docker build . -t redislabs/redisearch
+
+docker_push: docker
+	docker push redislabs/redisearch:latest
