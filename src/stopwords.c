@@ -49,6 +49,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     len = MAX_STOPWORDLIST_SIZE;
   }
   StopWordList *sl = rm_malloc(sizeof(*sl));
+  sl->refcount = 1;
   sl->m = NewTrieMap();
 
   for (size_t i = 0; i < len; i++) {
@@ -69,7 +70,6 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     free(t);
   }
-  sl->refcount = 1;
   return sl;
 }
 
@@ -79,6 +79,10 @@ void StopWordList_Ref(StopWordList *sl) {
 
 /* Free a stopword list's memory */
 void StopWordList_Unref(StopWordList *sl) {
+  if (sl == __default_stopwords) {
+    return;
+  }
+
   if (__sync_sub_and_fetch(&sl->refcount, 1)) {
     return;
   }
@@ -94,6 +98,7 @@ StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
   StopWordList *sl = rm_malloc(sizeof(*sl));
   sl->m = NewTrieMap();
+  sl->refcount = 1;
 
   while (elements--) {
     size_t len;

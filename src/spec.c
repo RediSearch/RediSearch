@@ -368,6 +368,10 @@ void IndexSpec_Free(void *ctx) {
     SortingTable_Free(spec->sortables);
     spec->sortables = NULL;
   }
+  if (spec->stopwords) {
+    StopWordList_Unref(spec->stopwords);
+    spec->stopwords = NULL;
+  }
   rm_free(spec);
 }
 
@@ -417,7 +421,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (sp->stopwords && sp->flags & Index_HasCustomStopwords) {
-    StopWordList_Free(sp->stopwords);
+    StopWordList_Unref(sp->stopwords);
     sp->stopwords = NULL;
   }
 
