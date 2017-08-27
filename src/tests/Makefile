@@ -4,6 +4,8 @@ endif
 
 CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR)
+%.c: %.y
+
 .SILENT:
 # Sources
 SOURCEDIR=..
