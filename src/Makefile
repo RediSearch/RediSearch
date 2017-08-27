@@ -29,6 +29,8 @@ else
 endif
 export CFLAGS
 
+
+
 # Sources
 SOURCEDIR=$(shell pwd -P)
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
@@ -40,6 +42,10 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c)
 
 # Convert all sources to .o files
 CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
+
+# .d files for each c file. These make sure that changing a header file
+# will also change the dependent .c files of it
+CC_DEPS = $(patsubst %.c, %.d, $(CC_SOURCES) )
 
 # Library dependencies
 LIBRMUTIL=rmutil/librmutil.a
@@ -53,8 +59,15 @@ MODULE=$(CC_OBJECTS) $(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER
 
 %.c: %.y
 
+# Compile C file while generating a .d file for it
+%.o: %.c
+%.o: %.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $< -o $@ -MMD -MF $(@:.o=.d)
+
 all: redisearch.so
 
+# Include all dependency files for C files
+-include $(CC_DEPS)
 
 # Library compile rules
 $(LIBRMUTIL):
@@ -67,7 +80,7 @@ $(LIBTRIEMAP):
 	$(MAKE) -C dep/triemap
 .PHONY: $(LIBTRIEMAP)
 $(LIBSTEMMER):
-	$(MAKE) -C dep/snowball libstemmer.o
+	$(MAKE) -j1 -C dep/snowball libstemmer.o
 .PHONY: $(LIBSTEMMER)
 $(LIBNU):
 	$(MAKE) -C dep/libnu
@@ -107,11 +120,11 @@ libredisearch.a: $(CC_OBJECTS) version.h
 staticlib: libredisearch.a
 
 clean:
-	rm -fv *.o trie/*.o query_parser/*.o ext/*.o
+	rm -fv *.[oad] trie/*.[oad] query_parser/*.[oad] ext/*.[oad]
 	$(MAKE) -C tests clean
 
 distclean:
-	find . -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' \) -delete -print
+	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
 package: redisearch.so
 	mkdir -p ../build
