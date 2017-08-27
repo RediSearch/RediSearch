@@ -2,11 +2,8 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-# Compiler and YACC compiler
 CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
-YACC=$(shell which lemon)
 export CC
-export YACC
 
 # if DEBUG env var is set, we compile with "debug" cflags
 DEBUGFLAGS = -g -ggdb -O3 
