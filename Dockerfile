@@ -14,7 +14,7 @@ ADD ./src /src
 WORKDIR /src
 RUN set -ex;\
     deps="$DEPS";\
-    make all -j 4;
+    make all -j 4; \
     make test;
 
 # Package the runner
