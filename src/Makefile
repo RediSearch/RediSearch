@@ -52,7 +52,8 @@ LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
 
 # Compilation deps for the module
-MODULE=$(CC_OBJECTS) $(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER)
+LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER)
+MODULE=$(CC_OBJECTS) $(LIBS)
 
 %.c: %.y
 
@@ -111,7 +112,7 @@ redisearch.so: $(MODULE) version.h
 # Build a stand-alone static library without the module entry point.
 # This is used to include the module's functionality in other modules
 libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
-libredisearch.a: $(CC_OBJECTS) version.h
+libredisearch.a: $(CC_OBJECTS) $(LIBS) version.h
 	ar rcs $@ $(CC_OBJECTS)
 
 staticlib: libredisearch.a
