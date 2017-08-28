@@ -14,6 +14,11 @@ double myScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata 
   return 3.141;
 }
 
+double filterOutScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+                       double minScore) {
+  return RS_SCORE_FILTEROUT;
+}
+
 void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
 }
@@ -31,6 +36,11 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
   struct privdata *spd = malloc(sizeof(struct privdata));
   spd->freed = 0;
   if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  if (ctx->RegisterScoringFunction("filterout_scorer", filterOutScorer, myFreeFunc, spd) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
