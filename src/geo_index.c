@@ -21,12 +21,17 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
   RedisModuleCallReply *rep =
       RedisModule_Call(ctx, "GEOADD", "sccs", ks, slon, slat,
                        RedisModule_CreateStringFromLongLong(ctx, (long long)docId));
-
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
+  RedisModule_FreeString(gi->ctx->redisCtx, ks);
+  if (rep == NULL) {
     return REDISMODULE_ERR;
   }
-
-  return REDISMODULE_OK;
+  int repType = RedisModule_CallReplyType(rep);
+  RedisModule_FreeCallReply(rep);
+  if (repType == REDISMODULE_REPLY_ERROR) {
+    return REDISMODULE_ERR;
+  } else {
+    return REDISMODULE_OK;
+  }
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER

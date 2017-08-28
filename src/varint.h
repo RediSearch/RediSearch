@@ -43,6 +43,12 @@ static inline void VVW_Cleanup(VarintVectorWriter *w) {
   Buffer_Free(&w->buf);
 }
 
+static inline void VVW_Reset(VarintVectorWriter *w) {
+  w->lastValue = 0;
+  w->nmemb = 0;
+  w->buf.offset = 0;
+}
+
 #define VVW_GetCount(vvw) (vvw)->nmemb
 #define VVW_GetByteLength(vvw) (vvw)->buf.offset
 #define VVW_GetByteData(vvw) (vvw)->buf.data

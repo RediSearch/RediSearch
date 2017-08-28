@@ -10,12 +10,10 @@
 typedef struct {
   KHTableEntry khBase;
   ForwardIndexEntry ent;
-  VarintVectorWriter vw;
 } khIdxEntry;
 
 #define ENTRIES_PER_BLOCK 32
 #define TERM_BLOCK_SIZE 128
-#define DEFAULT_TABLE_SIZE 4096
 
 static int khtCompare(const KHTableEntry *entBase, const void *s, size_t n, uint32_t h) {
   khIdxEntry *ee = (khIdxEntry *)entBase;
@@ -52,7 +50,27 @@ static size_t estimtateTermCount(const Document *doc) {
     nChars += n;
   }
   return nChars / CHARS_PER_TERM;
-  // return 3;
+}
+
+static void *vvwAlloc(void) {
+  VarintVectorWriter *vvw = calloc(1, sizeof(*vvw));
+  VVW_Init(vvw, 64);
+  return vvw;
+}
+
+static void vvwFree(void *p) {
+  // printf("Releasing VVW=%p\n", p);
+  VVW_Cleanup(p);
+  free(p);
+}
+
+static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+  idx->idxFlags = idxFlags;
+  idx->maxFreq = 0;
+  if (idx->stemmer) {
+    idx->stemmer->Free(idx->stemmer);
+  }
+  idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
 }
 
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
@@ -65,25 +83,31 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
       .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
   };
 
+  size_t termCount = estimtateTermCount(doc);
   idx->hits = calloc(1, sizeof(*idx->hits));
-  KHTable_Init(idx->hits, &procs, &idx->entries, estimtateTermCount(doc));
+  idx->stemmer = NULL;
 
-  idx->docScore = doc->score;
-  idx->docId = doc->docId;
-  idx->totalFreq = 0;
-  idx->idxFlags = idxFlags;
-  idx->uniqueTokens = 0;
-  idx->maxFreq = 0;
-  idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
+  KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
+  idx->vvwPool = mempool_new(termCount, vvwAlloc, vvwFree);
+
+  ForwardIndex_InitCommon(idx, doc, idxFlags);
   return idx;
 }
 
-static void clearEntry(void *p, void *unused) {
-  khIdxEntry *ent = p;
+static void clearEntry(void *elem, void *pool) {
+  khIdxEntry *ent = elem;
   ForwardIndexEntry *fwEnt = &ent->ent;
   if (fwEnt->vw) {
-    VVW_Cleanup(fwEnt->vw);
+    mempool_release(pool, fwEnt->vw);
+    fwEnt->vw = NULL;
   }
+}
+
+void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+  BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
+  BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
+  KHTable_Clear(idx->hits);
+  ForwardIndex_InitCommon(idx, doc, idxFlags);
 }
 
 static inline int hasOffsets(const ForwardIndex *idx) {
@@ -93,10 +117,11 @@ static inline int hasOffsets(const ForwardIndex *idx) {
 void ForwardIndexFree(ForwardIndex *idx) {
   size_t elemSize = sizeof(khIdxEntry);
 
-  BlkAlloc_FreeAll(&idx->entries, clearEntry, NULL, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
   KHTable_Free(idx->hits);
   free(idx->hits);
+  mempool_destroy(idx->vvwPool);
 
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
@@ -132,7 +157,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
 
   if (isNew) {
     // printf("New token %.*s\n", (int)t->len, t->s);
-    h->docId = idx->docId;
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
@@ -146,10 +170,13 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     h->freq = 0;
 
     if (hasOffsets(idx)) {
-      h->vw = &kh->vw;
-      VVW_Init(h->vw, 64);
+      h->vw = mempool_get(idx->vvwPool);
+      // printf("Got VVW=%p\n", h->vw);
+      VVW_Reset(h->vw);
+    } else {
+      h->vw = NULL;
     }
-    h->docScore = idx->docScore;
+
   } else {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
@@ -162,8 +189,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
-  idx->totalFreq += h->freq;
-  idx->uniqueTokens++;
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
   if (h->vw) {
     VVW_Write(h->vw, t->pos);

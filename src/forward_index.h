@@ -3,6 +3,7 @@
 #include "redisearch.h"
 #include "util/block_alloc.h"
 #include "util/khtable.h"
+#include "util/mempool.h"
 #include "dep/triemap/triemap.h"
 #include "varint.h"
 #include "tokenize.h"
@@ -11,12 +12,13 @@
 typedef struct ForwardIndexEntry {
   struct ForwardIndexEntry *next;
   t_docId docId;
-  const char *term;
-  size_t len;
-  uint32_t hash;
+
   uint32_t freq;
-  float docScore;
   t_fieldMask fieldMask;
+
+  const char *term;
+  uint32_t len;
+  uint32_t hash;
   VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
@@ -25,15 +27,12 @@ typedef struct ForwardIndexEntry {
 
 typedef struct ForwardIndex {
   KHTable *hits;
-  t_docId docId;
-  uint32_t totalFreq;
   uint32_t maxFreq;
   uint32_t idxFlags;
-  float docScore;
-  int uniqueTokens;
   Stemmer *stemmer;
   BlkAlloc terms;
   BlkAlloc entries;
+  mempool_t *vvwPool;
 } ForwardIndex;
 
 typedef struct {
@@ -43,8 +42,10 @@ typedef struct {
 } ForwardIndexIterator;
 
 int forwardIndexTokenFunc(void *ctx, const Token *t);
-
 void ForwardIndexFree(ForwardIndex *idx);
+
+void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
+
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);

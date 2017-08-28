@@ -114,6 +114,11 @@ union FieldData;
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
 
+// The context also has non-text fields
+#define ACTX_F_NONTXTFLDS 0x04
+
+struct DocumentIndexer;
+
 /**
  * Context used when indexing documents.
  */
@@ -121,14 +126,11 @@ typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
   RedisModuleBlockedClient *bc;   // Client
-  RedisModuleCtx *thCtx;          // used for memory allocations
-
-  //  This contains things like the IndexSpec and the key for the IndexSpec, which is
-  //  used when the context is reopened
-  RedisSearchCtx rsCtx;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
+
+  struct DocumentIndexer *indexer;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
@@ -162,8 +164,13 @@ typedef struct RSAddDocumentCtx {
  *
  * When done, call AddDocumentCtx_Free
  */
-RSAddDocumentCtx *NewAddDocumentCtx(RedisModuleBlockedClient *client, IndexSpec *sp,
-                                    Document *base);
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base);
+
+/**
+ * At this point the context will take over from the caller, and handle sending
+ * the replies and so on.
+ */
+void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options);
 
 /**
  * This function will tokenize the document and add the resultant tokens to
