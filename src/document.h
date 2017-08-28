@@ -173,6 +173,10 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base);
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options);
 
 /**
+ * Indicate that processing is finished on the current document
+ */
+void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
+/**
  * This function will tokenize the document and add the resultant tokens to
  * the relevant inverted indexes. This function should be called from a
  * worker thread (see ConcurrentSearch functions).
