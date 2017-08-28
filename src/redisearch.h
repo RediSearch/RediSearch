@@ -250,6 +250,10 @@ int RSIndexResult_HasOffsets(RSIndexResult *res);
 
 int RSIndexResult_IsAggregate(RSIndexResult *r);
 
+/* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
+ * order to completely filter out results and disregard them in the totals count */
+#define RS_SCORE_FILTEROUT (-1.0 / 0.0)
+
 /* The context given to a scoring function. It includes the payload set by the user or expander,
  * the
  * private data set by the extensionm and callback functions */

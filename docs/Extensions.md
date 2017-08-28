@@ -143,7 +143,9 @@ RSDocumentMetadata is an object holding global information about the document, s
 
 minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.
 
-The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.
+The return value of the function is double representing the final score of the result. 
+Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. 
+To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally to negative infinity, or -1/0). 
 
 ### RSScoringFunctionCtx
 

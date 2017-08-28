@@ -807,6 +807,11 @@ QueryResult *Query_Execute(Query *query) {
     } else {
       h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
       h->sv = NULL;
+      // filter out 0 score results
+      if (h->score == RS_SCORE_FILTEROUT) {
+        ++numDeleted;
+        continue;
+      }
     }
     h->docId = r->docId;
 
