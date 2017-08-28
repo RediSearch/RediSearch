@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
+      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
     
     
       
@@ -24,9 +24,9 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
       
-        <link rel="stylesheet" href="../assets/stylesheets/application-f6789307ff.palette.css">
+        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
       
     
     
@@ -60,7 +60,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header">
+      <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -378,6 +378,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -614,6 +616,8 @@
   
 </li>
       
+      
+      
     </ul>
   
 </nav>
@@ -624,10 +628,10 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
-               
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
-               
               
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
+                
                 
                 <h1 id="extending-redisearch">Extending RediSearch<a class="headerlink" href="#extending-redisearch" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.</p>
@@ -746,7 +750,9 @@ redis is single threaded - it is important that it works as fast as possible and
 <p>RSIndexResult is the result information - containing the document id, frequency, terms and offsets. </p>
 <p>RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. </p>
 <p>minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.</p>
-<p>The return value of the function is double representing the final score of the result. Returning 0 filters the result out automatically, thus a scoring function can act as a filter function as well.</p>
+<p>The return value of the function is double representing the final score of the result. 
+Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. 
+To completely filter out a result and not count it in the totals, the scorer should return the special value <code>RS_SCORE_FILTEROUT</code> (which is internally to negative infinity, or -1/0). </p>
 <h3 id="rsscoringfunctionctx">RSScoringFunctionCtx<a class="headerlink" href="#rsscoringfunctionctx" title="Permanent link">&para;</a></h3>
 <p>This is an object containing the following members:</p>
 <ul>
@@ -801,7 +807,12 @@ redis is single threaded - it is important that it works as fast as possible and
   <span class="k">return</span> <span class="n">tfidf</span><span class="p">;</span>
 <span class="p">}</span>
 </pre></div>
+                
+                  
+                
               
+              
+                
               
             </article>
           </div>
@@ -865,7 +876,7 @@ redis is single threaded - it is important that it works as fast as possible and
       
     </div>
     
-      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
+      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
