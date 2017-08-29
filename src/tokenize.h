@@ -50,7 +50,6 @@ typedef struct {
   int fieldId;
   TokenFunc tokenFunc;
   void *tokenFuncCtx;
-  NormalizeFunc normalize;
   Stemmer *stemmer;
   StopWordList *stopwords;
   u_int lastOffset;
