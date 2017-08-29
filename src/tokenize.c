@@ -1,6 +1,7 @@
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
+#include "toksep.h"
 #include "rmalloc.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -23,31 +24,6 @@ int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, Toke
   return _tokenize(&tctx);
 }
 
-//! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
-static const char sepMap[256] = {
-        [' '] = 1, ['\t'] = 1, [','] = 1, ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1,
-        ['{'] = 1, ['}'] = 1,  ['['] = 1, [']'] = 1, [':'] = 1, [';'] = 1, ['\\'] = 1,
-        ['~'] = 1, ['!'] = 1,  ['@'] = 1, ['#'] = 1, ['$'] = 1, ['%'] = 1, ['^'] = 1,
-        ['&'] = 1, ['*'] = 1,  ['-'] = 1, ['='] = 1, ['+'] = 1, ['|'] = 1, ['\''] = 1,
-        ['`'] = 1, ['"'] = 1,  ['<'] = 1, ['>'] = 1, ['?'] = 1,
-};
-
-static inline char *mySep(char **s) {
-  uint8_t *pos = (uint8_t *)*s;
-  char *orig = *s;
-  for (; *pos; ++pos) {
-    if (sepMap[*pos]) {
-      *pos = '\0';
-      *s = (char *)++pos;
-      break;
-    }
-  }
-  if (!*pos) {
-    *s = NULL;
-  }
-  return orig;
-}
-
 // Shortest word which can/should actually be stemmed
 #define MIN_STEM_CANDIDATE_LEN 4
 
@@ -57,7 +33,7 @@ int _tokenize(TokenizerCtx *ctx) {
 
   while (*ctx->pos != NULL) {
     // get the next token
-    char *tok = mySep(ctx->pos);
+    char *tok = toksep(ctx->pos);
     // this means we're at the end
     if (tok == NULL) break;
 
