@@ -7,7 +7,7 @@
 #include <strings.h>
 
 int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, TokenFunc f, Stemmer *s,
-             u_int offset, StopWordList *stopwords) {
+             unsigned int offset, StopWordList *stopwords) {
   TokenizerCtx tctx;
   tctx.text = text;
   tctx.pos = (char **)&text;
