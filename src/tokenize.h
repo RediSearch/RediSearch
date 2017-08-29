@@ -41,15 +41,11 @@ typedef int (*TokenFunc)(void *ctx, const Token *t);
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
 
-//! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
-#define DEFAULT_SEPARATORS " \t,./(){}[]:;/\\~!@#$%^&*-=+|'`\"<>?";
-
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
   const char *text;
   char **pos;
-  const char *separators;
   double fieldScore;
   int fieldId;
   TokenFunc tokenFunc;

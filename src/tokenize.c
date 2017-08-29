@@ -11,7 +11,6 @@ int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, Toke
   TokenizerCtx tctx;
   tctx.text = text;
   tctx.pos = (char **)&text;
-  tctx.separators = DEFAULT_SEPARATORS;
   tctx.fieldScore = score;
   tctx.tokenFunc = f;
   tctx.tokenFuncCtx = ctx;
@@ -24,6 +23,7 @@ int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, Toke
   return _tokenize(&tctx);
 }
 
+//! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 static const char sepMap[256] = {
         [' '] = 1, ['\t'] = 1, [','] = 1, ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1,
         ['{'] = 1, ['}'] = 1,  ['['] = 1, [']'] = 1, [':'] = 1, [';'] = 1, ['\\'] = 1,
