@@ -15,7 +15,6 @@ int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, Toke
   tctx.fieldScore = score;
   tctx.tokenFunc = f;
   tctx.tokenFuncCtx = ctx;
-  tctx.normalize = DefaultNormalize;
   tctx.fieldId = fieldId;
   tctx.stemmer = s;
   tctx.lastOffset = offset;
@@ -39,7 +38,7 @@ int _tokenize(TokenizerCtx *ctx) {
 
     // normalize the token
     size_t tlen;
-    tok = ctx->normalize(tok, &tlen);
+    tok = DefaultNormalize(tok, &tlen);
 
     // ignore tokens that turn into nothing
     if (tok == NULL || tlen == 0) {
