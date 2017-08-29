@@ -291,19 +291,32 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
+  // at least one field, and number of field/text args must be even
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
 
-  if (argc != 3) return RedisModule_WrongArity(ctx);
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  size_t qlen;
-  const char *qs = RedisModule_StringPtrLen(argv[2], &qlen);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Query *q = NewQuery(&sctx, (char *)qs, qlen, 0, 10, RS_FIELDMASK_ALL, 0, "en", sp->stopwords,
-                      NULL, -1, 0, NULL, (RSPayload){}, NULL);
+  char *err;
+
+  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  if (req == NULL) {
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
+  req->sctx = sctx;
+
+  Query *q = NewQueryFromRequest(req);
+  if (!q) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Error parsing query");
+  }
 
   char *errMsg = NULL;
   if (!Query_Parse(q, &errMsg)) {
@@ -317,7 +330,6 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithArray(ctx, 1);
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
-    Query_Free(q);
     goto end;
   }
 
@@ -325,8 +337,10 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   char *explain = (char *)Query_DumpExplain(q);
   RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
   free(explain);
-  Query_Free(q);
+
 end:
+  Query_Free(q);
+  SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
 
