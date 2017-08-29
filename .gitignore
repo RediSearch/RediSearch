@@ -8,5 +8,6 @@
 !**/Makefile
 !**/*.yml
 !**/*.yaml
+!**/*.mak
 /site
 

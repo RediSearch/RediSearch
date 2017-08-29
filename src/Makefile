@@ -78,7 +78,7 @@ $(LIBTRIEMAP):
 	$(MAKE) -C dep/triemap
 .PHONY: $(LIBTRIEMAP)
 $(LIBSTEMMER):
-	$(MAKE) -j1 -C dep/snowball libstemmer.o
+	$(MAKE) -C dep/snowball libstemmer.o
 .PHONY: $(LIBSTEMMER)
 $(LIBNU):
 	$(MAKE) -C dep/libnu
