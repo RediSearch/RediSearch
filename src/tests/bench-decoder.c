@@ -6,7 +6,7 @@
 #include "time_sample.h"
 
 #define NUM_ENTRIES 5000000
-#define MY_FLAGS Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreScoreIndexes
+#define MY_FLAGS Index_StoreFreqs | Index_StoreFieldFlags
 
 static void writeEntry(InvertedIndex *idx, size_t id) {
   ForwardIndexEntry ent = {0};

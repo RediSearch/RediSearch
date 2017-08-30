@@ -17,7 +17,6 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
-#define SPEC_NOSCOREIDX_STR "NOSCOREIDX"
 #define SPEC_NOFREQS_STR "NOFREQS"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_TEXT_STR "TEXT"
@@ -74,15 +73,16 @@ typedef struct {
 typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
-  Index_StoreScoreIndexes = 0x04,
+
+  // Was StoreScoreIndexes, but these are always stored, so this option is unused
+  Index__Reserved1 = 0x04,
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
   Index_DocIdsOnly = 0x00
 } IndexFlags;
 
-#define INDEX_DEFAULT_FLAGS \
-  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreScoreIndexes
+#define INDEX_DEFAULT_FLAGS Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags
 #define INDEX_STORAGE_MASK \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric)
 #define INDEX_CURRENT_VERSION 6

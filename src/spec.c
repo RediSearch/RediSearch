@@ -53,7 +53,7 @@ char *GetFieldNameByBit(IndexSpec *sp, uint32_t id) {
 * Returns REDISMODULE_ERR if there's a parsing error.
 * The command only receives the relvant part of argv.
 *
-* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX] [NOFREQS]
+* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
@@ -202,7 +202,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
     }
   }
 }
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
@@ -221,10 +221,6 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
   if (__argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFieldFlags;
-  }
-
-  if (__argExists(SPEC_NOSCOREIDX_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~Index_StoreScoreIndexes;
   }
 
   if (__argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
@@ -635,9 +631,6 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
   }
   if (!(sp->flags & Index_StoreFieldFlags)) {
     __vpushStr(args, ctx, SPEC_NOFIELDS_STR);
-  }
-  if (!(sp->flags & Index_StoreScoreIndexes)) {
-    __vpushStr(args, ctx, SPEC_NOSCOREIDX_STR);
   }
 
   // write SCHEMA keyword

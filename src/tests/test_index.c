@@ -670,7 +670,6 @@ int testIndexSpec() {
 
   ASSERT(s->stopwords != NULL);
   ASSERT(s->stopwords != DefaultStopWordList());
-  ASSERT(s->flags & Index_StoreScoreIndexes);
   ASSERT(s->flags & Index_StoreFieldFlags);
   ASSERT(s->flags & Index_StoreTermOffsets);
   ASSERT(s->flags & Index_HasCustomStopwords);
@@ -737,7 +736,7 @@ int testIndexSpec() {
   IndexSpec_Free(s);
 
   const char *args2[] = {
-      "NOOFFSETS", "NOFIELDS", "NOSCOREIDX", "SCHEMA", title, "text",
+      "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
   s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   if (err != NULL) {
@@ -747,7 +746,6 @@ int testIndexSpec() {
   ASSERT(err == NULL);
   ASSERT(s->numFields == 1);
 
-  ASSERT(!(s->flags & Index_StoreScoreIndexes));
   ASSERT(!(s->flags & Index_StoreFieldFlags));
   ASSERT(!(s->flags & Index_StoreTermOffsets));
   IndexSpec_Free(s);

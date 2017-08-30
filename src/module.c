@@ -630,7 +630,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /*
-## FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+## FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}]] | [NUMERIC] ...
 
 Creates an index with the given spec. The index name will be used in all the
@@ -648,9 +648,6 @@ overwritten
 
     - NOFIELDS: If set, we do not store field bits for each term. Saves memory, does not allow
       filtering by specific fields.
-
-    - NOSCOREIDX: If set, we avoid saving the top results for single words. Saves a lot of memory,
-      slows down searches for common single word queries
 
     - SCHEMA: After the SCHEMA keyword we define the index fields. They can be either numeric or
       textual.

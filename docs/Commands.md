@@ -5,7 +5,7 @@
 ### Format:
 ```
   FT.CREATE {index} 
-    [NOOFFSETS] [NOFIELDS] [NOSCOREIDX]
+    [NOOFFSETS] [NOFIELDS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
 ```
@@ -21,8 +21,6 @@ so keep it short!
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not allow exact searches)
 
 * **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.
-
-* **NOSCOREIDX**: If set, we avoid saving the top results for single words. Saves a lot of memory, slows down searches for common single word queries.
 
 * **NOFREQS**: If set, we avoid saving the term frequencies in the index. This saves
   memory but does not allow sorting based on the frequencies of a given term within
