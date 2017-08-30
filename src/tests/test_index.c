@@ -752,6 +752,16 @@ int testIndexSpec() {
   ASSERT(!(s->flags & Index_StoreTermOffsets));
   IndexSpec_Free(s);
 
+  // User-reported bug
+  const char *args3[] = {"mySpec", "SCHEMA", "ha", "NUMERIC", "hb",
+                         "TEXT",   "WEIGHT", "1",  "NOSTEM"};
+  s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  if (err != NULL) {
+    FAIL("Error parsing field spec: %s", err);
+  }
+  ASSERT(FieldSpec_IsNoStem(s->fields + 1));
+  IndexSpec_Free(s);
+
   return 0;
 }
 

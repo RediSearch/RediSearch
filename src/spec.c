@@ -144,26 +144,29 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     // init default weight and type
     sp->type = F_FULLTEXT;
     sp->weight = 1.0;
-    // it's legit to be at the end now
-    if (++*offset == argc) return 1;
 
-    if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
-      sp->options |= FieldSpec_NoStemming;
-      if (++*offset == argc) return 1;
+    while (++*offset < argc) {
+      if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
+        sp->options |= FieldSpec_NoStemming;
+
+      } else if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
+        // weight with no value is invalid
+        if (++*offset == argc) {
+          return 0;
+        }
+        // try and parse the weight
+        double d = strtod(argv[*offset], NULL);
+        if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
+          return 0;
+        }
+        sp->weight = d;
+      } else {
+        break;
+      }
     }
 
-    // if we have weight - try and parse it
-    if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
-      // weight with no wait is invalid
-      if (++*offset == argc) return 0;
-
-      // try and parse the weight
-      double d = strtod(argv[*offset], NULL);
-      if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
-        return 0;
-      }
-      sp->weight = d;
-      ++*offset;
+    if (*offset == argc) {
+      return 1;
     }
 
   } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
