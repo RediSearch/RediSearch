@@ -146,7 +146,8 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 //   e->freq = e->freq / idx->maxFreq;
 // }
 int forwardIndexTokenFunc(void *ctx, const Token *t) {
-  ForwardIndex *idx = ctx;
+  const ForwardIndexTokenizerCtx *tokCtx = ctx;
+  ForwardIndex *idx = tokCtx->idx;
 
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
@@ -181,8 +182,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
-  h->fieldMask |= (t->fieldId & RS_FIELDMASK_ALL);
-  float score = (float)t->score;
+  h->fieldMask |= (tokCtx->fieldId & RS_FIELDMASK_ALL);
+  float score = (float)tokCtx->fieldScore;
 
   // stem tokens get lower score
   if (t->type == DT_STEM) {

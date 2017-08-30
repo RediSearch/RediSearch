@@ -36,6 +36,19 @@ typedef struct ForwardIndex {
 } ForwardIndex;
 
 typedef struct {
+  ForwardIndex *idx;
+  t_fieldMask fieldId;
+  float fieldScore;
+} ForwardIndexTokenizerCtx;
+
+static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
+                                                 t_fieldMask fieldId, float score) {
+  ctx->idx = idx;
+  ctx->fieldId = fieldId;
+  ctx->fieldScore = score;
+}
+
+typedef struct {
   KHTable *hits;
   KHTableEntry *curEnt;
   uint32_t curBucketIdx;

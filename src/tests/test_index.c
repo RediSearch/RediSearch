@@ -665,9 +665,7 @@ int tokenFunc(void *ctx, const Token *t) {
   int ret = strcmp(t->s, tx->expected[tx->num++]);
   assert(ret == 0);
   assert(t->len == strlen(t->s));
-  assert(t->fieldId == 1);
   assert(t->pos > 0);
-  assert(t->score == 1);
   return 0;
 }
 
@@ -677,7 +675,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
+  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
   ASSERT(ctx.num == 5);
 
   free(txt);

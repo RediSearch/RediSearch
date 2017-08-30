@@ -24,12 +24,6 @@ typedef struct {
   // position in the document - this is written to the inverted index
   u_int pos;
 
-  // the token's score
-  float score;
-
-  // Field id - used later for filtering.
-  t_fieldMask fieldId;
-
   int stringFreeable;
 
   DocTokenType type;
@@ -44,10 +38,7 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
-  const char *text;
   char **pos;
-  double fieldScore;
-  int fieldId;
   TokenFunc tokenFunc;
   void *tokenFuncCtx;
   Stemmer *stemmer;
@@ -62,8 +53,8 @@ int _tokenize(TokenizerCtx *ctx);
 TokenFunc is a callback that will be called for each token found
 if doStem is 1, we will add stemming extraction for the text
 */
-int tokenize(const char *text, float fieldScore, t_fieldMask fieldId, void *ctx, TokenFunc f,
-             Stemmer *s, unsigned int offset, StopWordList *stopwords);
+int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
+             StopWordList *stopwords);
 
 /** A simple text normalizer that convertes all tokens to lowercase and removes accents.
 Does NOT normalize unicode */

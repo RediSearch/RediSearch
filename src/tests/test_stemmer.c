@@ -34,9 +34,7 @@ int tokenFunc(void *ctx, const Token *t) {
   int ret = strcmp(t->s, tx->expected[tx->num++]);
   assert(ret == 0);
   assert(t->len == strlen(t->s));
-  assert(t->fieldId == 1);
   assert(t->pos > 0);
-  assert(t->score == 1);
   if (t->type == DT_STEM) {
     // printf("%s -> %s\n",t.s, tx->expected[tx->num-2]);
     assert(strcmp(t->s, tx->expected[tx->num - 2]) != 0);
@@ -55,7 +53,7 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, "en");
   ASSERT(s != NULL)
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, s, 0, DefaultStopWordList());
+  tokenize(txt, &ctx, tokenFunc, s, 0, DefaultStopWordList());
   ASSERT(ctx.num == 9);
 
   free(txt);
