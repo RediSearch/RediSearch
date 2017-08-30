@@ -7,15 +7,12 @@
 #include <stdlib.h>
 #include <strings.h>
 
-int tokenize(const char *text, float score, t_fieldMask fieldId, void *ctx, TokenFunc f, Stemmer *s,
-             unsigned int offset, StopWordList *stopwords) {
+int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
+             StopWordList *stopwords) {
   TokenizerCtx tctx;
-  tctx.text = text;
   tctx.pos = (char **)&text;
-  tctx.fieldScore = score;
   tctx.tokenFunc = f;
   tctx.tokenFuncCtx = ctx;
-  tctx.fieldId = fieldId;
   tctx.stemmer = s;
   tctx.lastOffset = offset;
   tctx.stopwords = stopwords;
@@ -50,7 +47,7 @@ int _tokenize(TokenizerCtx *ctx) {
       continue;
     }
     // create the token struct
-    Token t = {tok, tlen, ++pos, ctx->fieldScore, ctx->fieldId, DT_WORD, 0};
+    Token t = {.s = tok, .len = tlen, .pos = ++pos, .type = DT_WORD};
 
     // let it be handled - and break on non zero response
     if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
@@ -65,7 +62,6 @@ int _tokenize(TokenizerCtx *ctx) {
         t.s = stem;
         t.type = DT_STEM;
         t.len = sl;
-        t.fieldId = ctx->fieldId;
         t.stringFreeable = 1;
         if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
           break;

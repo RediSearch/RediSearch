@@ -216,11 +216,12 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  // Only tokenize indexable fields
   if (FieldSpec_IsIndexable(fs)) {
     Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
-    aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
-                                 aCtx->totalTokens, aCtx->stopwords);
+    ForwardIndexTokenizerCtx tokCtx;
+    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, fs->id, fs->weight);
+    aCtx->totalTokens =
+        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords);
   }
   return 0;
 }
