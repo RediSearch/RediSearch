@@ -21,7 +21,6 @@ static inline char *toksep(char **s) {
   char *orig = *s;
   for (; *pos; ++pos) {
     if (ToksepMap_g[*pos]) {
-      *pos = '\0';
       *s = (char *)++pos;
       break;
     }
