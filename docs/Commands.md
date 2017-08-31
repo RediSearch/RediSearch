@@ -410,32 +410,6 @@ Status Reply: OK on success.
 
 ---
 
-## FT.OPTIMIZE
-
-Format
-
-```
-FT.OPTIMIZE {index}
-```
-
-Description
-
-After the index is built (and doesn't need to be updated again withuot a complete rebuild)
-we can optimize memory consumption by trimming all index buffers to their actual size.
-
-  **Warning 1**: Do not run it if you intend to update your index afterward.
-
-  **Warning 2**: This blocks redis for a long time. Do not run it on production instances
-
-### Parameters
-
-* **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
-### Returns:
-
-Integer Reply - the number of index entries optimized.
-
----
 
 ## FT.SUGGADD
 
@@ -534,3 +508,18 @@ Get the size of an autoc-complete suggestion dictionary
 
 Integer Reply: the current size of the suggestion dictionary.
 
+----
+
+## FT.OPTIMIZE ** DEPRECATED **
+
+Format
+
+```
+FT.OPTIMIZE {index}
+```
+
+Description
+
+This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. 
+
+---

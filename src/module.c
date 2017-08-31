@@ -707,20 +707,8 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  /* Zero the stats in sp that are affected by optimization */
-  sp->stats.invertedCap = 0;
-  sp->stats.invertedSize = 0;
-  sp->stats.scoreIndexesSize = 0;
-  sp->stats.skipIndexesSize = 0;
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisModuleString *pf = fmtRedisTermKey(&sctx, "*", 1);
-  size_t len;
-  const char *prefix = RedisModule_StringPtrLen(pf, &len);
-
-  // RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int num = Redis_ScanKeys(ctx, prefix, Redis_OptimizeScanHandler, &sctx);
-  return RedisModule_ReplyWithLongLong(ctx, num);
+  // DEPRECATED - we now don't do anything.  The GC optimizes the index in the background
+  return RedisModule_ReplyWithLongLong(ctx, 0);
 }
 
 /*
@@ -1060,16 +1048,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly deny-oom", 1, 1,
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1,
          1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write", 1, 1, 1);
-
-  // if (RedisModule_CreateCommand, ctx, RS_OPTIMIZE_CMD, OptimizeIndexCommand, "write", 1, 1, 1)
-  // ==
-  //     REDISMODULE_ERR)
-  //   return REDISMODULE_ERR;
-
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
+         "write deny-oom", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1);

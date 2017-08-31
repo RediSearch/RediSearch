@@ -410,49 +410,6 @@ end:
   return num;
 }
 
-int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
-  // extract the term from the key
-  RedisSearchCtx *sctx = opaque;
-  RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
-  size_t pflen, len;
-  RedisModule_StringPtrLen(pf, &pflen);
-
-  char *k = (char *)RedisModule_StringPtrLen(kn, &len);
-  k += pflen;
-
-  // Open the index writer for the term
-  InvertedIndex *w = Redis_OpenInvertedIndex(sctx, k, len - pflen, 1);
-  if (w) {
-    // InvertedIndex_Optimize(w);
-    // // Truncate the main index buffer to its final size
-    // Buffer_Truncate(w->) w->bw.Truncate(w->bw.buf, 0);
-    // sctx->spec->stats.invertedCap += w->bw.buf->cap;
-    // sctx->spec->stats.invertedSize += w->bw.buf->offset;
-
-    // // for small entries, delete the score index
-    // if (w->ndocs < SCOREINDEX_DELETE_THRESHOLD) {
-    //   RedisBufferCtx *bctx = w->scoreWriter.bw.buf->ctx;
-    //   RedisModule_DeleteKey(bctx->key);
-    //   RedisModule_CloseKey(bctx->key);
-    //   bctx->key = NULL;
-    // } else {
-    //   // truncate the score index to its final size
-    //   w->scoreWriter.bw.Truncate(w->scoreWriter.bw.buf, 0);
-    //   sctx->spec->stats.scoreIndexesSize += w->scoreWriter.bw.buf->cap;
-    // }
-
-    // // truncate the skip index
-    // w->skipIndexWriter.Truncate(w->skipIndexWriter.buf, 0);
-    // sctx->spec->stats.skipIndexesSize += w->skipIndexWriter.buf->cap;
-
-    // Redis_CloseWriter(w);
-  }
-
-  RedisModule_FreeString(ctx, pf);
-
-  return REDISMODULE_OK;
-}
-
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
