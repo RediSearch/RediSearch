@@ -16,7 +16,6 @@ int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int 
   tctx.stemmer = s;
   tctx.lastOffset = offset;
   tctx.stopwords = stopwords;
-
   return _tokenize(&tctx);
 }
 
@@ -35,6 +34,11 @@ int _tokenize(TokenizerCtx *ctx) {
 
     // normalize the token
     size_t tlen;
+    if (*ctx->pos) {
+      tlen = (*ctx->pos - 1) - tok;
+    } else {
+      tlen = strlen(tok);
+    }
     tok = DefaultNormalize(tok, &tlen);
 
     // ignore tokens that turn into nothing
@@ -74,19 +78,18 @@ int _tokenize(TokenizerCtx *ctx) {
 }
 
 char *DefaultNormalize(char *s, size_t *len) {
-  char *dst = s, *src = s;
-  *len = 0;
-  while (*src != '\0') {
-    if (isupper(*src)) {
-      *dst++ = tolower(*src++);
-    } else if (isblank(*src) || iscntrl(*src)) {
-      src++;
+  size_t origLen = *len;
+  char *dst = s;
+  for (size_t ii = 0; ii < origLen; ++ii) {
+    if (isupper(s[ii])) {
+      *dst++ = tolower(s[ii]);
+    } else if (isblank(s[ii]) || iscntrl(s[ii])) {
       continue;
     } else {
-      *dst++ = *src++;
+      *dst++ = s[ii];
     }
-    ++(*len);
   }
-  *dst = 0;
+
+  *len = dst - s;
   return s;
 }
