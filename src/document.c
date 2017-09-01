@@ -221,7 +221,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ForwardIndexTokenizerCtx tokCtx;
     ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, fs->id, fs->weight);
     aCtx->totalTokens =
-        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords);
+        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
   }
   return 0;
 }

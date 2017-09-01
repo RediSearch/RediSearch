@@ -662,8 +662,8 @@ typedef struct {
 
 int tokenFunc(void *ctx, const Token *t) {
   tokenContext *tx = ctx;
-  int ret = strncmp(t->s, tx->expected[tx->num++], t->len);
-  printf("Compare: %.*s <=> %s\n", (int)t->len, t->s, tx->expected[tx->num - 1]);
+  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
+  printf("Compare: %.*s <=> %s\n", (int)t->tokLen, t->tok, tx->expected[tx->num - 1]);
   assert(ret == 0);
   assert(t->pos > 0);
   return 0;
@@ -675,7 +675,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
+  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
   ASSERT(ctx.num == 5);
 
   free(txt);
