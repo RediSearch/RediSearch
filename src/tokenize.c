@@ -8,7 +8,7 @@
 #include <strings.h>
 
 int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
-             StopWordList *stopwords) {
+             StopWordList *stopwords, uint32_t options) {
   TokenizerCtx tctx;
   tctx.pos = (char **)&text;
   tctx.tokenFunc = f;
@@ -16,11 +16,48 @@ int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int 
   tctx.stemmer = s;
   tctx.lastOffset = offset;
   tctx.stopwords = stopwords;
+  tctx.options = options;
   return _tokenize(&tctx);
 }
 
 // Shortest word which can/should actually be stemmed
 #define MIN_STEM_CANDIDATE_LEN 4
+
+// Normalization buffer
+#define MAX_NORMALIZE_SIZE 128
+
+/**
+ * Normalizes text.
+ * - s contains the raw token
+ * - dst is the destination buffer which contains the normalized text
+ * - len on input contains the length of the raw token. on output contains the
+ * on output contains the length of the normalized token
+ */
+static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+  size_t origLen = *len;
+  char *realDest = s;
+  size_t dstLen = 0;
+
+#define SWITCH_DEST()        \
+  if (realDest != dst) {     \
+    realDest = dst;          \
+    memcpy(realDest, s, ii); \
+  }
+
+  for (size_t ii = 0; ii < origLen; ++ii) {
+    if (isupper(s[ii])) {
+      SWITCH_DEST();
+      realDest[dstLen++] = tolower(s[ii]);
+    } else if (isblank(s[ii]) || iscntrl(s[ii])) {
+      SWITCH_DEST();
+    } else {
+      dst[dstLen++] = s[ii];
+    }
+  }
+
+  *len = dstLen;
+  return dst;
+}
 
 // tokenize the text in the context
 int _tokenize(TokenizerCtx *ctx) {
@@ -33,63 +70,55 @@ int _tokenize(TokenizerCtx *ctx) {
     if (tok == NULL) break;
 
     // normalize the token
-    size_t tlen;
-    if (*ctx->pos) {
-      tlen = (*ctx->pos - 1) - tok;
+    size_t origLen = *ctx->pos ? (*ctx->pos - 1) - tok : strlen(tok);
+    size_t normLen = origLen;
+
+    char normalized_s[MAX_NORMALIZE_SIZE];
+    char *normBuf;
+    if (ctx->options & TOKENIZE_NOMODIFY) {
+      normBuf = normalized_s;
+      if (normLen > MAX_NORMALIZE_SIZE) {
+        normLen = MAX_NORMALIZE_SIZE;
+      }
     } else {
-      tlen = strlen(tok);
+      normBuf = tok;
     }
-    tok = DefaultNormalize(tok, &tlen);
+
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
 
     // ignore tokens that turn into nothing
-    if (tok == NULL || tlen == 0) {
+    if (normalized == NULL || normLen == 0) {
       continue;
     }
 
     // skip stopwords
-    if (StopWordList_Contains(ctx->stopwords, tok, tlen)) {
+    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
     // create the token struct
-    Token t = {.s = tok, .len = tlen, .pos = ++pos, .type = DT_WORD};
-
-    // let it be handled - and break on non zero response
-    if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
-      break;
-    }
+    ++pos;
+    Token tokInfo = {.tok = normalized,
+                     .tokLen = normLen,
+                     .raw = tok,
+                     .rawLen = origLen,
+                     .pos = pos,
+                     .stem = NULL};
 
     // if we support stemming - try to stem the word
-    if (ctx->stemmer && tlen >= MIN_STEM_CANDIDATE_LEN) {
+    if (ctx->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
-      const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, tlen, &sl);
-      if (stem && strncmp(stem, tok, tlen)) {
-        t.s = stem;
-        t.type = DT_STEM;
-        t.len = sl;
-        t.stringFreeable = 1;
-        if (ctx->tokenFunc(ctx->tokenFuncCtx, &t) != 0) {
-          break;
-        }
+      const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, normLen, &sl);
+      if (stem && strncmp(stem, tok, normLen)) {
+        tokInfo.stem = stem;
+        tokInfo.stemLen = sl;
       }
+    }
+
+    // let it be handled - and break on non zero response
+    if (ctx->tokenFunc(ctx->tokenFuncCtx, &tokInfo) != 0) {
+      break;
     }
   }
 
   return pos;
-}
-
-char *DefaultNormalize(char *s, size_t *len) {
-  size_t origLen = *len;
-  char *dst = s;
-  for (size_t ii = 0; ii < origLen; ++ii) {
-    if (isupper(s[ii])) {
-      *dst++ = tolower(s[ii]);
-    } else if (isblank(s[ii]) || iscntrl(s[ii])) {
-      continue;
-    } else {
-      *dst++ = s[ii];
-    }
-  }
-
-  *len = dst - s;
-  return s;
 }

@@ -142,18 +142,14 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
   return (khIdxEntry *)bb;
 }
 
-// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-//   e->freq = e->freq / idx->maxFreq;
-// }
-int forwardIndexTokenFunc(void *ctx, const Token *t) {
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
-  ForwardIndex *idx = tokCtx->idx;
-
+static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
+                                     uint32_t pos, float fieldScore, t_fieldMask fieldId,
+                                     int isStem) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
-  uint32_t hash = hashKey(t->s, t->len);
-  khIdxEntry *kh = makeEntry(idx, t->s, t->len, hash, &isNew);
+  uint32_t hash = hashKey(tok, tokLen);
+  khIdxEntry *kh = makeEntry(idx, tok, tokLen, hash, &isNew);
   h = &kh->ent;
 
   if (isNew) {
@@ -162,12 +158,12 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     h->hash = hash;
     h->next = NULL;
 
-    if (t->stringFreeable) {
-      h->term = copyTempString(idx, t->s, t->len);
+    if (isStem) {
+      h->term = copyTempString(idx, tok, tokLen);
     } else {
-      h->term = t->s;
+      h->term = tok;
     }
-    h->len = t->len;
+    h->len = tokLen;
     h->freq = 0;
 
     if (hasOffsets(idx)) {
@@ -182,20 +178,33 @@ int forwardIndexTokenFunc(void *ctx, const Token *t) {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
-  h->fieldMask |= (tokCtx->fieldId & RS_FIELDMASK_ALL);
-  float score = (float)tokCtx->fieldScore;
+  h->fieldMask |= (fieldId & RS_FIELDMASK_ALL);
+  float score = (float)fieldScore;
 
   // stem tokens get lower score
-  if (t->type == DT_STEM) {
+  if (isStem) {
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
   if (h->vw) {
-    VVW_Write(h->vw, t->pos);
+    VVW_Write(h->vw, pos);
   }
 
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
+}
+
+// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
+//   e->freq = e->freq / idx->maxFreq;
+// }
+int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+  const ForwardIndexTokenizerCtx *tokCtx = ctx;
+  ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
+                           tokCtx->fieldScore, tokCtx->fieldId, 0);
+  if (tokInfo->stem) {
+    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
+                             tokCtx->fieldScore, tokCtx->fieldId, 1);
+  }
   return 0;
 }
 

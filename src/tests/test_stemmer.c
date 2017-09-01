@@ -23,36 +23,52 @@ int testStemmer() {
 
 typedef struct {
   int num;
-  char **expected;
-
+  const char **expectedTokens;
+  const char **expectedStems;
 } tokenContext;
 
 int tokenFunc(void *ctx, const Token *t) {
   // printf("%s %d\n", t.s, t.type);
 
   tokenContext *tx = ctx;
-  int ret = strncmp(t->s, tx->expected[tx->num++], t->len);
+  int ret = strncmp(t->tok, tx->expectedTokens[tx->num], t->tokLen);
+  assert(ret == 0);
   assert(t->pos > 0);
-  if (t->type == DT_STEM) {
-    // printf("%s -> %s\n",t.s, tx->expected[tx->num-2]);
-    assert(strcmp(t->s, tx->expected[tx->num - 2]) != 0);
+
+  if (t->stem) {
+    printf("Stem: %.*s, num=%lu, orig=%.*s\n", (int)t->stemLen, t->stem, tx->num, (int)t->tokLen,
+           t->tok);
+    assert(tx->expectedStems[tx->num]);
+    assert(strlen(tx->expectedStems[tx->num]) == t->stemLen);
+    assert(strncmp(tx->expectedStems[tx->num], t->stem, t->stemLen) == 0);
+  } else {
+    assert(tx->expectedStems[tx->num] == NULL);
   }
+  tx->num++;
   return 0;
 }
 
 int testTokenize() {
 
   char *txt = strdup("Hello? world... worlds going ? -WAZZ@UP? שלום");
+
+  const char *expectedToks[] = {"hello", "world", "worlds", "going", "wazz", "up", "שלום"};
+  const char *expectedStems[] = {NULL /*hello*/,
+                                 NULL /*world/*/,
+                                 "world" /*worlds*/,
+                                 "go" /*going*/,
+                                 NULL /*wazz*/,
+                                 NULL /*up*/,
+                                 NULL /*שלום*/};
   tokenContext ctx = {0};
-  const char *expected[] = {"hello", "world", "worlds", "world", "going",
-                            "go",    "wazz",  "up",     "שלום"};
-  ctx.expected = (char **)expected;
+  ctx.expectedTokens = expectedToks;
+  ctx.expectedStems = expectedStems;
 
   Stemmer *s = NewStemmer(SnowballStemmer, "en");
   ASSERT(s != NULL)
 
-  tokenize(txt, &ctx, tokenFunc, s, 0, DefaultStopWordList());
-  ASSERT(ctx.num == 9);
+  tokenize(txt, &ctx, tokenFunc, s, 0, DefaultStopWordList(), 0);
+  ASSERT(ctx.num == 7);
 
   free(txt);
 
