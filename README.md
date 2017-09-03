@@ -63,6 +63,10 @@ Official (Redis Labs) and community Clients:
 * Document Deletion (Update can be done by deletion and then re-insertion).
 * Sortable properties (i.e. sorting users by age or name).
 
+## Cluster Support
+
+RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, at the moment it is only available as part of Redis Labs Enterprise. See the [Redis Labs Website](https://redislabs.com/modules/redisearch/) for more info and contact information.
+
 ### Not *yet* supported:
 
 * Spelling correction

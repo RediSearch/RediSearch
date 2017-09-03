@@ -28,6 +28,10 @@ that are not possible or efficient with traditional redis search approache
 Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
 See [Clients Page](/Clients)
 
+## Cluster Support and Commercial Version
+
+RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial suppport for RediSearch. See the [Redis Labs Website](https://redislabs.com/modules/redisearch/) for more info and contact information. 
+
 ## Primary Features:
 
 * Full-Text indexing of multiple fields in documents.
