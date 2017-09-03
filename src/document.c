@@ -94,6 +94,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
       aCtx->fspecs[i] = *fs;
       if (FieldSpec_IsSortable(fs) && aCtx->sv == NULL) {
         aCtx->sv = NewSortingVector(sp->sortables->len);
+        aCtx->options |= DOCUMENT_ADD_HAS_SORTABLES;
       }
       if (fs->type != F_FULLTEXT) {
         aCtx->stateFlags |= ACTX_F_NONTXTFLDS;

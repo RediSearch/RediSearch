@@ -103,6 +103,8 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx);
 void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_REPLACE 0x01
+#define DOCUMENT_ADD_PARTIAL 0x02
+
 
 struct ForwardIndex;
 union FieldData;
@@ -116,6 +118,13 @@ union FieldData;
 
 // The context also has non-text fields
 #define ACTX_F_NONTXTFLDS 0x04
+
+// The content has indexable fields
+#define ACTX_F_INDEXABLES 0x08
+
+// The content has sortable fields
+#define ACTX_F_SORTABLES 0x10
+
 
 struct DocumentIndexer;
 
