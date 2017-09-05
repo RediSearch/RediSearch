@@ -10,49 +10,6 @@
 #include "rmalloc.h"
 #include <sys/param.h>
 
-#define BAD_LENGTH_ARGS ((size_t)-1)
-/**
- * Gets a variable list of arguments to a given keyword.
- * The number of variable arguments are found in `outlen`.
- * If offset is specified, the first <offset> arguments will be ignored when
- * checking for the presence of the keyword and subsequent arguments.
- *
- * If the return value is NULL then the keyword is not present. If
- * the value of outlen is `BAD_LENGTH_ARGS` then the keyword was found, but
- * there was a problem with how the numbers are formatted.
- *
- */
-static RedisModuleString **getLengthArgs(const char *keyword, size_t *outlen,
-                                         RedisModuleString **argv, int argc, size_t offset) {
-  if (offset > argc) {
-    return NULL;
-  }
-
-  argv += offset;
-  argc -= offset;
-
-  int ix = RMUtil_ArgIndex(keyword, argv, argc);
-  if (ix < 0) {
-    return NULL;
-  } else if (ix >= argc - 1) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  argv += (ix + 1);
-  argc -= (ix + 1);
-
-  long long n = 0;
-  RMUtil_ParseArgs(argv, argc, 0, "l", &n);
-  if (n > argc - 1 || n < 0) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  *outlen = n;
-  return argv + 1;
-}
-
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
 
@@ -107,8 +64,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // if INFIELDS exists, parse the field mask
   req->fieldMask = RS_FIELDMASK_ALL;
-  if ((vargs = getLengthArgs("INFIELDS", &nargs, argv, argc, 3))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 3, "INFIELDS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INFIELDS`";
       goto err;
     }
@@ -192,8 +149,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse the id filter arguments
-  if ((vargs = getLengthArgs("INKEYS", &nargs, argv, argc, 2))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "INKEYS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INKEYS`";
       goto err;
     }
@@ -201,7 +158,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse RETURN argument
-  if ((vargs = getLengthArgs("RETURN", &nargs, argv, argc, 2))) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "RETURN", &nargs))) {
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
