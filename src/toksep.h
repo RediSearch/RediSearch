@@ -31,4 +31,8 @@ static inline char *toksep(char **s) {
   return orig;
 }
 
+static inline int istoksep(int c) {
+  return ToksepMap_g[(uint8_t)c] != 0;
+}
+
 #endif
