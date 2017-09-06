@@ -156,11 +156,11 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 | WHERE y='foo' AND x NOT IN ('foo','bar') | @y:foo -@x:(foo bar) |
 | WHERE x NOT IN ('foo','bar') | -@x:(foo bar) |
 | WHERE num BETWEEN 10 AND 20 | @num:[10 20] |
-| WHERE num > 10 | @num:[10 +inf] |
-| WHERE num >= 10 | @num:[(10 +inf] |
+| WHERE num >= 10 | @num:[10 +inf] |
+| WHERE num > 10 | @num:[(10 +inf] |
 | WHERE num < 10 | @num:[-inf (10] |
 | WHERE num <= 10 | @num:[-inf 10] |
-| WHERE num < 10 OR num > 20 | @num:[-inf (10]:@num:[(20 +inf] |
+| WHERE num < 10 OR num > 20 | @num:[-inf (10] \| @num:[(20 +inf] |
 | WHERE name LIKE 'john%' | @name:john* | 
 | WHERE name LIKE 'john lenn%' | @name:"john lenn*" | 
 
