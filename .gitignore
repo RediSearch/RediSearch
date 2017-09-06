@@ -11,3 +11,4 @@
 !**/*.mak
 /site
 
+src/dep/snowball/libstemmer/mkinc.mak

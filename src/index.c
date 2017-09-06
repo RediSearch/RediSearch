@@ -10,7 +10,6 @@
 #include <sys/param.h>
 #include "rmalloc.h"
 
-
 inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionContext *)ctx)->minDocId;
 }
@@ -174,7 +173,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
       }
-      ui->docIds[i] = res->docId;
+      if (res) ui->docIds[i] = res->docId;
 
     } else {
       // if the iterator is at an end - we avoid reading the entry
@@ -331,7 +330,7 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
       rc = it->SkipTo(it->ctx, docId, &res);
       if (rc != INDEXREAD_EOF) {
-        ic->docIds[i] = res->docId;
+        if (res) ic->docIds[i] = res->docId;
       }
     }
 
@@ -497,6 +496,8 @@ int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   // if the last read docId is the one we are looking for, it's an anti match!
   if (nc->lastDocId == docId) {
+    nc->current->docId = docId;
+    *hit = nc->current;
     return INDEXREAD_NOTFOUND;
   }
 
