@@ -164,6 +164,6 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 | WHERE name LIKE 'john%' | @name:john* | 
 | WHERE name LIKE 'john lenn%' | @name:"john lenn*" | 
 
-### Technical Note
+## Technical Note
 
 The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo.](https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y)
