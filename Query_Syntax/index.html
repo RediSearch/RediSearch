@@ -324,6 +324,13 @@
     A Few Query Examples
   </a>
   
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+    Mapping Common SQL Predicates to RediSearch
+  </a>
+  
     <nav class="md-nav">
       <ul class="md-nav__list">
         
@@ -569,6 +576,13 @@
     A Few Query Examples
   </a>
   
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+    Mapping Common SQL Predicates to RediSearch
+  </a>
+  
     <nav class="md-nav">
       <ul class="md-nav__list">
         
@@ -778,6 +792,88 @@ hello -worl*
 
 </li>
 </ul>
+<h2 id="mapping-common-sql-predicates-to-redisearch">Mapping Common SQL Predicates to RediSearch<a class="headerlink" href="#mapping-common-sql-predicates-to-redisearch" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>SQL Condition</th>
+<th>RediSearch Equivalent</th>
+<th>Comments</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WHERE x='foo' AND y='bar'</td>
+<td>@x:foo @y:bar</td>
+<td>for less ambiguity use (@x:foo) (@y:bar)</td>
+</tr>
+<tr>
+<td>WHERE x='foo' AND y!='bar'</td>
+<td>@x:foo -@y:bar</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x='foo' OR y='bar'</td>
+<td>(@x:foo)|(@y:bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x IN ('foo', 'bar','hello world')</td>
+<td>@x:(foo bar "hello world")</td>
+<td>quotes mean exact phrase</td>
+</tr>
+<tr>
+<td>WHERE y='foo' AND x NOT IN ('foo','bar')</td>
+<td>@y:foo -@x:(foo bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x NOT IN ('foo','bar')</td>
+<td>-@x:(foo bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num BETWEEN 10 AND 20</td>
+<td>@num:[10 20]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &gt; 10</td>
+<td>@num:[10 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &gt;= 10</td>
+<td>@num:[(10 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt; 10</td>
+<td>@num:[-inf (10]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt;= 10</td>
+<td>@num:[-inf 10]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt; 10 OR num &gt; 20</td>
+<td>@num:[-inf (10]:@num:[(20 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE name LIKE 'john%'</td>
+<td>@name:john*</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE name LIKE 'john lenn%'</td>
+<td>@name:"john lenn*"</td>
+<td></td>
+</tr>
+</tbody>
+</table>
 <h3 id="technical-note">Technical Note<a class="headerlink" href="#technical-note" title="Permanent link">&para;</a></h3>
 <p>The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
               
