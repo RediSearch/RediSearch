@@ -826,12 +826,12 @@ hello -worl*
 <td></td>
 </tr>
 <tr>
-<td>WHERE num &gt; 10</td>
+<td>WHERE num &gt;= 10</td>
 <td>@num:[10 +inf]</td>
 <td></td>
 </tr>
 <tr>
-<td>WHERE num &gt;= 10</td>
+<td>WHERE num &gt; 10</td>
 <td>@num:[(10 +inf]</td>
 <td></td>
 </tr>
@@ -847,7 +847,7 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE num &lt; 10 OR num &gt; 20</td>
-<td>@num:[-inf (10]:@num:[(20 +inf]</td>
+<td>@num:[-inf (10] | @num:[(20 +inf]</td>
 <td></td>
 </tr>
 <tr>
