@@ -807,8 +807,8 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE x IN ('foo', 'bar','hello world')</td>
-<td>@x:(foo</td>
-<td>bar</td>
+<td>@x:(foo|bar|"hello world")</td>
+<td>quotes mean exact phrase</td>
 </tr>
 <tr>
 <td>WHERE y='foo' AND x NOT IN ('foo','bar')</td>
@@ -817,8 +817,8 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE x NOT IN ('foo','bar')</td>
-<td>-@x:(foo</td>
-<td>bar)</td>
+<td>-@x:(foo|bar)</td>
+<td></td>
 </tr>
 <tr>
 <td>WHERE num BETWEEN 10 AND 20</td>
