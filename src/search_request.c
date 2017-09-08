@@ -8,6 +8,7 @@
 #include "concurrent_ctx.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "summarize_spec.h"
 #include <sys/param.h>
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
@@ -46,6 +47,34 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     req->flags |= Search_InOrder;
     // the slop will be parsed later, this is just the default when INORDER and no SLOP
     req->slop = __INT_MAX__;
+  }
+
+  int sumIdx;
+  if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
+    size_t tmpOffset = sumIdx;
+    if (ParseSummarizeSpecSimple(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Couldn't parse `SUMMARIZE`";
+      goto err;
+    }
+  }
+
+  if ((sumIdx = RMUtil_ArgExists("HIGHLIGHTER", argv, argc, 3)) > 0) {
+    // Parse the highlighter spec
+    size_t tmpOffset;
+    if (argc - sumIdx < 2) {
+      *errStr = "Not enough arguments for `HIGHLIGHTER";
+      goto err;
+    }
+    sumIdx++;
+    if (!RMUtil_StringEqualsCaseC(argv[sumIdx], "DEFAULT")) {
+      *errStr = "Unknown highlighter";
+      goto err;
+    }
+    tmpOffset = sumIdx;
+    if (ParseSummarizeSpecDetailed(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Bad args for `HIGHLIGHTER DEFAULT`";
+      goto err;
+    }
   }
 
   // Parse LIMIT argument
