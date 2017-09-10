@@ -140,6 +140,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &req->language);
     if (req->language && !IsSupportedLanguage(req->language, strlen(req->language))) {
       *errStr = "Unsupported Stemmer Language";
+      req->language = NULL;
       goto err;
     }
     if (req->language) req->language = strdup(req->language);

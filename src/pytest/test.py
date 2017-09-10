@@ -805,6 +805,12 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
 
+            # test for unknown language
+            with self.assertResponseError():
+                res = r.execute_command(
+                    'ft.search', 'idx', 'hello kitty', "nocontent", "language", "foofoofian")
+                
+            
     def testExpander(self):
 
         with self.redis() as r:
