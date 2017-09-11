@@ -186,7 +186,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base);
  * At this point the context will take over from the caller, and handle sending
  * the replies and so on.
  */
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options);
+void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options);
 
 /**
  * Indicate that processing is finished on the current document
@@ -211,9 +211,6 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
-
-/* Do a quick update of the document metadata without reindexing it. TODO: possibly rename this */
-int Document_QuickUpdate(RedisSearchCtx *sctx, Document *doc, const char **errorString);
 
 /**
  * Load a single document

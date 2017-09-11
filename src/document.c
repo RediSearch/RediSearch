@@ -36,37 +36,9 @@ static void freeDocumentContext(void *p) {
   free(aCtx);
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
-
-  if (!actxPool_g) {
-    actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
-  }
-
-  // Get a new context
-  RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
-
-  // Per-client fields; these must always be recreated
-  aCtx->bc = NULL;
-
-  size_t oldFieldCount = aCtx->doc.numFields;
+static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
+                                       size_t oldFieldCount) {
   aCtx->doc = *base;
-
-  aCtx->next = NULL;
-
-  if (aCtx->fwIdx) {
-    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
-    aCtx->stateFlags = 0;
-    aCtx->errorString = NULL;
-    aCtx->totalTokens = 0;
-  } else {
-    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
-  }
-
-  aCtx->specFlags = sp->flags;
-  aCtx->stopwords = sp->stopwords;
-  aCtx->indexer = GetDocumentIndexer(sp->name);
-
-  StopWordList_Ref(sp->stopwords);
 
   // Also, get the field specs. We cache this here because the
   // context is unlocked
@@ -110,6 +82,39 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
       aCtx->fspecs[i].name = NULL;
     }
   }
+}
+
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
+
+  if (!actxPool_g) {
+    actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
+  }
+
+  // Get a new context
+  RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
+
+  // Assign the document:
+  AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields);
+
+  // Per-client fields; these must always be recreated
+  aCtx->bc = NULL;
+  aCtx->next = NULL;
+
+  if (aCtx->fwIdx) {
+    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
+    aCtx->stateFlags = 0;
+    aCtx->errorString = NULL;
+    aCtx->totalTokens = 0;
+  } else {
+    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+  }
+
+  aCtx->specFlags = sp->flags;
+  aCtx->stopwords = sp->stopwords;
+  aCtx->indexer = GetDocumentIndexer(sp->name);
+
+  StopWordList_Ref(sp->stopwords);
+
   aCtx->doc.docId = 0;
   return aCtx;
 }
@@ -136,9 +141,43 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, uint32_t options) {
+static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  // Handle partial update of fields
+  if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
+
+    // The document update is partial - but it contains indexable fields. We need to load the
+    // current version of it, and then do a normal indexing flow
+
+    // Free the old field data
+    size_t oldFieldCount = aCtx->doc.numFields;
+    Document_ClearDetachedFields(&aCtx->doc, sctx->redisCtx);
+    if (Redis_LoadDocument(sctx, aCtx->doc.docKey, &aCtx->doc) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Error updating document");
+      AddDocumentCtx_Free(aCtx);
+      return 1;
+    }
+
+    // Keep hold of the new fields.
+    Document_DetachFields(&aCtx->doc, sctx->redisCtx);
+    AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
+
+    return 0;
+  }
+
+  // No indexable fields are updated, we can just update the metadata.
+  // Quick update just updates the score, payload and sortable fields of the document.
+  // Thus full-reindexing of the document is not required
+  AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
+  return 1;
+}
+
+void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
   aCtx->options = options;
-  aCtx->bc = RedisModule_BlockClient(ctx, replyCallback, NULL, NULL, 0);
+  if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
+    return;
+  }
+  aCtx->bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
   assert(aCtx->bc);
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
@@ -311,15 +350,21 @@ cleanup:
   return ourRv;
 }
 
-int Document_QuickUpdate(RedisSearchCtx *sctx, Document *doc, const char **errorString) {
+static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+#define BAIL(s)                   \
+  do {                            \
+    aCtx->errorString = "ERR " s; \
+    goto done;                    \
+  } while (0);
 
+  Document *doc = &aCtx->doc;
   t_docId docId = DocTable_GetId(&sctx->spec->docs, RedisModule_StringPtrLen(doc->docKey, NULL));
   if (docId == 0) {
-    return REDISMODULE_ERR;
+    BAIL("Couldn't load old document");
   }
   RSDocumentMetadata *md = DocTable_Get(&sctx->spec->docs, docId);
   if (!md) {
-    return REDISMODULE_ERR;
+    BAIL("Couldn't load document metadata");
   }
 
   // Update the score
@@ -350,16 +395,22 @@ int Document_QuickUpdate(RedisSearchCtx *sctx, Document *doc, const char **error
       case F_NUMERIC: {
         double numval;
         if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
-          *errorString = "Could not parse numeric index value";
-          return REDISMODULE_ERR;
+          BAIL("Could not parse numeric index value");
         }
+        RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
         break;
       }
       default:
-        *errorString = "Unsupported sortable type";
-        return REDISMODULE_ERR;
+        BAIL("Unsupported sortable type");
         break;
     }
   }
-  return REDISMODULE_OK;
+
+done:
+  if (aCtx->errorString) {
+    RedisModule_ReplyWithError(sctx->redisCtx, aCtx->errorString);
+  } else {
+    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "OK");
+  }
+  AddDocumentCtx_Free(aCtx);
 }
