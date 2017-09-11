@@ -94,10 +94,17 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base) {
       aCtx->fspecs[i] = *fs;
       if (FieldSpec_IsSortable(fs) && aCtx->sv == NULL) {
         aCtx->sv = NewSortingVector(sp->sortables->len);
-        aCtx->options |= DOCUMENT_ADD_HAS_SORTABLES;
+        // mark sortable fields to be updated in the state flags
+        aCtx->stateFlags |= ACTX_F_SORTABLES;
       }
+      // mark non text fields in the state flags
       if (fs->type != F_FULLTEXT) {
         aCtx->stateFlags |= ACTX_F_NONTXTFLDS;
+      }
+
+      // mark indexable fields in the state flags
+      if (FieldSpec_IsIndexable(fs)) {
+        aCtx->stateFlags |= ACTX_F_INDEXABLES;
       }
     } else {
       aCtx->fspecs[i].name = NULL;
@@ -272,6 +279,11 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       continue;
     }
 
+    if (!FieldSpec_IsIndexable(fs)) {
+      printf("Skipping non indexable field %s\n", fs->name);
+      continue;
+    }
+
     // Get handler
     PreprocessorFunc pp = GetIndexPreprocessor(fs->type);
     if (pp == NULL) {
@@ -297,4 +309,57 @@ cleanup:
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
+}
+
+int Document_QuickUpdate(RedisSearchCtx *sctx, Document *doc, const char **errorString) {
+
+  t_docId docId = DocTable_GetId(&sctx->spec->docs, RedisModule_StringPtrLen(doc->docKey, NULL));
+  if (docId == 0) {
+    return REDISMODULE_ERR;
+  }
+  RSDocumentMetadata *md = DocTable_Get(&sctx->spec->docs, docId);
+  if (!md) {
+    return REDISMODULE_ERR;
+  }
+
+  // Update the score
+  md->score = doc->score;
+  // Set the payload if needed
+  if (doc->payload) {
+    DocTable_SetPayload(&sctx->spec->docs, docId, doc->payload, doc->payloadSize);
+  }
+
+  // Update sortables if needed
+  for (int i = 0; i < doc->numFields; i++) {
+    DocumentField *f = &doc->fields[i];
+    FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+    if (!FieldSpec_IsSortable(fs)) continue;
+
+    int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+    if (idx < 0) continue;
+
+    if (!md->sortVector) {
+      md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+    }
+
+    switch (fs->type) {
+      case F_FULLTEXT:
+        RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
+                            RS_SORTABLE_STR);
+        break;
+      case F_NUMERIC: {
+        double numval;
+        if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
+          *errorString = "Could not parse numeric index value";
+          return REDISMODULE_ERR;
+        }
+        break;
+      }
+      default:
+        *errorString = "Unsupported sortable type";
+        return REDISMODULE_ERR;
+        break;
+    }
+  }
+  return REDISMODULE_OK;
 }

@@ -92,7 +92,7 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
-
+  int partial = RMUtil_ArgExists("PARTIAL", argv, argc, 1);
   // printf("argc: %d, fieldsIdx: %d, argc - fieldsIdx: %d, nosave: %d\n", argc,
   // fieldsIdx,
   // argc-fieldsIdx, nosave);
@@ -145,10 +145,36 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+
+  // in partial mode
+  if (partial && replace) {
+    RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+
+    // No indexable fields are updated, we can just update the metadata.
+    // Quick update just updates the score, payload and sortable fields of the document.
+    // Thus full-reindexing of the document is not required
+    if (!(aCtx->stateFlags & ACTX_F_INDEXABLES)) {
+      const char *errStr = NULL;
+      if (Document_QuickUpdate(&sctx, &doc, &errStr) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, errStr ? errStr : "Error updating document");
+        goto errclean;
+      }
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+
+      // The document update is partial - but it contains indexable fields. We need to load the
+      // current version of it, and then do a normal indexing flow
+      Redis_LoadDocument(&sctx, doc.docKey, &doc);
+    }
+  }
   AddDocumentCtx_Submit(aCtx, ctx, replace ? DOCUMENT_ADD_REPLACE : 0);
 
 cleanup:
   return REDISMODULE_OK;
+errclean:
+  Document_Free(&doc);
+  AddDocumentCtx_Free(aCtx);
+  return REDISMODULE_ERR;
 }
 
 /* FT.SETPAYLOAD {index} {docId} {payload} */

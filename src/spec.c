@@ -131,7 +131,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   // if we're at the end - fail
   if (*offset >= argc) return 0;
   sp->sortIdx = -1;
-  sp->options = FieldSpec_IsIndexable;
+  sp->options = 0;
   // the field name comes here
   sp->name = rm_strdup(argv[*offset]);
 
@@ -190,6 +190,12 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     sp->options |= FieldSpec_Sortable;
     ++*offset;
   }
+
+  if (*offset < argc && !strcasecmp(argv[*offset], SPEC_NOINDEX_STR)) {
+    sp->options |= FieldSpec_NotIndexable;
+    ++*offset;
+  }
+
   return 1;
 }
 

@@ -169,7 +169,7 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
   return vec;
 }
 
-/* Create a new sortin table of a given length */
+/* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(int len) {
   RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(const char *));
   tbl->len = len;

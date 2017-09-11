@@ -14,7 +14,7 @@
 
 /**
  * To index a document, call Document_PrepareForAdd on the document itself.
- * This initializes the Document structre for indexing purposes. Once the
+ * This initializes the Document structure for indexing purposes. Once the
  * document has been prepared, acquire a new RSAddDocumentCtx() by calling
  * NewAddDocumentCtx().
  *
@@ -105,7 +105,6 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
 
-
 struct ForwardIndex;
 union FieldData;
 
@@ -124,7 +123,6 @@ union FieldData;
 
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
-
 
 struct DocumentIndexer;
 
@@ -204,6 +202,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
+
+/* Do a quick update of the document metadata without reindexing it. TODO: possibly rename this */
+int Document_QuickUpdate(RedisSearchCtx *sctx, Document *doc, const char **errorString);
 
 /**
  * Load a single document

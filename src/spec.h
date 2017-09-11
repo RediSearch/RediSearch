@@ -35,10 +35,9 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 
 #define SPEC_MAX_FIELDS 32
 
-
 typedef enum {
-   FieldSpec_Sortable = 0x01, 
-  FieldSpec_NoStemming = 0x02, 
+  FieldSpec_Sortable = 0x01,
+  FieldSpec_NoStemming = 0x02,
   FieldSpec_NotIndexable = 0x04
 } FieldSpecOptions;
 
@@ -62,7 +61,7 @@ typedef struct fieldSpec {
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
-#define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_Indexable))
+#define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 
 typedef struct {
   size_t numDocuments;
