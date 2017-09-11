@@ -87,6 +87,15 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
 void Document_Detach(Document *doc, RedisModuleCtx *srcCtx);
 
 /**
+ * These two functions are used to manipulate the internal field data within a
+ * document _without_ additional allocations. ClearDetachedFields() will
+ * clear the document's field count to 0, whereas DetachFields will detach
+ * the newly loaded field data (via Redis_LoadDocument).
+ */
+void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx);
+void Document_DetachFields(Document *doc, RedisModuleCtx *ctx);
+
+/**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in

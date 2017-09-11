@@ -35,14 +35,29 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
   Document_Detach(doc, ctx);
 }
 
-void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
-  RedisModule_RetainString(srcCtx, doc->docKey);
+void Document_DetachFields(Document *doc, RedisModuleCtx *ctx) {
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *f = doc->fields + ii;
-    RedisModule_RetainString(srcCtx, f->text);
+    RedisModule_RetainString(ctx, f->text);
     f->name = strdup(f->name);
   }
+}
+
+void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx) {
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    RedisModule_FreeString(anyCtx, doc->fields[ii].text);
+    free((void *)doc->fields[ii].name);
+  }
+  free(doc->fields);
+  doc->fields = NULL;
+  doc->numFields = 0;
+}
+
+void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
+  RedisModule_RetainString(srcCtx, doc->docKey);
   doc->stringOwner = 1;
+
+  Document_DetachFields(doc, srcCtx);
   if (doc->payload) {
     doc->payload = strndup(doc->payload, doc->payloadSize);
   }
@@ -57,12 +72,7 @@ void Document_Free(Document *doc) {
 
 void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
   RedisModule_FreeString(anyCtx, doc->docKey);
-
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    RedisModule_FreeString(anyCtx, doc->fields[ii].text);
-    free((void *)doc->fields[ii].name);
-  }
-
+  Document_ClearDetachedFields(doc, anyCtx);
   free((char *)doc->payload);
   free((char *)doc->language);
 
