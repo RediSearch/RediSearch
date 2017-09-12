@@ -367,7 +367,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   for (int i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
     fieldData *fdata = aCtx->fdatas + i;
-    if (fs->name == NULL) {
+    if (fs->name == NULL || !FieldSpec_IsIndexable(fs)) {
       // Means this document field does not have a corresponding spec
       continue;
     }

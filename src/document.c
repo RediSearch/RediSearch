@@ -64,8 +64,10 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
       aCtx->fspecs[i] = *fs;
-      if (FieldSpec_IsSortable(fs) && aCtx->sv == NULL) {
-        aCtx->sv = NewSortingVector(sp->sortables->len);
+      if (FieldSpec_IsSortable(fs)) {
+        if (aCtx->sv == NULL) {
+          aCtx->sv = NewSortingVector(sp->sortables->len);
+        }
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
       }
@@ -92,26 +94,23 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
 
   // Get a new context
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
-
-  // Assign the document:
-  AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields);
-
-  // Per-client fields; these must always be recreated
+  aCtx->stateFlags = 0;
+  aCtx->errorString = NULL;
+  aCtx->totalTokens = 0;
   aCtx->bc = NULL;
   aCtx->next = NULL;
-
-  if (aCtx->fwIdx) {
-    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
-    aCtx->stateFlags = 0;
-    aCtx->errorString = NULL;
-    aCtx->totalTokens = 0;
-  } else {
-    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
-  }
-
   aCtx->specFlags = sp->flags;
   aCtx->stopwords = sp->stopwords;
   aCtx->indexer = GetDocumentIndexer(sp->name);
+  // Assign the document:
+  AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields);
+
+  // try to reuse the forward index on recycled contexts
+  if (aCtx->fwIdx) {
+    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
+  } else {
+    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+  }
 
   StopWordList_Ref(sp->stopwords);
 
@@ -229,9 +228,12 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
-  aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
-                               aCtx->totalTokens, aCtx->stopwords);
+  // Only tokenize indexable fields
+  if (FieldSpec_IsIndexable(fs)) {
+    Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
+    aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
+                                 aCtx->totalTokens, aCtx->stopwords);
+  }
   return 0;
 }
 
@@ -318,11 +320,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       continue;
     }
 
-    if (!FieldSpec_IsIndexable(fs)) {
-      printf("Skipping non indexable field %s\n", fs->name);
-      continue;
-    }
-
     // Get handler
     PreprocessorFunc pp = GetIndexPreprocessor(fs->type);
     if (pp == NULL) {
@@ -351,10 +348,10 @@ cleanup:
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-#define BAIL(s)                   \
-  do {                            \
-    aCtx->errorString = "ERR " s; \
-    goto done;                    \
+#define BAIL(s)            \
+  do {                     \
+    aCtx->errorString = s; \
+    goto done;             \
   } while (0);
 
   Document *doc = &aCtx->doc;
@@ -374,35 +371,37 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     DocTable_SetPayload(&sctx->spec->docs, docId, doc->payload, doc->payloadSize);
   }
 
-  // Update sortables if needed
-  for (int i = 0; i < doc->numFields; i++) {
-    DocumentField *f = &doc->fields[i];
-    FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
-    if (!FieldSpec_IsSortable(fs)) continue;
+  if (aCtx->stateFlags & ACTX_F_SORTABLES) {
+    // Update sortables if needed
+    for (int i = 0; i < doc->numFields; i++) {
+      DocumentField *f = &doc->fields[i];
+      FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      if (!FieldSpec_IsSortable(fs)) continue;
 
-    int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
-    if (idx < 0) continue;
+      int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+      if (idx < 0) continue;
 
-    if (!md->sortVector) {
-      md->sortVector = NewSortingVector(sctx->spec->sortables->len);
-    }
-
-    switch (fs->type) {
-      case F_FULLTEXT:
-        RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
-                            RS_SORTABLE_STR);
-        break;
-      case F_NUMERIC: {
-        double numval;
-        if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
-          BAIL("Could not parse numeric index value");
-        }
-        RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
-        break;
+      if (!md->sortVector) {
+        md->sortVector = NewSortingVector(sctx->spec->sortables->len);
       }
-      default:
-        BAIL("Unsupported sortable type");
-        break;
+
+      switch (fs->type) {
+        case F_FULLTEXT:
+          RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
+                              RS_SORTABLE_STR);
+          break;
+        case F_NUMERIC: {
+          double numval;
+          if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
+            BAIL("Could not parse numeric index value");
+          }
+          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
+          break;
+        }
+        default:
+          BAIL("Unsupported sortable type");
+          break;
+      }
     }
   }
 

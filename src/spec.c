@@ -182,18 +182,20 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     return 0;
   }
 
-  if (*offset < argc && !strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
-    // cannot sort by geo fields
-    if (sp->type == F_GEO) {
-      return 0;
+  while (*offset < argc) {
+    if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
+      // cannot sort by geo fields
+      if (sp->type == F_GEO) {
+        return 0;
+      }
+      sp->options |= FieldSpec_Sortable;
+      ++*offset;
+    } else if (!strcasecmp(argv[*offset], SPEC_NOINDEX_STR)) {
+      sp->options |= FieldSpec_NotIndexable;
+      ++*offset;
+    } else {
+      break;
     }
-    sp->options |= FieldSpec_Sortable;
-    ++*offset;
-  }
-
-  if (*offset < argc && !strcasecmp(argv[*offset], SPEC_NOINDEX_STR)) {
-    sp->options |= FieldSpec_NotIndexable;
-    ++*offset;
   }
 
   return 1;

@@ -334,6 +334,61 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 }
 """)
 
+
+    def testNoIndex(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 
+                    'foo', 'text', 
+                    'num', 'numeric', 'sortable', 'noindex',
+                    'extra', 'text', 'noindex', 'sortable'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
+                                                'foo', 'hello world', 'num', 1, 'extra', 'lorem ipsum'))
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent')
+            self.assertListEqual([1, 'doc1'], res)
+            res = r.execute_command('ft.search', 'idx', 'lorem ipsum', 'nocontent')
+            self.assertListEqual([0], res)
+            res = r.execute_command('ft.search', 'idx', '@num:[1 1]', 'nocontent')
+            self.assertListEqual([0], res)
+
+    def testPartial(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 
+                        'foo', 'text', 
+                        'num', 'numeric', 'sortable', 'noindex', 
+                        'extra', 'text', 'noindex'))
+            #print r.execute_command('ft.info', 'idx')
+
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
+                                                'foo', 'hello world', 'num', 1, 'extra', 'lorem ipsum'))
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', '0.1', 'fields',
+                                                'foo', 'hello world', 'num', 2, 'extra', 'abba'))
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'sortby', 'num', 'asc', 'nocontent', 'withsortkeys')
+            self.assertListEqual([2L, 'doc1', '1', 'doc2', '2'], res)
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc', 'nocontent', 'withsortkeys')
+            self.assertListEqual([2L, 'doc2', '2', 'doc1', '1'], res)
+            
+            
+            # Updating non indexed fields doesn't affect search results
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
+                                                'fields',
+                                                 'num', 3, 'extra', 'jorem gipsum'))
+            res = r.execute_command('ft.search', 'idx', 'hello world','sortby', 'num', 'desc',)
+            self.assertListEqual([2L,'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
+                                     'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
+            # Updating only indexed field affects search results
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.9', 'replace', 'partial',
+                                                'fields', 'foo', 'wat wat'))
+            res = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent')
+            self.assertListEqual([1L, 'doc2'], res)
+            res = r.execute_command('ft.search', 'idx', 'wat', 'nocontent')
+            self.assertListEqual([1L, 'doc1'], res)
+
+            
+            
     def testPaging(self):
         with self.redis() as r:
             r.flushdb()
@@ -1169,7 +1224,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
                 self.assertEqual(d['index_name'], 'idx')
                 self.assertEqual(d['index_options'], ['NOFIELDS'])
-                self.assertListEqual(d['fields'], [['title', 'type', 'TEXT', 'weight', '1']])
+                self.assertListEqual(d['fields'], [['title', 'type', 'TEXT', 'WEIGHT', '1']])
                 self.assertEquals(int(d['num_docs']), N)
                 self.assertEquals(int(d['num_terms']), N + 1)
                 self.assertEquals(int(d['max_doc_id']), N)

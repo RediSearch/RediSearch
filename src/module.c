@@ -252,14 +252,18 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int nn = 1;
     REPLY_KVSTR(nn, "type", SpecTypeNames[sp->fields[i].type]);
     if (sp->fields[i].type == F_FULLTEXT) {
-      REPLY_KVNUM(nn, "weight", sp->fields[i].weight);
+      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].weight);
     }
     if (FieldSpec_IsSortable(&sp->fields[i])) {
-      RedisModule_ReplyWithSimpleString(ctx, "SORTABLE");
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
     if (FieldSpec_IsNoStem(&sp->fields[i])) {
-      RedisModule_ReplyWithSimpleString(ctx, "NOSTEM");
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
+      ++nn;
+    }
+    if (!FieldSpec_IsIndexable(&sp->fields[i])) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
       ++nn;
     }
     RedisModule_ReplySetArrayLength(ctx, nn);
