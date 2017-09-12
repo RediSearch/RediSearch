@@ -365,6 +365,17 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertEqual(res[0], N)
             self.assertEqual(len(res), 1)
 
+            
+            with self.assertResponseError():
+                r.execute_command(
+                'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, -1)
+            with self.assertResponseError():
+                r.execute_command(
+                'ft.search', 'idx', 'hello', 'nocontent', 'limit', -1, 10)
+            with self.assertResponseError():
+                r.execute_command(
+                'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 2000000)
+
     def testPrefix(self):
         with self.redis() as r:
             r.flushdb()
