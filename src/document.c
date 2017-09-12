@@ -39,24 +39,12 @@ static void freeDocumentContext(void *p) {
 static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
                                        size_t oldFieldCount) {
   aCtx->doc = *base;
-
-  // Also, get the field specs. We cache this here because the
-  // context is unlocked
-  // during the actual tokenization
   Document *doc = &aCtx->doc;
 
-  // We might be able to use the old block of fields. But, if it's too small,
-  // just free and call malloc again; that's basically what realloc does
-  // anyway.
-  if (oldFieldCount != 0 && oldFieldCount < doc->numFields) {
-    free(aCtx->fspecs);
-    free(aCtx->fdatas);
-    oldFieldCount = 0;
-  }
-
-  if (oldFieldCount == 0) {
-    aCtx->fspecs = malloc(sizeof(*aCtx->fspecs) * doc->numFields);
-    aCtx->fdatas = malloc(sizeof(*aCtx->fdatas) * doc->numFields);
+  if (oldFieldCount < doc->numFields) {
+    // Pre-allocate the field specs
+    aCtx->fspecs = realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
+    aCtx->fdatas = realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
   }
 
   for (int i = 0; i < doc->numFields; i++) {
