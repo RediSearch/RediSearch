@@ -60,7 +60,7 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 
 5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. 
 
-# Geo Filters in Query
+## Geo Filters in Query
 
 As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).
 
