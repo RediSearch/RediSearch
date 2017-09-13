@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...
 ```
 
 ### Description:
@@ -35,9 +35,22 @@ so keep it short!
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
-    Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
-    Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
-    This may be ideal for things like proper names
+    ### Field Options
+
+
+    * **SORTABLE**
+    
+        Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+  
+    * **NOSTEM**
+
+        Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
+        This may be ideal for things like proper names.
+  
+    * **NOINDEX**
+
+        Fields can have the `NOINDEX` option, which means they will not be indexed. 
+        This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
 
 ### Complexity
 O(1)
@@ -55,7 +68,7 @@ OK or an error
 ```
 FT.ADD {index} {docId} {score} 
   [NOSAVE]
-  [REPLACE]
+  [REPLACE [PARTIAL]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   FIELDS {field} {value} [{field} {value}...]
@@ -77,10 +90,11 @@ Add a documet to the index.
 
 - **NOSAVE**: If set to true, we will not save the actual document in the index and only index it.
 
-- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
+- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. 
+
+- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be indexed.
-
   Each field will be scored based on the index spec given in FT.CREATE. 
   Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set 
 
@@ -91,9 +105,9 @@ Add a documet to the index.
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
-  > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-  > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-  > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+    > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
 ### Complexity
 
@@ -103,6 +117,15 @@ O(n), where n is the number of tokens in the document
 
 OK on success, or an error if something went wrong.
 
+!!! warning "FT.ADD with  REPLACE and PARTIAL"
+        
+        By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
+
+        However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
+
+        **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
+
+        **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
 ----
 
 ## FT.ADDHASH

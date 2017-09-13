@@ -1,27 +1,52 @@
 # Extending RediSearch
 
-RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.
+RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
 
 There are two kinds of extension APIs at the moment: 
 
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
 2. **Scoring Funtions**, whose role is to rank search results in query time.
 
-## Registering Extensions
+## Registering and Loading Extensions
 
-Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. 
+Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. 
 
-The entry point is a function receiving an `RSExtensionCtx` object, that contains functions for registering the expanders/scorers. 
+* Compiling 
 
-Right now, it is necessary to call these init functions explicitly in `module.c`, but in the future this will be automated.
+    Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RedisLabsModules/RediSearch/blob/master/src/tests/ext-example/Makefile). 
 
-Here is an example of an extension initialization function:
+    That folder also contains an example extension that is used for testing, and can be taken as a skeleton for implementing your own extension.
+
+* Loading 
+
+    Loading an extension is done by apending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
+
+    ```sh
+    $ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+    ```
+
+    This causes RediSearch to automatically load the extension and register its expanders and scorers. 
+
+
+## Initializing an Extension
+
+The entry point of an extension is a function with the signature:
+
+```c
+int RS_ExtensionInit(RSExtensionCtx *ctx);
+```
+
+When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
+
+It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
+
+### Example Init Function
 
 ```c
 
 #include <redisearch.h> //must be in the include path
 
-int MyExtensionInit(RSExtensionCtx *ctx) {
+int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register  a scoring function with an alias my_scorer and no special private data and free function */
   if (ctx->RegisterScoringFunction("my_scorer", MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {
