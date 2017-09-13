@@ -271,6 +271,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#field-options" title="Field Options" class="md-nav__link">
+    Field Options
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#complexity" title="Complexity" class="md-nav__link">
     Complexity
   </a>
@@ -1007,6 +1014,13 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#field-options" title="Field Options" class="md-nav__link">
+    Field Options
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#complexity" title="Complexity" class="md-nav__link">
     Complexity
   </a>
@@ -1539,7 +1553,7 @@
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
     [NOOFFSETS] [NOFIELDS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...
 </pre></div>
 
 
@@ -1570,9 +1584,23 @@ so keep it short!</p>
 <li>
 <p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
-<p>Numeric or text field can have the optional SORTABLE argument that allows the user to later <a href="../Sorting">sort the results by the value of this field</a> (this adds memory overhead so do not declare it on large text fields).
-Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
-This may be ideal for things like proper names</p>
+<h3 id="field-options">Field Options<a class="headerlink" href="#field-options" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong>SORTABLE</strong></p>
+<p>Numeric or text field can have the optional SORTABLE argument that allows the user to later <a href="../Sorting">sort the results by the value of this field</a> (this adds memory overhead so do not declare it on large text fields).</p>
+</li>
+<li>
+<p><strong>NOSTEM</strong></p>
+<p>Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
+This may be ideal for things like proper names.</p>
+</li>
+<li>
+<p><strong>NOINDEX</strong></p>
+<p>Fields can have the <code>NOINDEX</code> option, which means they will not be indexed. 
+This is useful in conjunction with <code>SORTABLE</code>, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.</p>
+</li>
+</ul>
 </li>
 </ul>
 <h3 id="complexity">Complexity<a class="headerlink" href="#complexity" title="Permanent link">&para;</a></h3>
@@ -1584,7 +1612,7 @@ This may be ideal for things like proper names</p>
 <h3 id="format_1">Format:<a class="headerlink" href="#format_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.ADD {index} {docId} {score} 
   [NOSAVE]
-  [REPLACE]
+  [REPLACE [PARTIAL]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   FIELDS {field} {value} [{field} {value}...]
@@ -1610,15 +1638,16 @@ This may be ideal for things like proper names</p>
 <p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the index and only index it.</p>
 </li>
 <li>
-<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.</p>
+<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. </p>
 </li>
 <li>
-<p><strong>FIELDS</strong>: Following the FIELDS specifier, we are looking for pairs of  <code>{field} {value}</code> to be indexed.</p>
+<p><strong>PARTIAL</strong> (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.</p>
 </li>
-</ul>
-<p>Each field will be scored based on the index spec given in FT.CREATE. 
+<li>
+<p><strong>FIELDS</strong>: Following the FIELDS specifier, we are looking for pairs of  <code>{field} {value}</code> to be indexed.
+  Each field will be scored based on the index spec given in FT.CREATE. 
   Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set </p>
-<ul>
+</li>
 <li>
 <p><strong>PAYLOAD {payload}</strong>: Optionally set a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.</p>
@@ -1627,17 +1656,24 @@ This may be ideal for things like proper names</p>
 <p><strong>LANGUAGE language</strong>: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:</p>
-</li>
-</ul>
 <blockquote>
 <p>"arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
 "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
 "russian", "spanish",   "swedish", "tamil",     "turkish"</p>
 </blockquote>
+</li>
+</ul>
 <h3 id="complexity_1">Complexity<a class="headerlink" href="#complexity_1" title="Permanent link">&para;</a></h3>
 <p>O(n), where n is the number of tokens in the document</p>
 <h3 id="returns_1">Returns<a class="headerlink" href="#returns_1" title="Permanent link">&para;</a></h3>
 <p>OK on success, or an error if something went wrong.</p>
+<div class="admonition warning">
+<p class="admonition-title">FT.ADD with  REPLACE and PARTIAL<p>By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.</p>
+<p>However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.</p>
+<p><strong>REPLACE</strong>: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.</p>
+<p><strong>REPLACE PARTIAL</strong>: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.</p>
+</p>
+</div>
 <hr />
 <h2 id="ftaddhash">FT.ADDHASH<a class="headerlink" href="#ftaddhash" title="Permanent link">&para;</a></h2>
 <h3 id="format_2">Format<a class="headerlink" href="#format_2" title="Permanent link">&para;</a></h3>

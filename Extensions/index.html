@@ -290,9 +290,29 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#registering-extensions" title="Registering Extensions" class="md-nav__link">
-    Registering Extensions
+  <a href="#registering-and-loading-extensions" title="Registering and Loading Extensions" class="md-nav__link">
+    Registering and Loading Extensions
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initializing-an-extension" title="Initializing an Extension" class="md-nav__link">
+    Initializing an Extension
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-init-function" title="Example Init Function" class="md-nav__link">
+    Example Init Function
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -526,9 +546,29 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#registering-extensions" title="Registering Extensions" class="md-nav__link">
-    Registering Extensions
+  <a href="#registering-and-loading-extensions" title="Registering and Loading Extensions" class="md-nav__link">
+    Registering and Loading Extensions
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initializing-an-extension" title="Initializing an Extension" class="md-nav__link">
+    Initializing an Extension
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-init-function" title="Example Init Function" class="md-nav__link">
+    Example Init Function
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -630,20 +670,40 @@
               
                 
                 <h1 id="extending-redisearch">Extending RediSearch<a class="headerlink" href="#extending-redisearch" title="Permanent link">&para;</a></h1>
-<p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C and compiled into the engine when building it.</p>
+<p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.</p>
 <p>There are two kinds of extension APIs at the moment: </p>
 <ol>
 <li><strong>Query Expanders</strong>, whose role is to expand query tokens (i.e. stemmers).</li>
 <li><strong>Scoring Funtions</strong>, whose role is to rank search results in query time.</li>
 </ol>
-<h2 id="registering-extensions">Registering Extensions<a class="headerlink" href="#registering-extensions" title="Permanent link">&para;</a></h2>
-<p>Currently there is no dynamic linking of extensions and they need to be compiled into the engine. However, the API is already geared for easy registration of run-time extensions. </p>
-<p>The entry point is a function receiving an <code>RSExtensionCtx</code> object, that contains functions for registering the expanders/scorers. </p>
-<p>Right now, it is necessary to call these init functions explicitly in <code>module.c</code>, but in the future this will be automated.</p>
-<p>Here is an example of an extension initialization function:</p>
+<h2 id="registering-and-loading-extensions">Registering and Loading Extensions<a class="headerlink" href="#registering-and-loading-extensions" title="Permanent link">&para;</a></h2>
+<p>Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. </p>
+<ul>
+<li>
+<p>Compiling </p>
+<p>Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/tests/ext-example/Makefile">can be found here</a>. </p>
+<p>That folder also contains an example extension that is used for testing, and can be taken as a skeleton for implementing your own extension.</p>
+</li>
+<li>
+<p>Loading </p>
+<p>Loading an extension is done by apending <code>EXTLOAD {path/to/ext.so}</code> after the <code>loadmodule</code> configuration directive when loading RediSearch. For example:</p>
+<p><code>sh
+$ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so</code></p>
+<p>This causes RediSearch to automatically load the extension and register its expanders and scorers. </p>
+</li>
+</ul>
+<h2 id="initializing-an-extension">Initializing an Extension<a class="headerlink" href="#initializing-an-extension" title="Permanent link">&para;</a></h2>
+<p>The entry point of an extension is a function with the signature:</p>
+<div class="codehilite"><pre><span></span><span class="kt">int</span> <span class="nf">RS_ExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">);</span>
+</pre></div>
+
+
+<p>When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. </p>
+<p>It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.</p>
+<h3 id="example-init-function">Example Init Function<a class="headerlink" href="#example-init-function" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
-<span class="kt">int</span> <span class="nf">MyExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span> <span class="p">{</span>
+<span class="kt">int</span> <span class="nf">RS_ExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span> <span class="p">{</span>
 
   <span class="cm">/* Register  a scoring function with an alias my_scorer and no special private data and free function */</span>
   <span class="k">if</span> <span class="p">(</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">RegisterScoringFunction</span><span class="p">(</span><span class="s">&quot;my_scorer&quot;</span><span class="p">,</span> <span class="n">MyCustomScorer</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">)</span> <span class="o">==</span> <span class="n">REDISEARCH_ERR</span><span class="p">)</span> <span class="p">{</span>
