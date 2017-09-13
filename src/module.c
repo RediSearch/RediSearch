@@ -353,8 +353,9 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   free(explain);
 
 end:
+
   Query_Free(q);
-  SearchCtx_Free(sctx);
+  RSSearchRequest_Free(req);
   return REDISMODULE_OK;
 }
 
