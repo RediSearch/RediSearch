@@ -9,6 +9,7 @@ We support a simple syntax for complex queries with the following rules:
 * Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
+* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
@@ -43,7 +44,7 @@ FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
 
 This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.
 
-## Numeric Filters in Query (Since v0.16)
+## Numeric Filters in Query
 
 If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]` - e.g. `@price:[100 200]`.
 
@@ -58,6 +59,12 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
 
 5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. 
+
+# Geo Filters in Query
+
+As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).
+
+Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
 ## Prefix Matching 
 
