@@ -383,7 +383,7 @@ int testNumericInverted() {
   RSIndexResult *res;
   t_docId i = 1;
   while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
-    printf("%d %f\n", res->docId, res->num.value);
+    // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQUAL(i++, res->docId);
     ASSERT_EQUAL(res->num.value, (float)res->docId);

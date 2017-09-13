@@ -179,15 +179,17 @@ int testTrie() {
   ASSERT(sc == 12);
 
   double score;
-  char *str;
+  rune *rstr;
   t_len l;
-  TrieNode *rn = TrieNode_RandomWalk(root, 10, &str, &l);
+  TrieNode *rn = TrieNode_RandomWalk(root, 10, &rstr, &l);
   ASSERT(rn != NULL);
-  ASSERT(str != NULL);
+  ASSERT(rstr != NULL);
   ASSERT(l > 0);
   // ASSERT(rn->score > 0);
+  size_t sl;
+  char *str = runesToStr(rstr, l, &sl);
   fprintf(stderr, " found node: %s\n", str);
-
+  free(rstr);
   rc = TrieNode_Delete(root, runes, rlen);
   ASSERT(rc == 1);
   rc = TrieNode_Delete(root, runes, rlen);
