@@ -3,8 +3,7 @@ compiler: gcc
 dist: trusty
 install: make clean && make -j 4
 before_script:
-- sudo pip install redis 
-- pip install ramp-packer rmtest
+- pip install --user redis ramp-packer rmtest
 - git clone -b 4.0.1 --depth 1 https://github.com/antirez/redis.git
 - cd redis
 - make
