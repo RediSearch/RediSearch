@@ -2,12 +2,7 @@
    <insert_a_suppression_name_here>
    Memcheck:Leak
    match-leak-kinds: definite
-   fun:malloc
-   fun:__newTrieMapNode
-   fun:__trieMapNode_AddChild
-   fun:TrieMapNode_Add
-   fun:TrieMap_Add
-   fun:Ext_RegisterScoringFunction
+   ...
    fun:DefaultExtensionInit
    fun:Extension_Load
    fun:RediSearch_InitModuleInternal
@@ -116,6 +111,13 @@
    fun:NewIndexSpec
    fun:IndexSpec_Parse
    fun:IndexSpec_ParseRedisArgs
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   fun:DefaultStopWordList
 }
 {
    <insert_a_suppression_name_here>
