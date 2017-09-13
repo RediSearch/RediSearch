@@ -563,7 +563,7 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
   }
 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
-      qs->type != QN_IDS) {
+      qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!q || !q->ctx) {
       s = sdscatprintf(s, "@%x", qs->fieldMask);
     } else {
@@ -627,8 +627,8 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
       break;
     case QN_GEO:
 
-      s = sdscatprintf(s, "GEO {%f,%f --> %f %s", qs->gn.gf->lon, qs->gn.gf->lat, qs->gn.gf->radius,
-                       qs->gn.gf->unit);
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", qs->gn.gf->property, qs->gn.gf->lon,
+                       qs->gn.gf->lat, qs->gn.gf->radius, qs->gn.gf->unit);
       break;
     case QN_IDS:
 

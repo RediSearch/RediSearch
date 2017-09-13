@@ -58,6 +58,9 @@ char *strdupcase(const char *s, size_t len) {
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
 
+%type geo_filter { GeoFilter *}
+%destructor geo_filter { GeoFilter_Free($$); }
+
 %type modifierlist { Vector* }
 %destructor modifierlist { 
     for (size_t i = 0; i < Vector_Size($$); i++) {
@@ -227,6 +230,21 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
     A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+}
+
+expr(A) ::= modifier(B) COLON geo_filter(C). {
+    // we keep the capitalization as is
+    C->property = strndup(B.s, B.len);
+    A = NewGeofilterNode(C);
+}
+
+geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
+    A = NewGeoFilter(B.num, C.num, D.num, strdupcase(E.s, E.len));
+    char *err = NULL;
+    if (!GeoFilter_IsValid(A, &err)) {
+        ctx->ok = 0;
+        ctx->errorMsg = strdup(err);
+    }
 }
 
 num(A) ::= NUMBER(B). {

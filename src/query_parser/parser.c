@@ -103,16 +103,17 @@ char *strdupcase(const char *s, size_t len) {
 #endif
 /************* Begin control #defines *****************************************/
 #define YYCODETYPE unsigned char
-#define YYNOCODE 28
+#define YYNOCODE 29
 #define YYACTIONTYPE unsigned char
 #define ParseTOKENTYPE QueryToken
 typedef union {
   int yyinit;
   ParseTOKENTYPE yy0;
-  RangeNumber yy11;
-  Vector* yy48;
-  QueryNode * yy53;
-  NumericFilter * yy54;
+  QueryNode * yy35;
+  GeoFilter * yy36;
+  NumericFilter * yy37;
+  Vector* yy50;
+  RangeNumber yy55;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
@@ -121,16 +122,16 @@ typedef union {
 #define ParseARG_PDECL , parseCtx *ctx 
 #define ParseARG_FETCH  parseCtx *ctx  = yypParser->ctx 
 #define ParseARG_STORE yypParser->ctx  = ctx 
-#define YYNSTATE             35
-#define YYNRULE              28
-#define YY_MAX_SHIFT         34
-#define YY_MIN_SHIFTREDUCE   51
-#define YY_MAX_SHIFTREDUCE   78
-#define YY_MIN_REDUCE        79
-#define YY_MAX_REDUCE        106
-#define YY_ERROR_ACTION      107
-#define YY_ACCEPT_ACTION     108
-#define YY_NO_ACTION         109
+#define YYNSTATE             37
+#define YYNRULE              30
+#define YY_MAX_SHIFT         36
+#define YY_MIN_SHIFTREDUCE   55
+#define YY_MAX_SHIFTREDUCE   84
+#define YY_MIN_REDUCE        85
+#define YY_MAX_REDUCE        114
+#define YY_ERROR_ACTION      115
+#define YY_ACCEPT_ACTION     116
+#define YY_NO_ACTION         117
 /************* End control #defines *******************************************/
 
 /* Define the yytestcase() macro to be a no-op if is not already defined
@@ -202,67 +203,69 @@ typedef union {
 **  yy_default[]       Default action for each state.
 **
 *********** Begin parsing tables **********************************************/
-#define YY_ACTTAB_COUNT (159)
+#define YY_ACTTAB_COUNT (165)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */     5,   77,   17,    9,    6,   78,   69,    7,    7,   60,
- /*    10 */     9,    9,   79,    5,   77,   17,   26,    6,   78,   69,
- /*    20 */    70,    7,   76,   24,    9,   80,    5,   77,   17,   75,
- /*    30 */     6,   78,   69,   31,    7,    8,    5,   32,   17,   21,
- /*    40 */     6,   78,   69,   23,    7,   78,   69,    1,    7,   71,
- /*    50 */    22,    9,   64,   77,   17,   18,    6,   78,   69,   34,
- /*    60 */     7,   78,   65,    9,   73,    5,   77,   17,   62,    6,
- /*    70 */    78,   69,    3,    7,   54,   29,  105,   68,  108,   30,
- /*    80 */    33,   77,   25,   81,   13,   78,   54,   29,   81,   72,
- /*    90 */    81,   30,   33,   14,   81,   54,   29,   81,   19,   74,
- /*   100 */    30,   33,   20,    4,   81,   54,   29,   81,   81,   81,
- /*   110 */    30,   33,   11,   81,   54,   29,   81,   77,   27,   30,
- /*   120 */    33,   78,    2,   81,   54,   29,   81,   81,   81,   30,
- /*   130 */    33,   12,   81,   54,   29,   81,   77,   28,   30,   33,
- /*   140 */    78,   15,   81,   54,   29,   81,   81,   81,   30,   33,
- /*   150 */    16,   81,   54,   29,   81,   81,   81,   30,   33,
+ /*     0 */     5,   83,   17,    9,    6,   84,   73,    7,    7,   64,
+ /*    10 */     9,    9,   85,    5,   83,   17,   33,    6,   84,   73,
+ /*    20 */    82,    7,   74,   81,    9,   86,    5,   83,   17,   18,
+ /*    30 */     6,   84,   73,   22,    7,   27,    5,   34,   17,   84,
+ /*    40 */     6,   84,   73,   25,    7,   13,   75,   58,   78,   30,
+ /*    50 */    23,   76,   79,   31,   35,   68,   83,   17,   36,    6,
+ /*    60 */    84,   73,   32,    7,   69,  113,    9,   72,    5,   83,
+ /*    70 */    17,   66,    6,   84,   73,    3,    7,   58,    8,   30,
+ /*    80 */     1,   87,  116,   31,   35,   87,   24,   14,   19,   58,
+ /*    90 */    87,   30,   87,   20,   80,   31,   35,   21,    4,   87,
+ /*   100 */    58,   11,   30,   58,   77,   30,   31,   35,   87,   31,
+ /*   110 */    35,   20,   80,   87,    2,   21,   58,   12,   30,   58,
+ /*   120 */    87,   30,   31,   35,   87,   31,   35,   87,   15,   87,
+ /*   130 */    58,   87,   30,   87,   87,   87,   31,   35,   16,   87,
+ /*   140 */    58,   87,   30,   87,   87,   87,   31,   35,   87,   84,
+ /*   150 */    73,   87,    7,   83,   26,    9,   87,   84,   83,   28,
+ /*   160 */    83,   29,   84,   87,   84,
 };
 static const YYCODETYPE yy_lookahead[] = {
  /*     0 */     1,    2,    3,   12,    5,    6,    7,    9,    9,   10,
- /*    10 */    12,   12,    0,    1,    2,    3,   19,    5,    6,    7,
- /*    20 */    26,    9,   22,   26,   12,    0,    1,    2,    3,   22,
- /*    30 */     5,    6,    7,   22,    9,    4,    1,    2,    3,   22,
- /*    40 */     5,    6,    7,   12,    9,    6,    7,    4,    9,   26,
- /*    50 */    15,   12,   26,    2,    3,   12,    5,    6,    7,   26,
- /*    60 */     9,    6,   26,   12,   16,    1,    2,    3,    3,    5,
- /*    70 */     6,    7,   18,    9,   20,   21,   14,   14,   24,   25,
- /*    80 */    26,    2,    3,   27,   18,    6,   20,   21,   27,   23,
- /*    90 */    27,   25,   26,   18,   27,   20,   21,   27,    5,    6,
- /*   100 */    25,   26,    9,   18,   27,   20,   21,   27,   27,   27,
- /*   110 */    25,   26,   18,   27,   20,   21,   27,    2,    3,   25,
- /*   120 */    26,    6,   18,   27,   20,   21,   27,   27,   27,   25,
- /*   130 */    26,   18,   27,   20,   21,   27,    2,    3,   25,   26,
- /*   140 */     6,   18,   27,   20,   21,   27,   27,   27,   25,   26,
- /*   150 */    18,   27,   20,   21,   27,   27,   27,   25,   26,
+ /*    10 */    12,   12,    0,    1,    2,    3,   23,    5,    6,    7,
+ /*    20 */    23,    9,   27,   23,   12,    0,    1,    2,    3,   23,
+ /*    30 */     5,    6,    7,   23,    9,   19,    1,    2,    3,    6,
+ /*    40 */     5,    6,    7,   27,    9,   18,   27,   20,   21,   22,
+ /*    50 */    15,   24,   16,   26,   27,   27,    2,    3,   27,    5,
+ /*    60 */     6,    7,    2,    9,   27,   14,   12,   14,    1,    2,
+ /*    70 */     3,    3,    5,    6,    7,   18,    9,   20,    4,   22,
+ /*    80 */     4,   28,   25,   26,   27,   28,   12,   18,   12,   20,
+ /*    90 */    28,   22,   28,    5,    6,   26,   27,    9,   18,   28,
+ /*   100 */    20,   18,   22,   20,   16,   22,   26,   27,   28,   26,
+ /*   110 */    27,    5,    6,   28,   18,    9,   20,   18,   22,   20,
+ /*   120 */    28,   22,   26,   27,   28,   26,   27,   28,   18,   28,
+ /*   130 */    20,   28,   22,   28,   28,   28,   26,   27,   18,   28,
+ /*   140 */    20,   28,   22,   28,   28,   28,   26,   27,   28,    6,
+ /*   150 */     7,   28,    9,    2,    3,   12,   28,    6,    2,    3,
+ /*   160 */     2,    3,    6,   28,    6,
 };
-#define YY_SHIFT_USE_DFLT (159)
-#define YY_SHIFT_COUNT    (34)
+#define YY_SHIFT_USE_DFLT (165)
+#define YY_SHIFT_COUNT    (36)
 #define YY_SHIFT_MIN      (-9)
-#define YY_SHIFT_MAX      (134)
+#define YY_SHIFT_MAX      (158)
 static const short yy_shift_ofst[] = {
- /*     0 */    25,   35,   -1,   12,   51,   64,   64,   64,   64,   64,
- /*    10 */    64,   39,   -2,   -2,   -9,  159,  159,   79,   79,   93,
- /*    20 */    93,   93,   93,   79,  115,   79,  134,   55,   55,   31,
- /*    30 */    43,   48,   62,   63,   65,
+ /*     0 */    25,   35,   -1,   12,   54,   67,   67,   67,   67,   67,
+ /*    10 */    67,  143,   -2,   -2,   -9,  165,  165,  151,   88,  151,
+ /*    20 */   106,  106,  106,  106,  151,  156,  151,  158,   33,   33,
+ /*    30 */    74,   76,   36,   60,   51,   53,   68,
 };
-#define YY_REDUCE_USE_DFLT (-7)
-#define YY_REDUCE_COUNT (28)
-#define YY_REDUCE_MIN   (-6)
-#define YY_REDUCE_MAX   (132)
-static const short yy_reduce_ofst[] = {
- /*     0 */    54,   66,   75,   75,   75,   85,   94,  104,  113,  123,
- /*    10 */   132,   75,   75,   75,   75,   75,   75,   -3,   -6,    0,
- /*    20 */     7,   11,   17,   23,   26,   33,   36,   33,   33,
+#define YY_REDUCE_USE_DFLT (-8)
+#define YY_REDUCE_COUNT (29)
+#define YY_REDUCE_MIN   (-7)
+#define YY_REDUCE_MAX   (120)
+static const signed char yy_reduce_ofst[] = {
+ /*     0 */    57,   27,   69,   69,   69,   80,   83,   96,   99,  110,
+ /*    10 */   120,   69,   69,   69,   69,   69,   69,   16,   -7,   -5,
+ /*    20 */    -3,    0,    6,   10,   19,   28,   31,   37,   31,   31,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */   107,  107,  107,  107,   95,  107,  107,  107,  107,  107,
- /*    10 */   107,   94,   87,   85,   81,   83,   84,  107,  107,  107,
- /*    20 */   107,  107,  107,  107,  107,  107,  107,   90,   89,  107,
- /*    30 */   107,  107,   86,   91,  107,
+ /*     0 */   115,  115,  115,  115,  101,  115,  115,  115,  115,  115,
+ /*    10 */   115,  100,   93,   91,   87,   89,   90,  115,  115,  115,
+ /*    20 */   115,  115,  115,  115,  115,  115,  115,  115,   96,   95,
+ /*    30 */   115,  115,  115,  115,   92,   97,  115,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -372,8 +375,8 @@ static const char *const yyTokenName[] = {
   "TERMLIST",      "LP",            "RP",            "AND",         
   "OR",            "ORX",           "STAR",          "LSQB",        
   "RSQB",          "error",         "expr",          "termlist",    
-  "union",         "modifierlist",  "num",           "numeric_range",
-  "query",         "modifier",      "term",        
+  "union",         "geo_filter",    "modifierlist",  "num",         
+  "numeric_range",  "query",         "modifier",      "term",        
 };
 #endif /* NDEBUG */
 
@@ -404,11 +407,13 @@ static const char *const yyRuleName[] = {
  /*  20 */ "modifierlist ::= modifierlist OR term",
  /*  21 */ "expr ::= modifier COLON numeric_range",
  /*  22 */ "numeric_range ::= LSQB num num RSQB",
- /*  23 */ "num ::= NUMBER",
- /*  24 */ "num ::= LP num",
- /*  25 */ "num ::= MINUS num",
- /*  26 */ "term ::= TERM",
- /*  27 */ "term ::= NUMBER",
+ /*  23 */ "expr ::= modifier COLON geo_filter",
+ /*  24 */ "geo_filter ::= LSQB num num num TERM RSQB",
+ /*  25 */ "num ::= NUMBER",
+ /*  26 */ "num ::= LP num",
+ /*  27 */ "num ::= MINUS num",
+ /*  28 */ "term ::= TERM",
+ /*  29 */ "term ::= NUMBER",
 };
 #endif /* NDEBUG */
 
@@ -528,14 +533,14 @@ static void yy_destructor(
 /********* Begin destructor definitions ***************************************/
       /* Default NON-TERMINAL Destructor */
     case 17: /* error */
-    case 22: /* num */
-    case 24: /* query */
-    case 25: /* modifier */
-    case 26: /* term */
+    case 23: /* num */
+    case 25: /* query */
+    case 26: /* modifier */
+    case 27: /* term */
 {
 #line 50 "parser.y"
  
-#line 539 "parser.c"
+#line 544 "parser.c"
 }
       break;
     case 18: /* expr */
@@ -543,31 +548,38 @@ static void yy_destructor(
     case 20: /* union */
 {
 #line 53 "parser.y"
- QueryNode_Free((yypminor->yy53)); 
-#line 548 "parser.c"
+ QueryNode_Free((yypminor->yy35)); 
+#line 553 "parser.c"
 }
       break;
-    case 21: /* modifierlist */
+    case 21: /* geo_filter */
 {
 #line 62 "parser.y"
- 
-    for (size_t i = 0; i < Vector_Size((yypminor->yy48)); i++) {
-        char *s;
-        Vector_Get((yypminor->yy48), i, &s);
-        free(s);
-    }
-    Vector_Free((yypminor->yy48)); 
-
-#line 562 "parser.c"
+ GeoFilter_Free((yypminor->yy36)); 
+#line 560 "parser.c"
 }
       break;
-    case 23: /* numeric_range */
+    case 22: /* modifierlist */
 {
-#line 74 "parser.y"
+#line 65 "parser.y"
+ 
+    for (size_t i = 0; i < Vector_Size((yypminor->yy50)); i++) {
+        char *s;
+        Vector_Get((yypminor->yy50), i, &s);
+        free(s);
+    }
+    Vector_Free((yypminor->yy50)); 
 
-    NumericFilter_Free((yypminor->yy54));
+#line 574 "parser.c"
+}
+      break;
+    case 24: /* numeric_range */
+{
+#line 77 "parser.y"
 
-#line 571 "parser.c"
+    NumericFilter_Free((yypminor->yy37));
+
+#line 583 "parser.c"
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -819,34 +831,36 @@ static const struct {
   YYCODETYPE lhs;         /* Symbol on the left-hand side of the rule */
   unsigned char nrhs;     /* Number of right-hand side symbols in the rule */
 } yyRuleInfo[] = {
-  { 24, 1 },
-  { 24, 0 },
-  { 18, 2 },
-  { 18, 1 },
-  { 20, 3 },
-  { 20, 3 },
-  { 18, 3 },
-  { 18, 3 },
-  { 18, 3 },
-  { 18, 3 },
-  { 18, 3 },
-  { 26, 3 },
-  { 18, 1 },
-  { 19, 2 },
-  { 19, 2 },
-  { 18, 2 },
-  { 18, 2 },
-  { 18, 2 },
   { 25, 1 },
-  { 21, 3 },
-  { 21, 3 },
+  { 25, 0 },
+  { 18, 2 },
+  { 18, 1 },
+  { 20, 3 },
+  { 20, 3 },
   { 18, 3 },
-  { 23, 4 },
-  { 22, 1 },
-  { 22, 2 },
-  { 22, 2 },
+  { 18, 3 },
+  { 18, 3 },
+  { 18, 3 },
+  { 18, 3 },
+  { 27, 3 },
+  { 18, 1 },
+  { 19, 2 },
+  { 19, 2 },
+  { 18, 2 },
+  { 18, 2 },
+  { 18, 2 },
   { 26, 1 },
-  { 26, 1 },
+  { 22, 3 },
+  { 22, 3 },
+  { 18, 3 },
+  { 24, 4 },
+  { 18, 3 },
+  { 21, 6 },
+  { 23, 1 },
+  { 23, 2 },
+  { 23, 2 },
+  { 27, 1 },
+  { 27, 1 },
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
@@ -911,268 +925,290 @@ static void yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
-#line 78 "parser.y"
+#line 81 "parser.y"
 { 
  /* If the root is a negative node, we intersect it with a wildcard node */
- if (yymsp[0].minor.yy53->type == QN_NOT) {
+ if (yymsp[0].minor.yy35->type == QN_NOT) {
     ctx->root = NewPhraseNode(0);
     QueryPhraseNode_AddChild(ctx->root, NewWildcardNode());
-    QueryPhraseNode_AddChild(ctx->root, yymsp[0].minor.yy53);
+    QueryPhraseNode_AddChild(ctx->root, yymsp[0].minor.yy35);
  } else {
-    ctx->root = yymsp[0].minor.yy53;
+    ctx->root = yymsp[0].minor.yy35;
  }
 
 }
-#line 927 "parser.c"
+#line 941 "parser.c"
         break;
       case 1: /* query ::= */
-#line 89 "parser.y"
+#line 92 "parser.y"
 {
  ctx->root = NULL;
 }
-#line 934 "parser.c"
+#line 948 "parser.c"
         break;
       case 2: /* expr ::= expr expr */
-#line 93 "parser.y"
+#line 96 "parser.y"
 {
-    if (yymsp[-1].minor.yy53->type == QN_PHRASE && yymsp[-1].minor.yy53->pn.exact == 0 && 
-        yymsp[-1].minor.yy53->fieldMask == RS_FIELDMASK_ALL ) {
-        yylhsminor.yy53 = yymsp[-1].minor.yy53;
+    if (yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 && 
+        yymsp[-1].minor.yy35->fieldMask == RS_FIELDMASK_ALL ) {
+        yylhsminor.yy35 = yymsp[-1].minor.yy35;
     } else {
-        yylhsminor.yy53 = NewPhraseNode(0);
-        QueryPhraseNode_AddChild(yylhsminor.yy53, yymsp[-1].minor.yy53);
+        yylhsminor.yy35 = NewPhraseNode(0);
+        QueryPhraseNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
     } 
-    QueryPhraseNode_AddChild(yylhsminor.yy53, yymsp[0].minor.yy53);
+    QueryPhraseNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
 }
-#line 948 "parser.c"
-  yymsp[-1].minor.yy53 = yylhsminor.yy53;
+#line 962 "parser.c"
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 3: /* expr ::= union */
-#line 104 "parser.y"
+#line 107 "parser.y"
 {
-    yylhsminor.yy53 = yymsp[0].minor.yy53;
+    yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
-#line 956 "parser.c"
-  yymsp[0].minor.yy53 = yylhsminor.yy53;
+#line 970 "parser.c"
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 4: /* union ::= expr OR expr */
-#line 109 "parser.y"
+#line 112 "parser.y"
 {
     
-    if (yymsp[-2].minor.yy53->type == QN_UNION && yymsp[-2].minor.yy53->fieldMask == RS_FIELDMASK_ALL) {
-        yylhsminor.yy53 =yymsp[-2].minor.yy53;
+    if (yymsp[-2].minor.yy35->type == QN_UNION && yymsp[-2].minor.yy35->fieldMask == RS_FIELDMASK_ALL) {
+        yylhsminor.yy35 =yymsp[-2].minor.yy35;
     } else {
-        yylhsminor.yy53 = NewUnionNode();
-        QueryUnionNode_AddChild(yylhsminor.yy53, yymsp[-2].minor.yy53);
+        yylhsminor.yy35 = NewUnionNode();
+        QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
     }
-    QueryUnionNode_AddChild(yylhsminor.yy53, yymsp[0].minor.yy53); 
+    QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35); 
 }
-#line 971 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 985 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 5: /* union ::= union OR expr */
-#line 122 "parser.y"
+#line 125 "parser.y"
 {
-    yylhsminor.yy53 = yymsp[-2].minor.yy53;
-    QueryUnionNode_AddChild(yylhsminor.yy53, yymsp[0].minor.yy53); 
+    yylhsminor.yy35 = yymsp[-2].minor.yy35;
+    QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35); 
 }
-#line 980 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 994 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 6: /* expr ::= modifier COLON expr */
-#line 131 "parser.y"
+#line 134 "parser.y"
 {
     if (ctx->q->ctx && ctx->q->ctx->spec) {
-        yymsp[0].minor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
+        yymsp[0].minor.yy35->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
-    yylhsminor.yy53 = yymsp[0].minor.yy53; 
+    yylhsminor.yy35 = yymsp[0].minor.yy35; 
 }
-#line 991 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 1005 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 7: /* expr ::= modifier COLON TERM */
-#line 138 "parser.y"
+#line 141 "parser.y"
 {
-    yylhsminor.yy53 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
+    yylhsminor.yy35 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
     if (ctx->q->ctx && ctx->q->ctx->spec) {
-        yylhsminor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
+        yylhsminor.yy35->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
 }
-#line 1002 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 1016 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 8: /* expr ::= modifierlist COLON expr */
-#line 147 "parser.y"
+#line 150 "parser.y"
 {
     
-    yymsp[0].minor.yy53->fieldMask = 0;
+    yymsp[0].minor.yy35->fieldMask = 0;
     if (ctx->q->ctx && ctx->q->ctx->spec) {
-        for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy48); i++) {
+        for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy50); i++) {
             char *p;
-            Vector_Get(yymsp[-2].minor.yy48, i, &p);
-            yymsp[0].minor.yy53->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+            Vector_Get(yymsp[-2].minor.yy50, i, &p);
+            yymsp[0].minor.yy35->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
             free(p);
         }
     }
-    Vector_Free(yymsp[-2].minor.yy48);
-    yylhsminor.yy53=yymsp[0].minor.yy53;
+    Vector_Free(yymsp[-2].minor.yy50);
+    yylhsminor.yy35=yymsp[0].minor.yy35;
 }
-#line 1021 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 1035 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 9: /* expr ::= LP expr RP */
-#line 162 "parser.y"
+#line 165 "parser.y"
 {
-    yymsp[-2].minor.yy53 = yymsp[-1].minor.yy53;
+    yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
-#line 1029 "parser.c"
+#line 1043 "parser.c"
         break;
       case 10: /* expr ::= QUOTE termlist QUOTE */
-#line 166 "parser.y"
+#line 169 "parser.y"
 {
-    yymsp[-1].minor.yy53->pn.exact =1;
-    yymsp[-2].minor.yy53 = yymsp[-1].minor.yy53;
+    yymsp[-1].minor.yy35->pn.exact =1;
+    yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
-#line 1037 "parser.c"
+#line 1051 "parser.c"
         break;
       case 11: /* term ::= QUOTE term QUOTE */
-#line 171 "parser.y"
+#line 174 "parser.y"
 {
     yymsp[-2].minor.yy0 = yymsp[-1].minor.yy0;
 }
-#line 1044 "parser.c"
+#line 1058 "parser.c"
         break;
       case 12: /* expr ::= term */
-#line 175 "parser.y"
+#line 178 "parser.y"
 {
-    yylhsminor.yy53 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
+    yylhsminor.yy35 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
 }
-#line 1051 "parser.c"
-  yymsp[0].minor.yy53 = yylhsminor.yy53;
+#line 1065 "parser.c"
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 13: /* termlist ::= term term */
-#line 179 "parser.y"
+#line 182 "parser.y"
 {
     
-    yylhsminor.yy53 = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len));
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
+    yylhsminor.yy35 = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len));
+    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 
 }
-#line 1063 "parser.c"
-  yymsp[-1].minor.yy53 = yylhsminor.yy53;
+#line 1077 "parser.c"
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 14: /* termlist ::= termlist term */
-#line 186 "parser.y"
+#line 189 "parser.y"
 {
-    yylhsminor.yy53 = yymsp[-1].minor.yy53;
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
+    yylhsminor.yy35 = yymsp[-1].minor.yy35;
+    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 
 }
-#line 1073 "parser.c"
-  yymsp[-1].minor.yy53 = yylhsminor.yy53;
+#line 1087 "parser.c"
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 15: /* expr ::= MINUS expr */
-#line 193 "parser.y"
-{ 
-    yymsp[-1].minor.yy53 = NewNotNode(yymsp[0].minor.yy53);
-}
-#line 1081 "parser.c"
-        break;
-      case 16: /* expr ::= TILDE expr */
 #line 196 "parser.y"
 { 
-    yymsp[-1].minor.yy53 = NewOptionalNode(yymsp[0].minor.yy53);
-}
-#line 1088 "parser.c"
-        break;
-      case 17: /* expr ::= term STAR */
-#line 200 "parser.y"
-{
-    yylhsminor.yy53 = NewPrefixNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len);
+    yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
 }
 #line 1095 "parser.c"
-  yymsp[-1].minor.yy53 = yylhsminor.yy53;
+        break;
+      case 16: /* expr ::= TILDE expr */
+#line 199 "parser.y"
+{ 
+    yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
+}
+#line 1102 "parser.c"
+        break;
+      case 17: /* expr ::= term STAR */
+#line 203 "parser.y"
+{
+    yylhsminor.yy35 = NewPrefixNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len);
+}
+#line 1109 "parser.c"
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 18: /* modifier ::= MODIFIER */
-#line 204 "parser.y"
+#line 207 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0;
  }
-#line 1103 "parser.c"
+#line 1117 "parser.c"
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 19: /* modifierlist ::= modifier OR term */
-#line 208 "parser.y"
+#line 211 "parser.y"
 {
-    yylhsminor.yy48 = NewVector(char *, 2);
+    yylhsminor.yy50 = NewVector(char *, 2);
     char *s = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    Vector_Push(yylhsminor.yy48, s);
+    Vector_Push(yylhsminor.yy50, s);
     s = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yylhsminor.yy48, s);
+    Vector_Push(yylhsminor.yy50, s);
 }
-#line 1115 "parser.c"
-  yymsp[-2].minor.yy48 = yylhsminor.yy48;
+#line 1129 "parser.c"
+  yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 20: /* modifierlist ::= modifierlist OR term */
-#line 216 "parser.y"
+#line 219 "parser.y"
 {
     char *s = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy48, s);
-    yylhsminor.yy48 = yymsp[-2].minor.yy48;
+    Vector_Push(yymsp[-2].minor.yy50, s);
+    yylhsminor.yy50 = yymsp[-2].minor.yy50;
 }
-#line 1125 "parser.c"
-  yymsp[-2].minor.yy48 = yylhsminor.yy48;
+#line 1139 "parser.c"
+  yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 21: /* expr ::= modifier COLON numeric_range */
-#line 222 "parser.y"
+#line 225 "parser.y"
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy54->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy53 = NewNumericNode(yymsp[0].minor.yy54);
+    yymsp[0].minor.yy37->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yylhsminor.yy35 = NewNumericNode(yymsp[0].minor.yy37);
 }
-#line 1135 "parser.c"
-  yymsp[-2].minor.yy53 = yylhsminor.yy53;
+#line 1149 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 22: /* numeric_range ::= LSQB num num RSQB */
-#line 228 "parser.y"
+#line 231 "parser.y"
 {
-    yymsp[-3].minor.yy54 = NewNumericFilter(yymsp[-2].minor.yy11.num, yymsp[-1].minor.yy11.num, yymsp[-2].minor.yy11.inclusive, yymsp[-1].minor.yy11.inclusive);
+    yymsp[-3].minor.yy37 = NewNumericFilter(yymsp[-2].minor.yy55.num, yymsp[-1].minor.yy55.num, yymsp[-2].minor.yy55.inclusive, yymsp[-1].minor.yy55.inclusive);
 }
-#line 1143 "parser.c"
+#line 1157 "parser.c"
         break;
-      case 23: /* num ::= NUMBER */
-#line 232 "parser.y"
+      case 23: /* expr ::= modifier COLON geo_filter */
+#line 235 "parser.y"
 {
-    yylhsminor.yy11.num = yymsp[0].minor.yy0.numval;
-    yylhsminor.yy11.inclusive = 1;
+    // we keep the capitalization as is
+    yymsp[0].minor.yy36->property = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yylhsminor.yy35 = NewGeofilterNode(yymsp[0].minor.yy36);
 }
-#line 1151 "parser.c"
-  yymsp[0].minor.yy11 = yylhsminor.yy11;
+#line 1166 "parser.c"
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 24: /* num ::= LP num */
-#line 237 "parser.y"
+      case 24: /* geo_filter ::= LSQB num num num TERM RSQB */
+#line 241 "parser.y"
 {
-    yymsp[-1].minor.yy11=yymsp[0].minor.yy11;
-    yymsp[-1].minor.yy11.inclusive = 0;
+    yymsp[-5].minor.yy36 = NewGeoFilter(yymsp[-4].minor.yy55.num, yymsp[-3].minor.yy55.num, yymsp[-2].minor.yy55.num, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
+    char *err = NULL;
+    if (!GeoFilter_IsValid(yymsp[-5].minor.yy36, &err)) {
+        ctx->ok = 0;
+        ctx->errorMsg = strdup(err);
+    }
 }
-#line 1160 "parser.c"
+#line 1179 "parser.c"
         break;
-      case 25: /* num ::= MINUS num */
-#line 242 "parser.y"
+      case 25: /* num ::= NUMBER */
+#line 250 "parser.y"
 {
-    yymsp[0].minor.yy11.num = -yymsp[0].minor.yy11.num;
-    yymsp[-1].minor.yy11 = yymsp[0].minor.yy11;
+    yylhsminor.yy55.num = yymsp[0].minor.yy0.numval;
+    yylhsminor.yy55.inclusive = 1;
 }
-#line 1168 "parser.c"
+#line 1187 "parser.c"
+  yymsp[0].minor.yy55 = yylhsminor.yy55;
         break;
-      case 26: /* term ::= TERM */
-      case 27: /* term ::= NUMBER */ yytestcase(yyruleno==27);
-#line 247 "parser.y"
+      case 26: /* num ::= LP num */
+#line 255 "parser.y"
+{
+    yymsp[-1].minor.yy55=yymsp[0].minor.yy55;
+    yymsp[-1].minor.yy55.inclusive = 0;
+}
+#line 1196 "parser.c"
+        break;
+      case 27: /* num ::= MINUS num */
+#line 260 "parser.y"
+{
+    yymsp[0].minor.yy55.num = -yymsp[0].minor.yy55.num;
+    yymsp[-1].minor.yy55 = yymsp[0].minor.yy55;
+}
+#line 1204 "parser.c"
+        break;
+      case 28: /* term ::= TERM */
+      case 29: /* term ::= NUMBER */ yytestcase(yyruleno==29);
+#line 265 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
-#line 1176 "parser.c"
+#line 1212 "parser.c"
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       default:
@@ -1241,7 +1277,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 1245 "parser.c"
+#line 1281 "parser.c"
 /************ End %syntax_error code ******************************************/
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }

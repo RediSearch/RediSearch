@@ -113,6 +113,8 @@ QueryNode *NewOptionalNode(QueryNode *n);
 QueryNode *NewNumericNode(NumericFilter *flt);
 QueryNode *NewIdFilterNode(IdFilter *flt);
 QueryNode *NewWildcardNode();
+QueryNode *NewGeofilterNode(GeoFilter *flt);
+
 void Query_SetNumericFilter(Query *q, NumericFilter *nf);
 void Query_SetGeoFilter(Query *q, GeoFilter *gf);
 void Query_SetIdFilter(Query *q, IdFilter *f);
