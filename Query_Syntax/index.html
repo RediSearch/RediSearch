@@ -299,6 +299,54 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
+    Geo Filters in Query
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+    Prefix Matching
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+    A few notes on prefix searches:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+    A Few Query Examples
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+    Mapping Common SQL Predicates to RediSearch
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-note" title="Technical Note" class="md-nav__link">
+    Technical Note
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -504,6 +552,54 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
+    Geo Filters in Query
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+    Prefix Matching
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+    A few notes on prefix searches:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+    A Few Query Examples
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+    Mapping Common SQL Predicates to RediSearch
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical-note" title="Technical Note" class="md-nav__link">
+    Technical Note
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -573,7 +669,7 @@
 <p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. </p>
 </li>
 </ol>
-<h1 id="geo-filters-in-query">Geo Filters in Query<a class="headerlink" href="#geo-filters-in-query" title="Permanent link">&para;</a></h1>
+<h2 id="geo-filters-in-query">Geo Filters in Query<a class="headerlink" href="#geo-filters-in-query" title="Permanent link">&para;</a></h2>
 <p>As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code>. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).</p>
 <p>Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: <code>chinese restaurant @location:[-122.41 37.77 5 km]</code>.</p>
 <h2 id="prefix-matching">Prefix Matching<a class="headerlink" href="#prefix-matching" title="Permanent link">&para;</a></h2>
