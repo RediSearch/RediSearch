@@ -1367,22 +1367,27 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         txt = open('../tests/genesis.txt', 'r').read()
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
         self.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
-        res = self.cmd('ft.search', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', "\033[1m", "\033[0m", 'FRAGSIZE', 20, 1, 'txt')
-        self.assertEqual(1, res[0])
-        res = res[2][1]
-        print res
 
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', "<b>", "</b>", 'FRAGSIZE', 20, 1, 'txt')
+        self.assertEqual(1, res[0])
+        res_txt = res[2][1]
+
+        self.assertTrue("<b>Abraham</b>" in res_txt)
+        self.assertTrue("<b>Isaac</b>" in res_txt)
+        self.assertTrue("<b>Jacob</b>" in res_txt)
+
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', '<i>', '</i>', 'NOTRUNCATE', 1, 'txt')
+        res_txt = res[2][1]
+        self.assertGreaterEqual(len(res_txt), 160000)
+        print len(res_txt)
+
+
+        
         # Do another search..
         res = self.cmd('ft.search', 'idx', 'abraham isaac jacob',
-                       'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'TAGS', '<b>', '</b>',
-                       'BEST')
-        # reses = res[2][1]
-        # for res in reses:
-        #     print "RES"
-        #     print res
-        #     print ""
-        # print len(reses)
-        print res
+                       'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'TAGS', '<b>', '</b>')
+        
+        # Needs more tests...
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
