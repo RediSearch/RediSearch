@@ -37,7 +37,7 @@ Off (not present)
 ### Example
 
 ```
-$ redis-server --loadmoulde ./redisearch.so SAFEMODE
+$ redis-server --loadmodule ./redisearch.so SAFEMODE
 ```
 
 ---
@@ -53,7 +53,7 @@ None
 ### Example:
 
 ```
-$ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
 ```
 
 ---
@@ -69,5 +69,5 @@ Not set
 ### Example:
 
 ```
-$ redis-server --loadmoulde ./redisearch.so NOGC
+$ redis-server --loadmodule ./redisearch.so NOGC
 ```

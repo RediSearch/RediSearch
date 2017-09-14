@@ -21,8 +21,9 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 
     Loading an extension is done by apending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
 
+
     ```sh
-    $ redis-server --loadmoulde ./redisearch.so EXTLOAD ./ext/my_extension.so
+    $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
     ```
 
     This causes RediSearch to automatically load the extension and register its expanders and scorers. 
