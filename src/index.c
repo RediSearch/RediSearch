@@ -351,14 +351,17 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
 
   // unless we got an EOF - we put the current record into hit
-  if (hit) {
-    *hit = ic->current;
-  }
 
   // if the requested id was found on all children - we return OK
   if (nfound == ic->num) {
+    if (hit) *hit = ic->current;
     return INDEXREAD_OK;
   }
+
+  // Not found - but we need to read the next valid result into hit
+  rc = II_Read(ic, hit);
+  // this might have brought us to our end, in which case we just terminate
+  if (rc == INDEXREAD_EOF) return INDEXREAD_EOF;
 
   // otherwise - not found
   return INDEXREAD_NOTFOUND;
