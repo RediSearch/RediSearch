@@ -24,6 +24,7 @@ void Array_Free(Array *array);
  * Returns a pointer to the newly added item. The memory is allocated but uninitialized
  */
 void *Array_Add(Array *array, uint32_t elemSize);
+void Array_Write(Array *array, const void *data, size_t len);
 int Array_Resize(Array *array, uint32_t newSize);
 
 /**
