@@ -126,6 +126,41 @@ void FragmentList_Fragmentize(FragmentList *fragList, const char *doc, Stemmer *
                               StopWordList *stopwords);
 
 typedef struct {
+  uint32_t termId;
+  uint32_t tokPos;
+} OffsetInfo;
+
+/**
+ * Object which contains all of the offsets (in terms of position) from the
+ * matched terms.
+ */
+typedef struct { Array offsets; } FragmentOffsets;
+
+static inline void FragmentOffsets_Init(FragmentOffsets *offsets) {
+  Array_Init(&offsets->offsets);
+}
+
+static inline void FragmentOffsets_Free(FragmentOffsets *offsets) {
+  Array_Free(&offsets->offsets);
+}
+
+/**
+ * Call this function once for each offset array. This will add the offsets in the
+ * master list of offsets, together with their terms.
+ */
+void FragmentOffsets_AddOffsets(FragmentOffsets *offsets, uint32_t termId, RSOffsetIterator *iter);
+
+/**
+ * Call this instead of FragmentList_Fragmentize if offsets are available.
+ * offsets is a FragmentOffsets object, initialized previously.
+ *
+ * iter iterates over the byte-wise positions corresponding to each offset.
+ */
+void FragmentList_FragmentizeFromOffsets(FragmentList *fragList, const char *doc,
+                                         FragmentOffsets *offsets, RSOffsetIterator *byteOffsets,
+                                         size_t curPos, size_t endPos);
+
+typedef struct {
   const char *openTag;
   const char *closeTag;
 } HighlightTags;

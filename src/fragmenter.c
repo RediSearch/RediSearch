@@ -414,6 +414,94 @@ void FragmentList_Free(FragmentList *fragList) {
   free(fragList->scratchFrags);
 }
 
+/**
+ * Tokenization:
+ * If we have term offsets and document terms, we can skip the tokenization process.
+ *
+ * 1) Gather all matching terms for the documents, and get their offsets (in position)
+ * 2) Sort all terms, by position
+ * 3) Start reading the byte offset list, until we reach the first term of the match
+ *    list, then, consume the matches until the maximum distance has been reached,
+ *    noting the terms for each.
+ */
+
+void FragmentOffsets_AddOffsets(FragmentOffsets *offsets, uint32_t termId, RSOffsetIterator *iter) {
+  uint32_t pos;
+  while ((pos = iter->Next(iter->ctx)) != RS_OFFSETVECTOR_EOF) {
+    OffsetInfo *offset = Array_Add(&offsets->offsets, sizeof(*offset));
+    offset->tokPos = pos;
+    offset->termId = termId;
+  }
+}
+
+static int offsetSort(const void *a, const void *b) {
+  const OffsetInfo *off_a = a, *off_b = b;
+  return off_a->tokPos < off_b->tokPos ? -1 : off_a->tokPos > off_b->tokPos ? 1 : 0;
+}
+
+void FragmentList_FragmentizeFromOffsets(FragmentList *fragList, const char *doc,
+                                         FragmentOffsets *offsetList, RSOffsetIterator *byteOffsets,
+                                         size_t curPos, size_t endPos) {
+  fragList->docLen = strlen(doc);
+  fragList->doc = doc;
+  OffsetInfo *offsets = ARRAY_GETARRAY_AS(&offsetList->offsets, OffsetInfo *);
+  size_t numOffsets = ARRAY_GETSIZE_AS(&offsetList->offsets, OffsetInfo);
+
+  qsort(offsets, numOffsets, sizeof(OffsetInfo), offsetSort);
+
+  // All the fragments are now sorted. At this point, it's time to get the byte offsets:
+
+  size_t curOffsetIdx = 0;
+  uint32_t curByteOffset;
+
+  while ((curByteOffset = byteOffsets->Next(byteOffsets->ctx)) != RS_OFFSETVECTOR_EOF &&
+         curOffsetIdx < numOffsets && curPos < endPos) {
+
+    // printf("Scanning offset=%lu,pos=%lu\n", curByteOffset, curPos);
+    // Do we have a matching term?
+    if (curPos < offsets[curOffsetIdx].tokPos) {
+      // Increase until we find the first token that's currently a match
+      fragList->numToksSinceLastMatch++;
+      curPos++;
+      continue;
+    }
+
+    for (; curOffsetIdx < numOffsets && curPos > offsets[curOffsetIdx].tokPos; ++curOffsetIdx) {
+      // Find the first offset we belong to.
+      // NOTE: Is it even possible to have this condition?
+    }
+
+    if (curOffsetIdx == numOffsets) {
+      break;
+    }
+
+    // Get the length of the current token. This is used to highlight the term
+    // (if requested), and just terminates at the first non-separator character
+    size_t len = 0;
+    for (size_t ii = curByteOffset; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+    }
+
+    const OffsetInfo *offset = offsets + curOffsetIdx;
+    // printf("Found match for %.*s. curPos=%u, tokPos=%u, curByteOffset=%lu\n",
+    //        (int)fragList->terms[offset->termId].len, fragList->terms[offset->termId].tok, curPos,
+    //        offset->tokPos, curByteOffset);
+    // printf("(In Doc: %.*s)\n", 10, fragList->doc + curByteOffset);
+    Fragment *curFrag =
+        FragmentList_AddMatchingTerm(fragList, offset->termId, curPos, doc + curByteOffset, len);
+
+    // If this position matches multiple query input terms (is this even possible?)
+    // add the score only.
+    while (++curOffsetIdx < numOffsets && offsets[curOffsetIdx].tokPos == curPos) {
+      offset = offsets + curOffsetIdx;
+      if (!Fragment_HasTerm(curFrag, offset->termId)) {
+        curFrag->score += fragList->terms[offset->termId].score;
+      }
+    }
+
+    curPos++;
+  }
+}
+
 void FragmentList_Dump(const FragmentList *fragList) {
   printf("NumFrags: %u\n", fragList->numFrags);
   printf("Max Possible Score: %f\n", fragList->maxPossibleScore);
