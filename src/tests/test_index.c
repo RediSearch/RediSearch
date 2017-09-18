@@ -663,7 +663,6 @@ typedef struct {
 int tokenFunc(void *ctx, const Token *t) {
   tokenContext *tx = ctx;
   int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
-  printf("Compare: %.*s <=> %s\n", (int)t->tokLen, t->tok, tx->expected[tx->num - 1]);
   assert(ret == 0);
   assert(t->pos > 0);
   return 0;
