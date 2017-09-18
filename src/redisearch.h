@@ -31,6 +31,7 @@ typedef enum {
   Document_Deleted = 0x01,
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
+  Document_HasOffsetVector = 0x08
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
@@ -63,7 +64,8 @@ typedef struct {
   RSPayload *payload;
 
   struct RSSortingVector *sortVector;
-
+  /* Offsets of all terms in the document (in bytes). Used by highlighter */
+  struct RSByteOffsets *byteOffsets;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
@@ -135,7 +137,7 @@ typedef void (*RSFreeFunction)(void *);
 
 /* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
  * by iterating over it with RSOffsetVector_Iterate */
-typedef struct {
+typedef struct RSOffsetVector {
   char *data;
   size_t len;
 } RSOffsetVector;

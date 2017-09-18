@@ -6,6 +6,7 @@
 #include "dep/triemap/triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
+#include "byte_offsets.h"
 
 /* Map between external id an incremental id */
 typedef struct { TrieMap *tm; } DocIdMap;
@@ -67,6 +68,11 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
 int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
+
+/* Set the offset vector for a document. This contains the byte offsets of each token found in
+ * the document. This is used for highlighting
+ */
+int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
 
 /* Get the payload for a document, if any was set. If no payload has been set or the document id is
  * not found, we return NULL */
