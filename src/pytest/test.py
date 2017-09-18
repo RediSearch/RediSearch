@@ -1371,6 +1371,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', "<b>", "</b>", 'FRAGSIZE', 20, 1, 'txt')
         self.assertEqual(1, res[0])
         res_txt = res[2][1]
+        print res_txt
 
         self.assertTrue("<b>Abraham</b>" in res_txt)
         self.assertTrue("<b>Isaac</b>" in res_txt)
@@ -1381,13 +1382,27 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertGreaterEqual(len(res_txt), 160000)
         print len(res_txt)
 
-
-        
         # Do another search..
         res = self.cmd('ft.search', 'idx', 'abraham isaac jacob',
                        'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'TAGS', '<b>', '</b>')
-        
-        # Needs more tests...
+
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'FORMAT', 'RELEVANCE', 'FRAGLIMIT', 10000)
+        # print res
+
+        res_list = res[2][1]
+        self.assertIsInstance(res_list, list)
+
+    def testSummarizationMeta(self):
+        self.cmd('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text', 'baz', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'pill', 'bar', 'pillow', 'baz', 'piller')
+
+        # Now, return the fields:
+        res = self.cmd('ft.search', 'idx', 'pill pillow piller',
+                       'RETURN', 1, 'baz', 'SUMMARIZE', 2, 'foo', 'bar')
+        self.assertEqual(1, res[0])
+        result = res[2]
+        names = [x[0] for x in grouper(result, 2)]
+        self.assertEqual(set(('foo', 'bar', 'baz')), set(names))
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
