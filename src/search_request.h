@@ -22,6 +22,43 @@ typedef enum {
 
 } RSSearchFlags;
 
+typedef enum {
+  // No summaries
+  SummarizeMode_None = 0x00,
+
+  // Return best fragment (concatenated)
+  SummarizeMode_BestFragment,
+
+  // Return a list of all fragments, in order that they appear in the document
+  SummarizeMode_AllFragments,
+
+  // Return the entire field highlighted
+  SummarizeMode_WholeField
+} SummarizeMode;
+
+#define SUMMARIZE_MODE_DEFAULT SummarizeMode_BestFragment
+#define SUMMARIZE_FRAGSIZE_DEFAULT 20
+
+typedef struct {
+  char *openTag;
+  char *closeTag;
+  uint32_t contextLen;
+  uint32_t nameIndex;
+  SummarizeMode mode : 32;
+} ReturnedField;
+
+typedef struct {
+  char *openTag;
+  char *closeTag;
+
+  ReturnedField *fields;
+  size_t numFields;
+
+  char **rawFields;
+  uint32_t numRawFields;
+  uint32_t wantSummaries;
+} FieldList;
+
 #define RS_DEFAULT_QUERY_FLAGS 0x00
 
 // maximum results you can get in one query
@@ -63,8 +100,7 @@ typedef struct {
 
   char *scorer;
 
-  const char **retfields;
-  size_t nretfields;
+  FieldList fields;
 
   RSPayload payload;
 
@@ -76,6 +112,9 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
                               char **errStr);
 
 void RSSearchRequest_Free(RSSearchRequest *req);
+
+ReturnedField *FieldList_AddField(FieldList *fields, const char *name);
+ReturnedField *FieldList_AddFieldR(FieldList *fields, RedisModuleString *name);
 
 /* Process the request in the thread pool concurrently */
 int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req);
