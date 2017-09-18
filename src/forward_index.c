@@ -201,6 +201,11 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, 0);
+
+  if (tokCtx->allOffsets) {
+    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
+  }
+
   if (tokInfo->stem) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
                              tokCtx->fieldScore, tokCtx->fieldId, 1);
