@@ -296,7 +296,7 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
     limitBefore = fragList->doc;
   }
   if (limitAfter == NULL) {
-    limitAfter = fragList->doc + fragList->docLen;
+    limitAfter = fragList->doc + fragList->docLen - 1;
   }
 
   // Subtract the number of context (i.e. non-match) words
