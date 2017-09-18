@@ -15,7 +15,6 @@
 #include <time.h>
 #include <float.h>
 
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v);
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
   uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
@@ -29,7 +28,7 @@ int testVarint() {
 
   RSOffsetVector vec = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
   // Buffer_Seek(vw->bw.buf, 0);
-  RSOffsetIterator it = _offsetVector_iterate(&vec);
+  RSOffsetIterator it = RSOffsetVector_Iterate(&vec);
   int x = 0;
   uint32_t n = 0;
   while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx))) {

@@ -44,7 +44,7 @@ void *newOffsetIterator() {
   return malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v) {
   if (!__offsetIters) {
     __offsetIters = mempool_new(8, newOffsetIterator, free);
   }
@@ -109,7 +109,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:
-      return _offsetVector_iterate(&res->term.offsets);
+      return RSOffsetVector_Iterate(&res->term.offsets);
 
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
