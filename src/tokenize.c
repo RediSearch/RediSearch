@@ -61,7 +61,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
 // tokenize the text in the context
 int _tokenize(TokenizerCtx *ctx) {
-  u_int pos = ctx->lastOffset + 1;
+  u_int pos = ctx->lastOffset;
 
   while (*ctx->pos != NULL) {
     // get the next token
