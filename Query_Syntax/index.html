@@ -13,7 +13,7 @@
       
         <link rel="shortcut icon" href="../assets/images/favicon.png">
       
-      <meta name="generator" content="mkdocs-0.16.0, mkdocs-material-1.3.0">
+      <meta name="generator" content="mkdocs-0.16.1, mkdocs-material-1.1.1">
     
     
       
@@ -24,9 +24,9 @@
       <script src="../assets/javascripts/modernizr-56ade86843.js"></script>
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application-1d1da4857d.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application-4ebe3f1d68.css">
       
-        <link rel="stylesheet" href="../assets/stylesheets/application-66fa0d9bba.palette.css">
+        <link rel="stylesheet" href="../assets/stylesheets/application-f6789307ff.palette.css">
       
     
     
@@ -60,7 +60,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <header class="md-header" data-md-component="header">
+      <header class="md-header">
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
@@ -347,8 +347,6 @@
   
 </li>
       
-      
-      
     </ul>
   
 </nav>
@@ -602,8 +600,6 @@
   
 </li>
       
-      
-      
     </ul>
   
 </nav>
@@ -614,10 +610,10 @@
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
+               
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Query_Syntax.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+               
               
-                
-                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Query_Syntax.md" title="Edit this page" class="md-icon md-content__icon">edit</a>
-                
                 
                 <h1 id="search-query-syntax">Search Query Syntax:<a class="headerlink" href="#search-query-syntax" title="Permanent link">&para;</a></h1>
 <p>We support a simple syntax for complex queries with the following rules:</p>
@@ -824,13 +820,13 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE x='foo' OR y='bar'</td>
-<td>(@x:foo)\</td>
-<td>(@y:bar)</td>
+<td>(@x:foo)|(@y:bar)</td>
+<td></td>
 </tr>
 <tr>
 <td>WHERE x IN ('foo', 'bar','hello world')</td>
-<td>@x:(foo\</td>
-<td>bar\</td>
+<td>@x:(foo|bar|"hello world")</td>
+<td>quotes mean exact phrase</td>
 </tr>
 <tr>
 <td>WHERE y='foo' AND x NOT IN ('foo','bar')</td>
@@ -839,8 +835,8 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE x NOT IN ('foo','bar')</td>
-<td>-@x:(foo\</td>
-<td>bar)</td>
+<td>-@x:(foo|bar)</td>
+<td></td>
 </tr>
 <tr>
 <td>WHERE num BETWEEN 10 AND 20</td>
@@ -869,8 +865,8 @@ hello -worl*
 </tr>
 <tr>
 <td>WHERE num &lt; 10 OR num &gt; 20</td>
-<td>@num:[-inf (10] \</td>
-<td>@num:[(20 +inf]</td>
+<td>@num:[-inf (10] | @num:[(20 +inf]</td>
+<td></td>
 </tr>
 <tr>
 <td>WHERE name LIKE 'john%'</td>
@@ -886,12 +882,7 @@ hello -worl*
 </table>
 <h2 id="technical-note">Technical Note<a class="headerlink" href="#technical-note" title="Permanent link">&para;</a></h2>
 <p>The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
-                
-                  
-                
               
-              
-                
               
             </article>
           </div>
@@ -955,7 +946,7 @@ hello -worl*
       
     </div>
     
-      <script src="../assets/javascripts/application-7aa26ad9ec.js"></script>
+      <script src="../assets/javascripts/application-30ac6a1727.js"></script>
       <script>app.initialize({url:{base:".."}})</script>
       
     
