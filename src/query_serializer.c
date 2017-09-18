@@ -46,9 +46,9 @@ static void sendSummarizedField(const RSSearchRequest *req, RedisSearchCtx *sctx
   size_t numTerms = ARRAY_GETSIZE_AS(&result->termOffsets->terms, FragmentTerm);
 
   // Dump the terms:
-  for (size_t ii = 0; ii < numTerms; ++ii) {
-    printf("Have term '%.*s'\n", (int)terms[ii].len, terms[ii].tok);
-  }
+  // for (size_t ii = 0; ii < numTerms; ++ii) {
+  //   printf("Have term '%.*s'\n", (int)terms[ii].len, terms[ii].tok);
+  // }
 
   FragmentList_Init(&frags, terms, numTerms, 8, 6);
 
@@ -133,13 +133,18 @@ static void sendSummarizedField(const RSSearchRequest *req, RedisSearchCtx *sctx
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
 
-    if (fieldInfo->mode == SummarizeMode_Synopsis && ii + 1 < numIovArr) {
+    if (fieldInfo->mode == SummarizeMode_Synopsis) {
       Array_Write(&bufTmp, ELLIPSIS, sizeof(ELLIPSIS) - 1);
     } else {
       RedisModule_ReplyWithStringBuffer(ctx, bufTmp.data, bufTmp.len);
       Array_Resize(&bufTmp, 0);
     }
   }
+
+  if (fieldInfo->mode == SummarizeMode_Synopsis) {
+    RedisModule_ReplyWithStringBuffer(ctx, bufTmp.data, bufTmp.len);
+  }
+
   Array_Free(&bufTmp);
   for (size_t ii = 0; ii < numIovArr; ++ii) {
     Array_Free(iovsArr + ii);
