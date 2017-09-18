@@ -26,25 +26,33 @@ typedef enum {
   // No summaries
   SummarizeMode_None = 0x00,
 
-  // Return best fragment (concatenated)
-  SummarizeMode_BestFragment,
+  // Use best fragments, stringing together by elipsis
+  SummarizeMode_Synopsis,
 
-  // Return a list of all fragments, in order that they appear in the document
-  SummarizeMode_AllFragments,
+  // Return a list of fragments, ordered by relevance
+  SummarizeMode_ByRelevance,
+
+  // Return a list of fragments, ordered by their appearance in the document
+  SummarizeMode_ByOrder,
+
+  // Return a list of top fragments, ordered by appearance
+  SummarizeMode_ByRelOrder,
 
   // Return the entire field highlighted
   SummarizeMode_WholeField
 } SummarizeMode;
 
-#define SUMMARIZE_MODE_DEFAULT SummarizeMode_BestFragment
+#define SUMMARIZE_MODE_DEFAULT SummarizeMode_Synopsis
 #define SUMMARIZE_FRAGSIZE_DEFAULT 20
+#define SUMMARIZE_FRAGCOUNT_DEFAULT 3
 
 typedef struct {
   char *openTag;
   char *closeTag;
   uint32_t contextLen;
-  uint32_t nameIndex;
-  SummarizeMode mode : 32;
+  uint16_t nameIndex;
+  uint16_t numFrags;
+  SummarizeMode mode;
 } ReturnedField;
 
 typedef struct {
