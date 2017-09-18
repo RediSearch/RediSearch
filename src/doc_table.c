@@ -85,6 +85,17 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   return 1;
 }
 
+int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
+  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  if (!dmd) {
+    return 0;
+  }
+
+  dmd->byteOffsets = v;
+  dmd->flags |= Document_HasOffsetVector;
+  return 1;
+}
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
 * table.
 *
@@ -159,6 +170,11 @@ void dmd_free(RSDocumentMetadata *md) {
     SortingVector_Free(md->sortVector);
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
+  }
+  if (md->byteOffsets) {
+    RSByteOffsets_Free(md->byteOffsets);
+    md->byteOffsets = NULL;
+    md->flags &= ~Document_HasOffsetVector;
   }
   rm_free(md->key);
 }
