@@ -162,10 +162,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
-      req->retfields = malloc(sizeof(*req->retfields) * nargs);
-      req->nretfields = nargs;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        req->retfields[ii] = strdup(RedisModule_StringPtrLen(vargs[ii], NULL));
+        FieldList_AddFieldR(&req->fields, vargs[ii]);
       }
     }
   }
@@ -177,6 +175,47 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 err:
   RSSearchRequest_Free(req);
   return NULL;
+}
+
+ReturnedField *FieldList_AddField(FieldList *fields, const char *name) {
+  size_t foundIndex = -1;
+  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
+    if (!strcasecmp(fields->rawFields[ii], name)) {
+      foundIndex = ii;
+      break;
+    }
+  }
+
+  if (foundIndex == -1) {
+    foundIndex = fields->numRawFields;
+    fields->rawFields =
+        realloc(fields->rawFields, sizeof(*fields->rawFields) * ++fields->numRawFields);
+    fields->rawFields[foundIndex] = strdup(name);
+  }
+
+  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  ReturnedField *ret = fields->fields + (fields->numFields - 1);
+  memset(ret, 0, sizeof *ret);
+  ret->nameIndex = foundIndex;
+  return ret;
+}
+
+ReturnedField *FieldList_AddFieldR(FieldList *fields, RedisModuleString *s) {
+  return FieldList_AddField(fields, RedisModule_StringPtrLen(s, NULL));
+}
+
+static void FieldList_Free(FieldList *fields) {
+  free(fields->openTag);
+  free(fields->closeTag);
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    ReturnedField *field = fields->fields + ii;
+    if (field->openTag == NULL && fields->closeTag == NULL) {
+      free(field->openTag);
+      free(field->closeTag);
+    }
+  }
+  free(fields->fields);
+  free(fields->rawFields);
 }
 
 void RSSearchRequest_Free(RSSearchRequest *req) {
@@ -219,12 +258,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
     Vector_Free(req->numericFilters);
   }
 
-  if (req->retfields) {
-    for (size_t ii = 0; ii < req->nretfields; ++ii) {
-      free((void *)req->retfields[ii]);
-    }
-    free(req->retfields);
-  }
+  FieldList_Free(&req->fields);
 
   if (req->sctx) {
     SearchCtx_Free(req->sctx);
