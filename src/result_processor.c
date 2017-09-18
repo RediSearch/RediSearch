@@ -476,8 +476,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
  *******************************************************************************************************************/
 struct loaderCtx {
   RedisSearchCtx *ctx;
-  size_t numFields;
-  const char **loadfields;
+  FieldList *fields;
 };
 
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
@@ -496,7 +495,8 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   RedisModuleString *idstr =
       RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
-  Redis_LoadDocumentEx(lc->ctx, idstr, lc->loadfields, lc->numFields, &doc, &rkey);
+  Redis_LoadDocumentEx(lc->ctx, idstr, (const char **)lc->fields->rawFields, lc->fields->numFields,
+                       &doc, &rkey);
   RedisModule_FreeString(lc->ctx->redisCtx, idstr);
 
   // TODO: load should return strings, not redis strings
@@ -512,8 +512,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
   struct loaderCtx *sc = malloc(sizeof(*sc));
   sc->ctx = r->sctx;
-  sc->loadfields = r->retfields;
-  sc->numFields = r->nretfields;
+  sc->fields = &r->fields;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
@@ -544,7 +543,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
-  if (!(req->flags & Search_NoContent) || req->nretfields == 0) {
+  if (!(req->flags & Search_NoContent) || req->fields.numFields == 0) {
 
     next = NewLoader(next, req);
   }
