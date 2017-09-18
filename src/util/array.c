@@ -45,6 +45,11 @@ void *Array_Add(Array *array, uint32_t toAdd) {
   return array->data + oldLen;
 }
 
+void Array_Write(Array *arr, const void *data, size_t len) {
+  void *ptr = Array_Add(arr, len);
+  memcpy(ptr, data, len);
+}
+
 void Array_ShrinkToSize(Array *array) {
   if (array->capacity > array->len) {
     array->capacity = array->len;
