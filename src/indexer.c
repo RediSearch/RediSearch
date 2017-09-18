@@ -267,6 +267,12 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
       cur->sv = NULL;
     }
+
+    if (cur->byteOffsets) {
+      ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
+      DocTable_SetByteOffsets(&spec->docs, cur->doc.docId, cur->byteOffsets);
+      cur->byteOffsets = NULL;
+    }
   }
 }
 
