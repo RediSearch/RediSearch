@@ -1,13 +1,11 @@
 #include "fragmenter.h"
 #include "toksep.h"
 #include "tokenize.h"
+#include "util/minmax.h"
 #include <ctype.h>
 #include <float.h>
 #include <sys/uio.h>
 #include <assert.h>
-
-#define myMin(a, b) (a) < (b) ? (a) : (b)
-#define myMax(a, b) (a) > (b) ? (a) : (b)
 
 #ifdef __APPLE__
 #define myQsort_r(arr, nelem, elemSize, compfn, arg) qsort_r(arr, nelem, elemSize, arg, compfn)
@@ -319,8 +317,8 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
   // TODO: If this context flows directly into a neighboring context, signal
   // some way to *merge* them.
 
-  limitBefore = myMax(frag->buf - contextSize, limitBefore);
-  limitAfter = myMin(frag->buf + frag->len + contextSize, limitAfter);
+  limitBefore = Max(frag->buf - contextSize, limitBefore);
+  limitAfter = Min(frag->buf + frag->len + contextSize, limitAfter);
 
   before->iov_base = (void *)frag->buf;
   before->iov_len = 0;
@@ -355,7 +353,7 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
                                      int order) {
 
   const Fragment *frags = FragmentList_GetFragments(fragList);
-  niovs = myMin(niovs, fragList->numFrags);
+  niovs = Min(niovs, fragList->numFrags);
 
   if (!fragList->scratchFrags) {
     fragList->scratchFrags = malloc(sizeof(fragList->scratchFrags) * fragList->numFrags);
