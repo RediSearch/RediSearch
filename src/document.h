@@ -114,6 +114,7 @@ void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
+#define DOCUMENT_ADD_NOSAVE 0x04
 
 struct ForwardIndex;
 union FieldData;

@@ -156,6 +156,9 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (partial) {
     options |= DOCUMENT_ADD_PARTIAL;
   }
+  if (nosave) {
+    options |= DOCUMENT_ADD_NOSAVE;
+  }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   AddDocumentCtx_Submit(aCtx, &sctx, options);
 
