@@ -1371,7 +1371,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', "<b>", "</b>", 'FRAGSIZE', 20, 1, 'txt')
         self.assertEqual(1, res[0])
         res_txt = res[2][1]
-        print res_txt
+        # print res_txt
 
         self.assertTrue("<b>Abraham</b>" in res_txt)
         self.assertTrue("<b>Isaac</b>" in res_txt)
@@ -1380,7 +1380,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', '<i>', '</i>', 'NOTRUNCATE', 1, 'txt')
         res_txt = res[2][1]
         self.assertGreaterEqual(len(res_txt), 160000)
-        print len(res_txt)
 
         # Do another search..
         res = self.cmd('ft.search', 'idx', 'abraham isaac jacob',
@@ -1391,6 +1390,32 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
         res_list = res[2][1]
         self.assertIsInstance(res_list, list)
+
+    def testSummarizationMultiField(self):
+        p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
+        p2 = "Redis typically holds the whole dataset in memory. Versions up to 2.4 could be configured to use what they refer to as virtual memory[19] in which some of the dataset is stored on disk, but this feature is deprecated. Persistence is now achieved in two different ways: one is called snapshotting, and is a semi-persistent durability mode where the dataset is asynchronously transferred from memory to disk from time to time, written in RDB dump format. Since version 1.1 the safer alternative is AOF, an append-only file (a journal) that is written as operations modifying the dataset in memory are processed. Redis is able to rewrite the append-only file in the background in order to avoid an indefinite growth of the journal."
+
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT', 'txt2', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'redis', 1.0, 'FIELDS', 'txt1', p1, 'txt2', p2)
+
+        # Now perform the multi-field search
+        res = self.cmd('FT.SEARCH', 'idx', 'memory persistence salvatore',
+                       'SUMMARIZE', 'FRAGSIZE', 5, '2', 'txt1', 'txt2')
+        # print res
+        self.assertEqual( [1L, 'redis', ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2', 'Redis typically holds the whole dataset in memory.... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']], res)
+    
+    def testSummarizationNoOffsets(self):
+        self.cmd('FT.CREATE', 'idx', 'NOFFSETS', 'SCHEMA', 'body', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
+        res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 1, 'body')
+        self.assertEqual([1L, 'doc', ['body', 'hello ... ']], res)
+    
+    def testSummarizationNoSave(self):
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE', 'fields', 'body', 'hello world')
+        res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 1, 'body')
+        # print res
+        self.assertEqual([1L, 'doc', ['body', None]], res)
 
     def testSummarizationMeta(self):
         self.cmd('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text', 'baz', 'text')
