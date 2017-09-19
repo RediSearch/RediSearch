@@ -177,7 +177,7 @@ static void sendDocumentFields(RSSearchRequest *req, RedisSearchCtx *sctx, const
     const ReturnedField *field = fields->fields + ii;
     RedisModule_ReplyWithStringBuffer(ctx, fields->rawFields[idx], strlen(fields->rawFields[idx]));
 
-    if (!docField->text) {
+    if (idx >= doc->numFields || !docField->text) {
       RedisModule_ReplyWithNull(ctx);
       continue;
     }
