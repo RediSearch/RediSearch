@@ -78,7 +78,8 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     aCtx->sv = NewSortingVector(sp->sortables->len);
   }
 
-  if (numIndexable && (sp->flags & Index_StoreTermOffsets)) {
+  if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numIndexable &&
+      (sp->flags & Index_StoreTermOffsets)) {
     if (!aCtx->byteOffsets) {
       aCtx->byteOffsets = NewByteOffsets();
       ByteOffsetWriter_Init(&aCtx->offsetsWriter);
