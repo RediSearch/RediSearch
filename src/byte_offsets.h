@@ -40,6 +40,9 @@ void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields);
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
                                           uint32_t startPos);
 
+void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
+RSByteOffsets *LoadByteOffsets(Buffer *buf);
+
 typedef VarintVectorWriter ByteOffsetWriter;
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets);
