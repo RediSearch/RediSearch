@@ -211,17 +211,26 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, t->size);
   RedisModule_SaveUnsigned(rdb, t->maxDocId);
   for (int i = 1; i < t->size; i++) {
-    RedisModule_SaveStringBuffer(rdb, t->docs[i].key, strlen(t->docs[i].key) + 1);
-    RedisModule_SaveUnsigned(rdb, t->docs[i].flags);
-    RedisModule_SaveUnsigned(rdb, t->docs[i].maxFreq);
-    RedisModule_SaveFloat(rdb, t->docs[i].score);
-    if (t->docs[i].flags & Document_HasPayload && t->docs[i].payload) {
+    const RSDocumentMetadata *dmd = t->docs + i;
+    RedisModule_SaveStringBuffer(rdb, dmd->key, strlen(dmd->key) + 1);
+    RedisModule_SaveUnsigned(rdb, dmd->flags);
+    RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
+    RedisModule_SaveFloat(rdb, dmd->score);
+    if (dmd->flags & Document_HasPayload && dmd->payload) {
       // save an extra space for the null terminator to make the payload null terminated on load
-      RedisModule_SaveStringBuffer(rdb, t->docs[i].payload->data, t->docs[i].payload->len + 1);
+      RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
     }
 
-    if (t->docs[i].flags & Document_HasSortVector) {
-      SortingVector_RdbSave(rdb, t->docs[i].sortVector);
+    if (dmd->flags & Document_HasSortVector) {
+      SortingVector_RdbSave(rdb, dmd->sortVector);
+    }
+
+    if (dmd->flags & Document_HasOffsetVector) {
+      Buffer tmp;
+      Buffer_Init(&tmp, 16);
+      RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
+      RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
+      Buffer_Free(&tmp);
     }
   }
 }
@@ -256,6 +265,15 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       t->docs[i].sortVector = SortingVector_RdbLoad(rdb, encver);
     }
 
+    if (t->docs[i].flags & Document_HasOffsetVector) {
+      size_t nTmp = 0;
+      char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
+      Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
+      t->docs[i].byteOffsets = LoadByteOffsets(bufTmp);
+      rm_free(bufTmp);
+      rm_free(tmp);
+    }
+
     // We always save deleted docs to rdb, but we don't want to load them back to the id map
     if (!(t->docs[i].flags & Document_Deleted)) {
       DocIdMap_Put(&t->dim, t->docs[i].key, i);
@@ -267,17 +285,31 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
   for (int i = 1; i < t->size; i++) {
-
-    RedisModuleString *ss = RedisModule_CreateStringPrintf(ctx, "%f", t->docs[i].score);
+    const RSDocumentMetadata *dmd = t->docs + i;
+    RedisModuleString *ss = RedisModule_CreateStringPrintf(ctx, "%f", dmd->score);
     // dump payload if possible
-    if (t->docs[i].flags & Document_HasPayload && t->docs[i].payload) {
-      RedisModule_EmitAOF(aof, "FT.DTADD", "cclsb", indexName, t->docs[i].key,
-                          (long long)t->docs[i].flags, ss, t->docs[i].payload->data,
-                          t->docs[i].payload->len);
-    } else {
-      RedisModule_EmitAOF(aof, "FT.DTADD", "ccls", indexName, t->docs[i].key,
-                          (long long)t->docs[i].flags, ss);
+    const char *payload = NULL;
+    size_t payloadLen = 0;
+    char *byteOffsets = NULL;
+    size_t byteOffsetsLen = 0;
+    Buffer offsetsBuf = {0};
+
+    if ((dmd->flags & Document_HasPayload) && dmd->payload) {
+      payload = dmd->payload->data;
+      payloadLen = dmd->payload->len;
     }
+
+    if ((dmd->flags & Document_HasOffsetVector) && dmd->byteOffsets) {
+      Buffer_Init(&offsetsBuf, 16);
+      RSByteOffsets_Serialize(dmd->byteOffsets, &offsetsBuf);
+      byteOffsets = offsetsBuf.data;
+      byteOffsetsLen = offsetsBuf.offset;
+    }
+
+    RedisModule_EmitAOF(aof, "FT.DTADD", "cclsbb", indexName, dmd->key, dmd->flags, ss, payload,
+                        payloadLen, byteOffsets, byteOffsetsLen);
+
+    Buffer_Free(&offsetsBuf);
     RedisModule_FreeString(ctx, ss);
   }
 }
