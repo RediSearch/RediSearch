@@ -55,7 +55,7 @@ typedef struct {
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
  * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
  * By default the pool starts with just one thread, and scales up as needed  */
-#define CONCURRENT_SEARCH_POOL_SIZE 100
+#define CONCURRENT_SEARCH_POOL_SIZE 8
 
 /**
  * The maximum number of threads performing indexing on documents.
@@ -73,7 +73,7 @@ typedef struct {
 #define CONCURRENT_TICK_CHECK 25
 
 /** The timeout after which we try to switch to another query thread - in Nanoseconds */
-#define CONCURRENT_TIMEOUT_NS 50000
+#define CONCURRENT_TIMEOUT_NS 100000
 
 /* Add a "monitored" key to the context. When keys are open during concurrent execution, they need
  * to be closed before we yield execution and release the GIL, and reopened when we get back the
