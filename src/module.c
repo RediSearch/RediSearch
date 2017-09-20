@@ -348,6 +348,28 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   Query_Expand(q);
+
+  if (req->geoFilter) {
+    Query_SetGeoFilter(q, req->geoFilter);
+  }
+
+  if (req->idFilter) {
+    Query_SetIdFilter(q, req->idFilter);
+  }
+  // set numeric filters if possible
+  if (req->numericFilters) {
+    for (int i = 0; i < Vector_Size(req->numericFilters); i++) {
+      NumericFilter *nf;
+      Vector_Get(req->numericFilters, i, &nf);
+      if (nf) {
+        Query_SetNumericFilter(q, nf);
+      }
+    }
+
+    Vector_Free(req->numericFilters);
+    req->numericFilters = NULL;
+  }
+
   char *explain = (char *)Query_DumpExplain(q);
   RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
   free(explain);
