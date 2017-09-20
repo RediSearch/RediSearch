@@ -995,24 +995,24 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testHugeSpec);
 
-  // TESTFUNC(testAbort)
-  // TESTFUNC(testNumericInverted);
-  // TESTFUNC(testNumericVaried);
-  // TESTFUNC(testNumericEncoding);
+  TESTFUNC(testAbort)
+  TESTFUNC(testNumericInverted);
+  TESTFUNC(testNumericVaried);
+  TESTFUNC(testNumericEncoding);
 
-  // TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
-  // TESTFUNC(testNot);
-  // TESTFUNC(testUnion);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
+  TESTFUNC(testNot);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
-  // TESTFUNC(testDocTable);
-  // TESTFUNC(testSortable);
+  TESTFUNC(testBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
+  TESTFUNC(testSortable);
 });
