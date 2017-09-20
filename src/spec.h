@@ -33,7 +33,8 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
-#define SPEC_MAX_FIELDS 32
+#define SPEC_MAX_FIELDS 1024
+#define SPEC_MAX_FIELD_ID (t_fieldMask)(1 << 31)
 
 typedef enum {
   FieldSpec_Sortable = 0x01,

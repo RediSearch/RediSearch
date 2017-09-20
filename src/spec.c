@@ -248,7 +248,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->stopwords = DefaultStopWordList();
   }
 
-  t_fieldMask id = 1;
+  uint64_t id = 1;
   int sortIdx = 0;
 
   int i = schemaOffset + 1;
@@ -259,8 +259,14 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       goto failure;
     }
 
-    if (spec->fields[spec->numFields].type == F_FULLTEXT) {
-      spec->fields[spec->numFields].id = id;
+    if (spec->fields[spec->numFields].type == F_FULLTEXT &&
+        FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
+      // make sure we don't have too many indexable fields
+      if (id > SPEC_MAX_FIELD_ID) {
+        *err = "Too many TEXT fields in schema, the maximum is 32";
+        goto failure;
+      }
+      spec->fields[spec->numFields].id = (t_fieldMask)(id & RS_FIELDMASK_ALL);
       id *= 2;
     }
     if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
