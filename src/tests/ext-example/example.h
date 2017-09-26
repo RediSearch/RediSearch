@@ -1,5 +1,6 @@
-#ifndef __EXT_EXAMPLE_H__
-#define __EXT_EXAMPLE_H__
+#ifndef EXT_EXAMPLE_H__
+#define EXT_EXAMPLE_H__
+
 #include "redisearch.h"
 
 #define EXPANDER_NAME "EXAMPLE_EXPANDER"
