@@ -49,9 +49,9 @@ static inline void VVW_Reset(VarintVectorWriter *w) {
   w->buf.offset = 0;
 }
 
-#define VVW_GetCount(vvw) (vvw)->nmemb
-#define VVW_GetByteLength(vvw) (vvw)->buf.offset
-#define VVW_GetByteData(vvw) (vvw)->buf.data
+#define VVW_GetCount(vvw) ((vvw) ? (vvw)->nmemb : 0)
+#define VVW_GetByteLength(vvw) ((vvw) ? (vvw)->buf.offset : 0)
+#define VVW_GetByteData(vvw) ((vvw) ? (vvw)->buf.data : NULL)
 #define VVW_OFFSETVECTOR_INIT(vvw) \
   { .data = VVW_GetByteData(vvw), .len = VVW_GetByteLength(vvw) }
 #endif
