@@ -1243,7 +1243,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.create', 'idx', 'NOFIELDS', 'schema', 'title', 'text'))
             N = 50
             for i in xrange(N):
-                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
                                                 'title', 'hello term%d' % i))
             for _ in r.retry_with_rdb_reload():
 

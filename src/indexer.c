@@ -225,8 +225,10 @@ static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const cha
   const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
   DocTable *table = &spec->docs;
   if (replace) {
-    DocTable_Delete(table, keystr);
-    --spec->stats.numDocuments;
+    if (DocTable_Delete(table, keystr)) {
+      // decrease the number of documents in the index stats only if the document was there
+      --spec->stats.numDocuments;
+    }
   }
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
