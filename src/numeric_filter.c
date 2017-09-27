@@ -26,7 +26,7 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
   size_t len;
   const char *f = RedisModule_StringPtrLen(argv[0], &len);
   FieldSpec *fs = IndexSpec_GetField(ctx->spec, f, len);
-  if (fs == NULL || fs->type != F_NUMERIC) {
+  if (fs == NULL || fs->type != FIELD_NUMERIC) {
     return NULL;
   }
 

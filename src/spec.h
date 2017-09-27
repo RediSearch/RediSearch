@@ -10,7 +10,7 @@
 #include "stopwords.h"
 #include "gc.h"
 
-typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
+typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -28,8 +28,8 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
 
-static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
-                                      [F_GEO] = GEO_STR, [F_TAG] = SPEC_TAG_STR};
+static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR, [FIELD_NUMERIC] = NUMERIC_STR,
+                                      [FIELD_GEO] = GEO_STR, [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"

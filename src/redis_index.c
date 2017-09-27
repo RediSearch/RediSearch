@@ -464,7 +464,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   // Delete the numeric indexes
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *spec = ctx->spec->fields + i;
-    if (spec->type == F_NUMERIC) {
+    if (spec->type == FIELD_NUMERIC) {
       Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
     }
   }

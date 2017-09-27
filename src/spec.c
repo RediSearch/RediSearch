@@ -143,7 +143,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   if (!strcasecmp(argv[*offset], SPEC_TEXT_STR)) {
 
     // init default weight and type
-    sp->type = F_FULLTEXT;
+    sp->type = FIELD_FULLTEXT;
     sp->weight = 1.0;
 
     while (++*offset < argc) {
@@ -171,12 +171,12 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     }
 
   } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
-    sp->type = F_NUMERIC;
+    sp->type = FIELD_NUMERIC;
     sp->weight = 0.0;
     ++*offset;
 
   } else if (!strcasecmp(argv[*offset], GEO_STR)) {  // geo field
-    sp->type = F_GEO;
+    sp->type = FIELD_GEO;
     sp->weight = 0;
     ++*offset;
   } else {  // not numeric and not text - nothing more supported currently
@@ -186,7 +186,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   while (*offset < argc) {
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
-      if (sp->type == F_GEO) {
+      if (sp->type == FIELD_GEO) {
         return 0;
       }
       sp->options |= FieldSpec_Sortable;
@@ -265,7 +265,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       goto failure;
     }
 
-    if (spec->fields[spec->numFields].type == F_FULLTEXT &&
+    if (spec->fields[spec->numFields].type == FIELD_FULLTEXT &&
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
       // make sure we don't have too many indexable fields
       if (id == SPEC_MAX_FIELD_ID) {
@@ -683,7 +683,7 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
   for (int i = 0; i < sp->numFields; i++) {
 
     switch (sp->fields[i].type) {
-      case F_FULLTEXT:
+      case FIELD_FULLTEXT:
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, SPEC_TEXT_STR);
         if (sp->fields[i].weight != 1.0) {
@@ -694,11 +694,11 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
           __vpushStr(args, ctx, SPEC_NOSTEM_STR);
         }
         break;
-      case F_NUMERIC:
+      case FIELD_NUMERIC:
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, NUMERIC_STR);
         break;
-      case F_GEO:
+      case FIELD_GEO:
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, GEO_STR);
       default:

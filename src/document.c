@@ -61,7 +61,7 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
         numIndexable++;
       }
       // mark non text fields in the state flags
-      if (fs->type != F_FULLTEXT) {
+      if (fs->type != FIELD_FULLTEXT) {
         aCtx->stateFlags |= ACTX_F_NONTXTFLDS;
       }
 
@@ -195,7 +195,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
-    if (fs->name && fs->type == F_FULLTEXT) {
+    if (fs->name && (fs->type == FIELD_FULLTEXT || fs->type == FIELD_TAG)) {
       size_t n;
       RedisModule_StringPtrLen(aCtx->doc.fields[ii].text, &n);
       totalSize += n;
@@ -319,11 +319,11 @@ FIELD_INDEXER(geoIndexer) {
 
 PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
   switch (ft) {
-    case F_FULLTEXT:
+    case FIELD_FULLTEXT:
       return fulltextPreprocessor;
-    case F_NUMERIC:
+    case FIELD_NUMERIC:
       return numericPreprocessor;
-    case F_GEO:
+    case FIELD_GEO:
       return geoPreprocessor;
     default:
       return NULL;
@@ -332,11 +332,11 @@ PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
 
 IndexerFunc GetIndexIndexer(const FieldType ft) {
   switch (ft) {
-    case F_NUMERIC:
+    case FIELD_NUMERIC:
       return numericIndexer;
-    case F_GEO:
+    case FIELD_GEO:
       return geoIndexer;
-    case F_FULLTEXT:
+    case FIELD_FULLTEXT:
     default:
       return NULL;
   }
@@ -420,11 +420,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       }
 
       switch (fs->type) {
-        case F_FULLTEXT:
+        case FIELD_FULLTEXT:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
-        case F_NUMERIC: {
+        case FIELD_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
