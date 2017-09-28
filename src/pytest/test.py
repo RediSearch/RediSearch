@@ -520,7 +520,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             r.flushdb()
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'foo', 'text'))
-            N = 100
+            N = 10
             for i in range(N):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'constant term%d' % (random.randrange(0, 5))))
@@ -533,16 +533,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                     'ft.search', 'idx', 'constant -term%d' % i, 'nocontent', 'limit', 0, N)
                 exclusive2 = r.execute_command(
                     'ft.search', 'idx', '-(term%d)' % i, 'nocontent', 'limit', 0, N)
-                # print inclusive, exclusive
+                exclusive3 = r.execute_command(
+                    'ft.search', 'idx', '(-term%d) (constant)' % i, 'nocontent', 'limit', 0, N)
+                
                 self.assertNotEqual(inclusive[0], N)
                 self.assertEqual(inclusive[0] + exclusive[0], N)
+                self.assertEqual(exclusive3[0], exclusive2[0])
+                self.assertEqual(exclusive3[0], exclusive[0])
 
-                s1, s2, s3 = set(inclusive[1:]), set(exclusive[1:]), set(exclusive2[1:])
+                s1, s2, s3, s4 = set(inclusive[1:]), set(exclusive[1:]), set(exclusive2[1:]), set(exclusive3[1:])
                 self.assertTrue(s1.difference(s2) == s1)
                 self.assertTrue(s1.difference(s3) == s1)
+                self.assertTrue(s1.difference(s4) == s1)
                 self.assertTrue(s2 == s3)
+                self.assertTrue(s2 == s4)
                 self.assertTrue(s2.intersection(s1) == set())
                 self.assertTrue(s3.intersection(s1) == set())
+                self.assertTrue(s4.intersection(s1) == set())
 
             # NOT on a non existing term
             self.assertEqual(r.execute_command(

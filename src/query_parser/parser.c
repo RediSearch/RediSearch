@@ -928,26 +928,21 @@ static void yy_reduce(
 #line 81 "parser.y"
 { 
  /* If the root is a negative node, we intersect it with a wildcard node */
- if (yymsp[0].minor.yy35->type == QN_NOT) {
-    ctx->root = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(ctx->root, NewWildcardNode());
-    QueryPhraseNode_AddChild(ctx->root, yymsp[0].minor.yy35);
- } else {
+ 
     ctx->root = yymsp[0].minor.yy35;
- }
-
+ 
 }
-#line 941 "parser.c"
+#line 936 "parser.c"
         break;
       case 1: /* query ::= */
-#line 92 "parser.y"
+#line 87 "parser.y"
 {
  ctx->root = NULL;
 }
-#line 948 "parser.c"
+#line 943 "parser.c"
         break;
       case 2: /* expr ::= expr expr */
-#line 96 "parser.y"
+#line 91 "parser.y"
 {
     if (yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 && 
         yymsp[-1].minor.yy35->fieldMask == RS_FIELDMASK_ALL ) {
@@ -958,19 +953,19 @@ static void yy_reduce(
     } 
     QueryPhraseNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
 }
-#line 962 "parser.c"
+#line 957 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 3: /* expr ::= union */
-#line 107 "parser.y"
+#line 102 "parser.y"
 {
     yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
-#line 970 "parser.c"
+#line 965 "parser.c"
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 4: /* union ::= expr OR expr */
-#line 112 "parser.y"
+#line 107 "parser.y"
 {
     
     if (yymsp[-2].minor.yy35->type == QN_UNION && yymsp[-2].minor.yy35->fieldMask == RS_FIELDMASK_ALL) {
@@ -981,42 +976,42 @@ static void yy_reduce(
     }
     QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35); 
 }
-#line 985 "parser.c"
+#line 980 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 5: /* union ::= union OR expr */
-#line 125 "parser.y"
+#line 120 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
     QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35); 
 }
-#line 994 "parser.c"
+#line 989 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 6: /* expr ::= modifier COLON expr */
-#line 134 "parser.y"
+#line 129 "parser.y"
 {
     if (ctx->q->ctx && ctx->q->ctx->spec) {
         yymsp[0].minor.yy35->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
     yylhsminor.yy35 = yymsp[0].minor.yy35; 
 }
-#line 1005 "parser.c"
+#line 1000 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 7: /* expr ::= modifier COLON TERM */
-#line 141 "parser.y"
+#line 136 "parser.y"
 {
     yylhsminor.yy35 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
     if (ctx->q->ctx && ctx->q->ctx->spec) {
         yylhsminor.yy35->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
 }
-#line 1016 "parser.c"
+#line 1011 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 8: /* expr ::= modifierlist COLON expr */
-#line 150 "parser.y"
+#line 145 "parser.y"
 {
     
     yymsp[0].minor.yy35->fieldMask = 0;
@@ -1031,41 +1026,41 @@ static void yy_reduce(
     Vector_Free(yymsp[-2].minor.yy50);
     yylhsminor.yy35=yymsp[0].minor.yy35;
 }
-#line 1035 "parser.c"
+#line 1030 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 9: /* expr ::= LP expr RP */
-#line 165 "parser.y"
+#line 160 "parser.y"
 {
     yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
-#line 1043 "parser.c"
+#line 1038 "parser.c"
         break;
       case 10: /* expr ::= QUOTE termlist QUOTE */
-#line 169 "parser.y"
+#line 164 "parser.y"
 {
     yymsp[-1].minor.yy35->pn.exact =1;
     yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
-#line 1051 "parser.c"
+#line 1046 "parser.c"
         break;
       case 11: /* term ::= QUOTE term QUOTE */
-#line 174 "parser.y"
+#line 169 "parser.y"
 {
     yymsp[-2].minor.yy0 = yymsp[-1].minor.yy0;
 }
-#line 1058 "parser.c"
+#line 1053 "parser.c"
         break;
       case 12: /* expr ::= term */
-#line 178 "parser.y"
+#line 173 "parser.y"
 {
     yylhsminor.yy35 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
 }
-#line 1065 "parser.c"
+#line 1060 "parser.c"
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 13: /* termlist ::= term term */
-#line 182 "parser.y"
+#line 177 "parser.y"
 {
     
     yylhsminor.yy35 = NewPhraseNode(0);
@@ -1073,51 +1068,51 @@ static void yy_reduce(
     QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 
 }
-#line 1077 "parser.c"
+#line 1072 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 14: /* termlist ::= termlist term */
-#line 189 "parser.y"
+#line 184 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
     QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 
 }
-#line 1087 "parser.c"
+#line 1082 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 15: /* expr ::= MINUS expr */
-#line 196 "parser.y"
+#line 191 "parser.y"
 { 
     yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
 }
-#line 1095 "parser.c"
+#line 1090 "parser.c"
         break;
       case 16: /* expr ::= TILDE expr */
-#line 199 "parser.y"
+#line 194 "parser.y"
 { 
     yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
 }
-#line 1102 "parser.c"
+#line 1097 "parser.c"
         break;
       case 17: /* expr ::= term STAR */
-#line 203 "parser.y"
+#line 198 "parser.y"
 {
     yylhsminor.yy35 = NewPrefixNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len);
 }
-#line 1109 "parser.c"
+#line 1104 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 18: /* modifier ::= MODIFIER */
-#line 207 "parser.y"
+#line 202 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0;
  }
-#line 1117 "parser.c"
+#line 1112 "parser.c"
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 19: /* modifierlist ::= modifier OR term */
-#line 211 "parser.y"
+#line 206 "parser.y"
 {
     yylhsminor.yy50 = NewVector(char *, 2);
     char *s = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1125,48 +1120,48 @@ static void yy_reduce(
     s = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yylhsminor.yy50, s);
 }
-#line 1129 "parser.c"
+#line 1124 "parser.c"
   yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 20: /* modifierlist ::= modifierlist OR term */
-#line 219 "parser.y"
+#line 214 "parser.y"
 {
     char *s = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yymsp[-2].minor.yy50, s);
     yylhsminor.yy50 = yymsp[-2].minor.yy50;
 }
-#line 1139 "parser.c"
+#line 1134 "parser.c"
   yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 21: /* expr ::= modifier COLON numeric_range */
-#line 225 "parser.y"
+#line 220 "parser.y"
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy37->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy35 = NewNumericNode(yymsp[0].minor.yy37);
 }
-#line 1149 "parser.c"
+#line 1144 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 22: /* numeric_range ::= LSQB num num RSQB */
-#line 231 "parser.y"
+#line 226 "parser.y"
 {
     yymsp[-3].minor.yy37 = NewNumericFilter(yymsp[-2].minor.yy55.num, yymsp[-1].minor.yy55.num, yymsp[-2].minor.yy55.inclusive, yymsp[-1].minor.yy55.inclusive);
 }
-#line 1157 "parser.c"
+#line 1152 "parser.c"
         break;
       case 23: /* expr ::= modifier COLON geo_filter */
-#line 235 "parser.y"
+#line 230 "parser.y"
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy36->property = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy35 = NewGeofilterNode(yymsp[0].minor.yy36);
 }
-#line 1166 "parser.c"
+#line 1161 "parser.c"
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 24: /* geo_filter ::= LSQB num num num TERM RSQB */
-#line 241 "parser.y"
+#line 236 "parser.y"
 {
     yymsp[-5].minor.yy36 = NewGeoFilter(yymsp[-4].minor.yy55.num, yymsp[-3].minor.yy55.num, yymsp[-2].minor.yy55.num, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
     char *err = NULL;
@@ -1175,40 +1170,40 @@ static void yy_reduce(
         ctx->errorMsg = strdup(err);
     }
 }
-#line 1179 "parser.c"
+#line 1174 "parser.c"
         break;
       case 25: /* num ::= NUMBER */
-#line 250 "parser.y"
+#line 245 "parser.y"
 {
     yylhsminor.yy55.num = yymsp[0].minor.yy0.numval;
     yylhsminor.yy55.inclusive = 1;
 }
-#line 1187 "parser.c"
+#line 1182 "parser.c"
   yymsp[0].minor.yy55 = yylhsminor.yy55;
         break;
       case 26: /* num ::= LP num */
-#line 255 "parser.y"
+#line 250 "parser.y"
 {
     yymsp[-1].minor.yy55=yymsp[0].minor.yy55;
     yymsp[-1].minor.yy55.inclusive = 0;
 }
-#line 1196 "parser.c"
+#line 1191 "parser.c"
         break;
       case 27: /* num ::= MINUS num */
-#line 260 "parser.y"
+#line 255 "parser.y"
 {
     yymsp[0].minor.yy55.num = -yymsp[0].minor.yy55.num;
     yymsp[-1].minor.yy55 = yymsp[0].minor.yy55;
 }
-#line 1204 "parser.c"
+#line 1199 "parser.c"
         break;
       case 28: /* term ::= TERM */
       case 29: /* term ::= NUMBER */ yytestcase(yyruleno==29);
-#line 265 "parser.y"
+#line 260 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
-#line 1212 "parser.c"
+#line 1207 "parser.c"
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       default:
@@ -1277,7 +1272,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 1281 "parser.c"
+#line 1276 "parser.c"
 /************ End %syntax_error code ******************************************/
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }

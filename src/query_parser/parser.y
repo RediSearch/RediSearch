@@ -80,14 +80,9 @@ char *strdupcase(const char *s, size_t len) {
 
 query ::= expr(A) . { 
  /* If the root is a negative node, we intersect it with a wildcard node */
- if (A->type == QN_NOT) {
-    ctx->root = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(ctx->root, NewWildcardNode());
-    QueryPhraseNode_AddChild(ctx->root, A);
- } else {
+ 
     ctx->root = A;
- }
-
+ 
 }
 query ::= . {
  ctx->root = NULL;

@@ -97,11 +97,13 @@ typedef struct {
   IndexIterator *child;
   RSIndexResult *current;
   t_docId lastDocId;
+  t_docId maxDocId;
+  size_t len;
 } NotContext;
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
-IndexIterator *NewNotIterator(IndexIterator *it);
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId);
 
 typedef struct {
   IndexIterator *child;
@@ -114,7 +116,8 @@ typedef struct {
 /* Create a NOT iterator by wrapping another index iterator */
 IndexIterator *NewOptionalIterator(IndexIterator *it);
 
-/* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only -
+/* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only
+ * -
  * purely negative queries. If the root of the query is a negative expression, we cannot process it
  * without a positive expression. So we create a wildcard iterator that basically just iterates all
  * the incremental document ids, and matches every skip within its range. */

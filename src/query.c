@@ -317,7 +317,7 @@ static IndexIterator *Query_EvalNotNode(Query *q, QueryNode *qn) {
   }
   QueryNotNode *node = &qn->not;
 
-  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
+  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId);
 }
 
 static IndexIterator *Query_EvalOptionalNode(Query *q, QueryNode *qn) {

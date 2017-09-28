@@ -230,6 +230,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     for (int n = idStep; n < idStep + i % 4; n++) {
       VVW_Write(h.vw, n);
     }
+
     InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
     VVW_Free(h.vw);
 
@@ -311,7 +312,7 @@ int testNot() {
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
-  irs[1] = NewNotIterator(NewReadIterator(r2));
+  irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId);
 
   IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
   RSIndexResult *h = NULL;
@@ -327,6 +328,29 @@ int testNot() {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
+  return 0;
+}
+
+int testPureNot() {
+  InvertedIndex *w = createIndex(10, 3);
+
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL);  //
+  printf("last id: %d\n", w->lastId);
+
+  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5);
+
+  RSIndexResult *h = NULL;
+  int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
+                    20, 22, 23, 25, 26, 28, 29, 31, 32, 33, 34, 35};
+  int i = 0;
+  while (ir->Read(ir->ctx, &h) != INDEXREAD_EOF) {
+
+    // printf("%d <=> %d\n", h->docId, expected[i]);
+    ASSERT(h->docId == expected[i++]);
+  }
+
+  ir->Free(ir);
+  InvertedIndex_Free(w);
   return 0;
 }
 
@@ -993,26 +1017,27 @@ TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  TESTFUNC(testHugeSpec);
+  TESTFUNC(testPureNot);
+  // TESTFUNC(testHugeSpec);
 
-  TESTFUNC(testAbort)
-  TESTFUNC(testNumericInverted);
-  TESTFUNC(testNumericVaried);
-  TESTFUNC(testNumericEncoding);
+  // TESTFUNC(testAbort)
+  // TESTFUNC(testNumericInverted);
+  // TESTFUNC(testNumericVaried);
+  // TESTFUNC(testNumericEncoding);
 
-  TESTFUNC(testVarint);
-  TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
+  // TESTFUNC(testVarint);
+  // TESTFUNC(testDistance);
+  // TESTFUNC(testIndexReadWrite);
 
-  TESTFUNC(testReadIterator);
-  TESTFUNC(testIntersection);
-  TESTFUNC(testNot);
-  TESTFUNC(testUnion);
+  // TESTFUNC(testReadIterator);
+  // TESTFUNC(testIntersection);
+  // TESTFUNC(testNot);
+  // TESTFUNC(testUnion);
 
-  TESTFUNC(testBuffer);
-  TESTFUNC(testTokenize);
-  TESTFUNC(testIndexSpec);
-  TESTFUNC(testIndexFlags);
-  TESTFUNC(testDocTable);
-  TESTFUNC(testSortable);
+  // TESTFUNC(testBuffer);
+  // TESTFUNC(testTokenize);
+  // TESTFUNC(testIndexSpec);
+  // TESTFUNC(testIndexFlags);
+  // TESTFUNC(testDocTable);
+  // TESTFUNC(testSortable);
 });

@@ -519,14 +519,62 @@ ok:
   return INDEXREAD_OK;
 }
 
-/* Read has no meaning in the sense of a NOT iterator, so we just return EOF */
+/* Read from a NOT iterator. This is applicable only if the only or leftmost node of a query is a
+ * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
 int NI_Read(void *ctx, RSIndexResult **hit) {
-  return INDEXREAD_EOF;
+
+  NotContext *nc = ctx;
+  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
+
+  RSIndexResult *cr = NULL;
+  // if we have a child, get the latest result from the child
+  if (nc->child) {
+    cr = nc->child->Current(nc->child->ctx);
+
+    if (cr == NULL || cr->docId == 0) {
+      nc->child->Read(nc->child->ctx, &cr);
+    }
+  }
+
+  // advance our reader by one, and let's test if it's a valid value or not
+  nc->current->docId++;
+
+  // If we don't have a child result, or the child result is ahead of the current counter,
+  // we just increment our virtual result's id until we hit the child result's
+  // in which case we'll read from the child and bypass it by one.
+  if (cr == NULL || cr->docId > nc->current->docId) {
+    goto ok;
+  }
+
+  while (cr->docId == nc->current->docId) {
+    // advance our docId to the next possible id
+    nc->current->docId++;
+
+    // read the next entry from the child
+    if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
+      break;
+    }
+  }
+
+  // make sure we did not overflow
+  if (nc->current->docId > nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
+
+ok:
+  // Set the next entry and return ok
+  nc->lastDocId = nc->current->docId;
+  if (hit) *hit = nc->current;
+  ++nc->len;
+
+  return INDEXREAD_OK;
 }
 
 /* We always have next, in case anyone asks... ;) */
 int NI_HasNext(void *ctx) {
-  return 1;
+  NotContext *nc = ctx;
+
+  return nc->lastDocId <= nc->maxDocId;
 }
 
 /* Return the current hit */
@@ -538,7 +586,7 @@ RSIndexResult *NI_Current(void *ctx) {
 /* Our len is the child's len? TBD it might be better to just return 0 */
 size_t NI_Len(void *ctx) {
   NotContext *nc = ctx;
-  return nc->child ? nc->child->Len(nc->child->ctx) : 0;
+  return nc->len;
 }
 
 /* Last docId */
@@ -548,13 +596,16 @@ t_docId NI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-IndexIterator *NewNotIterator(IndexIterator *it) {
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId) {
 
   NotContext *nc = malloc(sizeof(*nc));
   nc->current = NewVirtualResult();
   nc->current->fieldMask = RS_FIELDMASK_ALL;
+  nc->current->docId = 0;
   nc->child = it;
   nc->lastDocId = 0;
+  nc->maxDocId = maxDocId;
+  nc->len = 0;
 
   IndexIterator *ret = malloc(sizeof(*it));
   ret->ctx = nc;
@@ -610,7 +661,7 @@ int OI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
 
 ok:
-  nc->current = nc->virt;
+
   // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
   nc->lastDocId = nc->current->docId = docId;
   *hit = nc->current;

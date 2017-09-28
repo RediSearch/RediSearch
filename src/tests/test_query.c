@@ -197,10 +197,8 @@ int testPureNegative() {
     // QueryNode_Print(q, n, 0);
     ASSERT(err == NULL);
     ASSERT(n != NULL);
-    ASSERT_EQUAL(n->type, QN_PHRASE);
-    ASSERT_EQUAL(n->pn.numChildren, 2);
-    ASSERT_EQUAL(n->pn.children[0]->type, QN_WILDCARD);
-    ASSERT_EQUAL(n->pn.children[1]->type, QN_NOT);
+    ASSERT_EQUAL(n->type, QN_NOT);
+    ASSERT(n->not.child != NULL);
 
     Query_Free(q);
   }
