@@ -1,5 +1,5 @@
 // This is where the module's build/version is declared.
 // If declared with -D in compile time, this file is ignored
 #ifndef REDISEARCH_MODULE_VERSION
-#define REDISEARCH_MODULE_VERSION 2101
+#define REDISEARCH_MODULE_VERSION 2102
 #endif
