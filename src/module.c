@@ -101,6 +101,8 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_ReplicateVerbatim(ctx);
+
   RedisModule_AutoMemory(ctx);
   // Load the document score
   double ds = 0;
@@ -168,6 +170,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
+  RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
 
@@ -457,6 +460,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
   if (argc != 3) return RedisModule_WrongArity(ctx);
+  RedisModule_ReplicateVerbatim(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -513,7 +517,7 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
-
+  RedisModule_ReplicateVerbatim(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -701,7 +705,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
   RedisModule_AutoMemory(ctx);
-
+  RedisModule_ReplicateVerbatim(ctx);
   char *err;
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
@@ -760,6 +764,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
+  RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
 
@@ -808,6 +813,7 @@ int SuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4 || argc > 7) return RedisModule_WrongArity(ctx);
 
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+  RedisModule_ReplicateVerbatim(ctx);
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
@@ -892,6 +898,8 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc != 3) return RedisModule_WrongArity(ctx);
+  RedisModule_ReplicateVerbatim(ctx);
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
