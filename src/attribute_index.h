@@ -20,19 +20,34 @@ typedef struct {
       float lon;
       float lat;
     } geoval;
-  } v;
+  };
   AttributeType t;
 } Attribute;
+
+typedef enum {
+  AttributeTokenizer_CaseSensitive = 0x01,
+  AttributeTokenizer_TrimSpace = 0x02,
+  AttributeTokenizer_RemoveAccents = 0x04,
+} AttributeTokenizerFlags;
+
+typedef struct {
+  const char *separators;
+  AttributeTokenizerFlags flags;
+} AttributeTokenizeCtx;
 
 typedef struct {
   const char **fields;
   size_t numFields;
   TrieMap *values;
+  AttributeTokenizeCtx tokCtx;
 } AttributeIndex;
 
 AttributeIndex *NewAttributeIndex(const char *namespace, const char *fieldName);
-int AttributeIndex_Index(DocumentField *f);
-const char *AttributeIndex_Encode(Attribute *attrs, size_t num);
-const char *AttributeIndex_EncodeSingle(Attribute *attr);
+const char *AttributeIndex_EncodeSingle(Attribute *attr, size_t *sz);
+Vector *AttributeIndex_Preprocess(AttributeIndex *idx, DocumentField *data);
+int AttributeIndex_IndexString(AttributeIndex *idx, Vector *values);
 
-#endif  // !RS_ATTRIBUTE_INDEX_H_
+IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, const char *value,
+                                         size_t len);
+
+#endif

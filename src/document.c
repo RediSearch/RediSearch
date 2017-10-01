@@ -454,3 +454,14 @@ int Document_CanAdd(Document *doc, IndexSpec *sp, int replace) {
   }
   return 1;
 }
+
+DocumentField *Document_GetField(Document *d, const char *fieldName) {
+  if (!d || !fieldName) return NULL;
+
+  for (int i = 0; i < d->numFields; i++) {
+    if (!strcasecmp(d->fields[i].name, fieldName)) {
+      return &d->fields[i];
+    }
+  }
+  return NULL;
+}

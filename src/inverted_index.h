@@ -109,7 +109,10 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-/* Create a new index reader for numeric records, optionally using a given filter. If the filter is
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+                                       RSIndexResult *entry);
+/* Create a new index reader for numeric records, optionally using a given filter. If the filter
+ * is
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
 
