@@ -45,8 +45,7 @@ typedef struct {
 AttributeIndex *NewAttributeIndex(const char *namespace, const char *fieldName);
 const char *AttributeIndex_EncodeSingle(Attribute *attr, size_t *sz);
 Vector *AttributeIndex_Preprocess(AttributeIndex *idx, DocumentField *data);
-int AttributeIndex_IndexString(AttributeIndex *idx, Vector *values);
-
+size_t AttributeIndex_Index(AttributeIndex *idx, Vector *values, t_docId docId);
 IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, const char *value,
                                          size_t len);
 

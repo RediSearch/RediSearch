@@ -7,6 +7,7 @@ AttributeIndex *NewAttributeIndex(const char *namespace, const char *fieldName) 
   AttributeIndex *idx = rm_new(AttributeIndex);
   idx->numFields = 1;
   idx->fields = rm_calloc(1, sizeof(*idx->fields));
+  idx->fields[0] = rm_strdup(fieldName);
   idx->values = NewTrieMap();
   return idx;
 }
@@ -70,15 +71,15 @@ Vector *AttributeIndex_Preprocess(AttributeIndex *idx, DocumentField *data) {
 static inline size_t attributeIndex_Put(AttributeIndex *idx, char *value, t_docId docId) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, value, strlen(value));
-  if (!iv) {
+  if (iv == TRIEMAP_NOTFOUND) {
     iv = NewInvertedIndex(Index_DocIdsOnly, 1);
     TrieMap_Add(idx->values, value, strlen(value), iv, NULL);
   }
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(iv->flags);
+  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
 
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, NULL);
+  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
 }
 
 size_t AttributeIndex_Index(AttributeIndex *idx, Vector *values, t_docId docId) {
@@ -98,11 +99,7 @@ size_t AttributeIndex_Index(AttributeIndex *idx, Vector *values, t_docId docId) 
 IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, const char *value,
                                          size_t len) {
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (!iv) {
-    return NULL;
-  }
-  IndexDecoder dec = InvertedIndex_GetDecoder(iv->flags);
-  if (!dec) {
+  if (iv == TRIEMAP_NOTFOUND || !iv) {
     return NULL;
   }
 

@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
+CFLAGS = -g -O3 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
@@ -48,10 +48,42 @@ all: build test
 -include $(TEST_DEPS)
 -include $(CC_DEPS)
 
+<<<<<<< HEAD
 # The exampe extension is a dependency to extension tests
 ext_example:
 	$(MAKE) -C ./ext-example clean all
 .PHONY: ext_example
+=======
+test_attribute_index: 
+	$(CC) $(CFLAGS) -o $@ $@.c $ $(DEPS) $(LDFLAGS)
+	@(sh -c ./$@)
+.PHONY: test_attribute_index
+
+
+range: test_range.o
+	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) $(LDFLAGS)
+
+test_range: range
+	@(sh -c ./test_range)
+.PHONY: test_range
+
+stopwords: test_stopwords.o
+	$(CC) $(CFLAGS)  -o test_stopwords  $^ $(DEPS) $(LDFLAGS)
+
+test_stopwords: stopwords
+	@(sh -c ./test_stopwords)
+.PHONY: test_stopwords
+
+qint: test_qint.o $(DEPS)
+	$(CC) $(CFLAGS) -o test_qint $^ $ $(LDFLAGS)
+
+test_qint: qint
+	./test_qint
+.PHONY: test_qint
+
+blkalloc: test_blkalloc.o
+	$(CC) $(CFLAGS) -o test_blkalloc $^ $(DEPS) $(LDFLAGS)
+>>>>>>> added initial tests for attribute index
 
 # Compiling each test runner from its .o file
 %.run: %.o
