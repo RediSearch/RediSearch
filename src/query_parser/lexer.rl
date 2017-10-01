@@ -149,8 +149,10 @@ main := |*
     tok.numval = 0;
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
-        RSQuery_Parse(pParser, TERM, tok, &ctx);
-    } 
+      RSQuery_Parse(pParser, TERM, tok, &ctx);
+    } else {
+      RSQuery_Parse(pParser, STOPWORD, tok, &ctx);
+    }
     if (!ctx.ok) {
       fbreak;
     }

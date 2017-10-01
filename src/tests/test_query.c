@@ -124,6 +124,11 @@ int testQueryParser() {
   assertInvalidQuery("", ctx);
   assertInvalidQuery("()", ctx);
 
+  // test stopwords
+  assertValidQuery("a for is", ctx);
+  assertValidQuery("a|for|is", ctx);
+  assertValidQuery("a little bit of party", ctx);
+
   // test utf-8 query
   assertValidQuery("שלום עולם", ctx);
   IndexSpec_Free(ctx.spec);

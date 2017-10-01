@@ -5,7 +5,7 @@
 %left MINUS.
 %left NUMBER.
 %left MODIFIER.
-
+%left STOPWORD.
 %left TERMLIST.
 %right LP.
 %left RP.
@@ -85,18 +85,19 @@ query ::= expr(A) . {
  
 }
 query ::= . {
- ctx->root = NULL;
+    ctx->root = NULL;
 }
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-    if (B->type == QN_PHRASE && B->pn.exact == 0 && 
+    if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
         B->fieldMask == RS_FIELDMASK_ALL ) {
         A = B;
     } else {
         A = NewPhraseNode(0);
-        QueryPhraseNode_AddChild(A, B);
+       QueryPhraseNode_AddChild(A, B);
     } 
     QueryPhraseNode_AddChild(A, C);
+
 } 
 
 expr(A) ::= union(B) . [ORX] {
@@ -106,31 +107,35 @@ expr(A) ::= union(B) . [ORX] {
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
     
-    if (B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
+    if (B && B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
         A =B;
     } else {
         A = NewUnionNode();
         QueryUnionNode_AddChild(A, B);
-    }
+    } 
     QueryUnionNode_AddChild(A, C); 
+    
 }
 
 
 
 union(A) ::= union(B) OR expr(C). [ORX] {
+    
     A = B;
+
     QueryUnionNode_AddChild(A, C); 
+
 }
 
-// expr(A) ::= term(B) . { 
-//     A = NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len); 
-// }
-
 expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
-    if (ctx->q->ctx && ctx->q->ctx->spec) {
-        C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->q->ctx && ctx->q->ctx->spec) {
+            C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
+        }
+        A = C; 
     }
-    A = C; 
 }
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
@@ -144,17 +149,21 @@ expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
 
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     
-    C->fieldMask = 0;
-    if (ctx->q->ctx && ctx->q->ctx->spec) {
-        for (int i = 0; i < Vector_Size(B); i++) {
-            char *p;
-            Vector_Get(B, i, &p);
-            C->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
-            free(p);
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        C->fieldMask = 0;
+        if (ctx->q->ctx && ctx->q->ctx->spec) {
+            for (int i = 0; i < Vector_Size(B); i++) {
+                char *p;
+                Vector_Get(B, i, &p);
+                C->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+                free(p);
+            }
         }
+        Vector_Free(B);
+        A=C;
     }
-    Vector_Free(B);
-    A=C;
 } 
 
 expr(A) ::= LP expr(B) RP . {
@@ -174,6 +183,10 @@ expr(A) ::= term(B) .  {
     A = NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len);
 }
 
+expr(A) ::= STOPWORD . [STOPWORD] {
+    A = NULL;
+}
+
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     
     A = NewPhraseNode(0);
@@ -184,7 +197,10 @@ termlist(A) ::= term(B) term(C). [TERMLIST]  {
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
+}
 
+termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
+    A = B;
 }
 
 

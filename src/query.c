@@ -415,6 +415,7 @@ IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
 }
 
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
+  if (!child) return;
   QueryPhraseNode *pn = &parent->pn;
   // QueryNode_Print(NULL, parent, 0);
   // printf("parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
@@ -434,6 +435,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 }
 
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
+  if (!child) return;
   QueryUnionNode *un = &parent->un;
   if (child != NULL && (un->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
     parent->fieldMask |= child->fieldMask;

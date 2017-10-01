@@ -17,7 +17,7 @@ void *RSQuery_ParseAlloc(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
 
-#line 160 "lexer.rl"
+#line 162 "lexer.rl"
 
 
 
@@ -120,7 +120,7 @@ static const int query_error = -1;
 static const int query_en_main = 3;
 
 
-#line 163 "lexer.rl"
+#line 165 "lexer.rl"
 
 
 
@@ -140,7 +140,7 @@ QueryNode *Query_Parse(Query *q, char **err) {
 	act = 0;
 	}
 
-#line 174 "lexer.rl"
+#line 176 "lexer.rl"
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   
   parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -419,8 +419,10 @@ _eof_trans:
     tok.numval = 0;
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
-        RSQuery_Parse(pParser, TERM, tok, &ctx);
-    } 
+      RSQuery_Parse(pParser, TERM, tok, &ctx);
+    } else {
+      RSQuery_Parse(pParser, STOPWORD, tok, &ctx);
+    }
     if (!ctx.ok) {
       {p++; goto _out; }
     }
@@ -473,8 +475,10 @@ _eof_trans:
     tok.numval = 0;
     tok.pos = ts-q->raw;
     if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
-        RSQuery_Parse(pParser, TERM, tok, &ctx);
-    } 
+      RSQuery_Parse(pParser, TERM, tok, &ctx);
+    } else {
+      RSQuery_Parse(pParser, STOPWORD, tok, &ctx);
+    }
     if (!ctx.ok) {
       {p++; goto _out; }
     }
@@ -486,7 +490,7 @@ _eof_trans:
 	}
 	}
 	break;
-#line 490 "lexer.c"
+#line 494 "lexer.c"
 		}
 	}
 
@@ -499,7 +503,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 503 "lexer.c"
+#line 507 "lexer.c"
 		}
 	}
 
@@ -517,7 +521,7 @@ _again:
 	_out: {}
 	}
 
-#line 182 "lexer.rl"
+#line 184 "lexer.rl"
   
 
   if (ctx.ok) {
