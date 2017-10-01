@@ -26,6 +26,7 @@ pages:
     - 'Commands': 'Commands.md'       
     - 'Configuration': 'Configuring.md'       
     - 'Query Syntax': 'Query_Syntax.md'
+    - 'Stop-Words': 'Stopwords.md'
     - 'Sortable Values': 'Sorting.md'
     - 'Extension API': Extensions.md
     - 'Stemming Support': Stemming.md
