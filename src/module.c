@@ -422,7 +422,7 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (offsetsSize) {
     Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
     RSByteOffsets *offsets = LoadByteOffsets(b);
-    rm_free(b);
+    free(b);
     if (offsets) {
       DocTable_SetByteOffsets(&sp->docs, d, offsets);
     }

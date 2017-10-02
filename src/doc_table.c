@@ -270,7 +270,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
       Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
       t->docs[i].byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
+      free(bufTmp);
       rm_free(tmp);
     }
 
@@ -292,13 +292,13 @@ void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof)
     size_t payloadLen = 0;
     char *byteOffsets = NULL;
     size_t byteOffsetsLen = 0;
-    Buffer offsetsBuf = {0};
 
     if ((dmd->flags & Document_HasPayload) && dmd->payload) {
       payload = dmd->payload->data;
       payloadLen = dmd->payload->len;
     }
 
+    Buffer offsetsBuf = {0};
     if ((dmd->flags & Document_HasOffsetVector) && dmd->byteOffsets) {
       Buffer_Init(&offsetsBuf, 16);
       RSByteOffsets_Serialize(dmd->byteOffsets, &offsetsBuf);

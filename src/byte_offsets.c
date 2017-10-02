@@ -51,8 +51,6 @@ static void write_u8(BufferWriter *w, uint8_t n) {
 }
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
-  // Create a buffer
-  Buffer_Init(b, 16);
   BufferWriter w = NewBufferWriter(b);
 
   write_u8(&w, offsets->numFields);
