@@ -1,6 +1,7 @@
 #include "../buffer.h"
 #include "../index.h"
 #include "../inverted_index.h"
+#include "../index_result.h"
 #include "../query_parser/tokenizer.h"
 #include "../rmutil/alloc.h"
 #include "../spec.h"
@@ -292,6 +293,17 @@ int testUnion() {
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT(h->docId == expected[i++]);
+
+    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    ASSERT(copy != NULL);
+    ASSERT(copy != h);
+    ASSERT(copy->isCopy == 1);
+
+    ASSERT(copy->docId == h->docId);
+    ASSERT(copy->type == h->type);
+
+    IndexResult_Free(copy);
+
     // printf("%d, ", h.docId);
   }
 
@@ -562,6 +574,17 @@ int testIntersection() {
     ASSERT(RSIndexResult_IsAggregate(h));
     ASSERT(RSIndexResult_HasOffsets(h));
     topFreq = topFreq > h->freq ? topFreq : h->freq;
+
+    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    ASSERT(copy != NULL);
+    ASSERT(copy != h);
+    ASSERT(copy->isCopy == 1);
+
+    ASSERT(copy->docId == h->docId);
+    ASSERT(copy->type == RSResultType_Intersection);
+
+    IndexResult_Free(copy);
+
     // printf("%d\n", h.docId);
     TimeSampler_Tick(&ts);
     ++count;
@@ -1018,26 +1041,26 @@ TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testPureNot);
-  // TESTFUNC(testHugeSpec);
+  TESTFUNC(testHugeSpec);
 
-  // TESTFUNC(testAbort)
-  // TESTFUNC(testNumericInverted);
-  // TESTFUNC(testNumericVaried);
-  // TESTFUNC(testNumericEncoding);
+  TESTFUNC(testAbort)
+  TESTFUNC(testNumericInverted);
+  TESTFUNC(testNumericVaried);
+  TESTFUNC(testNumericEncoding);
 
-  // TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
-  // TESTFUNC(testNot);
-  // TESTFUNC(testUnion);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
+  TESTFUNC(testNot);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
-  // TESTFUNC(testDocTable);
-  // TESTFUNC(testSortable);
+  TESTFUNC(testBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
+  TESTFUNC(testSortable);
 });

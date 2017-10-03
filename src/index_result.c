@@ -13,7 +13,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
       .docId = 0,
       .freq = 0,
       .fieldMask = 0,
-
+      .isCopy = 0,
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
                                  .typeMask = 0x0000,
@@ -38,6 +38,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
   *res = (RSIndexResult){.type = RSResultType_Term,
                          .docId = 0,
                          .fieldMask = 0,
+                         .isCopy = 0,
                          .freq = 0,
                          .term = (RSTermRecord){
                              .term = term, .offsets = (RSOffsetVector){},
@@ -50,6 +51,7 @@ RSIndexResult *NewNumericResult() {
 
   *res = (RSIndexResult){.type = RSResultType_Numeric,
                          .docId = 0,
+                         .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .num = (RSNumericRecord){.value = 0}};
@@ -60,9 +62,43 @@ RSIndexResult *NewVirtualResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .type = RSResultType_Virtual, .docId = 0, .fieldMask = 0, .freq = 0,
+      .type = RSResultType_Virtual, .docId = 0, .fieldMask = 0, .freq = 0, .isCopy = 0,
   };
   return res;
+}
+
+RSIndexResult *IndexResult_DeepCopy(RSIndexResult *src) {
+  RSIndexResult *ret = rm_new(RSIndexResult);
+  *ret = *src;
+  ret->isCopy = 1;
+
+  switch (src->type) {
+    // copy aggregate types
+    case RSResultType_Intersection:
+    case RSResultType_Union:
+      // allocate a new child pointer array
+      ret->agg.children = rm_malloc(src->agg.numChildren * sizeof(RSIndexResult *));
+      ret->agg.childrenCap = src->agg.numChildren;
+      // deep copy recursively all children
+      for (int i = 0; i < src->agg.numChildren; i++) {
+        ret->agg.children[i] = IndexResult_DeepCopy(src->agg.children[i]);
+      }
+      break;
+
+    // copy term results
+    case RSResultType_Term:
+      // copy the offset vectors
+      if (src->term.offsets.data) {
+        ret->term.offsets.data = rm_malloc(ret->term.offsets.len);
+        memcpy(ret->term.offsets.data, src->term.offsets.data, ret->term.offsets.len);
+      }
+      break;
+
+    // the rest have no dynamic stuff, we can just copy the base result
+    default:
+      break;
+  }
+  return ret;
 }
 
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
@@ -171,12 +207,26 @@ inline void AggregateResult_Reset(RSIndexResult *r) {
 }
 
 void IndexResult_Free(RSIndexResult *r) {
-
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
+    // for deep-copy results we also free the children
+    if (r->isCopy) {
+      for (int i = 0; i < r->agg.numChildren; i++) {
+        IndexResult_Free(r->agg.children[i]);
+      }
+    }
     rm_free(r->agg.children);
     r->agg.children = NULL;
-  } else if (r->type == RSResultType_Term && r->term.term != NULL) {
-    Term_Free(r->term.term);
+  } else if (r->type == RSResultType_Term) {
+    if (r->isCopy) {
+      rm_free(r->term.offsets.data);
+
+    } else {  // non copy result...
+
+      // we only free up terms for non copy results
+      if (r->term.term != NULL) {
+        Term_Free(r->term.term);
+      }
+    }
   }
   rm_free(r);
 }

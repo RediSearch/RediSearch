@@ -31,6 +31,10 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 /* Append a child to an aggregate result */
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
 
+/* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
+ * caution */
+RSIndexResult *IndexResult_DeepCopy(RSIndexResult *res);
+
 /* Debug print a result */
 void IndexResult_Print(RSIndexResult *r, int depth);
 

@@ -238,7 +238,11 @@ typedef struct RSIndexResult {
     // numeric record with float value
     RSNumericRecord num;
   };
+
   RSResultType type;
+  // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
+  // want
+  int isCopy;
 } RSIndexResult;
 
 #pragma pack()
