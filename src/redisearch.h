@@ -134,6 +134,9 @@ typedef struct {
   /* Inverse document frequency of the term in the index. See
    * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
   double idf;
+
+  /* Each term in the query gets an incremental id */
+  int id;
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
 } RSQueryTerm;

@@ -153,12 +153,13 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
   // printf("----------\n");
 }
 
-RSQueryTerm *NewTerm(RSToken *tok) {
+RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;
   ret->str = tok->str ? rm_strndup(tok->str, tok->len) : NULL;
   ret->len = tok->len;
   ret->flags = tok->flags;
+  ret->id = id;
   return ret;
 }
 

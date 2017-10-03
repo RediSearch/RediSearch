@@ -204,8 +204,8 @@ IndexIterator *Query_EvalTokenNode(Query *q, QueryNode *qn) {
   // we can just use the optimized score index
 
   int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
-
-  IndexReader *ir = Redis_OpenReader(q->ctx, &qn->tn, q->docTable, isSingleWord,
+  RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->ctx, term, q->docTable, isSingleWord,
                                      q->fieldMask & qn->fieldMask, &q->conc);
   if (ir == NULL) {
     return NULL;
@@ -247,10 +247,11 @@ static IndexIterator *Query_EvalPrefixNode(Query *q, QueryNode *qn) {
         .expanded = 0, .flags = 0, .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
+    RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
     IndexReader *ir =
-        Redis_OpenReader(q->ctx, &tok, q->docTable, 0, q->fieldMask & qn->fieldMask, &q->conc);
+        Redis_OpenReader(q->ctx, term, q->docTable, 0, q->fieldMask & qn->fieldMask, &q->conc);
 
     free(tok.str);
     if (!ir) continue;
@@ -480,6 +481,7 @@ Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, 
   ret->raw = strndup(query, len);
   ret->root = NULL;
   ret->numTokens = 0;
+  ret->tokenId = 1;
   ret->stopwords = stopwords;
   ret->payload = payload;
   ret->sortKey = sk;

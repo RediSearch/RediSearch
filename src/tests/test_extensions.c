@@ -131,7 +131,7 @@ int testQueryExpander() {
   ASSERT_STRING_EQ("world", n->pn.children[1]->un.children[0]->tn.str);
   ASSERT_STRING_EQ("foo", n->pn.children[1]->un.children[1]->tn.str);
 
-  RSQueryTerm *qtr = NewTerm(&n->pn.children[1]->un.children[1]->tn);
+  RSQueryTerm *qtr = NewQueryTerm(&n->pn.children[1]->un.children[1]->tn, 1);
   ASSERT_STRING_EQ(qtr->str, n->pn.children[1]->un.children[1]->tn.str);
   ASSERT_EQUAL(0x00FF, qtr->flags);
 

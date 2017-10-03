@@ -27,6 +27,8 @@ typedef struct RSQuery {
   size_t len;
   // the token count
   int numTokens;
+  // token id counter. This is different than the total token count
+  int tokenId;
 
   // paging offset
   size_t offset;
