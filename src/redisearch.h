@@ -125,6 +125,19 @@ typedef void (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
 
+/* A single term being evaluated in query time */
+typedef struct {
+  /* The term string, not necessarily NULL terminated, hence the length is given as well */
+  char *str;
+  /* The term length */
+  size_t len;
+  /* Inverse document frequency of the term in the index. See
+   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
+  double idf;
+  /* Flags given by the engine or by the query expander */
+  RSTokenFlags flags;
+} RSQueryTerm;
+
 /**************************************
  * Scoring Function API
  **************************************/
@@ -143,23 +156,10 @@ typedef struct {
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
-  uint32_t (*Next)(void *ctx);
+  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
   void (*Rewind)(void *ctx);
   void (*Free)(void *ctx);
 } RSOffsetIterator;
-
-/* A single term being evaluated in query time */
-typedef struct {
-  /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
-  /* Inverse document frequency of the term in the index. See
-   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
-  double idf;
-  /* Flags given by the engine or by the query expander */
-  RSTokenFlags flags;
-} RSQueryTerm;
 
 /* RSIndexRecord represents a single record of a document inside a term in the inverted index */
 typedef struct {

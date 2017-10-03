@@ -32,7 +32,7 @@ int testVarint() {
   RSOffsetIterator it = _offsetVector_iterate(&vec);
   int x = 0;
   uint32_t n = 0;
-  while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx))) {
+  while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx, NULL))) {
 
     ASSERTM(n == expected[x++], "Wrong number decoded");
     // printf("%d %d\n", x, n);
@@ -103,7 +103,7 @@ int testDistance() {
   uint32_t rc;
   int i = 0;
   do {
-    rc = it.Next(it.ctx);
+    rc = it.Next(it.ctx, NULL);
     ASSERT_EQUAL(rc, (expected[i++]));
   } while (rc != RS_OFFSETVECTOR_EOF);
   it.Free(it.ctx);
