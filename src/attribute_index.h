@@ -36,6 +36,7 @@ typedef struct {
 } AttributeTokenizeCtx;
 
 typedef struct {
+  const char *namespace;
   const char **fields;
   size_t numFields;
   TrieMap *values;
@@ -49,4 +50,7 @@ size_t AttributeIndex_Index(AttributeIndex *idx, Vector *values, t_docId docId);
 IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, const char *value,
                                          size_t len);
 
+#define ATTRIDX_CURRENT_VERSION 1
+extern RedisModuleType *AttributeIndexType;
+int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 #endif

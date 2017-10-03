@@ -109,3 +109,76 @@ IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, cons
   }
   return NewReadIterator(r);
 }
+
+AttributeIndex *AttributeIndex_Load(RedisModuleCtx *ctx, RedisModuleString *formattedKey,
+                                    int openWrite, RedisModuleKey **keyp) {
+  RedisModuleKey *key_s = NULL;
+  if (!keyp) {
+    keyp = &key_s;
+  }
+
+  *keyp = RedisModule_OpenKey(ctx, formattedKey,
+                              REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
+
+  int type = RedisModule_KeyType(*keyp);
+  if (type != REDISMODULE_KEYTYPE_EMPTY &&
+      RedisModule_ModuleTypeGetType(*keyp) != AttributeIndexType) {
+    return NULL;
+  }
+
+  /* Create an empty value object if the key is currently empty. */
+  AttributeIndex *ret = NULL;
+  if (type == REDISMODULE_KEYTYPE_EMPTY) {
+    if (openWrite) {
+      ret = NewAttributeIndex();
+      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+    }
+  } else {
+    t = RedisModule_ModuleTypeGetValue(*idxKey);
+  }
+  return t;
+  if (*keyp == NULL || RedisModule_KeyType(*keyp) == REDISMODULE_KEYTYPE_EMPTY ||
+      RedisModule_ModuleTypeGetType(*keyp) != AttributeIndexType) {
+    return NULL;
+  }
+
+  AttributeIndex *ret = RedisModule_ModuleTypeGetValue(*keyp);
+  return ret;
+}
+
+extern RedisModuleType *AttributeIndexType;
+
+void *AttributeIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
+  return NULL;
+}
+void AttributeIndex_RdbSave(RedisModuleIO *rdb, void *value) {
+}
+void AttributeIndex_Digest(RedisModuleDigest *digest, void *value) {
+}
+
+void AttributeIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+}
+
+void AttributeIndex_Free(void *p) {
+}
+
+size_t AttributeIndex_MemUsage(const void *value) {
+}
+
+int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
+  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
+                               .rdb_load = AttributeIndex_RdbLoad,
+                               .rdb_save = AttributeIndex_RdbSave,
+                               .aof_rewrite = AttributeIndex_AofRewrite,
+                               .free = AttributeIndex_Free,
+                               .mem_usage = AttributeIndex_MemUsage};
+
+  AttributeIndexType = RedisModule_CreateDataType(ctx, "ft_attidx", ATTRIDX_CURRENT_VERSION, &tm);
+  if (AttributeIndexType == NULL) {
+    RedisModule_Log(ctx, "error", "Could not create attribute index type");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+}
