@@ -25,32 +25,35 @@ static size_t stripDuplicateSpaces(char *s, size_t n) {
 
 #define ELLIPSIS "... "
 
-static int maybeFragmentizeOffsets(const RSSearchRequest *req, const ResultEntry *result,
-                                   const DocumentField *docField, FragmentList *fragList) {
-  if (result->termOffsets) {
-    const FieldSpec *fs =
-        IndexSpec_GetField(req->sctx->spec, docField->name, strlen(docField->name));
-    if (fs) {
-      return ResultTermOffsets_Fragmentize(result->termOffsets, fragList, fs->id,
-                                           RedisModule_StringPtrLen(docField->text, NULL));
-    }
+static int fragmentizeOffsets(const RSSearchRequest *req, const ResultEntry *result,
+                              const DocumentField *docField, FragmentList *fragList) {
+  if (!result->indexResult) {
+    return 0;
   }
-  return 0;
+
+  const FieldSpec *fs = IndexSpec_GetField(req->sctx->spec, docField->name, strlen(docField->name));
+  if (!fs) {
+    return 0;
+  }
+
+  RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(result->indexResult);
+  FragmentTermIterator fragIter;
+  RSByteOffsetIterator bytesIter;
+  if (RSByteOffset_Iterate(result->byteOffsets, fs->id, &bytesIter) != REDISMODULE_OK) {
+    return 0;
+  }
+
+  FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
+  FragmentList_FragmentizeIter(fragList, RedisModule_StringPtrLen(docField->text, NULL), &fragIter);
+  return 1;
 }
 
 static void sendSummarizedField(const RSSearchRequest *req, RedisSearchCtx *sctx,
                                 const ReturnedField *fieldInfo, const DocumentField *docField,
                                 const ResultEntry *result) {
+
   FragmentList frags;
-  const FragmentTerm *terms = ARRAY_GETARRAY_AS(&result->termOffsets->terms, const FragmentTerm *);
-  size_t numTerms = ARRAY_GETSIZE_AS(&result->termOffsets->terms, FragmentTerm);
-
-  // Dump the terms:
-  // for (size_t ii = 0; ii < numTerms; ++ii) {
-  //   printf("Have term '%.*s'\n", (int)terms[ii].len, terms[ii].tok);
-  // }
-
-  FragmentList_Init(&frags, terms, numTerms, 8, 6);
+  FragmentList_Init(&frags, 8, 6);
 
   // Start gathering the terms
   HighlightTags tags = {.openTag = fieldInfo->openTag, .closeTag = fieldInfo->closeTag};
@@ -63,13 +66,7 @@ static void sendSummarizedField(const RSSearchRequest *req, RedisSearchCtx *sctx
 
   // First actually generate the fragments
   const char *doc = RedisModule_StringPtrLen(docField->text, NULL);
-  if (!maybeFragmentizeOffsets(req, result, docField, &frags)) {
-    Stemmer *stemmer = NewStemmer(SnowballStemmer, req->language);
-    FragmentList_Fragmentize(&frags, doc, stemmer, sctx->spec->stopwords);
-    if (stemmer) {
-      stemmer->Free(stemmer);
-    }
-  }
+  fragmentizeOffsets(req, result, docField, &frags);
 
   RedisModuleCtx *ctx = sctx->redisCtx;
 

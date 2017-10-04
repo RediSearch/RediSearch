@@ -8,15 +8,27 @@
 #include "stemmer.h"
 #include "redisearch.h"
 #include "stopwords.h"
+#include "byte_offsets.h"
 
 typedef struct {
-  const char *tok;
-  uint32_t len;
+  uint32_t tokPos;
+  uint32_t bytePos;
+  uint32_t termId;
   float score;
 } FragmentTerm;
 
-#define FRAGMENT_TERM(term, len_, score_) \
-  { .tok = term, .len = len_, .score = score_ }
+typedef struct {
+  RSByteOffsetIterator *byteIter;
+  RSOffsetIterator *offsetIter;
+  RSQueryTerm *curMatchRec;
+  uint32_t curTokPos;
+  uint32_t curByteOffset;
+  FragmentTerm tmpTerm;
+} FragmentTermIterator;
+
+int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo);
+void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIterator *bytesIter,
+                                      RSOffsetIterator *offIter);
 
 typedef struct {
   // Position in current fragment (bytes)
@@ -69,15 +81,8 @@ typedef struct {
   // Number of tokens since last match. Used in determining 'context ratio'
   uint32_t numToksSinceLastMatch;
 
-  // Input terms to match agains
-  const FragmentTerm *terms;
-  uint32_t numTerms;
-
   const char *doc;
   uint32_t docLen;
-
-  // Maximum possible score, from all terms.
-  double maxPossibleScore;
 
   // Maximum allowable distance between relevant terms to be called a 'fragment'
   uint16_t maxDistance;
@@ -86,23 +91,15 @@ typedef struct {
   uint8_t estAvgWordSize;
 } FragmentList;
 
-static inline void FragmentList_Init(FragmentList *fragList, const FragmentTerm *terms,
-                                     uint32_t numTerms, uint16_t maxDistance, uint8_t estWordSize) {
+static inline void FragmentList_Init(FragmentList *fragList, uint16_t maxDistance,
+                                     uint8_t estWordSize) {
   fragList->doc = NULL;
   fragList->docLen = 0;
-  fragList->terms = terms;
-  fragList->numTerms = numTerms;
   fragList->numFrags = 0;
   fragList->maxDistance = maxDistance;
   fragList->estAvgWordSize = estWordSize;
   fragList->sortedFrags = NULL;
   fragList->scratchFrags = NULL;
-  fragList->maxPossibleScore = 0;
-
-  for (size_t ii = 0; ii < numTerms; ++ii) {
-    fragList->maxPossibleScore += terms[ii].score;
-  }
-
   Array_Init(&fragList->frags);
 }
 
@@ -114,6 +111,17 @@ static const Fragment *FragmentList_GetFragments(const FragmentList *fragList) {
   return ARRAY_GETARRAY_AS(&fragList->frags, const Fragment *);
 }
 
+#define FRAGMENT_TERM(buf_, len_, score_) \
+  { .tok = buf_, .len = len_, .score = score_ }
+/**
+ * A single term to use for searching. Used when fragmenting a buffer
+ */
+typedef struct {
+  const char *tok;
+  size_t len;
+  float score;
+} FragmentSearchTerm;
+
 /**
  * Split a document into a list of fragments.
  * - doc is the document to split
@@ -122,8 +130,12 @@ static const Fragment *FragmentList_GetFragments(const FragmentList *fragList) {
  *
  * Returns a list of fragments.
  */
-void FragmentList_Fragmentize(FragmentList *fragList, const char *doc, Stemmer *stemmer,
-                              StopWordList *stopwords);
+void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
+                                    StopWordList *stopwords, const FragmentSearchTerm *terms,
+                                    size_t numTerms);
+
+void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc,
+                                  FragmentTermIterator *iter);
 
 typedef struct {
   const char *openTag;

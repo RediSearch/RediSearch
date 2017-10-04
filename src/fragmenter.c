@@ -52,9 +52,9 @@ static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
 }
 
 static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t termId,
-                                              uint32_t tokPos, const char *tokBuf, size_t tokLen) {
+                                              uint32_t tokPos, const char *tokBuf, size_t tokLen,
+                                              float baseScore) {
 
-  const FragmentTerm *term = &fragList->terms[termId];
   Fragment *curFrag = FragmentList_LastFragment(fragList);
   if (curFrag && tokPos - curFrag->lastMatchPos > fragList->maxDistance) {
     // There is too much distance between tokens for it to still be relevant.
@@ -68,7 +68,7 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
   }
 
   if (!Fragment_HasTerm(curFrag, termId)) {
-    curFrag->score += term->score;
+    curFrag->score += baseScore;
   }
 
   curFrag->len = (tokBuf - curFrag->buf) + tokLen;
@@ -85,19 +85,24 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
   return curFrag;
 }
 
-static int tokenizerCallback(void *ctx, const Token *tokInfo) {
-  FragmentList *fragList = ctx;
-  const FragmentTerm *term = NULL;
+typedef struct {
+  FragmentList *fragList;
+  const FragmentSearchTerm *terms;
+  size_t numTerms;
+} bufTokenizerCtx;
+
+static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
+  bufTokenizerCtx *ctx = ctxPtr;
+  FragmentList *fragList = ctx->fragList;
+  const FragmentSearchTerm *term = NULL;
   uint32_t termId;
-  int isStem = 0;
 
   // See if this token matches any of our terms.
-  for (termId = 0; termId < fragList->numTerms; ++termId) {
-    const FragmentTerm *cur = fragList->terms + termId;
+  for (termId = 0; termId < ctx->numTerms; ++termId) {
+    const FragmentSearchTerm *cur = ctx->terms + termId;
     if (tokInfo->tokLen == cur->len && strncmp(tokInfo->tok, cur->tok, cur->len) == 0) {
     } else if (tokInfo->stem && tokInfo->stemLen == cur->len &&
                strncmp(tokInfo->stem, cur->tok, cur->len) == 0) {
-      isStem = 1;
     } else {
       continue;
     }
@@ -111,23 +116,20 @@ static int tokenizerCallback(void *ctx, const Token *tokInfo) {
     return 0;
   }
 
-  Fragment *curFrag =
-      FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw, tokInfo->rawLen);
-
-  if (curFrag->score >= fragList->maxPossibleScore * 0.66) {
-    // printf("Returning early because we found a good fragment!\n");
-    return 1;
-  }
+  Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw,
+                                                   tokInfo->rawLen, term->score);
 
   return 0;
 }
 
-void FragmentList_Fragmentize(FragmentList *fragList, const char *doc, Stemmer *stemmer,
-                              StopWordList *stopwords) {
+void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
+                                    StopWordList *stopwords, const FragmentSearchTerm *terms,
+                                    size_t numTerms) {
   fragList->doc = doc;
   fragList->docLen = strlen(doc);
+  bufTokenizerCtx ctx = {.fragList = fragList, .terms = terms, .numTerms = numTerms};
 
-  tokenize(doc, fragList, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
+  tokenize(doc, &ctx, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
   const Fragment *frags = FragmentList_GetFragments(fragList);
 
   float totalScore = 0;
@@ -412,9 +414,93 @@ void FragmentList_Free(FragmentList *fragList) {
   free(fragList->scratchFrags);
 }
 
+/**
+ * Tokenization:
+ * If we have term offsets and document terms, we can skip the tokenization process.
+ *
+ * 1) Gather all matching terms for the documents, and get their offsets (in position)
+ * 2) Sort all terms, by position
+ * 3) Start reading the byte offset list, until we reach the first term of the match
+ *    list, then, consume the matches until the maximum distance has been reached,
+ *    noting the terms for each.
+ */
+void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc,
+                                  FragmentTermIterator *iter) {
+  fragList->docLen = strlen(doc);
+  fragList->doc = doc;
+  FragmentTerm *curTerm;
+  size_t lastTokPos = -1;
+
+  while (FragmentTermIterator_Next(iter, &curTerm)) {
+    if (curTerm == NULL) {
+      fragList->numToksSinceLastMatch++;
+      continue;
+    }
+
+    if (curTerm->tokPos == lastTokPos) {
+      continue;
+    }
+
+    // Get the length of the current token. This is used to highlight the term
+    // (if requested), and just terminates at the first non-separator character
+    size_t len = 0;
+    for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+    }
+
+    Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos,
+                                                     doc + curTerm->bytePos, len, curTerm->score);
+    lastTokPos = curTerm->tokPos;
+  }
+}
+
+void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIterator *byteOffsets,
+                                      RSOffsetIterator *offIter) {
+  iter->offsetIter = offIter;
+  iter->byteIter = byteOffsets;
+  iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+
+  // Advance the offset iterator to the first offset we care about (i.e. that
+  // correlates with the first byte offset)
+  do {
+    iter->curTokPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
+  } while (iter->byteIter->curPos > iter->curTokPos);
+}
+
+int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo) {
+  if (iter->curMatchRec == NULL || iter->curByteOffset == RSBYTEOFFSET_EOF ||
+      iter->curTokPos == RS_OFFSETVECTOR_EOF) {
+    return 0;
+  }
+
+  if (iter->byteIter->curPos < iter->curTokPos) {
+    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+    // No matching term at this position.
+    // printf("IterPos=%lu. LastMatchPos=%u\n", iter->byteIter->curPos, iter->curTokPos);
+    *termInfo = NULL;
+    return 1;
+  }
+
+  // printf("ByteOffset=%lu. LastMatchPos=%u\n", iter->curByteOffset, iter->curTokPos);
+
+  RSQueryTerm *term = iter->curMatchRec;
+
+  // printf("Term Pointer: %p\n", term);
+  iter->tmpTerm.score = term->idf;
+  iter->tmpTerm.termId = term->id;
+  iter->tmpTerm.tokPos = iter->curTokPos;
+  iter->tmpTerm.bytePos = iter->curByteOffset;
+  *termInfo = &iter->tmpTerm;
+
+  uint32_t nextPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
+  if (nextPos != iter->curTokPos) {
+    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+  }
+  iter->curTokPos = nextPos;
+  return 1;
+}
+
 void FragmentList_Dump(const FragmentList *fragList) {
   printf("NumFrags: %u\n", fragList->numFrags);
-  printf("Max Possible Score: %f\n", fragList->maxPossibleScore);
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
     const Fragment *frag = ARRAY_GETITEM_AS(&fragList->frags, ii, Fragment *);
     printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - fragList->doc,
