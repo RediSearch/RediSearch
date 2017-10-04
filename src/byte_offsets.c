@@ -91,3 +91,47 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 
   return offsets;
 }
+
+int RSByteOffset_Iterate(RSByteOffsets *offsets, uint32_t fieldId, RSByteOffsetIterator *iter) {
+  const RSByteOffsetField *offField = NULL;
+  for (size_t ii = 0; ii < offsets->numFields; ++ii) {
+    if (offsets->fields[ii].fieldId == fieldId) {
+      offField = offsets->fields + ii;
+      break;
+    }
+  }
+  if (!offField) {
+    return REDISMODULE_ERR;
+  }
+
+  // printf("Generating iterator for fieldId=%lu. BeginPos=%lu. EndPos=%lu\n", fieldId,
+  //        offField->firstTokPos, offField->lastTokPos);
+
+  iter->buf.cap = 0;
+  iter->buf.data = offsets->offsets.data;
+  iter->buf.offset = offsets->offsets.len;
+  iter->rdr = NewBufferReader(&iter->buf);
+  iter->curPos = 1;
+  iter->endPos = offField->lastTokPos;
+
+  iter->lastValue = 0;
+
+  while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
+    // printf("Seeking & incrementing\n");
+    iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
+    iter->curPos++;
+  }
+
+  // printf("Iterator is now at %lu\n", iter->curPos);
+  iter->curPos--;
+  return REDISMODULE_OK;
+}
+
+uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter) {
+  if (BufferReader_AtEnd(&iter->rdr) || ++iter->curPos >= iter->endPos) {
+    return RSBYTEOFFSET_EOF;
+  }
+
+  iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
+  return iter->lastValue;
+}
