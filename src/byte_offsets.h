@@ -59,4 +59,30 @@ static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) 
   VVW_Write(w, offset);
 }
 
+/**
+ * Iterator which yields the byte offset for a given position
+ */
+typedef struct {
+  BufferReader rdr;
+  Buffer buf;
+  uint32_t lastValue;
+  uint32_t curPos;
+  uint32_t endPos;
+} RSByteOffsetIterator;
+
+#define RSBYTEOFFSET_EOF ((uint32_t)-1)
+
+/**
+ * Begin iterating over the byte offsets for a given field. Returns REDISMODULE_ERR
+ * if the field does not exist in the current byte offset
+ */
+int RSByteOffset_Iterate(RSByteOffsets *offsets, uint32_t fieldId, RSByteOffsetIterator *iter);
+
+/**
+ * Returns the next byte offset for the given position. The current position
+ * can be obtained using the curPos variable. If this function returns
+ * RSBYTEOFFSET_EOF then the iterator is at the end of the token stream.
+ */
+uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter);
+
 #endif
