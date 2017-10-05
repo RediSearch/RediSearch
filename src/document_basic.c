@@ -29,7 +29,7 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
     // NULL),
     // RedisModule_StringPtrLen(argv[i+1], NULL));
     doc->fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
-    doc->fields[n].text = argv[i + 1];
+    doc->fields[n].text = RedisModule_CreateStringFromString(ctx, argv[i + 1]);
   }
 
   Document_Detach(doc, ctx);
