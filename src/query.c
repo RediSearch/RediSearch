@@ -737,6 +737,15 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
 }
 
 QueryResult *Query_Execute(Query *query) {
+  query->rootFilter = Query_EvalNode(query, query->root);
+  Query_BuildProcessorChain(query);
+  int rc;
+  do {
+    SearchResult r;
+    rc = query->rootProcessor->Next(&query->rootProcessor->ctx, &r);
+
+  } while (rc != RS_RESULT_EOF);
+  return NULL;
 
   ConcurrentSearch_AddKey(&query->conc, query->ctx->key, REDISMODULE_READ, query->ctx->keyName,
                           Query_OnReopen, query, NULL);
@@ -1005,5 +1014,317 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
 
   RedisModule_ReplySetArrayLength(ctx, arrlen);
 
+  return REDISMODULE_OK;
+}
+
+ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
+  ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
+  p->ctx = (ResultProcessorCtx){.privdata = privdata, .upstream = upstream};
+  return p;
+}
+
+int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
+  Query *q = ctx->privdata;
+  RSIndexResult *r;
+  RSDocumentMetadata *dmd;
+  do {
+    int rc = q->rootFilter->Read(q->rootFilter->ctx, &r);
+
+    // This means we are done!
+    if (rc == INDEXREAD_EOF) {
+      return RS_RESULT_EOF;
+    } else if (!r || rc == INDEXREAD_NOTFOUND) {
+      continue;
+    }
+
+    dmd = DocTable_Get(&q->ctx->spec->docs, r->docId);
+
+    // skip deleted documents
+    if (!dmd || (dmd->flags & Document_Deleted)) {
+      //++numDeleted;
+      continue;
+    }
+    q->total++;
+
+    break;
+  } while (1);
+
+  res->docId = r->docId;
+  res->indexResult = r;
+  res->score = 0;
+  res->sv = dmd->sortVector;
+  res->md = dmd;
+
+  return RS_RESULT_OK;
+}
+
+size_t baseResultProcessor_Total(ResultProcessorCtx *ctx) {
+  return ((Query *)ctx->privdata)->total;
+}
+
+void baseResultProcessor_Free(ResultProcessor *rp) {
+  free(rp);
+}
+
+ResultProcessor *NewBaseProcessor(Query *q) {
+  q->total = 0;
+  ResultProcessor *rp = NewResultProcessor(NULL, q);
+  rp->Next = baseResultProcessor_Next;
+  rp->Total = baseResultProcessor_Total;
+  rp->Free = baseResultProcessor_Free;
+  return rp;
+}
+
+int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
+  Query *q = ctx->privdata;
+
+  int rc;
+
+  do {
+
+    if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res))) return rc;
+    int minScore = 0;  // TODO: ths should be in the context
+    res->score = q->scorer(&q->scorerCtx, res->indexResult, res->md, minScore);
+    if (res->score == RS_SCORE_FILTEROUT) continue;
+
+    break;
+  } while (1);
+
+  return rc;
+}
+
+size_t scorerProcessor_Total(ResultProcessorCtx *ctx) {
+  return ctx->upstream->Total(&ctx->upstream->ctx);
+}
+
+ResultProcessor *NewScorer(Query *q, ResultProcessor *upstream) {
+  ResultProcessor *rp = NewResultProcessor(upstream, q);
+  rp->Next = scorerProcessor_Next;
+  rp->Total = scorerProcessor_Total;
+  rp->Free = baseResultProcessor_Free;
+  return rp;
+}
+
+struct sorterCtx {
+  uint32_t size;
+  heap_t *pq;
+  int (*cmp)(const void *e1, const void *e2, const void *udata);
+  void *cmpCtx;
+  double minScore;
+  SearchResult *pooledResult;
+  int numSkipped;
+  int accumulating;
+};
+
+void SearchResult_Free(SearchResult *r) {
+  if (r->indexResult) {
+    IndexResult_Free(r->indexResult);
+  }
+  free(r);
+}
+
+int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
+
+  if (heap_count(sc->pq) > 0) {
+    SearchResult *sr = heap_poll(sc->pq);
+    *r = *sr;
+    return RS_RESULT_OK;
+  }
+  return RS_RESULT_EOF;
+}
+
+void sorter_Free(ResultProcessor *rp) {
+  struct sorterCtx *sc = rp->ctx.privdata;
+  if (sc->pooledResult) {
+    SearchResult_Free(sc->pooledResult);
+  }
+  heap_free(sc->pq);
+  free(sc);
+  free(rp);
+}
+
+int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
+  struct sorterCtx *sc = ctx->privdata;
+  if (!sc->accumulating) {
+    return sorter_Yield(sc, r);
+  }
+
+  if (sc->pooledResult == NULL) {
+    sc->pooledResult = malloc(sizeof(SearchResult));
+  }
+  SearchResult *h = sc->pooledResult;
+
+  int rc = ResultProcessor_Next(ctx->upstream, h);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    sc->accumulating = 0;
+    return sorter_Yield(sc, r);
+  }
+
+  if (heap_count(sc->pq) < heap_size(sc->pq)) {
+    heap_offerx(sc->pq, h);
+    sc->pooledResult = NULL;
+
+  } else {
+    // find the min result
+    SearchResult *minh = heap_peek(sc->pq);
+    // if needed - pop it and insert a new result
+    if (sc->cmp(h, minh, sc->cmpCtx) < 0) {
+      sc->pooledResult = heap_poll(sc->pq);
+      heap_offerx(sc->pq, h);
+    } else {
+      /* The current should not enter the pool, so just leave it as is */
+      sc->pooledResult = h;
+    }
+  }
+
+  return RS_RESULT_QUEUED;
+}
+
+size_t sorter_Total(ResultProcessorCtx *ctx) {
+  struct sorterCtx *sc = ctx->privdata;
+  return ctx->upstream->Total(&ctx->upstream->ctx) - sc->numSkipped;
+}
+
+ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProcessor *upstream) {
+
+  struct sorterCtx *sc = malloc(sizeof(*sc));
+  sc->pq = malloc(heap_sizeof(size));
+  if (sortByMode) {
+    sc->cmp = sortByCmp;
+    sc->cmpCtx = q->sortKey;
+  } else {
+    sc->cmp = cmpHits;
+    sc->cmpCtx = q->sortKey;
+  }
+  heap_init(sc->pq, sc->cmp, sc->cmpCtx, size);
+  sc->size = size;
+  sc->minScore = 0;
+  sc->pooledResult = NULL;
+  sc->numSkipped = 0;
+  sc->accumulating = 1;
+
+  ResultProcessor *rp = NewResultProcessor(upstream, sc);
+  rp->Next = sorter_Next;
+  rp->Free = sorter_Free;
+  rp->Total = sorter_Total;
+  return rp;
+}
+
+struct pagerCtx {
+  uint32_t offset;
+  uint32_t limit;
+  uint32_t count;
+};
+
+void pager_Free(ResultProcessor *rp) {
+  free(rp->ctx.privdata);
+  free(rp);
+}
+
+int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
+  struct pagerCtx *pc = ctx->privdata;
+
+  int rc = ResultProcessor_Next(ctx->upstream, r);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    return rc;
+  }
+  // not reached beginning of results
+  if (pc->count < pc->offset) {
+    pc->count++;
+    return RS_RESULT_QUEUED;
+  }
+  // overshoot the count
+  if (pc->count > pc->limit + pc->offset) {
+    return RS_RESULT_EOF;
+  }
+  pc->count++;
+  return RS_RESULT_OK;
+}
+
+size_t pager_Total(ResultProcessorCtx *ctx) {
+  return ctx->upstream->Total(&ctx->upstream->ctx);
+}
+
+ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit) {
+  struct pagerCtx *pc = malloc(sizeof(*pc));
+  pc->offset = offset;
+  pc->limit = limit;
+  pc->count = 0;
+  ResultProcessor *rp = NewResultProcessor(upstream, pc);
+
+  rp->Next = pager_Next;
+  rp->Free = pager_Free;
+  rp->Total = pager_Total;
+  return rp;
+}
+
+struct serializerCtx {
+  RedisModuleCtx *ctx;
+  int firstResult;
+  int count;
+};
+
+size_t serializer_Total(ResultProcessorCtx *ctx) {
+  return ctx->upstream->Total(&ctx->upstream->ctx);
+}
+
+void serializer_Free(ResultProcessor *rp) {
+  free(rp->ctx.privdata);
+  free(rp);
+}
+
+int serializer_Next(ResultProcessorCtx *ctx, SearchResult *r) {
+  struct serializerCtx *sc = ctx->privdata;
+
+  SearchResult res;
+  int rc = ctx->upstream->Next(&ctx->upstream->ctx, &res);
+  // END - let's write the total processed size
+  if (rc == RS_RESULT_EOF) {
+    if (sc->count > 0) {
+      RedisModule_ReplySetArrayLength(sc->ctx, sc->count);
+    } else {  // empty result
+      RedisModule_ReplyWithArray(sc->ctx, 1);
+      RedisModule_ReplyWithLongLong(sc->ctx, 0);
+    }
+    return rc;
+  }
+  if (sc->count == 0) {
+    RedisModule_ReplyWithArray(sc->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithLongLong(sc->ctx, ctx->upstream->Total(&ctx->upstream->ctx));
+    sc->count++;
+  }
+  RedisModule_ReplyWithStringBuffer(sc->ctx, res.md->key, strlen(res.md->key));
+  sc->count++;
+  return RS_RESULT_OK;
+}
+
+ResultProcessor *NewSerializer(ResultProcessor *upstream, RedisModuleCtx *ctx) {
+  struct serializerCtx *sc = malloc(sizeof(*sc));
+  sc->ctx = ctx;
+  sc->firstResult = 1;
+  sc->count = 0;
+
+  ResultProcessor *rp = NewResultProcessor(upstream, sc);
+
+  rp->Next = serializer_Next;
+  rp->Free = serializer_Free;
+  rp->Total = serializer_Total;
+  return rp;
+}
+
+// Free just frees up the processor
+int Query_BuildProcessorChain(Query *q) {
+
+  ResultProcessor *base = NewBaseProcessor(q);
+
+  ResultProcessor *scorer = NewScorer(q, base);
+
+  ResultProcessor *sorter = NewSorter(q, q->offset + q->limit, q->sortKey != NULL, scorer);
+
+  ResultProcessor *pager = NewPager(sorter, q->offset, q->limit);
+
+  q->rootProcessor = NewSerializer(pager, q->ctx->redisCtx);
   return REDISMODULE_OK;
 }

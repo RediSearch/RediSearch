@@ -323,14 +323,14 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
   // Execute the query
   QueryResult *r = Query_Execute(q);
-  if (r == NULL) {
-    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-    Query_Free(q);
-    goto err;
-  }
+  // if (r == NULL) {
+  //   RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+  //   Query_Free(q);
+  //   goto err;
+  // }
 
-  QueryResult_Serialize(r, req->sctx, req);
-  QueryResult_Free(r);
+  // QueryResult_Serialize(r, req->sctx, req);
+  // QueryResult_Free(r);
   Query_Free(q);
 
   return REDISMODULE_OK;
