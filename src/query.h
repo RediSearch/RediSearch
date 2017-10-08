@@ -17,6 +17,72 @@
 #include "rmutil/sds.h"
 #include "search_request.h"
 #include "concurrent_ctx.h"
+#include "value.h"
+
+typedef struct {
+  t_docId docId;
+
+  // not all results have score - TBD
+  union {
+    double score;
+
+    RSSortingVector *sv;
+  };
+
+  RSDocumentMetadata *md;
+
+  // index result should cover what you need for highlighting,
+  // but we will add a method to duplicate index results to make
+  // them thread safe
+  RSIndexResult *indexResult;
+
+  // dynamic fields
+  RSFieldMap *fields;
+} SearchResult;
+
+#define RS_RESULT_OK 0
+#define RS_RESULT_QUEUED 1
+#define RS_RESULT_EOF 2
+
+struct resultProcessor;
+
+typedef struct {
+  void *privdata;
+  struct resultProcessor *upstream;
+} ResultProcessorCtx;
+
+typedef struct resultProcessor {
+  // the context should contain a pointer to the upstream step
+  // like the index iterator does
+  ResultProcessorCtx ctx;
+
+  // Next is called by the downstream processor, and should return either:
+  // * RS_RESULT_OK -> means we put something in the result pointer and it can be processed
+  // * RS_RESULT_QUEUED -> no result yet, we're waiting for more results upstream. Caller should
+  //   return QUEUED as well
+  // * RS_RESULT_EOF -> finished, nothing more from this processor
+  int (*Next)(ResultProcessorCtx *ctx, SearchResult *res);
+
+  // Total should return the number of total results from the processor.
+  // This is used for paging so it should be the total number of results
+  // even if we reduced them to less
+  size_t (*Total)(ResultProcessorCtx *ctx);
+
+  // Free just frees up the processor
+  void (*Free)(struct resultProcessor *p);
+} ResultProcessor;
+
+ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
+
+// this should become a macro that calls the processor while checking the concurrent context
+static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res) {
+  int rc;
+  do {
+    rc = rp->Next(&rp->ctx, res);
+    // TODO: Switch concurrent context
+  } while (rc == RS_RESULT_QUEUED);
+  return rc;
+}
 
 /* A Query represents the parse tree and execution plan for a single search
  * query */
@@ -27,9 +93,8 @@ typedef struct RSQuery {
   size_t len;
   // the token count
   int numTokens;
-  // token id counter. This is different than the total token count
   int tokenId;
-
+  uint32_t total;
   // paging offset
   size_t offset;
   // paging limit
@@ -40,6 +105,10 @@ typedef struct RSQuery {
 
   // the query execution stage at the root of the query
   QueryNode *root;
+
+  IndexIterator *rootFilter;
+
+  ResultProcessor *rootProcessor;
   // Document metatdata table, to be used during execution
   DocTable *docTable;
 
@@ -103,6 +172,7 @@ this doesn't
 actually do anything besides prepare the execution chaing */
 IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 
+int Query_BuildProcessorChain(Query *q);
 /* Free the query execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
