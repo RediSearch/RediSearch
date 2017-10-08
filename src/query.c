@@ -9,7 +9,7 @@
 #include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
-#include "util/heap.h"
+#include "util/minmax_heap.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -456,7 +456,7 @@ Query *NewQueryFromRequest(RSSearchRequest *req) {
                req->slop, req->flags & Search_InOrder, req->scorer, req->payload, req->sortBy);
 
   q->docTable = &req->sctx->spec->docs;
-
+  q->req = req;
   return q;
 }
 
@@ -703,11 +703,11 @@ static inline int cmpHits(const void *e1, const void *e2, const void *udata) {
   const heapResult *h1 = e1, *h2 = e2;
 
   if (h1->score < h2->score) {
-    return 1;
-  } else if (h1->score > h2->score) {
     return -1;
+  } else if (h1->score > h2->score) {
+    return 1;
   }
-  return h2->docId - h1->docId;
+  return h1->docId < h2->docId ? -1 : 1;
 }
 
 static int sortByCmp(const void *e1, const void *e2, const void *udata) {
@@ -736,196 +736,257 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   q->docTable = &sp->docs;
 }
 
+size_t Query_SerializeResult(Query *query, SearchResult *r) {
+  size_t count = 1;
+  RedisModuleCtx *ctx = query->ctx->redisCtx;
+  RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
+
+  if (query->req->flags & Search_WithScores) {
+    count++;
+    RedisModule_ReplyWithDouble(ctx, r->score);
+  }
+
+  if (query->req->flags & Search_WithPayloads) {
+    ++count;
+    const RSPayload *payload = r->md->payload;
+    if (payload) {
+      RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+  }
+
+  if (query->req->flags & Search_WithSortKeys) {
+    ++count;
+    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, query->sortKey);
+    if (sortkey) {
+      if (sortkey->type == RS_SORTABLE_NUM) {
+        RedisModule_ReplyWithDouble(ctx, sortkey->num);
+      } else {
+        // RS_SORTABLE_NIL, RS_SORTABLE_STR
+        RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
+      }
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+  }
+
+  const int withDocs = !(query->req->flags & Search_NoContent);
+  if (withDocs) {
+    count++;
+    RedisModule_ReplyWithArray(ctx, r->fields->len * 2);
+    for (int i = 0; i < r->fields->len; i++) {
+      RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].key,
+                                        strlen(r->fields->fields[i].key));
+      RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].val.strval.str,
+                                        r->fields->fields[i].val.strval.len);
+    }
+  }
+  return count;
+}
 QueryResult *Query_Execute(Query *query) {
   query->rootFilter = Query_EvalNode(query, query->root);
-  Query_BuildProcessorChain(query);
+  Query_BuildProcessorChain(query, query->req);
   int rc;
+  int count = 0;
   do {
     SearchResult r;
-    rc = query->rootProcessor->Next(&query->rootProcessor->ctx, &r);
+    rc = ResultProcessor_Next(query->rootProcessor, &r);
+    if (rc == RS_RESULT_EOF) break;
 
+    if (count == 0) {
+      RedisModule_ReplyWithArray(query->ctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      RedisModule_ReplyWithLongLong(query->ctx->redisCtx,
+                                    query->rootProcessor->Total(&query->rootProcessor->ctx));
+      count++;
+    }
+    count += Query_SerializeResult(query, &r);
   } while (rc != RS_RESULT_EOF);
+
+  RedisModule_ReplySetArrayLength(query->ctx->redisCtx, count);
   return NULL;
 
-  ConcurrentSearch_AddKey(&query->conc, query->ctx->key, REDISMODULE_READ, query->ctx->keyName,
-                          Query_OnReopen, query, NULL);
+  //   ConcurrentSearch_AddKey(&query->conc, query->ctx->key, REDISMODULE_READ, query->ctx->keyName,
+  //                           Query_OnReopen, query, NULL);
 
-  // QueryNode_Print(query, query->root, 0);
-  QueryResult *res = malloc(sizeof(QueryResult));
-  res->error = 0;
-  res->errorString = NULL;
-  res->totalResults = 0;
-  res->results = NULL;
-  res->numResults = 0;
+  //   // QueryNode_Print(query, query->root, 0);
+  //   QueryResult *res = malloc(sizeof(QueryResult));
+  //   res->error = 0;
+  //   res->errorString = NULL;
+  //   res->totalResults = 0;
+  //   res->results = NULL;
+  //   res->numResults = 0;
 
-  // If 1, the query has SORTBY and is not score based
-  int sortByMode = query->sortKey != NULL;
+  //   // If 1, the query has SORTBY and is not score based
+  //   int sortByMode = query->sortKey != NULL;
 
-  //  start lazy evaluation of all query steps
-  IndexIterator *it = NULL;
-  if (query->root != NULL) {
-    it = Query_EvalNode(query, query->root);
-  }
+  //   //  start lazy evaluation of all query steps
+  //   IndexIterator *it = NULL;
+  //   if (query->root != NULL) {
+  //     it = Query_EvalNode(query, query->root);
+  //   }
 
-  // no query evaluation plan?
-  if (query->root == NULL || it == NULL) {
-    return res;
-  }
+  //   // no query evaluation plan?
+  //   if (query->root == NULL || it == NULL) {
+  //     return res;
+  //   }
 
-  int num = query->offset + query->limit;
+  //   int num = query->offset + query->limit;
 
-  heap_t *pq = malloc(heap_sizeof(num));
-  if (sortByMode) {
-    heap_init(pq, sortByCmp, query->sortKey, num);
-  } else {
-    heap_init(pq, cmpHits, NULL, num);
-  }
+  //   heap_t *pq = malloc(heap_sizeof(num));
+  //   if (sortByMode) {
+  //     heap_init(pq, sortByCmp, query->sortKey, num);
+  //   } else {
+  //     heap_init(pq, cmpHits, NULL, num);
+  //   }
 
-  heapResult *pooledHit = NULL;
-  double minScore = 0;
-  int numDeleted = 0;
-  RSIndexResult *r = NULL;
-  ConcurrentSearchCtx *cxc = query->concurrentMode ? &query->conc : NULL;
+  //   heapResult *pooledHit = NULL;
+  //   double minScore = 0;
+  //   int numDeleted = 0;
+  //   RSIndexResult *r = NULL;
+  //   ConcurrentSearchCtx *cxc = query->concurrentMode ? &query->conc : NULL;
 
-  // iterate the root iterator and push everything to the PQ
-  while (1) {
-    // TODO - Use static allocation
-    if (pooledHit == NULL) {
-      pooledHit = malloc(sizeof(heapResult));
-    }
-    heapResult *h = pooledHit;
+  //   // iterate the root iterator and push everything to the PQ
+  //   while (1) {
+  //     // TODO - Use static allocation
+  //     if (pooledHit == NULL) {
+  //       pooledHit = malloc(sizeof(heapResult));
+  //     }
+  //     heapResult *h = pooledHit;
 
-    // Read the next result from the execution tree
-    int rc = it->Read(it->ctx, &r);
+  //     // Read the next result from the execution tree
+  //     int rc = it->Read(it->ctx, &r);
 
-    // This means we are done!
-    if (rc == INDEXREAD_EOF) {
-      break;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
-      continue;
-    }
+  //     // This means we are done!
+  //     if (rc == INDEXREAD_EOF) {
+  //       break;
+  //     } else if (!r || rc == INDEXREAD_NOTFOUND) {
+  //       continue;
+  //     }
 
-    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
+  //     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, r->docId);
 
-    // skip deleted documents
-    if (!dmd || (dmd->flags & Document_Deleted)) {
-      ++numDeleted;
-      continue;
-    }
+  //     // skip deleted documents
+  //     if (!dmd || (dmd->flags & Document_Deleted)) {
+  //       ++numDeleted;
+  //       continue;
+  //     }
 
-    /* Call the query scoring function to calculate the score */
-    if (sortByMode) {
-      h->sv = dmd->sortVector;
-      h->score = 0;
-    } else {
-      h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
-      h->sv = NULL;
-      // filter out 0 score results
-      if (h->score == RS_SCORE_FILTEROUT) {
-        ++numDeleted;
-        continue;
-      }
-    }
-    h->docId = r->docId;
+  //     /* Call the query scoring function to calculate the score */
+  //     if (sortByMode) {
+  //       h->sv = dmd->sortVector;
+  //       h->score = 0;
+  //     } else {
+  //       h->score = query->scorer(&query->scorerCtx, r, dmd, minScore);
+  //       h->sv = NULL;
+  //       // filter out 0 score results
+  //       if (h->score == RS_SCORE_FILTEROUT) {
+  //         ++numDeleted;
+  //         continue;
+  //       }
+  //     }
+  //     h->docId = r->docId;
 
-    CONCURRENT_CTX_TICK(cxc);
-    if (query->aborted) goto cleanup;
+  //     CONCURRENT_CTX_TICK(cxc);
+  //     if (query->aborted) goto cleanup;
 
-    if (heap_count(pq) < heap_size(pq)) {
-      heap_offerx(pq, h);
-      pooledHit = NULL;
-      if (heap_count(pq) == heap_size(pq)) {
-        heapResult *minh = heap_peek(pq);
-        minScore = minh->score;
-      }
-    } else {
-      /* In SORTBY mode - compare the hit with the lowest ranked entry in the heap */
-      if (sortByMode) {
-        heapResult *minh = heap_peek(pq);
+  //     if (heap_count(pq) < heap_size(pq)) {
+  //       heap_offerx(pq, h);
+  //       pooledHit = NULL;
+  //       if (heap_count(pq) == heap_size(pq)) {
+  //         heapResult *minh = heap_peek(pq);
+  //         minScore = minh->score;
+  //       }
+  //     } else {
+  //       /* In SORTBY mode - compare the hit with the lowest ranked entry in the heap */
+  //       if (sortByMode) {
+  //         heapResult *minh = heap_peek(pq);
 
-        /* if the current hit should be in the heap - remoe the lowest hit and add the new hit */
-        if (sortByCmp(h, minh, query->sortKey) < 0) {
-          pooledHit = heap_poll(pq);
-          heap_offerx(pq, h);
-        } else {
-          /* The current should not enter the pool, so just leave it as is */
-          pooledHit = h;
-        }
+  //         /* if the current hit should be in the heap - remoe the lowest hit and add the new hit
+  //         */
+  //         if (sortByCmp(h, minh, query->sortKey) < 0) {
+  //           pooledHit = heap_poll(pq);
+  //           heap_offerx(pq, h);
+  //         } else {
+  //           /* The current should not enter the pool, so just leave it as is */
+  //           pooledHit = h;
+  //         }
 
-      } else {
-        /* In Scored mode - compare scores with the lowest ranked result */
-        if (h->score < minScore) {
-          pooledHit = h;
-        } else {
-          /* if the new result has a larger score, or has the same score
-           * but a larger id (we sort by score then id), we add it to the heap */
-          if (h->score > minScore || cmpHits(h, heap_peek(pq), NULL) < 0) {
+  //       } else {
+  //         /* In Scored mode - compare scores with the lowest ranked result */
+  //         if (h->score < minScore) {
+  //           pooledHit = h;
+  //         } else {
+  //           /* if the new result has a larger score, or has the same score
+  //            * but a larger id (we sort by score then id), we add it to the heap */
+  //           if (h->score > minScore || cmpHits(h, heap_peek(pq), NULL) < 0) {
 
-            pooledHit = heap_poll(pq);
-            heap_offerx(pq, h);
+  //             pooledHit = heap_poll(pq);
+  //             heap_offerx(pq, h);
 
-            // get the new min score
-            minScore = ((heapResult *)heap_peek(pq))->score;
-          } else {
-            pooledHit = h;
-          }
-        }
-      }
-    }
-  }
+  //             // get the new min score
+  //             minScore = ((heapResult *)heap_peek(pq))->score;
+  //           } else {
+  //             pooledHit = h;
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
 
-  //  IndexResult_Free(r);
-  if (pooledHit) {
-    // IndexResult_Free(pooledHit);
-    free(pooledHit);
-    pooledHit = NULL;
-  }
-  res->totalResults = it->Len(it->ctx) - numDeleted;
-  it->Free(it);
+  //   //  IndexResult_Free(r);
+  //   if (pooledHit) {
+  //     // IndexResult_Free(pooledHit);
+  //     free(pooledHit);
+  //     pooledHit = NULL;
+  //   }
+  //   res->totalResults = it->Len(it->ctx) - numDeleted;
+  //   it->Free(it);
 
-  // if not enough results - just return nothing now
-  if (heap_count(pq) <= query->offset) {
-    res->numResults = 0;
-    res->results = NULL;
-    goto cleanup;
-  }
+  //   // if not enough results - just return nothing now
+  //   if (heap_count(pq) <= query->offset) {
+  //     res->numResults = 0;
+  //     res->results = NULL;
+  //     goto cleanup;
+  //   }
 
-  // Reverse the results into the final result
+  //   // Reverse the results into the final result
 
-  // first - calculate the number of results in the heap matching our paging
-  size_t n = MIN(heap_count(pq) - query->offset, query->limit);
-  res->numResults = n;
-  res->results = calloc(n, sizeof(ResultEntry));
+  //   // first - calculate the number of results in the heap matching our paging
+  //   size_t n = MIN(heap_count(pq) - query->offset, query->limit);
+  //   res->numResults = n;
+  //   res->results = calloc(n, sizeof(ResultEntry));
 
-  // pop from the end of the heap the lowest n results in reverse order
-  for (int i = 0; i < n; ++i) {
-    heapResult *h = heap_poll(pq);
-    // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
-    RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
-    RSSortableValue *sv = NULL;
-    if (dmd) {
-      // For sort key based queries, the score is the inverse of the rank
-      if (sortByMode) {
-        h->score = (double)i + 1;
-        if (h->sv) {
-          sv = RSSortingVector_Get(h->sv, query->sortKey);
-        }
-      }
-      res->results[n - i - 1] =
-          (ResultEntry){.id = dmd->key, .score = h->score, .payload = dmd->payload, .sortKey = sv};
-    }
-    free(h);
-  }
+  //   // pop from the end of the heap the lowest n results in reverse order
+  //   for (int i = 0; i < n; ++i) {
+  //     heapResult *h = heap_poll(pq);
+  //     // LG_DEBUG("Popping %d freq %f\n", h->docId, h->totalFreq);
+  //     RSDocumentMetadata *dmd = DocTable_Get(&query->ctx->spec->docs, h->docId);
+  //     RSSortableValue *sv = NULL;
+  //     if (dmd) {
+  //       // For sort key based queries, the score is the inverse of the rank
+  //       if (sortByMode) {
+  //         h->score = (double)i + 1;
+  //         if (h->sv) {
+  //           sv = RSSortingVector_Get(h->sv, query->sortKey);
+  //         }
+  //       }
+  //       res->results[n - i - 1] =
+  //           (ResultEntry){.id = dmd->key, .score = h->score, .payload = dmd->payload, .sortKey =
+  //           sv};
+  //     }
+  //     free(h);
+  //   }
 
-cleanup:
-  // if we still have something in the heap (meaning offset > 0), we need to poll...
-  while (heap_count(pq) > 0) {
-    heapResult *h = heap_poll(pq);
-    free(h);
-  }
+  // cleanup:
+  //   // if we still have something in the heap (meaning offset > 0), we need to poll...
+  //   while (heap_count(pq) > 0) {
+  //     heapResult *h = heap_poll(pq);
+  //     free(h);
+  //   }
 
-  heap_free(pq);
-  return res;
+  //   heap_free(pq);
+  //   return res;
 }
 
 void QueryResult_Free(QueryResult *q) {
@@ -1058,6 +1119,12 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
+SearchResult *NewSearchResult() {
+  SearchResult *ret = calloc(1, sizeof(*ret));
+  ret->fields = RS_NewFieldMap(4);
+  return ret;
+}
+
 size_t baseResultProcessor_Total(ResultProcessorCtx *ctx) {
   return ((Query *)ctx->privdata)->total;
 }
@@ -1125,8 +1192,8 @@ void SearchResult_Free(SearchResult *r) {
 
 int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
-  if (heap_count(sc->pq) > 0) {
-    SearchResult *sr = heap_poll(sc->pq);
+  if (sc->pq->count > 0) {
+    SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
     return RS_RESULT_OK;
   }
@@ -1138,7 +1205,7 @@ void sorter_Free(ResultProcessor *rp) {
   if (sc->pooledResult) {
     SearchResult_Free(sc->pooledResult);
   }
-  heap_free(sc->pq);
+  mmh_free(sc->pq);
   free(sc);
   free(rp);
 }
@@ -1150,7 +1217,9 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
 
   if (sc->pooledResult == NULL) {
-    sc->pooledResult = malloc(sizeof(SearchResult));
+    sc->pooledResult = NewSearchResult();
+  } else {
+    sc->pooledResult->fields->len = 0;
   }
   SearchResult *h = sc->pooledResult;
 
@@ -1161,17 +1230,24 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     return sorter_Yield(sc, r);
   }
 
-  if (heap_count(sc->pq) < heap_size(sc->pq)) {
-    heap_offerx(sc->pq, h);
+  // printf("pq count %d, pq size %d\n", sc->pq->count, sc->pq->size);
+  if (sc->pq->count + 1 < sc->pq->size) {
+
+    // copy the index result to make it thread safe - but only if it is pushed to the heap
+    h->indexResult = IndexResult_DeepCopy(h->indexResult);
+    mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
 
   } else {
     // find the min result
-    SearchResult *minh = heap_peek(sc->pq);
+    SearchResult *minh = mmh_peek_min(sc->pq);
     // if needed - pop it and insert a new result
-    if (sc->cmp(h, minh, sc->cmpCtx) < 0) {
-      sc->pooledResult = heap_poll(sc->pq);
-      heap_offerx(sc->pq, h);
+    if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
+      // copy the index result to make it thread safe - but only if it is pushed to the heap
+      h->indexResult = IndexResult_DeepCopy(h->indexResult);
+
+      sc->pooledResult = mmh_pop_min(sc->pq);
+      mmh_insert(sc->pq, h);
     } else {
       /* The current should not enter the pool, so just leave it as is */
       sc->pooledResult = h;
@@ -1189,7 +1265,7 @@ size_t sorter_Total(ResultProcessorCtx *ctx) {
 ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProcessor *upstream) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
-  sc->pq = malloc(heap_sizeof(size));
+
   if (sortByMode) {
     sc->cmp = sortByCmp;
     sc->cmpCtx = q->sortKey;
@@ -1197,7 +1273,8 @@ ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProces
     sc->cmp = cmpHits;
     sc->cmpCtx = q->sortKey;
   }
-  heap_init(sc->pq, sc->cmp, sc->cmpCtx, size);
+
+  sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx);
   sc->size = size;
   sc->minScore = 0;
   sc->pooledResult = NULL;
@@ -1230,6 +1307,8 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     return rc;
   }
+  // printf("pc count %d, pc->offset %d, result %s score %f\n", pc->count, pc->offset, r->md->key,
+  //        r->score);
   // not reached beginning of results
   if (pc->count < pc->offset) {
     pc->count++;
@@ -1260,62 +1339,67 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
   return rp;
 }
 
-struct serializerCtx {
-  RedisModuleCtx *ctx;
-  int firstResult;
-  int count;
+struct loaderCtx {
+  RedisSearchCtx *ctx;
+  size_t numFields;
+  const char **loadfields;
 };
 
-size_t serializer_Total(ResultProcessorCtx *ctx) {
+size_t loader_Total(ResultProcessorCtx *ctx) {
   return ctx->upstream->Total(&ctx->upstream->ctx);
 }
 
-void serializer_Free(ResultProcessor *rp) {
+void loader_Free(ResultProcessor *rp) {
   free(rp->ctx.privdata);
   free(rp);
 }
 
-int serializer_Next(ResultProcessorCtx *ctx, SearchResult *r) {
-  struct serializerCtx *sc = ctx->privdata;
+int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
+  struct loaderCtx *lc = ctx->privdata;
 
   SearchResult res;
-  int rc = ctx->upstream->Next(&ctx->upstream->ctx, &res);
+  int rc = ResultProcessor_Next(ctx->upstream, &res);
   // END - let's write the total processed size
   if (rc == RS_RESULT_EOF) {
-    if (sc->count > 0) {
-      RedisModule_ReplySetArrayLength(sc->ctx, sc->count);
-    } else {  // empty result
-      RedisModule_ReplyWithArray(sc->ctx, 1);
-      RedisModule_ReplyWithLongLong(sc->ctx, 0);
-    }
     return rc;
   }
-  if (sc->count == 0) {
-    RedisModule_ReplyWithArray(sc->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    RedisModule_ReplyWithLongLong(sc->ctx, ctx->upstream->Total(&ctx->upstream->ctx));
-    sc->count++;
+  Document doc = {NULL};
+  RedisModuleKey *rkey = NULL;
+
+  // Current behavior skips entire result if document does not exist.
+  // I'm unusre if that's intentional or an oversight.
+
+  RedisModuleString *idstr =
+      RedisModule_CreateString(lc->ctx->redisCtx, res.md->key, strlen(res.md->key));
+  Redis_LoadDocumentEx(lc->ctx, idstr, lc->loadfields, lc->numFields, &doc, &rkey);
+  RedisModule_FreeString(lc->ctx->redisCtx, idstr);
+
+  // TODO: load should return strings, not redis strings
+  for (int i = 0; i < doc.numFields; i++) {
+    RSFieldMap_Set(res.fields, doc.fields[i].name,
+                   RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL)));
   }
-  RedisModule_ReplyWithStringBuffer(sc->ctx, res.md->key, strlen(res.md->key));
-  sc->count++;
+  *r = res;
+
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewSerializer(ResultProcessor *upstream, RedisModuleCtx *ctx) {
-  struct serializerCtx *sc = malloc(sizeof(*sc));
-  sc->ctx = ctx;
-  sc->firstResult = 1;
-  sc->count = 0;
+ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
+  struct loaderCtx *sc = malloc(sizeof(*sc));
+  sc->ctx = r->sctx;
+  sc->loadfields = r->retfields;
+  sc->numFields = r->nretfields;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
-  rp->Next = serializer_Next;
-  rp->Free = serializer_Free;
-  rp->Total = serializer_Total;
+  rp->Next = loader_Next;
+  rp->Free = loader_Free;
+  rp->Total = loader_Total;
   return rp;
 }
 
 // Free just frees up the processor
-int Query_BuildProcessorChain(Query *q) {
+int Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
 
   ResultProcessor *base = NewBaseProcessor(q);
 
@@ -1325,6 +1409,6 @@ int Query_BuildProcessorChain(Query *q) {
 
   ResultProcessor *pager = NewPager(sorter, q->offset, q->limit);
 
-  q->rootProcessor = NewSerializer(pager, q->ctx->redisCtx);
+  q->rootProcessor = NewLoader(pager, r);
   return REDISMODULE_OK;
 }
