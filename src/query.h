@@ -142,6 +142,8 @@ typedef struct RSQuery {
   StopWordList *stopwords;
 
   RSPayload payload;
+
+  RSSearchRequest *req;
 } Query;
 
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
@@ -172,7 +174,7 @@ this doesn't
 actually do anything besides prepare the execution chaing */
 IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
 
-int Query_BuildProcessorChain(Query *q);
+int Query_BuildProcessorChain(Query *q, RSSearchRequest *r);
 /* Free the query execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
 QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
