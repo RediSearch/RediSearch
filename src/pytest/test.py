@@ -525,7 +525,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                         'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
                 self.assertEqual(
-                    [100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
+                    [100L, 'doc2', '0', 'doc3', '0', 'doc4', '0', 'doc5', '0', 'doc6', '0'], res)
 
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                         'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
