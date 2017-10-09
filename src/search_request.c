@@ -295,7 +295,7 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
     Query_Free(q);
-    goto err;
+    return REDISMODULE_ERR;
   }
 
   Query_Expand(q);
@@ -322,21 +322,14 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
   }
 
   // Execute the query
-  QueryResult *r = Query_Execute(q);
-  // if (r == NULL) {
-  //   RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-  //   Query_Free(q);
-  //   goto err;
-  // }
+  int rc = Query_Execute(q);
+  if (rc == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+  }
 
-  // QueryResult_Serialize(r, req->sctx, req);
-  // QueryResult_Free(r);
   Query_Free(q);
 
-  return REDISMODULE_OK;
-
-err:
-  return REDISMODULE_ERR;
+  return rc;
 }
 
 // process the query in the thread pool - thread pool callback

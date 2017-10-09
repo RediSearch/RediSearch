@@ -160,12 +160,13 @@ static void trickledown(heap_t* h, int i) {
 
 void mmh_insert(heap_t* h, void* value) {
   assert(value != NULL);
-  if (h->count + 1 == h->size) return;
   h->count++;
   // check for realloc
-  if (h->count + 1 == h->size) {
+  if (h->count == h->size) {
     h->size = h->size * 2;
-    h->data = realloc(h->data, (h->size) * sizeof(void*));
+    printf("REALLOC to %d\n", h->size);
+
+    h->data = realloc(h->data, (1 + h->size) * sizeof(void*));
   }
   h->data[h->count] = value;
   bubbleup(h, h->count);
@@ -247,7 +248,8 @@ heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_fre
   // inside the array i.e. => [0,(1),(2), ... (n)] so minimum viable size is 2
   size = size > 2 ? size : 2;
   heap_t* h = calloc(1, sizeof(heap_t));
-  h->data = calloc(size, sizeof(void*));
+  // We allocate 1 extra space because we start at index 1
+  h->data = calloc(size + 1, sizeof(void*));
   h->count = 0;
   h->size = size;
   h->cmp = cmp;
@@ -258,8 +260,7 @@ heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_fre
 
 void mmh_free(heap_t* h) {
   if (h->free_func) {
-    for (size_t i = 0; i < h->count; i++) {
-      printf("Freeing result %d\n", i);
+    for (size_t i = 1; i < h->count; i++) {
       h->free_func(h->data[i]);
     }
   }

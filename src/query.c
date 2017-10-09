@@ -733,6 +733,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
     q->aborted = 1;
+    q->resultCtx.state = QueryState_Aborted;
     q->ctx->spec = NULL;
     return;
   }
@@ -768,10 +769,8 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
     const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, query->sortKey);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
-        printf("sorting key num %f\n", sortkey->num);
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
       } else {
-        // RS_SORTABLE_NIL, RS_SORTABLE_STR
         RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
       }
     } else {
@@ -792,16 +791,14 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
   return count;
 }
 
-QueryResult *Query_Execute(Query *query) {
-  query->rootFilter = Query_EvalNode(query, query->root);
-  query->rootProcessor = Query_BuildProcessorChain(query, query->req);
+int Query_SerializeResults(Query *query) {
   int rc;
   int count = 0;
   RedisModule_ReplyWithArray(query->ctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   do {
     SearchResult r;
-    rc = ResultProcessor_Next(query->rootProcessor, &r);
+    rc = ResultProcessor_Next(query->rootProcessor, &r, 1);
     if (rc == RS_RESULT_EOF) break;
 
     if (count == 0) {
@@ -817,7 +814,13 @@ QueryResult *Query_Execute(Query *query) {
     count++;
   }
   RedisModule_ReplySetArrayLength(query->ctx->redisCtx, count);
-  return NULL;
+  return REDISMODULE_OK;
+}
+
+int Query_Execute(Query *query) {
+  query->rootFilter = Query_EvalNode(query, query->root);
+  query->rootProcessor = Query_BuildProcessorChain(query, query->req);
+  return Query_SerializeResults(query);
 
   //   ConcurrentSearch_AddKey(&query->conc, query->ctx->key, REDISMODULE_READ, query->ctx->keyName,
   //                           Query_OnReopen, query, NULL);
@@ -1002,95 +1005,6 @@ QueryResult *Query_Execute(Query *query) {
   //   return res;
 }
 
-void QueryResult_Free(QueryResult *q) {
-  free(q->results);
-  free(q);
-}
-
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest *req) {
-  RedisModuleCtx *ctx = sctx->redisCtx;
-
-  if (r->errorString != NULL) {
-    return RedisModule_ReplyWithError(ctx, r->errorString);
-  }
-
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  RedisModule_ReplyWithLongLong(ctx, (long long)r->totalResults);
-  size_t arrlen = 1;
-
-  const int withDocs = !(req->flags & Search_NoContent);
-
-  for (size_t i = 0; i < r->numResults; ++i) {
-
-    Document doc = {NULL};
-    RedisModuleKey *rkey = NULL;
-    const ResultEntry *result = r->results + i;
-
-    if (withDocs) {
-      // Current behavior skips entire result if document does not exist.
-      // I'm unusre if that's intentional or an oversight.
-      RedisModuleString *idstr = RedisModule_CreateString(ctx, result->id, strlen(result->id));
-      Redis_LoadDocumentEx(sctx, idstr, req->retfields, req->nretfields, &doc, &rkey);
-      RedisModule_FreeString(ctx, idstr);
-    }
-
-    ++arrlen;
-
-    RedisModule_ReplyWithStringBuffer(ctx, result->id, strlen(result->id));
-
-    if (req->flags & Search_WithScores) {
-      ++arrlen;
-      RedisModule_ReplyWithDouble(ctx, result->score);
-    }
-
-    if (req->flags & Search_WithPayloads) {
-      ++arrlen;
-      const RSPayload *payload = result->payload;
-      if (payload) {
-        RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    if (req->flags & Search_WithSortKeys) {
-      ++arrlen;
-      const RSSortableValue *sortkey = result->sortKey;
-      if (sortkey) {
-        if (sortkey->type == RS_SORTABLE_NUM) {
-          RedisModule_ReplyWithDouble(ctx, sortkey->num);
-        } else {
-          // RS_SORTABLE_NIL, RS_SORTABLE_STR
-          RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
-        }
-      } else {
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    if (withDocs) {
-      ++arrlen;
-      RedisModule_ReplyWithArray(ctx, doc.numFields * 2);
-      for (size_t j = 0; j < doc.numFields; ++j) {
-        RedisModule_ReplyWithStringBuffer(ctx, doc.fields[j].name, strlen(doc.fields[j].name));
-        if (doc.fields[j].text) {
-          RedisModule_ReplyWithString(ctx, doc.fields[j].text);
-        } else {
-          RedisModule_ReplyWithNull(ctx);
-        }
-      }
-      if (rkey) {
-        RedisModule_CloseKey(rkey);
-      }
-      Document_Free(&doc);
-    }
-  }
-
-  RedisModule_ReplySetArrayLength(ctx, arrlen);
-
-  return REDISMODULE_OK;
-}
-
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
@@ -1098,6 +1012,23 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   };
 
   return p;
+}
+
+static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
+  int rc;
+  ConcurrentSearchCtx *cxc = rp->ctx.resCtx->conc;
+  do {
+    if (allowSwitching) {
+      CONCURRENT_CTX_TICK(cxc);
+      // need to abort
+      if (rp->ctx.resCtx->state == QueryState_Aborted) {
+        return RS_RESULT_EOF;
+      }
+    }
+    rc = rp->Next(&rp->ctx, res);
+
+  } while (rc == RS_RESULT_QUEUED);
+  return rc;
 }
 
 int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
@@ -1164,7 +1095,7 @@ int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   do {
 
-    if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res))) return rc;
+    if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res, 0))) return rc;
 
     res->score = sc->scorer(sc->scorerCtx, res->indexResult, res->md, ctx->resCtx->minScore);
     if (res->score == RS_SCORE_FILTEROUT) ctx->resCtx->totalResults--;
@@ -1244,7 +1175,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   SearchResult *h = sc->pooledResult;
 
-  int rc = ResultProcessor_Next(ctx->upstream, h);
+  int rc = ResultProcessor_Next(ctx->upstream, h, 0);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     sc->accumulating = 0;
@@ -1274,6 +1205,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       h->indexResult = IndexResult_DeepCopy(h->indexResult);
 
       sc->pooledResult = mmh_pop_min(sc->pq);
+      IndexResult_Free(sc->pooledResult->indexResult);
+      sc->pooledResult->indexResult = NULL;
       mmh_insert(sc->pq, h);
     } else {
       /* The current should not enter the pool, so just leave it as is */
@@ -1317,13 +1250,12 @@ struct pagerCtx {
 int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct pagerCtx *pc = ctx->privdata;
 
-  int rc = ResultProcessor_Next(ctx->upstream, r);
+  int rc = ResultProcessor_Next(ctx->upstream, r, 1);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     return rc;
   }
-  // printf("pc count %d, pc->offset %d, result %s score %f\n", pc->count, pc->offset, r->md->key,
-  //        r->score);
+
   // not reached beginning of results
   if (pc->count < pc->offset) {
     pc->count++;
@@ -1359,7 +1291,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct loaderCtx *lc = ctx->privdata;
 
   SearchResult res;
-  int rc = ResultProcessor_Next(ctx->upstream, &res);
+  int rc = ResultProcessor_Next(ctx->upstream, &res, 1);
   // END - let's write the total processed size
   if (rc == RS_RESULT_EOF) {
     return rc;
@@ -1404,7 +1336,11 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
 ResultProcessor *Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
 
   q->resultCtx = (SearchResultCtx){
-      .conc = &q->conc, .errorString = NULL, .minScore = 0, .totalResults = 0,
+      .conc = &q->conc,
+      .errorString = NULL,
+      .minScore = 0,
+      .totalResults = 0,
+      .state = QueryState_OK,
   };
 
   // The base processor translates index results into search results
