@@ -687,7 +687,13 @@ void Query_Free(Query *q) {
   }
 
   ConcurrentSearchCtx_Free(&q->conc);
+  if (q->rootFilter) {
+    q->rootFilter->Free(q->rootFilter);
+  }
 
+  if (q->rootProcessor) {
+    ResultProcessor_Free(q->rootProcessor);
+  }
   free(q->raw);
   free(q);
 }
@@ -712,11 +718,11 @@ static inline int cmpHits(const void *e1, const void *e2, const void *udata) {
 
 static int sortByCmp(const void *e1, const void *e2, const void *udata) {
   const RSSortingKey *sk = udata;
-  const heapResult *h1 = e1, *h2 = e2;
+  const SearchResult *h1 = e1, *h2 = e2;
   if (!h1->sv || !h2->sv) {
-    return h1->docId - h2->docId;
+    return h1->docId < h2->docId ? -1 : 1;
   }
-  return RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
+  return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is
@@ -742,8 +748,9 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
   RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
 
   if (query->req->flags & Search_WithScores) {
-    count++;
+    printf("Result score: %g\n", r->score);
     RedisModule_ReplyWithDouble(ctx, r->score);
+    count++;
   }
 
   if (query->req->flags & Search_WithPayloads) {
@@ -761,6 +768,7 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
     const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, query->sortKey);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
+        printf("sorting key num %f\n", sortkey->num);
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
       } else {
         // RS_SORTABLE_NIL, RS_SORTABLE_STR
@@ -778,31 +786,36 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
     for (int i = 0; i < r->fields->len; i++) {
       RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].key,
                                         strlen(r->fields->fields[i].key));
-      RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].val.strval.str,
-                                        r->fields->fields[i].val.strval.len);
+      RSValue_SendReply(ctx, RSFieldMap_Item(r->fields, i));
     }
   }
   return count;
 }
+
 QueryResult *Query_Execute(Query *query) {
   query->rootFilter = Query_EvalNode(query, query->root);
-  Query_BuildProcessorChain(query, query->req);
+  query->rootProcessor = Query_BuildProcessorChain(query, query->req);
   int rc;
   int count = 0;
+  RedisModule_ReplyWithArray(query->ctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
   do {
     SearchResult r;
     rc = ResultProcessor_Next(query->rootProcessor, &r);
     if (rc == RS_RESULT_EOF) break;
 
     if (count == 0) {
-      RedisModule_ReplyWithArray(query->ctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
       RedisModule_ReplyWithLongLong(query->ctx->redisCtx,
-                                    query->rootProcessor->Total(&query->rootProcessor->ctx));
+                                    ResultProcessor_Total(query->rootProcessor));
       count++;
     }
     count += Query_SerializeResult(query, &r);
   } while (rc != RS_RESULT_EOF);
-
+  if (count == 0) {
+    RedisModule_ReplyWithLongLong(query->ctx->redisCtx,
+                                  ResultProcessor_Total(query->rootProcessor));
+    count++;
+  }
   RedisModule_ReplySetArrayLength(query->ctx->redisCtx, count);
   return NULL;
 
@@ -1080,12 +1093,18 @@ int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *sctx, RSSearchRequest 
 
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
-  p->ctx = (ResultProcessorCtx){.privdata = privdata, .upstream = upstream};
+  p->ctx = (ResultProcessorCtx){
+      .privdata = privdata, .upstream = upstream, .resCtx = upstream ? upstream->ctx.resCtx : NULL,
+  };
+
   return p;
 }
 
 int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   Query *q = ctx->privdata;
+  if (q->rootFilter == NULL) {
+    return RS_RESULT_EOF;
+  }
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   do {
@@ -1102,10 +1121,10 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
     // skip deleted documents
     if (!dmd || (dmd->flags & Document_Deleted)) {
-      //++numDeleted;
       continue;
     }
     q->total++;
+    ++ctx->resCtx->totalResults;
 
     break;
   } while (1);
@@ -1122,37 +1141,33 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 SearchResult *NewSearchResult() {
   SearchResult *ret = calloc(1, sizeof(*ret));
   ret->fields = RS_NewFieldMap(4);
+  ret->score = 0;
   return ret;
 }
 
-size_t baseResultProcessor_Total(ResultProcessorCtx *ctx) {
-  return ((Query *)ctx->privdata)->total;
-}
-
-void baseResultProcessor_Free(ResultProcessor *rp) {
-  free(rp);
-}
-
-ResultProcessor *NewBaseProcessor(Query *q) {
+ResultProcessor *NewBaseProcessor(Query *q, SearchResultCtx *rc) {
   q->total = 0;
   ResultProcessor *rp = NewResultProcessor(NULL, q);
+  rp->ctx.resCtx = rc;
   rp->Next = baseResultProcessor_Next;
-  rp->Total = baseResultProcessor_Total;
-  rp->Free = baseResultProcessor_Free;
   return rp;
 }
 
-int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  Query *q = ctx->privdata;
+struct scorerCtx {
+  RSScoringFunction scorer;
+  RSScoringFunctionCtx *scorerCtx;
+};
 
+int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
+  struct scorerCtx *sc = ctx->privdata;
   int rc;
 
   do {
 
     if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res))) return rc;
-    int minScore = 0;  // TODO: ths should be in the context
-    res->score = q->scorer(&q->scorerCtx, res->indexResult, res->md, minScore);
-    if (res->score == RS_SCORE_FILTEROUT) continue;
+
+    res->score = sc->scorer(sc->scorerCtx, res->indexResult, res->md, ctx->resCtx->minScore);
+    if (res->score == RS_SCORE_FILTEROUT) ctx->resCtx->totalResults--;
 
     break;
   } while (1);
@@ -1160,30 +1175,36 @@ int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   return rc;
 }
 
-size_t scorerProcessor_Total(ResultProcessorCtx *ctx) {
-  return ctx->upstream->Total(&ctx->upstream->ctx);
+static void resultProcessor_GenericFree(ResultProcessor *rp) {
+  free(rp->ctx.privdata);
+  free(rp);
 }
 
 ResultProcessor *NewScorer(Query *q, ResultProcessor *upstream) {
-  ResultProcessor *rp = NewResultProcessor(upstream, q);
+  struct scorerCtx *sc = malloc(sizeof(*sc));
+
+  sc->scorer = q->scorer;
+  sc->scorerCtx = &q->scorerCtx;
+  ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
-  rp->Total = scorerProcessor_Total;
-  rp->Free = baseResultProcessor_Free;
+  rp->Free = resultProcessor_GenericFree;
   return rp;
 }
 
 struct sorterCtx {
   uint32_t size;
+  uint32_t offset;
   heap_t *pq;
   int (*cmp)(const void *e1, const void *e2, const void *udata);
   void *cmpCtx;
-  double minScore;
   SearchResult *pooledResult;
-  int numSkipped;
   int accumulating;
 };
 
-void SearchResult_Free(SearchResult *r) {
+void SearchResult_Free(void *p) {
+  SearchResult *r = p;
+
+  if (!r) return;
   if (r->indexResult) {
     IndexResult_Free(r->indexResult);
   }
@@ -1192,7 +1213,7 @@ void SearchResult_Free(SearchResult *r) {
 
 int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
-  if (sc->pq->count > 0) {
+  if (sc->pq->count > 0 && sc->offset++ < sc->size) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
     return RS_RESULT_OK;
@@ -1202,9 +1223,9 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
 void sorter_Free(ResultProcessor *rp) {
   struct sorterCtx *sc = rp->ctx.privdata;
-  if (sc->pooledResult) {
-    SearchResult_Free(sc->pooledResult);
-  }
+  // if (sc->pooledResult) {
+  //   SearchResult_Free(sc->pooledResult);
+  // }
   mmh_free(sc->pq);
   free(sc);
   free(rp);
@@ -1241,6 +1262,12 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(sc->pq);
+
+    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
+    if (minh->score > ctx->resCtx->minScore) {
+      ctx->resCtx->minScore = minh->score;
+    }
+
     // if needed - pop it and insert a new result
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
       // copy the index result to make it thread safe - but only if it is pushed to the heap
@@ -1257,11 +1284,6 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_QUEUED;
 }
 
-size_t sorter_Total(ResultProcessorCtx *ctx) {
-  struct sorterCtx *sc = ctx->privdata;
-  return ctx->upstream->Total(&ctx->upstream->ctx) - sc->numSkipped;
-}
-
 ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProcessor *upstream) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
@@ -1274,17 +1296,15 @@ ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProces
     sc->cmpCtx = q->sortKey;
   }
 
-  sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx);
+  sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx, SearchResult_Free);
   sc->size = size;
-  sc->minScore = 0;
+  sc->offset = 0;
   sc->pooledResult = NULL;
-  sc->numSkipped = 0;
   sc->accumulating = 1;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = sorter_Next;
   rp->Free = sorter_Free;
-  rp->Total = sorter_Total;
   return rp;
 }
 
@@ -1293,11 +1313,6 @@ struct pagerCtx {
   uint32_t limit;
   uint32_t count;
 };
-
-void pager_Free(ResultProcessor *rp) {
-  free(rp->ctx.privdata);
-  free(rp);
-}
 
 int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct pagerCtx *pc = ctx->privdata;
@@ -1315,15 +1330,11 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     return RS_RESULT_QUEUED;
   }
   // overshoot the count
-  if (pc->count > pc->limit + pc->offset) {
+  if (pc->count >= pc->limit + pc->offset) {
     return RS_RESULT_EOF;
   }
   pc->count++;
   return RS_RESULT_OK;
-}
-
-size_t pager_Total(ResultProcessorCtx *ctx) {
-  return ctx->upstream->Total(&ctx->upstream->ctx);
 }
 
 ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit) {
@@ -1334,8 +1345,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
   ResultProcessor *rp = NewResultProcessor(upstream, pc);
 
   rp->Next = pager_Next;
-  rp->Free = pager_Free;
-  rp->Total = pager_Total;
+  rp->Free = resultProcessor_GenericFree;
   return rp;
 }
 
@@ -1344,15 +1354,6 @@ struct loaderCtx {
   size_t numFields;
   const char **loadfields;
 };
-
-size_t loader_Total(ResultProcessorCtx *ctx) {
-  return ctx->upstream->Total(&ctx->upstream->ctx);
-}
-
-void loader_Free(ResultProcessor *rp) {
-  free(rp->ctx.privdata);
-  free(rp);
-}
 
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct loaderCtx *lc = ctx->privdata;
@@ -1377,7 +1378,9 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
     RSFieldMap_Set(res.fields, doc.fields[i].name,
-                   RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL)));
+                   doc.fields[i].text
+                       ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
+                       : RS_NullVal());
   }
   *r = res;
 
@@ -1393,22 +1396,33 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
   rp->Next = loader_Next;
-  rp->Free = loader_Free;
-  rp->Total = loader_Total;
+  rp->Free = resultProcessor_GenericFree;
   return rp;
 }
 
 // Free just frees up the processor
-int Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
+ResultProcessor *Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
 
-  ResultProcessor *base = NewBaseProcessor(q);
+  q->resultCtx = (SearchResultCtx){
+      .conc = &q->conc, .errorString = NULL, .minScore = 0, .totalResults = 0,
+  };
 
-  ResultProcessor *scorer = NewScorer(q, base);
+  // The base processor translates index results into search results
+  ResultProcessor *next = NewBaseProcessor(q, &q->resultCtx);
 
-  ResultProcessor *sorter = NewSorter(q, q->offset + q->limit, q->sortKey != NULL, scorer);
+  // If we are not in SORTBY mode - add a scorer to the chain
+  if (q->sortKey == NULL) {
+    next = NewScorer(q, next);
+  }
 
-  ResultProcessor *pager = NewPager(sorter, q->offset, q->limit);
+  // The sorter sorts the top-N results
+  next = NewSorter(q, q->offset + q->limit, q->sortKey != NULL, next);
 
-  q->rootProcessor = NewLoader(pager, r);
-  return REDISMODULE_OK;
+  // The pager pages over the results of the sorter
+  next = NewPager(next, q->offset, q->limit);
+
+  // The loader loads the documents from redis
+  next = NewLoader(next, r);
+
+  return next;
 }
