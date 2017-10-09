@@ -103,51 +103,47 @@ static void ResultProcessor_Free(ResultProcessor *rp) {
   if (upstream) ResultProcessor_Free(upstream);
 }
 
-/* A Query represents the parse tree and execution plan for a single search
- * query */
+/* A QueryParseCtx represents the parse tree and execution plan for a single search
+ * QueryParseCtx */
 typedef struct RSQuery {
-  // the raw query text
+  // the raw QueryParseCtx text
   char *raw;
   // the raw text len
   size_t len;
+
   // the token count
   int numTokens;
+
+  // the current token id (we assign ids to all token nodes)
   int tokenId;
-  uint32_t total;
-  // paging offset
-  size_t offset;
-  // paging limit
-  size_t limit;
 
-  // field Id bitmask
-  t_fieldMask fieldMask;
+  // Stopword list
+  StopWordList *stopwords;
 
-  // the query execution stage at the root of the query
+  // parsing state
+  int ok;
+
+  // Index spec
+  RedisSearchCtx *sctx;
+
+  // query root
   QueryNode *root;
+
+  char *errorMsg;
+
+  t_fieldMask fieldMask
+} QueryParseCtx;
+
+typedef struct {
 
   IndexIterator *rootFilter;
 
   ResultProcessor *rootProcessor;
   SearchResultCtx resultCtx;
-  // Document metatdata table, to be used during execution
-  DocTable *docTable;
 
   RedisSearchCtx *ctx;
 
   ConcurrentSearchCtx conc;
-
-  int maxSlop;
-  // Whether phrases are in order or not
-  int inOrder;
-
-  int aborted;
-
-  int concurrentMode;
-
-  // Query expander
-  RSQueryTokenExpander expander;
-  RSFreeFunction expanderFree;
-  RSQueryExpanderCtx expCtx;
 
   // Custom scorer
   RSScoringFunction scorer;
@@ -157,34 +153,28 @@ typedef struct RSQuery {
   // sorting key by specific inline field
   RSSortingKey *sortKey;
 
-  const char *language;
+} QueryExecutionCtx;
 
-  StopWordList *stopwords;
+/* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn it
+ * off,
+ * resulting in the QueryParseCtx not performing context switches */
+void Query_SetConcurrentMode(QueryExecutionCtx *q, int concurrent);
 
-  RSPayload payload;
-
-  RSSearchRequest *req;
-} Query;
-
-/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
- * resulting in the query not performing context switches */
-void Query_SetConcurrentMode(Query *q, int concurrent);
-
-/* Evaluate a query stage and prepare it for execution. As execution is lazy
+/* Evaluate a QueryParseCtx stage and prepare it for execution. As execution is lazy
 this doesn't
 actually do anything besides prepare the execution chaing */
-IndexIterator *Query_EvalNode(Query *q, QueryNode *n);
+IndexIterator *Query_EvalNode(QueryParseCtx *q, QueryNode *n);
 
-/* Build the processor chain of the query, returning the root processor */
-ResultProcessor *Query_BuildProcessorChain(Query *q, RSSearchRequest *r);
+/* Build the processor chain of the QueryParseCtx, returning the root processor */
+ResultProcessor *Query_BuildProcessorChain(RSSearchRequest *req, RSSearchRequest *r);
 
-/* Free the query execution stage and its children recursively */
+/* Free the QueryParseCtx execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
-QueryNode *NewTokenNode(Query *q, const char *s, size_t len);
-QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags);
+QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
+QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
-QueryNode *NewPrefixNode(Query *q, const char *s, size_t len);
+QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewNotNode(QueryNode *n);
 QueryNode *NewOptionalNode(QueryNode *n);
 QueryNode *NewNumericNode(NumericFilter *flt);
@@ -192,36 +182,33 @@ QueryNode *NewIdFilterNode(IdFilter *flt);
 QueryNode *NewWildcardNode();
 QueryNode *NewGeofilterNode(GeoFilter *flt);
 
-void Query_SetNumericFilter(Query *q, NumericFilter *nf);
-void Query_SetGeoFilter(Query *q, GeoFilter *gf);
-void Query_SetIdFilter(Query *q, IdFilter *f);
+void Query_SetNumericFilter(QueryParseCtx *q, NumericFilter *nf);
+void Query_SetGeoFilter(QueryParseCtx *q, GeoFilter *gf);
+void Query_SetIdFilter(QueryParseCtx *q, IdFilter *f);
 
-/* Return a string representation of the query parse tree. The string should be freed by the caller
+/* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
+ * caller
  */
-const char *Query_DumpExplain(Query *q);
+const char *Query_DumpExplain(QueryParseCtx *q);
 
 /* Only used in tests, for now */
-void QueryNode_Print(Query *q, QueryNode *qs, int depth);
+void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 
-#define QUERY_ERROR_INTERNAL_STR "Internal error processing query"
+#define QUERY_ERROR_INTERNAL_STR "Internal error processing QueryParseCtx"
 #define QUERY_ERROR_INTERNAL -1
 
-/* Initialize a new query object from user input. This does not parse the query
+/* Initialize a new QueryParseCtx object from user input. This does not parse the QueryParseCtx
  * just yet */
-Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
-                const char *expander, int maxSlop, int inOrder, const char *scorer,
-                RSPayload payload, RSSortingKey *sortKey);
+QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req);
 
-Query *NewQueryFromRequest(RSSearchRequest *req);
-void Query_Expand(Query *q);
-/* Free a query object */
-void Query_Free(Query *q);
+void Query_Expand(QueryParseCtx *q);
+/* Free a QueryParseCtx object */
+void Query_Free(QueryParseCtx *q);
 
-/* Lazily execute the parsed query and all its stages, and return a final result
+/* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
  * object */
-int Query_Execute(Query *query);
+int Query_Execute(QueryExecutionCtx *ctx);
 
-QueryNode *Query_Parse(Query *q, char **err);
+QueryNode *Query_Parse(QueryParseCtx *q, char **err);
 
 #endif
