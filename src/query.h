@@ -44,11 +44,18 @@ typedef struct {
 
 struct resultProcessor;
 
+typedef enum {
+  QueryState_OK,
+  QueryState_Aborted,
+  QueryState_Error,
+} QueryState;
+
 typedef struct {
   ConcurrentSearchCtx *conc;
   double minScore;
   uint32_t totalResults;
   char *errorString;
+  QueryState state;
 } SearchResultCtx;
 
 typedef struct {
@@ -75,15 +82,7 @@ typedef struct resultProcessor {
 
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
 
-// this should become a macro that calls the processor while checking the concurrent context
-static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res) {
-  int rc;
-  do {
-    rc = rp->Next(&rp->ctx, res);
-    // TODO: Switch concurrent context
-  } while (rc == RS_RESULT_QUEUED);
-  return rc;
-}
+static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
 
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up the
 chain until we find a processor with a Total callback. This allows processors to avoid implementing
@@ -171,25 +170,6 @@ typedef struct RSQuery {
  * resulting in the query not performing context switches */
 void Query_SetConcurrentMode(Query *q, int concurrent);
 
-typedef struct {
-  const char *id;
-  double score;
-  RSPayload *payload;
-  RSSortableValue *sortKey;
-} ResultEntry;
-
-/* QueryResult represents the final processed result of a query execution */
-typedef struct queryResult {
-  size_t totalResults;
-  size_t numResults;
-  ResultEntry *results;
-  int error;
-  char *errorString;
-} QueryResult;
-
-/* Serialize a query result to the redis client. Returns REDISMODULE_OK/ERR */
-int QueryResult_Serialize(QueryResult *r, RedisSearchCtx *ctx, RSSearchRequest *req);
-
 /* Evaluate a query stage and prepare it for execution. As execution is lazy
 this doesn't
 actually do anything besides prepare the execution chaing */
@@ -240,9 +220,7 @@ void Query_Free(Query *q);
 
 /* Lazily execute the parsed query and all its stages, and return a final result
  * object */
-QueryResult *Query_Execute(Query *query);
-
-void QueryResult_Free(QueryResult *q);
+int Query_Execute(Query *query);
 
 QueryNode *Query_Parse(Query *q, char **err);
 
