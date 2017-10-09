@@ -85,7 +85,7 @@ static QueryNode *NewQueryNode(QueryNodeType type) {
   return s;
 }
 
-QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlags flags) {
+QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RSTokenFlags flags) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
@@ -93,7 +93,7 @@ QueryNode *NewTokenNodeExpanded(Query *q, const char *s, size_t len, RSTokenFlag
   return ret;
 }
 
-QueryNode *NewTokenNode(Query *q, const char *s, size_t len) {
+QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
@@ -105,7 +105,7 @@ QueryNode *NewWildcardNode() {
   return NewQueryNode(QN_WILDCARD);
 }
 
-QueryNode *NewPrefixNode(Query *q, const char *s, size_t len) {
+QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_PREFX);
   q->numTokens++;
 
@@ -154,7 +154,7 @@ QueryNode *NewGeofilterNode(GeoFilter *flt) {
   return ret;
 }
 
-static void Query_SetFilterNode(Query *q, QueryNode *n) {
+static void Query_SetFilterNode(QueryParseCtx *q, QueryNode *n) {
   if (q->root == NULL) return;
 
   // for a simple phrase node we just add the numeric node
@@ -176,11 +176,11 @@ static void Query_SetFilterNode(Query *q, QueryNode *n) {
   }
 }
 
-void Query_SetGeoFilter(Query *q, GeoFilter *gf) {
+void Query_SetGeoFilter(QueryParseCtx *q, GeoFilter *gf) {
   Query_SetFilterNode(q, NewGeofilterNode(gf));
 }
 
-void Query_SetNumericFilter(Query *q, NumericFilter *nf) {
+void Query_SetNumericFilter(QueryParseCtx *q, NumericFilter *nf) {
 
   Query_SetFilterNode(q, NewNumericNode(nf));
 }
@@ -191,21 +191,20 @@ QueryNode *NewIdFilterNode(IdFilter *flt) {
   return qn;
 }
 
-void Query_SetIdFilter(Query *q, IdFilter *f) {
+void Query_SetIdFilter(QueryParseCtx *q, IdFilter *f) {
   Query_SetFilterNode(q, NewIdFilterNode(f));
 }
 
-IndexIterator *Query_EvalTokenNode(Query *q, QueryNode *qn) {
+IndexIterator *Query_EvalTokenNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
   }
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
-
   int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->ctx, term, q->docTable, isSingleWord,
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, isSingleWord,
                                      q->fieldMask & qn->fieldMask, &q->conc);
   if (ir == NULL) {
     return NULL;
@@ -216,7 +215,7 @@ IndexIterator *Query_EvalTokenNode(Query *q, QueryNode *qn) {
 
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all of
  * them */
-static IndexIterator *Query_EvalPrefixNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalPrefixNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_PREFX) {
     return NULL;
   }
@@ -275,7 +274,7 @@ static IndexIterator *Query_EvalPrefixNode(Query *q, QueryNode *qn) {
   return NewUnionIterator(its, itsSz, q->docTable, 1);
 }
 
-static IndexIterator *Query_EvalPhraseNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalPhraseNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_PHRASE) {
     return NULL;
   }
@@ -304,7 +303,7 @@ static IndexIterator *Query_EvalPhraseNode(Query *q, QueryNode *qn) {
   return ret;
 }
 
-static IndexIterator *Query_EvalWildcardNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalWildcardNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_WILDCARD || !q->docTable) {
     return NULL;
   }
@@ -312,7 +311,7 @@ static IndexIterator *Query_EvalWildcardNode(Query *q, QueryNode *qn) {
   return NewWildcardIterator(q->docTable->maxDocId);
 }
 
-static IndexIterator *Query_EvalNotNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalNotNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
@@ -321,7 +320,7 @@ static IndexIterator *Query_EvalNotNode(Query *q, QueryNode *qn) {
   return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId);
 }
 
-static IndexIterator *Query_EvalOptionalNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalOptionalNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_OPTIONAL) {
     return NULL;
   }
@@ -330,7 +329,7 @@ static IndexIterator *Query_EvalOptionalNode(Query *q, QueryNode *qn) {
   return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
 }
 
-static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
+static IndexIterator *Query_EvalNumericNode(QueryParseCtx *q, QueryNumericNode *node) {
 
   FieldSpec *fs =
       IndexSpec_GetField(q->ctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
@@ -341,7 +340,7 @@ static IndexIterator *Query_EvalNumericNode(Query *q, QueryNumericNode *node) {
   return NewNumericFilterIterator(q->ctx, node->nf, &q->conc);
 }
 
-static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node) {
+static IndexIterator *Query_EvalGeofilterNode(QueryParseCtx *q, QueryGeofilterNode *node) {
 
   FieldSpec *fs = IndexSpec_GetField(q->ctx->spec, node->gf->property, strlen(node->gf->property));
   if (fs == NULL || fs->type != F_GEO) {
@@ -352,12 +351,12 @@ static IndexIterator *Query_EvalGeofilterNode(Query *q, QueryGeofilterNode *node
   return NewGeoRangeIterator(&gi, node->gf);
 }
 
-static IndexIterator *Query_EvalIdFilterNode(Query *q, QueryIdFilterNode *node) {
+static IndexIterator *Query_EvalIdFilterNode(QueryParseCtx *q, QueryIdFilterNode *node) {
 
   return NewIdFilterIterator(node->f);
 }
 
-static IndexIterator *Query_EvalUnionNode(Query *q, QueryNode *qn) {
+static IndexIterator *Query_EvalUnionNode(QueryParseCtx *q, QueryNode *qn) {
   if (qn->type != QN_UNION) {
     return NULL;
   }
@@ -388,7 +387,7 @@ static IndexIterator *Query_EvalUnionNode(Query *q, QueryNode *qn) {
   return ret;
 }
 
-IndexIterator *Query_EvalNode(Query *q, QueryNode *n) {
+IndexIterator *Query_EvalNode(QueryParseCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
@@ -448,107 +447,112 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   un->children[un->numChildren++] = child;
 }
 
-Query *NewQueryFromRequest(RSSearchRequest *req) {
-  Query *q =
-      NewQuery(req->sctx, req->rawQuery, req->qlen, req->offset, req->num, req->fieldMask,
-               req->flags & Search_Verbatim, req->language,
-               req->flags & Search_NoStopwrods ? NULL : req->sctx->spec->stopwords, req->expander,
-               req->slop, req->flags & Search_InOrder, req->scorer, req->payload, req->sortBy);
+QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
 
-  q->docTable = &req->sctx->spec->docs;
-  q->req = req;
-  return q;
+  QueryParseCtx *ctx = malloc(sizeof(*ctx));
+  ctx->len = req->qlen;
+  ctx->raw = strdup(req->rawQuery);
+  ctx->numTokens = 0;
+  ctx->ok = 1;
+  ctx->root = NULL;
+  ctx->spec = req->sctx->spec;
+  ctx->stopwords =
+      (ctx->spec && ctx->spec->stopwords) ? ctx->spec->stopwords : DefaultStopWordList();
+  ctx->tokenId = 1;
+  ctx->errorMsg = NULL;
+  return ctx;
 }
 
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
  * resulting in the query not performing context switches */
-void Query_SetConcurrentMode(Query *q, int concurrent) {
-  q->concurrentMode = concurrent;
-}
+// void Query_SetConcurrentMode(QueryExecutionCtx *q, int concurrent) {
+//   q->concurrentMode = concurrent;
+// }
 
-Query *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int limit,
-                t_fieldMask fieldMask, int verbatim, const char *lang, StopWordList *stopwords,
-                const char *expander, int slop, int inOrder, const char *scorer, RSPayload payload,
-                RSSortingKey *sk) {
-  Query *ret = calloc(1, sizeof(Query));
-  ret->ctx = ctx;
-  ret->len = len;
-  ret->limit = limit;
-  ret->maxSlop = slop;
-  ret->inOrder = inOrder;
-  ret->fieldMask = fieldMask;
-  ret->offset = offset;
-  ret->raw = strndup(query, len);
-  ret->root = NULL;
-  ret->numTokens = 0;
-  ret->tokenId = 1;
-  ret->stopwords = stopwords;
-  ret->payload = payload;
-  ret->sortKey = sk;
-  ret->aborted = 0;
-  ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
+// QueryParseCtx *NewQuery(RedisSearchCtx *ctx, const char *query, size_t len, int offset, int
+// limit,
+//                         t_fieldMask fieldMask, int verbatim, const char *lang,
+//                         StopWordList *stopwords, const char *expander, int slop, int inOrder,
+//                         const char *scorer, RSPayload payload, RSSortingKey *sk) {
+//   QueryParseCtx *ret = calloc(1, sizeof(Query));
+//   ret->ctx = ctx;
+//   ret->len = len;
+//   ret->limit = limit;
+//   ret->maxSlop = slop;
+//   ret->inOrder = inOrder;
+//   ret->fieldMask = fieldMask;
+//   ret->offset = offset;
+//   ret->raw = strndup(query, len);
+//   ret->root = NULL;
+//   ret->numTokens = 0;
+//   ret->tokenId = 1;
+//   ret->stopwords = stopwords;
+//   ret->payload = payload;
+//   ret->sortKey = sk;
+//   ret->aborted = 0;
+//   ConcurrentSearchCtx_Init(ctx ? ctx->redisCtx : NULL, &ret->conc);
 
-  ret->concurrentMode = 1;
+//   ret->concurrentMode = 1;
 
-  // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
-  ret->language = lang ? lang : DEFAULT_LANGUAGE;
+//   // ret->expander = verbatim ? NULL : expander ? GetQueryExpander(expander) : NULL;
+//   ret->language = lang ? lang : DEFAULT_LANGUAGE;
 
-  /* Get the scorer - falling back to TF-IDF scoring if not found */
-  ret->scorer = NULL;
-  ret->scorerCtx.privdata = NULL;
-  ret->scorerCtx.payload = payload;
-  ret->scorerFree = NULL;
-  ExtScoringFunctionCtx *scx =
-      Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
-  if (!scx) {
-    scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
-  }
-  if (scx) {
+//   /* Get the scorer - falling back to TF-IDF scoring if not found */
+//   ret->scorer = NULL;
+//   ret->scorerCtx.privdata = NULL;
+//   ret->scorerCtx.payload = payload;
+//   ret->scorerFree = NULL;
+//   ExtScoringFunctionCtx *scx =
+//       Extensions_GetScoringFunction(&ret->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
+//   if (!scx) {
+//     scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
+//   }
+//   if (scx) {
 
-    ret->scorer = scx->sf;
-    ret->scorerFree = scx->ff;
-  }
+//     ret->scorer = scx->sf;
+//     ret->scorerFree = scx->ff;
+//   }
 
-  /* Get the query expander */
-  ret->expCtx.query = ret;
-  ret->expCtx.language = ret->language;
-  ret->expander = NULL;
-  ret->expanderFree = NULL;
-  if (!verbatim) {
-    ExtQueryExpanderCtx *exp =
-        Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
-    if (exp) {
-      ret->expander = exp->exp;
-      ret->expCtx.privdata = exp->privdata;
-      ret->expanderFree = exp->ff;
-    }
-  }
-  return ret;
-}
+//   /* Get the query expander */
+//   ret->expCtx.query = ret;
+//   ret->expCtx.language = ret->language;
+//   ret->expander = NULL;
+//   ret->expanderFree = NULL;
+//   if (!verbatim) {
+//     ExtQueryExpanderCtx *exp =
+//         Extensions_GetQueryExpander(&ret->expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
+//     if (exp) {
+//       ret->expander = exp->exp;
+//       ret->expCtx.privdata = exp->privdata;
+//       ret->expanderFree = exp->ff;
+//     }
+//   }
+//   return ret;
+// }
 
-static void QueryNode_Expand(Query *q, QueryNode **pqn) {
+// static void QueryNode_Expand(QueryParseCtx *q, QueryNode **pqn) {
 
-  QueryNode *qn = *pqn;
-  if (qn->type == QN_TOKEN) {
-    q->expCtx.currentNode = pqn;
-    q->expander(&q->expCtx, &qn->tn);
+//   QueryNode *qn = *pqn;
+//   if (qn->type == QN_TOKEN) {
+//     q->expCtx.currentNode = pqn;
+//     q->expander(&q->expCtx, &qn->tn);
 
-  } else if (qn->type == QN_PHRASE) {
-    for (int i = 0; i < qn->pn.numChildren; i++) {
-      QueryNode_Expand(q, &qn->pn.children[i]);
-    }
-  } else if (qn->type == QN_UNION) {
-    for (int i = 0; i < qn->un.numChildren; i++) {
-      QueryNode_Expand(q, &qn->un.children[i]);
-    }
-  }
-}
+//   } else if (qn->type == QN_PHRASE) {
+//     for (int i = 0; i < qn->pn.numChildren; i++) {
+//       QueryNode_Expand(q, &qn->pn.children[i]);
+//     }
+//   } else if (qn->type == QN_UNION) {
+//     for (int i = 0; i < qn->un.numChildren; i++) {
+//       QueryNode_Expand(q, &qn->un.children[i]);
+//     }
+//   }
+// }
 
-void Query_Expand(Query *q) {
-  if (q->expander && q->root) {
-    QueryNode_Expand(q, &q->root);
-  }
-}
+// void Query_Expand(QueryParseCtx *q) {
+//   if (q->expander && q->root) {
+//     QueryNode_Expand(q, &q->root);
+//   }
+// }
 
 static sds doPad(sds s, int len) {
   if (!len) return s;
@@ -559,7 +563,7 @@ static sds doPad(sds s, int len) {
   return sdscat(s, buf);
 }
 
-static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
+static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) {
   s = doPad(s, depth);
 
   if (qs->fieldMask == 0) {
@@ -568,7 +572,7 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
-    if (!q || !q->ctx) {
+    if (!q || !q->spec) {
       s = sdscatprintf(s, "@%x", qs->fieldMask);
     } else {
       s = sdscat(s, "@");
@@ -577,7 +581,7 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
       while (fm) {
         uint32_t bit = (fm & 1) << i;
         if (bit) {
-          char *f = GetFieldNameByBit(q->ctx->spec, bit);
+          char *f = GetFieldNameByBit(q->spec, bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }
@@ -653,7 +657,7 @@ static sds QueryNode_DumpSds(sds s, Query *q, QueryNode *qs, int depth) {
 
 /* Return a string representation of the query parse tree. The string should be freed by the caller
  */
-const char *Query_DumpExplain(Query *q) {
+const char *Query_DumpExplain(QueryParseCtx *q) {
   // empty query
   if (!q || !q->root) {
     return strdup("NULL");
@@ -665,48 +669,42 @@ const char *Query_DumpExplain(Query *q) {
   return ret;
 }
 
-void QueryNode_Print(Query *q, QueryNode *qn, int depth) {
+void QueryNode_Print(QueryParseCtx *q, QueryNode *qn, int depth) {
   sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
   printf("%s", s);
   sdsfree(s);
 }
 
-void Query_Free(Query *q) {
+void Query_Free(QueryParseCtx *q) {
   if (q->root) {
     QueryNode_Free(q->root);
   }
-  // if we have a custom expander with a free function - call it now
-  // printf("expander free %p. privdata %p\n", q->expanderFree, q->expCtx.privdata);
-  if (q->expanderFree) {
-    q->expanderFree(q->expCtx.privdata);
-  }
+  // // if we have a custom expander with a free function - call it now
+  // // printf("expander free %p. privdata %p\n", q->expanderFree, q->expCtx.privdata);
+  // if (q->expanderFree) {
+  //   q->expanderFree(q->expCtx.privdata);
+  // }
 
-  // we have a custom scorer with a free function - call it now
-  if (q->scorerFree) {
-    q->scorerFree(q->scorerCtx.privdata);
-  }
+  // // we have a custom scorer with a free function - call it now
+  // if (q->scorerFree) {
+  //   q->scorerFree(q->scorerCtx.privdata);
+  // }
 
-  ConcurrentSearchCtx_Free(&q->conc);
-  if (q->rootFilter) {
-    q->rootFilter->Free(q->rootFilter);
-  }
+  // ConcurrentSearchCtx_Free(&q->conc);
+  // if (q->rootFilter) {
+  //   q->rootFilter->Free(q->rootFilter);
+  // }
 
-  if (q->rootProcessor) {
-    ResultProcessor_Free(q->rootProcessor);
-  }
+  // if (q->rootProcessor) {
+  //   ResultProcessor_Free(q->rootProcessor);
+  // }
   free(q->raw);
   free(q);
 }
 
-typedef struct {
-  t_docId docId;
-  double score;
-  RSSortingVector *sv;
-} heapResult;
-
 /* Compare hits for sorting in the heap during traversal of the top N */
 static inline int cmpHits(const void *e1, const void *e2, const void *udata) {
-  const heapResult *h1 = e1, *h2 = e2;
+  const SearchResult *h1 = e1, *h2 = e2;
 
   if (h1->score < h2->score) {
     return -1;
@@ -729,10 +727,9 @@ static int sortByCmp(const void *e1, const void *e2, const void *udata) {
  * reopened. We protect against the case that the spec has been deleted during query execution */
 void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-  Query *q = privdata;
+  QueryExecutionCtx *q = privdata;
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
-    q->aborted = 1;
     q->resultCtx.state = QueryState_Aborted;
     q->ctx->spec = NULL;
     return;
@@ -740,21 +737,22 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
 
   // The spec might have changed while we were sleeping - for example a realloc of the doc table
   q->ctx->spec = sp;
-  q->docTable = &sp->docs;
+  // q->docTable = &sp->docs;
 }
 
-size_t Query_SerializeResult(Query *query, SearchResult *r) {
+size_t Query_SerializeResult(QueryExecutionCtx *qex, SearchResult *r, RSSearchFlags flags) {
   size_t count = 1;
-  RedisModuleCtx *ctx = query->ctx->redisCtx;
+
+  RedisModuleCtx *ctx = qex->ctx->redisCtx;
   RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
 
-  if (query->req->flags & Search_WithScores) {
+  if (flags & Search_WithScores) {
     printf("Result score: %g\n", r->score);
     RedisModule_ReplyWithDouble(ctx, r->score);
     count++;
   }
 
-  if (query->req->flags & Search_WithPayloads) {
+  if (flags & Search_WithPayloads) {
     ++count;
     const RSPayload *payload = r->md->payload;
     if (payload) {
@@ -764,9 +762,9 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
     }
   }
 
-  if (query->req->flags & Search_WithSortKeys) {
+  if (flags & Search_WithSortKeys) {
     ++count;
-    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, query->sortKey);
+    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->sortKey);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
@@ -778,8 +776,7 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
     }
   }
 
-  const int withDocs = !(query->req->flags & Search_NoContent);
-  if (withDocs) {
+  if (!(flags & Search_NoContent)) {
     count++;
     RedisModule_ReplyWithArray(ctx, r->fields->len * 2);
     for (int i = 0; i < r->fields->len; i++) {
@@ -791,33 +788,32 @@ size_t Query_SerializeResult(Query *query, SearchResult *r) {
   return count;
 }
 
-int Query_SerializeResults(Query *query) {
+int Query_SerializeResults(QueryExecutionCtx *qex, RSSearchFlags flags) {
   int rc;
   int count = 0;
-  RedisModule_ReplyWithArray(query->ctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModuleCtx *ctx = qex->ctx->redisCtx;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   do {
     SearchResult r;
-    rc = ResultProcessor_Next(query->rootProcessor, &r, 1);
+    rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
     if (rc == RS_RESULT_EOF) break;
 
     if (count == 0) {
-      RedisModule_ReplyWithLongLong(query->ctx->redisCtx,
-                                    ResultProcessor_Total(query->rootProcessor));
+      RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
-    count += Query_SerializeResult(query, &r);
+    count += Query_SerializeResult(qex, &r, flags);
   } while (rc != RS_RESULT_EOF);
   if (count == 0) {
-    RedisModule_ReplyWithLongLong(query->ctx->redisCtx,
-                                  ResultProcessor_Total(query->rootProcessor));
+    RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
     count++;
   }
-  RedisModule_ReplySetArrayLength(query->ctx->redisCtx, count);
+  RedisModule_ReplySetArrayLength(ctx, count);
   return REDISMODULE_OK;
 }
 
-int Query_Execute(Query *query) {
+int Query_Execute(QueryParseCtx *query) {
   query->rootFilter = Query_EvalNode(query, query->root);
   query->rootProcessor = Query_BuildProcessorChain(query, query->req);
   return Query_SerializeResults(query);
@@ -1032,7 +1028,7 @@ static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, i
 }
 
 int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  Query *q = ctx->privdata;
+  QueryExecutionCtx *q = ctx->privdata;
   if (q->rootFilter == NULL) {
     return RS_RESULT_EOF;
   }
@@ -1054,7 +1050,6 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
-    q->total++;
     ++ctx->resCtx->totalResults;
 
     break;
@@ -1076,8 +1071,7 @@ SearchResult *NewSearchResult() {
   return ret;
 }
 
-ResultProcessor *NewBaseProcessor(Query *q, SearchResultCtx *rc) {
-  q->total = 0;
+ResultProcessor *NewBaseProcessor(QueryExecutionCtx *q, SearchResultCtx *rc) {
   ResultProcessor *rp = NewResultProcessor(NULL, q);
   rp->ctx.resCtx = rc;
   rp->Next = baseResultProcessor_Next;
@@ -1111,11 +1105,12 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
   free(rp);
 }
 
-ResultProcessor *NewScorer(Query *q, ResultProcessor *upstream) {
+ResultProcessor *NewScorer(RSScoringFunction scorer, RSScoringFunctionCtx *scorerCtx,
+                           ResultProcessor *upstream) {
   struct scorerCtx *sc = malloc(sizeof(*sc));
 
-  sc->scorer = q->scorer;
-  sc->scorerCtx = &q->scorerCtx;
+  sc->scorer = scorer;
+  sc->scorerCtx = scorerCtx;
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
   rp->Free = resultProcessor_GenericFree;
@@ -1154,9 +1149,9 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
 void sorter_Free(ResultProcessor *rp) {
   struct sorterCtx *sc = rp->ctx.privdata;
-  // if (sc->pooledResult) {
-  //   SearchResult_Free(sc->pooledResult);
-  // }
+  if (sc->pooledResult) {
+    SearchResult_Free(sc->pooledResult);
+  }
   mmh_free(sc->pq);
   free(sc);
   free(rp);
@@ -1217,16 +1212,16 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_QUEUED;
 }
 
-ResultProcessor *NewSorter(Query *q, uint32_t size, int sortByMode, ResultProcessor *upstream) {
+ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
 
-  if (sortByMode) {
+  if (sk) {
     sc->cmp = sortByCmp;
-    sc->cmpCtx = q->sortKey;
+    sc->cmpCtx = sk;
   } else {
     sc->cmp = cmpHits;
-    sc->cmpCtx = q->sortKey;
+    sc->cmpCtx = NULL;
   }
 
   sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx, SearchResult_Free);
@@ -1333,7 +1328,7 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
 }
 
 // Free just frees up the processor
-ResultProcessor *Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
+ResultProcessor *Query_BuildProcessorChain(QueryExecutionCtx *q, RSSearchRequest *req) {
 
   q->resultCtx = (SearchResultCtx){
       .conc = &q->conc,
@@ -1348,17 +1343,17 @@ ResultProcessor *Query_BuildProcessorChain(Query *q, RSSearchRequest *r) {
 
   // If we are not in SORTBY mode - add a scorer to the chain
   if (q->sortKey == NULL) {
-    next = NewScorer(q, next);
+    next = NewScorer(q->scorer, &q->scorerCtx, next);
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(q, q->offset + q->limit, q->sortKey != NULL, next);
+  next = NewSorter(q->sortKey, req->offset + req->num, next);
 
   // The pager pages over the results of the sorter
-  next = NewPager(next, q->offset, q->limit);
+  next = NewPager(next, req->offset, req->num);
 
   // The loader loads the documents from redis
-  next = NewLoader(next, r);
+  next = NewLoader(next, req);
 
   return next;
 }
