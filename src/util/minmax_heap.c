@@ -164,7 +164,7 @@ void mmh_insert(heap_t* h, void* value) {
   // check for realloc
   if (h->count == h->size) {
     h->size = h->size * 2;
-    printf("REALLOC to %d\n", h->size);
+    printf("REALLOC to %zd\n", h->size);
 
     h->data = realloc(h->data, (1 + h->size) * sizeof(void*));
   }

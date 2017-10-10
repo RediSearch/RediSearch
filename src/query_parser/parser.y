@@ -131,8 +131,8 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     if (C == NULL) {
         A = NULL;
     } else {
-        if (ctx->spec) {
-            C->fieldMask = IndexSpec_GetFieldBit(ctx->spec, B.s, B.len); 
+        if (ctx->sctx->spec) {
+            C->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
         }
         A = C; 
     }
@@ -140,8 +140,8 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
     A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
-    if (ctx->spec) {
-        A->fieldMask = IndexSpec_GetFieldBit(ctx->spec, B.s, B.len); 
+    if (ctx->sctx->spec) {
+        A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
     }
 }
 
@@ -153,11 +153,11 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         C->fieldMask = 0;
-        if (ctx->spec) {
+        if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(B); i++) {
                 char *p;
                 Vector_Get(B, i, &p);
-                C->fieldMask |= IndexSpec_GetFieldBit(ctx->spec, p, strlen(p)); 
+                C->fieldMask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
                 free(p);
             }
         }

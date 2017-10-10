@@ -51,7 +51,7 @@ typedef struct RSQuery {
 } QueryParseCtx;
 
 typedef struct {
-  ConcurrentSearchCtx *csx;
+  ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   int numTokens;
   int tokenId;
@@ -93,7 +93,10 @@ void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req);
 QueryNode *Query_Parse(QueryParseCtx *q, char **err);
 
-void Query_Expand(QueryParseCtx *q);
+static void Query_Expand(QueryParseCtx *q) {
+
+  printf("EXPANSION DISABLED!\n");
+}
 /* Free a QueryParseCtx object */
 void Query_Free(QueryParseCtx *q);
 
@@ -211,8 +214,9 @@ typedef struct {
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
-QueryPlan *Query_BuildBlan(QueryNode *rootNode, RSSearchRequest *req);
+QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req);
 
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
 /* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
  * object */
 int QueryPlan_Execute(QueryPlan *ctx, const char **err);

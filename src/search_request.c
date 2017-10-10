@@ -259,6 +259,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
         NumericFilter_Free(nf);
       }
     }
+
     Vector_Free(req->numericFilters);
   }
 
@@ -278,8 +279,8 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
 
 int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
-  Query *q = NewQueryFromRequest(req);
-  Query_SetConcurrentMode(q, concurrentMode);
+  QueryParseCtx *q = NewQueryParseCtx(req);
+  // Query_SetConcurrentMode(q, concurrentMode);
   RedisModuleCtx *ctx = req->sctx->redisCtx;
 
   char *err;
@@ -321,13 +322,15 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     req->numericFilters = NULL;
   }
 
+  QueryPlan *plan = Query_BuildBlan(q, req);
   // Execute the query
-  int rc = Query_Execute(q);
+  // const char *err;
+  int rc = QueryPlan_Execute(plan, &err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }
 
-  Query_Free(q);
+  // Query_Free(q);
 
   return rc;
 }
