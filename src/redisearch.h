@@ -101,7 +101,7 @@ typedef struct RSQueryExpanderCtx {
   struct RSQueryNode **currentNode;
 
   /* Private data of the extension, set on extension initialization or during expansion. If a Free
-   * calbackk is provided, it will be used automatically to free this data */
+   * calback is provided, it will be used automatically to free this data */
   void *privdata;
 
   /* The language of the query. Defaults to "english" */
@@ -212,9 +212,9 @@ typedef struct RSIndexResult {
   /******************************************************************************
    * IMPORTANT: The order of the following 4 variables must remain the same, and all
    * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redunadnt memcpy
+   * to an array of 4 uint32_t integers to avoid redundant memcpy
    *******************************************************************************/
-  /* The docuId of the result */
+  /* The docId of the result */
   t_docId docId;
 
   /* the total frequency of all the records in this result */

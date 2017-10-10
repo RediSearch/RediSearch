@@ -207,7 +207,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
-                                     q->req->fieldMask & qn->fieldMask, q->csx);
+                                     q->req->fieldMask & qn->fieldMask, q->conc);
   if (ir == NULL) {
     return NULL;
   }
@@ -252,7 +252,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->req->fieldMask & qn->fieldMask, q->csx);
+                                       q->req->fieldMask & qn->fieldMask, q->conc);
 
     free(tok.str);
     if (!ir) continue;
@@ -341,7 +341,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, node->nf, q->csx);
+  return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node) {
@@ -649,7 +649,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   QueryPlan *q = privdata;
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
-    q->resultCtx.state = QueryState_Aborted;
+    q->execCtx.state = QueryState_Aborted;
     q->ctx->spec = NULL;
     return;
   }
@@ -663,7 +663,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
-      .privdata = privdata, .upstream = upstream, .resCtx = upstream ? upstream->ctx.resCtx : NULL,
+      .privdata = privdata, .upstream = upstream, .qxc = upstream ? upstream->ctx.qxc : NULL,
   };
 
   return p;
@@ -671,12 +671,12 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
 
 static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
   int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.resCtx->conc;
+  ConcurrentSearchCtx *cxc = rp->ctx.qxc->conc;
   do {
     if (allowSwitching) {
       CONCURRENT_CTX_TICK(cxc);
       // need to abort
-      if (rp->ctx.resCtx->state == QueryState_Aborted) {
+      if (rp->ctx.qxc->state == QueryState_Aborted) {
         return RS_RESULT_EOF;
       }
     }
@@ -709,7 +709,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
-    ++ctx->resCtx->totalResults;
+    ++ctx->qxc->totalResults;
 
     break;
   } while (1);
@@ -730,9 +730,9 @@ SearchResult *NewSearchResult() {
   return ret;
 }
 
-ResultProcessor *NewBaseProcessor(QueryPlan *q, SearchResultCtx *rc) {
+ResultProcessor *NewBaseProcessor(QueryPlan *q, QueryExecutionCtx *xc) {
   ResultProcessor *rp = NewResultProcessor(NULL, q);
-  rp->ctx.resCtx = rc;
+  rp->ctx.qxc = xc;
   rp->Next = baseResultProcessor_Next;
   return rp;
 }
@@ -751,8 +751,8 @@ int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
     if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res, 0))) return rc;
 
-    res->score = sc->scorer(sc->scorerCtx, res->indexResult, res->md, ctx->resCtx->minScore);
-    if (res->score == RS_SCORE_FILTEROUT) ctx->resCtx->totalResults--;
+    res->score = sc->scorer(&sc->scorerCtx, res->indexResult, res->md, ctx->qxc->minScore);
+    if (res->score == RS_SCORE_FILTEROUT) ctx->qxc->totalResults--;
 
     break;
   } while (1);
@@ -770,7 +770,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&sc->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
   if (!scx) {
-    scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
+    scx = Extensions_GetScoringFunction(&sc->scorerCtx, DEFAULT_SCORER_NAME);
   }
 
   sc->scorer = scx->sf;
@@ -856,8 +856,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     SearchResult *minh = mmh_peek_min(sc->pq);
 
     // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (minh->score > ctx->resCtx->minScore) {
-      ctx->resCtx->minScore = minh->score;
+    if (minh->score > ctx->qxc->minScore) {
+      ctx->qxc->minScore = minh->score;
     }
 
     // if needed - pop it and insert a new result
@@ -1022,7 +1022,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithSortKeys) {
     ++count;
-    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->sortKey);
+    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->req->sortBy);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
@@ -1071,22 +1071,33 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
   return REDISMODULE_OK;
 }
 
-QueryPlan *Query_BuildBlan(QueryNode *rootFilter, RSSearchRequest *req) {
-  QueryPlan *plan = malloc(sizeof(*plan));
+QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
+
+  QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->req = req;
-  plan->rootFilter = rootFilter;
-  plan->rootProcessor = Query_BuildProcessorChain(plan, query->req);
-
   plan->execCtx = (QueryExecutionCtx){
 
       .errorString = NULL, .minScore = 0, .totalResults = 0, .state = QueryState_OK,
   };
-  ConcurrentSearchCtx_Init(req->sctx->redisCtx, &plan->execCtx.conc);
+  ConcurrentSearchCtx_Init(req->sctx->redisCtx, &plan->conc);
+
+  QueryEvalCtx ev = {
+      .docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
+      .conc = &plan->conc,
+      .numTokens = parsedQuery->numTokens,
+      .tokenId = 1,
+      .sctx = plan->ctx,
+      .req = req,
+  };
+
+  plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
+  plan->rootProcessor = Query_BuildProcessorChain(plan, req);
+  return plan;
 }
 
 int QueryPlan_Execute(QueryPlan *plan, const char **err) {
-  int rc = Query_SerializeResults(plan);
+  int rc = Query_SerializeResults(plan, plan->req->flags);
   if (err) *err = plan->execCtx.errorString;
   return rc;
 }
@@ -1103,7 +1114,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(q->sortKey, req->offset + req->num, next);
+  next = NewSorter(req->sortBy, req->offset + req->num, next);
 
   // The pager pages over the results of the sorter
   next = NewPager(next, req->offset, req->num);
