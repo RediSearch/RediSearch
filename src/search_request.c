@@ -326,12 +326,12 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
   QueryPlan *plan = Query_BuildBlan(q, req);
   // Execute the query
   // const char *err;
-  int rc = QueryPlan_Execute(plan, &err);
+  int rc = QueryPlan_Execute(plan, (const char **)&err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }
-
-  // Query_Free(q);
+  QueryPlan_Free(plan);
+  Query_Free(q);
 
   return rc;
 }
