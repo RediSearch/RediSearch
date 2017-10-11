@@ -87,10 +87,10 @@ static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
   return sizeof(RSFieldMap) + cap * sizeof(RSField);
 }
 
-static void RSFieldMap_EnsureCap(RSFieldMap *m) {
-  if (m->len + 1 >= m->cap) {
-    m->cap = MAX(m->cap * 2, UINT16_MAX);
-    m = realloc(m, RSFieldMap_SizeOf(m->cap));
+static void RSFieldMap_EnsureCap(RSFieldMap **m) {
+  if ((*m)->len + 1 >= (*m)->cap) {
+    (*m)->cap = MAX((*m)->cap * 2, UINT16_MAX);
+    *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
   }
 }
 
@@ -107,7 +107,7 @@ static RSValue *RSFieldMap_Item(RSFieldMap *m, uint16_t pos) {
 
 static void RSFieldMap_Set(RSFieldMap *m, const char *key, RSValue val) {
   // TODO: override existing field
-  RSFieldMap_EnsureCap(m);
+  RSFieldMap_EnsureCap(&m);
   m->fields[m->len++] = RS_NewField(key, val);
 }
 
