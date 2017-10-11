@@ -204,7 +204,14 @@ static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, siz
 void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const HighlightTags *tags,
                                      Array *iovs) {
   const Fragment *frags = FragmentList_GetFragments(fragList);
-  const char *preamble = NULL;
+
+  if (!fragList->numFrags) {
+    // Whole doc, but no matches found
+    addToIov(fragList->doc, fragList->docLen, iovs);
+    return;
+  }
+
+  const char *preamble = fragList->doc;
   size_t openLen = strlen(tags->openTag);
   size_t closeLen = strlen(tags->closeTag);
 
