@@ -1002,6 +1002,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
                        ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
                        : RS_NullVal());
   }
+  Document_Free(&doc);
   *r = res;
 
   return RS_RESULT_OK;
