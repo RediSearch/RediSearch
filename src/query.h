@@ -22,7 +22,7 @@
 /* A QueryParseCtx represents the parse tree and execution plan for a single search
  * QueryParseCtx */
 typedef struct RSQuery {
-  // the raw QueryParseCtx text
+  // the raw query text
   char *raw;
   // the raw text len
   size_t len;
@@ -36,6 +36,7 @@ typedef struct RSQuery {
   // Stopword list
   StopWordList *stopwords;
 
+  const char *language;
   // parsing state
   int ok;
 
@@ -93,10 +94,14 @@ void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req);
 QueryNode *Query_Parse(QueryParseCtx *q, char **err);
 
-static void Query_Expand(QueryParseCtx *q) {
+void Query_Expand(QueryParseCtx *q, const char *expander);
 
-  printf("EXPANSION DISABLED!\n");
-}
+/* Return a string representation of the QueryParseCtx parse tree. The string should be freed by
+ * the
+ * caller
+ */
+const char *Query_DumpExplain(QueryParseCtx *q);
+
 /* Free a QueryParseCtx object */
 void Query_Free(QueryParseCtx *q);
 
@@ -168,7 +173,8 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
 
 static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
 
-/* Helper function - get the total from a processor, and if the Total callback is NULL, climb up the
+/* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
+ * the
  * chain until we find a processor with a Total callback. This allows processors to avoid
  * implementing it if they have no calculations to add to Total (such as deeted/ignored results)
  * */
@@ -208,7 +214,8 @@ typedef struct {
 
 } QueryPlan;
 
-/* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn it
+/* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn
+ * it
  * off,
  * resulting in the QueryParseCtx not performing context switches */
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
@@ -220,10 +227,5 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
 /* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
  * object */
 int QueryPlan_Execute(QueryPlan *ctx, const char **err);
-
-/* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
- * caller
- */
-const char *Query_DumpExplain(QueryPlan *q);
 
 #endif

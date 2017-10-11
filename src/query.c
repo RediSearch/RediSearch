@@ -195,6 +195,38 @@ void Query_SetIdFilter(QueryParseCtx *q, IdFilter *f) {
   Query_SetFilterNode(q, NewIdFilterNode(f));
 }
 
+static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx,
+                             QueryNode **pqn) {
+
+  QueryNode *qn = *pqn;
+  if (qn->type == QN_TOKEN) {
+    expCtx->currentNode = pqn;
+    expander(expCtx, &qn->tn);
+
+  } else if (qn->type == QN_PHRASE) {
+    for (int i = 0; i < qn->pn.numChildren; i++) {
+      QueryNode_Expand(expander, expCtx, &qn->pn.children[i]);
+    }
+  } else if (qn->type == QN_UNION) {
+    for (int i = 0; i < qn->un.numChildren; i++) {
+      QueryNode_Expand(expander, expCtx, &qn->un.children[i]);
+    }
+  }
+}
+
+void Query_Expand(QueryParseCtx *q, const char *expander) {
+  if (!q->root) return;
+
+  RSQueryExpanderCtx expCtx = {.query = q, .language = q->language};
+
+  ExtQueryExpanderCtx *xpc =
+      Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
+  if (xpc && xpc->exp) {
+    QueryNode_Expand(xpc->exp, &expCtx, &q->root);
+    if (xpc->ff && xpc->privdata) xpc->ff(xpc->privdata);
+  }
+}
+
 IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
@@ -460,8 +492,11 @@ QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
   ctx->ok = 1;
   ctx->root = NULL;
   ctx->sctx = req->sctx;
-  ctx->stopwords = (ctx->sctx->spec && ctx->sctx->spec->stopwords) ? ctx->sctx->spec->stopwords
-                                                                   : DefaultStopWordList();
+
+  ctx->stopwords = (ctx->sctx && ctx->sctx->spec && ctx->sctx->spec->stopwords)
+                       ? ctx->sctx->spec->stopwords
+                       : DefaultStopWordList();
+  ctx->language = req->language ? req->language : DEFAULT_LANGUAGE;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;
   return ctx;
@@ -576,23 +611,23 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
 /* Return a string representation of the query parse tree. The string should be freed by the caller
  */
-// const char *Query_DumpExplain(QueryPlan *q) {
-//   // empty query
-//   if (!q || !q->root) {
-//     return strdup("NULL");
-//   }
+const char *Query_DumpExplain(QueryParseCtx *q) {
+  // empty query
+  if (!q || !q->root) {
+    return strdup("NULL");
+  }
 
-//   sds s = QueryNode_DumpSds(sdsnew(""), q, q->root, 0);
-//   const char *ret = strndup(s, sdslen(s));
-//   sdsfree(s);
-//   return ret;
-// }
+  sds s = QueryNode_DumpSds(sdsnew(""), q, q->root, 0);
+  const char *ret = strndup(s, sdslen(s));
+  sdsfree(s);
+  return ret;
+}
 
-// void QueryNode_Print(QueryParseCtx *q, QueryNode *qn, int depth) {
-//   sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
-//   printf("%s", s);
-//   sdsfree(s);
-// }
+void QueryNode_Print(QueryParseCtx *q, QueryNode *qn, int depth) {
+  sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
+  printf("%s", s);
+  sdsfree(s);
+}
 
 void Query_Free(QueryParseCtx *q) {
   if (q->root) {
@@ -765,6 +800,14 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
   free(rp);
 }
 
+static void scorer_Free(ResultProcessor *rp) {
+  struct scorerCtx *sc = rp->ctx.privdata;
+  if (sc->scorerFree) {
+    sc->scorerFree(sc->scorerCtx.privdata);
+  }
+  resultProcessor_GenericFree(rp);
+}
+
 ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
   struct scorerCtx *sc = malloc(sizeof(*sc));
   ExtScoringFunctionCtx *scx =
@@ -778,8 +821,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
-  // TODO: special free
-  rp->Free = resultProcessor_GenericFree;
+  rp->Free = scorer_Free;
   return rp;
 }
 
@@ -1005,7 +1047,6 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
 
   if (flags & Search_WithScores) {
-    printf("Result score: %g\n", r->score);
     RedisModule_ReplyWithDouble(ctx, r->score);
     count++;
   }

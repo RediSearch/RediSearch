@@ -308,82 +308,81 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_WrongArity(ctx);
 
-  //   // at least one field, and number of field/text args must be even
-  //   if (argc < 3) {
-  //     return RedisModule_WrongArity(ctx);
-  //   }
+  // at least one field, and number of field/text args must be even
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
 
-  //   RedisModule_AutoMemory(ctx);
-  //   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
-  //   if (sctx == NULL) {
-  //     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  //   }
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
 
-  //   char *err;
+  char *err;
 
-  //   RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
-  //   if (req == NULL) {
-  //     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
-  //     SearchCtx_Free(sctx);
-  //     return RedisModule_ReplyWithError(ctx, err);
-  //   }
-  //   req->sctx = sctx;
+  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  if (req == NULL) {
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
+  req->sctx = sctx;
 
-  //   Query *q = NewQueryFromRequest(req);
-  //   if (!q) {
-  //     SearchCtx_Free(sctx);
-  //     return RedisModule_ReplyWithError(ctx, "Error parsing query");
-  //   }
+  QueryParseCtx *q = NewQueryParseCtx(req);
+  if (!q) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Error parsing query");
+  }
 
-  //   char *errMsg = NULL;
-  //   if (!Query_Parse(q, &errMsg)) {
+  char *errMsg = NULL;
+  if (!Query_Parse(q, &errMsg)) {
 
-  //     if (errMsg) {
-  //       RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
-  //       RedisModule_ReplyWithError(ctx, errMsg);
-  //       free(errMsg);
-  //     } else {
-  //       /* Simulate an empty response - this means an empty query */
-  //       RedisModule_ReplyWithArray(ctx, 1);
-  //       RedisModule_ReplyWithLongLong(ctx, 0);
-  //     }
-  //     goto end;
-  //   }
+    if (errMsg) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
+      RedisModule_ReplyWithError(ctx, errMsg);
+      free(errMsg);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    goto end;
+  }
+  if (!(req->flags & Search_Verbatim)) {
+    Query_Expand(q, req->expander);
+  }
+  if (req->geoFilter) {
+    Query_SetGeoFilter(q, req->geoFilter);
+  }
 
-  //   Query_Expand(q);
+  if (req->idFilter) {
+    Query_SetIdFilter(q, req->idFilter);
+  }
+  // set numeric filters if possible
+  if (req->numericFilters) {
+    for (int i = 0; i < Vector_Size(req->numericFilters); i++) {
+      NumericFilter *nf;
+      Vector_Get(req->numericFilters, i, &nf);
+      if (nf) {
+        Query_SetNumericFilter(q, nf);
+      }
+    }
 
-  //   if (req->geoFilter) {
-  //     Query_SetGeoFilter(q, req->geoFilter);
-  //   }
+    Vector_Free(req->numericFilters);
+    req->numericFilters = NULL;
+  }
 
-  //   if (req->idFilter) {
-  //     Query_SetIdFilter(q, req->idFilter);
-  //   }
-  //   // set numeric filters if possible
-  //   if (req->numericFilters) {
-  //     for (int i = 0; i < Vector_Size(req->numericFilters); i++) {
-  //       NumericFilter *nf;
-  //       Vector_Get(req->numericFilters, i, &nf);
-  //       if (nf) {
-  //         Query_SetNumericFilter(q, nf);
-  //       }
-  //     }
+  char *explain = (char *)Query_DumpExplain(q);
+  RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
+  free(explain);
 
-  //     Vector_Free(req->numericFilters);
-  //     req->numericFilters = NULL;
-  //   }
+end:
 
-  //   char *explain = (char *)Query_DumpExplain(q);
-  //   RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
-  //   free(explain);
-
-  // end:
-
-  //   Query_Free(q);
-  //   RSSearchRequest_Free(req);
-  //   return REDISMODULE_OK;
+  Query_Free(q);
+  RSSearchRequest_Free(req);
+  return REDISMODULE_OK;
 }
 
 /* FT.DTADD {index} {key} {flags} {score} [{payload}]
