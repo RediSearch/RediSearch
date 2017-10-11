@@ -106,10 +106,10 @@ static RSValue *RSFieldMap_Item(RSFieldMap *m, uint16_t pos) {
   return &m->fields[pos].val;
 }
 
-static void RSFieldMap_Set(RSFieldMap *m, const char *key, RSValue val) {
+static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
   // TODO: override existing field
-  RSFieldMap_EnsureCap(&m);
-  m->fields[m->len++] = RS_NewField(key, val);
+  RSFieldMap_EnsureCap(m);
+  (*m)->fields[(*m)->len++] = RS_NewField(key, val);
 }
 
 #endif

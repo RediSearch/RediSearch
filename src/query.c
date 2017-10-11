@@ -823,6 +823,8 @@ void SearchResult_Free(void *p) {
   if (r->indexResult) {
     IndexResult_Free(r->indexResult);
   }
+  free(r->fields);
+
   free(r);
 }
 
@@ -995,7 +997,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Set(res.fields, doc.fields[i].name,
+    RSFieldMap_Set(&res.fields, doc.fields[i].name,
                    doc.fields[i].text
                        ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
                        : RS_NullVal());
