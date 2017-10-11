@@ -895,6 +895,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     } else {
       /* The current should not enter the pool, so just leave it as is */
       sc->pooledResult = h;
+      // make sure we will not try to free the index result of the pooled result at the end
+      sc->pooledResult->indexResult = NULL;
     }
   }
 

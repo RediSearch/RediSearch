@@ -67,7 +67,7 @@ RSIndexResult *NewVirtualResult() {
   return res;
 }
 
-RSIndexResult *IndexResult_DeepCopy(RSIndexResult *src) {
+RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   RSIndexResult *ret = rm_new(RSIndexResult);
   *ret = *src;
   ret->isCopy = 1;
