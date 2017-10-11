@@ -1124,6 +1124,17 @@ int QueryPlan_Execute(QueryPlan *plan, const char **err) {
   return rc;
 }
 
+void QueryPlan_Free(QueryPlan *plan) {
+  if (plan->rootProcessor) {
+    ResultProcessor_Free(plan->rootProcessor);
+  }
+  if (plan->rootFilter) {
+    plan->rootFilter->Free(plan->rootFilter);
+  }
+  ConcurrentSearchCtx_Free(&plan->conc);
+  free(plan);
+}
+
 // Free just frees up the processor
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 

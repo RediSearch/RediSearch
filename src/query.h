@@ -228,4 +228,5 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
  * object */
 int QueryPlan_Execute(QueryPlan *ctx, const char **err);
 
+void QueryPlan_Free(QueryPlan *plan);
 #endif
