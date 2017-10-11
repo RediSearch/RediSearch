@@ -22,8 +22,9 @@ void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
 int numFreed = 0;
 void myFreeFunc(void *p) {
-  // printf("Freeing %p\n", p);
   numFreed++;
+  printf("Freeing %p %d\n", p, numFreed);
+
   free(p);
 }
 
@@ -103,19 +104,25 @@ int testQueryExpander() {
 
   const char *qt = "hello world";
   char *err = NULL;
+  RSSearchRequest req = (RSSearchRequest){.flags = RS_DEFAULT_QUERY_FLAGS,
+                                          .fieldMask = RS_FIELDMASK_ALL,
+                                          .indexName = "idx",
+                                          .language = "en",
+                                          .rawQuery = (char *)qt,
+                                          .qlen = strlen(qt),
+                                          .expander = "myExpander",
+                                          .scorer = "myScore"};
 
-  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(),
-                      "myExpander", -1, 0, "myScorer", (RSPayload){}, NULL);
-
-  ASSERT(q->expander = myExpander);
-  ASSERT(q->expanderFree = myFreeFunc);
-  ASSERT(q->expCtx.privdata != NULL);
+  QueryParseCtx *q = NewQueryParseCtx(&req);
+  // ASSERT(q->expander = myExpander);
+  // ASSERT(q->expanderFree = myFreeFunc);
+  // ASSERT(q->expCtx.privdata != NULL);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
 
   ASSERT_EQUAL(q->numTokens, 2)
-  Query_Expand(q);
+  Query_Expand(q, req.expander);
   //__queryNode_Print(n, 0);
   ASSERT_EQUAL(q->numTokens, 4)
 
@@ -138,7 +145,7 @@ int testQueryExpander() {
   Term_Free(qtr);
 
   Query_Free(q);
-  ASSERT_EQUAL(2, numFreed);
+  ASSERT_EQUAL(1, numFreed);
   RETURN_TEST_SUCCESS;
 }
 
