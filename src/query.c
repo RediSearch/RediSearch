@@ -1090,6 +1090,7 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
     count += serializeResult(qex, &r, flags);
 
     IndexResult_Free(r.indexResult);
+    free(r.fields);
   } while (rc != RS_RESULT_EOF);
   if (count == 0) {
     RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
