@@ -633,25 +633,6 @@ void Query_Free(QueryParseCtx *q) {
   if (q->root) {
     QueryNode_Free(q->root);
   }
-  // // if we have a custom expander with a free function - call it now
-  // // printf("expander free %p. privdata %p\n", q->expanderFree, q->expCtx.privdata);
-  // if (q->expanderFree) {
-  //   q->expanderFree(q->expCtx.privdata);
-  // }
-
-  // // we have a custom scorer with a free function - call it now
-  // if (q->scorerFree) {
-  //   q->scorerFree(q->scorerCtx.privdata);
-  // }
-
-  // ConcurrentSearchCtx_Free(&q->conc);
-  // if (q->rootFilter) {
-  //   q->rootFilter->Free(q->rootFilter);
-  // }
-
-  // if (q->rootProcessor) {
-  //   ResultProcessor_Free(q->rootProcessor);
-  // }
   free(q->raw);
   free(q);
 }
