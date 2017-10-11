@@ -298,8 +298,9 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     Query_Free(q);
     return REDISMODULE_ERR;
   }
-
-  Query_Expand(q);
+  if (!(req->flags & Search_Verbatim)) {
+    Query_Expand(q, req->expander);
+  }
 
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
