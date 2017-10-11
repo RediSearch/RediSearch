@@ -65,6 +65,7 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
   }
+  return REDISMODULE_OK;
 }
 // A result field is a key/value pair of variant type
 typedef struct {
