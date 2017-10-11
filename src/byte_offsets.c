@@ -128,7 +128,7 @@ int RSByteOffset_Iterate(RSByteOffsets *offsets, uint32_t fieldId, RSByteOffsetI
 }
 
 uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter) {
-  if (BufferReader_AtEnd(&iter->rdr) || ++iter->curPos >= iter->endPos) {
+  if (BufferReader_AtEnd(&iter->rdr) || ++iter->curPos > iter->endPos) {
     return RSBYTEOFFSET_EOF;
   }
 
