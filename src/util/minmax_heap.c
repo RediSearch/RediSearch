@@ -260,7 +260,7 @@ heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_fre
 
 void mmh_free(heap_t* h) {
   if (h->free_func) {
-    for (size_t i = 1; i < h->count; i++) {
+    for (size_t i = 0; i <= h->count; i++) {
       h->free_func(h->data[i]);
     }
   }

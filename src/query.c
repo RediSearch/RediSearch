@@ -19,6 +19,7 @@
 #define MAX_PREFIX_EXPANSIONS 200
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
+
   if (tn->str) free(tn->str);
 }
 
@@ -223,7 +224,7 @@ void Query_Expand(QueryParseCtx *q, const char *expander) {
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
     QueryNode_Expand(xpc->exp, &expCtx, &q->root);
-    if (xpc->ff && xpc->privdata) xpc->ff(xpc->privdata);
+    if (xpc->ff) xpc->ff(expCtx.privdata);
   }
 }
 
@@ -633,6 +634,7 @@ void Query_Free(QueryParseCtx *q) {
   if (q->root) {
     QueryNode_Free(q->root);
   }
+
   free(q->raw);
   free(q);
 }
@@ -833,6 +835,7 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
   if (sc->pq->count > 0 && sc->offset++ < sc->size) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
+    free(sr);
     return RS_RESULT_OK;
   }
   return RS_RESULT_EOF;
@@ -978,8 +981,7 @@ struct loaderCtx {
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct loaderCtx *lc = ctx->privdata;
 
-  SearchResult res;
-  int rc = ResultProcessor_Next(ctx->upstream, &res, 1);
+  int rc = ResultProcessor_Next(ctx->upstream, r, 1);
   // END - let's write the total processed size
   if (rc == RS_RESULT_EOF) {
     return rc;
@@ -991,19 +993,19 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // I'm unusre if that's intentional or an oversight.
 
   RedisModuleString *idstr =
-      RedisModule_CreateString(lc->ctx->redisCtx, res.md->key, strlen(res.md->key));
+      RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
   Redis_LoadDocumentEx(lc->ctx, idstr, lc->loadfields, lc->numFields, &doc, &rkey);
   RedisModule_FreeString(lc->ctx->redisCtx, idstr);
 
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Set(&res.fields, doc.fields[i].name,
+    RSFieldMap_Set(&r->fields, doc.fields[i].name,
                    doc.fields[i].text
                        ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
                        : RS_NullVal());
   }
   Document_Free(&doc);
-  *r = res;
+  // *r = res;
 
   return RS_RESULT_OK;
 }
