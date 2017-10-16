@@ -141,9 +141,10 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
     // Increment the total results barring deleted results
     ++ctx->qxc->totalResults;
-
     // valid result!
-  } while (rc != INDEXREAD_OK);
+
+    break;
+  } while (1);
 
   // set the result data
   res->docId = r->docId;
