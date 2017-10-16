@@ -72,6 +72,10 @@ void QueryNode_Free(QueryNode *n) {
       QueryTokenNode_Free(&n->pfx);
       break;
     case QN_GEO:
+    if (n->gn.gf) {
+      GeoFilter_Free(n->gn.gf);
+    }
+    
     case QN_WILDCARD:
     case QN_IDS:
       break;
@@ -156,13 +160,13 @@ QueryNode *NewGeofilterNode(GeoFilter *flt) {
 }
 
 static void Query_SetFilterNode(QueryParseCtx *q, QueryNode *n) {
-  if (q->root == NULL) return;
+  if (q->root == NULL || n == NULL) return;
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
     // TODO: do this in a smart manner
-    QueryPhraseNode_AddChild(q->root, NULL);
+    QueryPhraseNode_AddChild(q->root, n);
     for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
       q->root->pn.children[i] = q->root->pn.children[i - 1];
     }
@@ -223,7 +227,9 @@ void Query_Expand(QueryParseCtx *q, const char *expander) {
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
+    printf("root before: %p\n", q->root);
     QueryNode_Expand(xpc->exp, &expCtx, &q->root);
+    printf("root fater: %p\n", q->root);
     if (xpc->ff) xpc->ff(expCtx.privdata);
   }
 }
@@ -242,6 +248,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      q->req->fieldMask & qn->fieldMask, q->conc);
   if (ir == NULL) {
+    Term_Free(term);
     return NULL;
   }
 
@@ -288,7 +295,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
                                        q->req->fieldMask & qn->fieldMask, q->conc);
 
     free(tok.str);
-    if (!ir) continue;
+    if (!ir) {
+      Term_Free(term);
+      continue;
+    }
 
     // Add the reader to the iterator array
     its[itsSz++] = NewReadIterator(ir);
@@ -1104,7 +1114,7 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
 }
 
 QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
-
+  QueryNode_Print(parsedQuery, parsedQuery->root, 0);
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->req = req;

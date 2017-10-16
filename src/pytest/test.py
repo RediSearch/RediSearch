@@ -738,7 +738,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual('hotel79', res[1])
                 res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
                 self.assertListEqual(res,res2)
-
+                    
                 res = gsearch('hilton', "-0.1757", "51.5156", '10')
                 self.assertEqual(14, res[0])
                 self.assertEqual('hotel93', res[1])
@@ -972,9 +972,10 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                         "filter", "score", 0, 50)
                 self.assertEqual(51, res[0])
+                
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                         "filter", "score", "(0", "(50")
-
+                
                 self.assertEqual(49, res[0])
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                         "filter", "score", "-inf", "+inf")
