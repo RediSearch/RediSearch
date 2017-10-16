@@ -6,6 +6,25 @@
 #include "value.h"
 #include "concurrent_ctx.h"
 
+/********************************************************************************
+ * Result Processor Chain
+ *
+ * We use a chain of result processors to sort, score, filter and page the results coming from the
+ * index.
+ *
+ * The index iterator tree is responsible for extracting results from the index, and the processor
+ * chain is responsible for processing those and preparing them for the users.
+ * The processors are exposing an iterator interface, adding values to SearchResult objects.
+ *
+ * SearchResult objects contain all the data needed for a search result - from docId and score, to
+ * the actual fields loaded from redis.
+ *
+ * Processors can add more fields, rewrite them, change the score, etc.
+ * The query plan builds the chain based on the request, and then the chain just processes the
+ * results.
+ *
+ ********************************************************************************/
+
 /* Query processing state */
 typedef enum {
   QueryState_OK,
