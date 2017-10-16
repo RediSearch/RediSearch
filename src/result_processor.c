@@ -321,13 +321,16 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     return sorter_Yield(sc, r);
   }
 
-  // printf("pq count %d, pq size %d\n", sc->pq->count, sc->pq->size);
+  // If the queue is not full - we just push the result into it
   if (sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = IndexResult_DeepCopy(h->indexResult);
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
+    if (h->score < ctx->qxc->minScore) {
+      ctx->qxc->minScore = h->score;
+    }
 
   } else {
     // find the min result
@@ -348,7 +351,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       sc->pooledResult->indexResult = NULL;
       mmh_insert(sc->pq, h);
     } else {
-      /* The current should not enter the pool, so just leave it as is */
+      // The current should not enter the pool, so just leave it as is
       sc->pooledResult = h;
       // make sure we will not try to free the index result of the pooled result at the end
       sc->pooledResult->indexResult = NULL;
@@ -358,7 +361,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_QUEUED;
 }
 
-/* Compare hits for sorting in the heap during traversal of the top N */
+/* Compare results for the heap by score */
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
 
@@ -370,6 +373,7 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return h1->docId < h2->docId ? -1 : 1;
 }
 
+/* Compare results for the heap by sorting key */
 static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   const RSSortingKey *sk = udata;
   const SearchResult *h1 = e1, *h2 = e2;
@@ -403,6 +407,19 @@ ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *ups
   return rp;
 }
 
+/*******************************************************************************************************************
+ *  Paging Processor
+ *
+ * The sorter builds a heap of size N, but the pager is responsible for taking result
+ * FIRST...FIRST+NUM from it.
+ *
+ * For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and the
+ * pager is responsible for discarding the first 40 results and returning just 10
+ *
+ * They are separated so that later on we can cache the sorter's heap, and continue paging it
+ * without re-executing the entire query
+ *******************************************************************************************************************/
+
 struct pagerCtx {
   uint32_t offset;
   uint32_t limit;
@@ -433,6 +450,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+/* Create a new pager. The offset and limit are taken from the user request */
 ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit) {
   struct pagerCtx *pc = malloc(sizeof(*pc));
   pc->offset = offset;
@@ -441,10 +459,20 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
   ResultProcessor *rp = NewResultProcessor(upstream, pc);
 
   rp->Next = pager_Next;
+  // no need for a special free function
   rp->Free = resultProcessor_GenericFree;
   return rp;
 }
 
+/*******************************************************************************************************************
+ *  Loading Processor
+ *
+ * This processor simply takes the search results, and based on the request parameters, loads the
+ * relevant fields for the results that need to be displayed to the user, from redis.
+ *
+ * It fills the result objects' field map with values corresponding to the requested return fields
+ *
+ *******************************************************************************************************************/
 struct loaderCtx {
   RedisSearchCtx *ctx;
   size_t numFields;
@@ -496,7 +524,10 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
   return rp;
 }
 
-// Free just frees up the processor
+/*******************************************************************************************************************
+ * Building the processor chaing based on the processors available and the request parameters
+ *******************************************************************************************************************/
+
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 
   // The base processor translates index results into search results
@@ -514,7 +545,11 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   next = NewPager(next, req->offset, req->num);
 
   // The loader loads the documents from redis
-  next = NewLoader(next, req);
+  // If we do not need to return any fields - we do not need the loader in the loop
+  if (!(req->flags & Search_NoContent) || req->nretfields == 0) {
+
+    next = NewLoader(next, req);
+  }
 
   return next;
 }
