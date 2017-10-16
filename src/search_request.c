@@ -304,6 +304,8 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
+    // Let the query tree handle the deletion
+    req->geoFilter = NULL;
   }
 
   if (req->idFilter) {

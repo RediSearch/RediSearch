@@ -4,11 +4,7 @@
    match-leak-kinds: definite
    ...
    fun:DefaultExtensionInit
-   fun:Extension_Load
-   fun:RediSearch_InitModuleInternal
-   fun:moduleLoad
-   fun:moduleLoadFromQueue
-   fun:main
+   ...
 }
 {
    <insert_a_suppression_name_here>

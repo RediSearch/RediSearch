@@ -180,7 +180,7 @@ term(A) ::= QUOTE term(B) QUOTE. {
 }
 
 expr(A) ::= term(B) .  {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), B.len);
+        A = NewTokenNode(ctx, strdupcase(B.s, B.len), B.len);
 }
 
 expr(A) ::= STOPWORD . [STOPWORD] {
@@ -253,6 +253,8 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     A = NewGeoFilter(B.num, C.num, D.num, strdupcase(E.s, E.len));
     char *err = NULL;
     if (!GeoFilter_IsValid(A, &err)) {
+        GeoFilter_Free(A);
+        A = NULL;
         ctx->ok = 0;
         ctx->errorMsg = strdup(err);
     }
