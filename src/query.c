@@ -647,392 +647,6 @@ void Query_Free(QueryParseCtx *q) {
   free(q);
 }
 
-/* Compare hits for sorting in the heap during traversal of the top N */
-static inline int cmpHits(const void *e1, const void *e2, const void *udata) {
-  const SearchResult *h1 = e1, *h2 = e2;
-
-  if (h1->score < h2->score) {
-    return -1;
-  } else if (h1->score > h2->score) {
-    return 1;
-  }
-  return h1->docId < h2->docId ? -1 : 1;
-}
-
-static int sortByCmp(const void *e1, const void *e2, const void *udata) {
-  const RSSortingKey *sk = udata;
-  const SearchResult *h1 = e1, *h2 = e2;
-  if (!h1->sv || !h2->sv) {
-    return h1->docId < h2->docId ? -1 : 1;
-  }
-  return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
-}
-
-/* A callback called when we regain concurrent execution context, and the index spec key is
- * reopened. We protect against the case that the spec has been deleted during query execution */
-void Query_OnReopen(RedisModuleKey *k, void *privdata) {
-  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-  QueryPlan *q = privdata;
-  // If we don't have a spec or key - we abort the query
-  if (k == NULL || sp == NULL) {
-    q->execCtx.state = QueryState_Aborted;
-    q->ctx->spec = NULL;
-    return;
-  }
-
-  // The spec might have changed while we were sleeping - for example a realloc of the doc table
-  q->ctx->spec = sp;
-
-  // q->docTable = &sp->docs;
-}
-
-ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
-  ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
-  p->ctx = (ResultProcessorCtx){
-      .privdata = privdata, .upstream = upstream, .qxc = upstream ? upstream->ctx.qxc : NULL,
-  };
-
-  return p;
-}
-
-static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
-  int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc->conc;
-  do {
-    if (allowSwitching) {
-      CONCURRENT_CTX_TICK(cxc);
-      // need to abort
-      if (rp->ctx.qxc->state == QueryState_Aborted) {
-        return RS_RESULT_EOF;
-      }
-    }
-    rc = rp->Next(&rp->ctx, res);
-
-  } while (rc == RS_RESULT_QUEUED);
-  return rc;
-}
-
-int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  QueryPlan *q = ctx->privdata;
-  if (q->rootFilter == NULL) {
-    return RS_RESULT_EOF;
-  }
-  RSIndexResult *r;
-  RSDocumentMetadata *dmd;
-  do {
-    int rc = q->rootFilter->Read(q->rootFilter->ctx, &r);
-
-    // This means we are done!
-    if (rc == INDEXREAD_EOF) {
-      return RS_RESULT_EOF;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
-      continue;
-    }
-
-    dmd = DocTable_Get(&q->ctx->spec->docs, r->docId);
-
-    // skip deleted documents
-    if (!dmd || (dmd->flags & Document_Deleted)) {
-      continue;
-    }
-    ++ctx->qxc->totalResults;
-
-    break;
-  } while (1);
-
-  res->docId = r->docId;
-  res->indexResult = r;
-  res->score = 0;
-  res->sv = dmd->sortVector;
-  res->md = dmd;
-
-  return RS_RESULT_OK;
-}
-
-SearchResult *NewSearchResult() {
-  SearchResult *ret = calloc(1, sizeof(*ret));
-  ret->fields = RS_NewFieldMap(4);
-  ret->score = 0;
-  return ret;
-}
-
-ResultProcessor *NewBaseProcessor(QueryPlan *q, QueryProcessingCtx *xc) {
-  ResultProcessor *rp = NewResultProcessor(NULL, q);
-  rp->ctx.qxc = xc;
-  rp->Next = baseResultProcessor_Next;
-  return rp;
-}
-
-struct scorerCtx {
-  RSScoringFunction scorer;
-  RSFreeFunction scorerFree;
-  RSScoringFunctionCtx scorerCtx;
-};
-
-int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  struct scorerCtx *sc = ctx->privdata;
-  int rc;
-
-  do {
-
-    if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res, 0))) return rc;
-
-    res->score = sc->scorer(&sc->scorerCtx, res->indexResult, res->md, ctx->qxc->minScore);
-    if (res->score == RS_SCORE_FILTEROUT) ctx->qxc->totalResults--;
-
-    break;
-  } while (1);
-
-  return rc;
-}
-
-static void resultProcessor_GenericFree(ResultProcessor *rp) {
-  free(rp->ctx.privdata);
-  free(rp);
-}
-
-static void scorer_Free(ResultProcessor *rp) {
-  struct scorerCtx *sc = rp->ctx.privdata;
-  if (sc->scorerFree) {
-    sc->scorerFree(sc->scorerCtx.privdata);
-  }
-  resultProcessor_GenericFree(rp);
-}
-
-ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
-  struct scorerCtx *sc = malloc(sizeof(*sc));
-  ExtScoringFunctionCtx *scx =
-      Extensions_GetScoringFunction(&sc->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
-  if (!scx) {
-    scx = Extensions_GetScoringFunction(&sc->scorerCtx, DEFAULT_SCORER_NAME);
-  }
-
-  sc->scorer = scx->sf;
-  sc->scorerFree = scx->ff;
-
-  ResultProcessor *rp = NewResultProcessor(upstream, sc);
-  rp->Next = scorerProcessor_Next;
-  rp->Free = scorer_Free;
-  return rp;
-}
-
-struct sorterCtx {
-  uint32_t size;
-  uint32_t offset;
-  heap_t *pq;
-  int (*cmp)(const void *e1, const void *e2, const void *udata);
-  void *cmpCtx;
-  SearchResult *pooledResult;
-  int accumulating;
-};
-
-void SearchResult_Free(void *p) {
-  SearchResult *r = p;
-
-  if (!r) return;
-  if (r->indexResult) {
-    IndexResult_Free(r->indexResult);
-  }
-  free(r->fields);
-
-  free(r);
-}
-
-int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
-
-  if (sc->pq->count > 0 && sc->offset++ < sc->size) {
-    SearchResult *sr = mmh_pop_max(sc->pq);
-    *r = *sr;
-    free(sr);
-    return RS_RESULT_OK;
-  }
-  return RS_RESULT_EOF;
-}
-
-void sorter_Free(ResultProcessor *rp) {
-  struct sorterCtx *sc = rp->ctx.privdata;
-  if (sc->pooledResult) {
-    SearchResult_Free(sc->pooledResult);
-  }
-  mmh_free(sc->pq);
-  free(sc);
-  free(rp);
-}
-
-int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
-  struct sorterCtx *sc = ctx->privdata;
-  if (!sc->accumulating) {
-    return sorter_Yield(sc, r);
-  }
-
-  if (sc->pooledResult == NULL) {
-    sc->pooledResult = NewSearchResult();
-  } else {
-    sc->pooledResult->fields->len = 0;
-  }
-  SearchResult *h = sc->pooledResult;
-
-  int rc = ResultProcessor_Next(ctx->upstream, h, 0);
-  // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
-    sc->accumulating = 0;
-    return sorter_Yield(sc, r);
-  }
-
-  // printf("pq count %d, pq size %d\n", sc->pq->count, sc->pq->size);
-  if (sc->pq->count + 1 < sc->pq->size) {
-
-    // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = IndexResult_DeepCopy(h->indexResult);
-    mmh_insert(sc->pq, h);
-    sc->pooledResult = NULL;
-
-  } else {
-    // find the min result
-    SearchResult *minh = mmh_peek_min(sc->pq);
-
-    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (minh->score > ctx->qxc->minScore) {
-      ctx->qxc->minScore = minh->score;
-    }
-
-    // if needed - pop it and insert a new result
-    if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
-      // copy the index result to make it thread safe - but only if it is pushed to the heap
-      h->indexResult = IndexResult_DeepCopy(h->indexResult);
-
-      sc->pooledResult = mmh_pop_min(sc->pq);
-      IndexResult_Free(sc->pooledResult->indexResult);
-      sc->pooledResult->indexResult = NULL;
-      mmh_insert(sc->pq, h);
-    } else {
-      /* The current should not enter the pool, so just leave it as is */
-      sc->pooledResult = h;
-      // make sure we will not try to free the index result of the pooled result at the end
-      sc->pooledResult->indexResult = NULL;
-    }
-  }
-
-  return RS_RESULT_QUEUED;
-}
-
-ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream) {
-
-  struct sorterCtx *sc = malloc(sizeof(*sc));
-
-  if (sk) {
-    sc->cmp = sortByCmp;
-    sc->cmpCtx = sk;
-  } else {
-    sc->cmp = cmpHits;
-    sc->cmpCtx = NULL;
-  }
-
-  sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx, SearchResult_Free);
-  sc->size = size;
-  sc->offset = 0;
-  sc->pooledResult = NULL;
-  sc->accumulating = 1;
-
-  ResultProcessor *rp = NewResultProcessor(upstream, sc);
-  rp->Next = sorter_Next;
-  rp->Free = sorter_Free;
-  return rp;
-}
-
-struct pagerCtx {
-  uint32_t offset;
-  uint32_t limit;
-  uint32_t count;
-};
-
-int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
-  struct pagerCtx *pc = ctx->privdata;
-
-  int rc = ResultProcessor_Next(ctx->upstream, r, 1);
-  // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
-    return rc;
-  }
-
-  // not reached beginning of results
-  if (pc->count < pc->offset) {
-    IndexResult_Free(r->indexResult);
-    free(r->fields);
-    pc->count++;
-    return RS_RESULT_QUEUED;
-  }
-  // overshoot the count
-  if (pc->count >= pc->limit + pc->offset) {
-    return RS_RESULT_EOF;
-  }
-  pc->count++;
-  return RS_RESULT_OK;
-}
-
-ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit) {
-  struct pagerCtx *pc = malloc(sizeof(*pc));
-  pc->offset = offset;
-  pc->limit = limit;
-  pc->count = 0;
-  ResultProcessor *rp = NewResultProcessor(upstream, pc);
-
-  rp->Next = pager_Next;
-  rp->Free = resultProcessor_GenericFree;
-  return rp;
-}
-
-struct loaderCtx {
-  RedisSearchCtx *ctx;
-  size_t numFields;
-  const char **loadfields;
-};
-
-int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
-  struct loaderCtx *lc = ctx->privdata;
-
-  int rc = ResultProcessor_Next(ctx->upstream, r, 1);
-  // END - let's write the total processed size
-  if (rc == RS_RESULT_EOF) {
-    return rc;
-  }
-  Document doc = {NULL};
-  RedisModuleKey *rkey = NULL;
-
-  // Current behavior skips entire result if document does not exist.
-  // I'm unusre if that's intentional or an oversight.
-
-  RedisModuleString *idstr =
-      RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
-  Redis_LoadDocumentEx(lc->ctx, idstr, lc->loadfields, lc->numFields, &doc, &rkey);
-  RedisModule_FreeString(lc->ctx->redisCtx, idstr);
-
-  // TODO: load should return strings, not redis strings
-  for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Set(&r->fields, doc.fields[i].name,
-                   doc.fields[i].text
-                       ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
-                       : RS_NullVal());
-  }
-  Document_Free(&doc);
-  // *r = res;
-
-  return RS_RESULT_OK;
-}
-
-ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
-  struct loaderCtx *sc = malloc(sizeof(*sc));
-  sc->ctx = r->sctx;
-  sc->loadfields = r->retfields;
-  sc->numFields = r->nretfields;
-
-  ResultProcessor *rp = NewResultProcessor(upstream, sc);
-
-  rp->Next = loader_Next;
-  rp->Free = resultProcessor_GenericFree;
-  return rp;
-}
-
 /******************************************************************************************************
  *   Query Plan - the actual binding context of the whole execution plan - from filters to
  *   processors
@@ -1113,6 +727,41 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
   return REDISMODULE_OK;
 }
 
+/* A callback called when we regain concurrent execution context, and the index spec key is
+ * reopened. We protect against the case that the spec has been deleted during query execution */
+void Query_OnReopen(RedisModuleKey *k, void *privdata) {
+  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
+  QueryPlan *q = privdata;
+  // If we don't have a spec or key - we abort the query
+  if (k == NULL || sp == NULL) {
+    q->execCtx.state = QueryState_Aborted;
+    q->ctx->spec = NULL;
+    return;
+  }
+
+  // The spec might have changed while we were sleeping - for example a realloc of the doc table
+  q->ctx->spec = sp;
+
+  // q->docTable = &sp->docs;
+}
+
+int QueryPlan_Execute(QueryPlan *plan, const char **err) {
+  int rc = Query_SerializeResults(plan, plan->req->flags);
+  if (err) *err = plan->execCtx.errorString;
+  return rc;
+}
+
+void QueryPlan_Free(QueryPlan *plan) {
+  if (plan->rootProcessor) {
+    ResultProcessor_Free(plan->rootProcessor);
+  }
+  if (plan->rootFilter) {
+    plan->rootFilter->Free(plan->rootFilter);
+  }
+  ConcurrentSearchCtx_Free(&plan->conc);
+  free(plan);
+}
+
 QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
@@ -1135,44 +784,4 @@ QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
   plan->rootProcessor = Query_BuildProcessorChain(plan, req);
   return plan;
-}
-
-int QueryPlan_Execute(QueryPlan *plan, const char **err) {
-  int rc = Query_SerializeResults(plan, plan->req->flags);
-  if (err) *err = plan->execCtx.errorString;
-  return rc;
-}
-
-void QueryPlan_Free(QueryPlan *plan) {
-  if (plan->rootProcessor) {
-    ResultProcessor_Free(plan->rootProcessor);
-  }
-  if (plan->rootFilter) {
-    plan->rootFilter->Free(plan->rootFilter);
-  }
-  ConcurrentSearchCtx_Free(&plan->conc);
-  free(plan);
-}
-
-// Free just frees up the processor
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
-
-  // The base processor translates index results into search results
-  ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
-
-  // If we are not in SORTBY mode - add a scorer to the chain
-  if (req->sortBy == NULL) {
-    next = NewScorer(req->scorer, next);
-  }
-
-  // The sorter sorts the top-N results
-  next = NewSorter(req->sortBy, req->offset + req->num, next);
-
-  // The pager pages over the results of the sorter
-  next = NewPager(next, req->offset, req->num);
-
-  // The loader loads the documents from redis
-  next = NewLoader(next, req);
-
-  return next;
 }

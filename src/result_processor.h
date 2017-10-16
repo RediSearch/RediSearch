@@ -68,29 +68,30 @@ typedef struct resultProcessor {
   void (*Free)(struct resultProcessor *p);
 } ResultProcessor;
 
+/* Create a raw result processor object with no callbacks, just the upstream and privdata */
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
 
-static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
+/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
+ * we check the concurrent context and perhaps switch if needed.
+ *
+ * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
+ *
+ * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
+ * will be handled by this function
+ * */
+int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
 
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
  * chain until we find a processor with a Total callback. This allows processors to avoid
  * implementing it if they have no calculations to add to Total (such as deeted/ignored results)
  * */
-static inline size_t ResultProcessor_Total(ResultProcessor *rp) {
-  return rp->ctx.qxc->totalResults;
-}
+size_t ResultProcessor_Total(ResultProcessor *rp);
 
-static void ResultProcessor_Free(ResultProcessor *rp) {
-  ResultProcessor *upstream = rp->ctx.upstream;
-  if (rp->Free) {
-    rp->Free(rp);
-  } else {
-    // For processors that did not bother to define a special Free - we just call free()
-    free(rp);
-  }
-  // continue to the upstream processor
-  if (upstream) ResultProcessor_Free(upstream);
-}
+/* Free a result processor - recursively freeing its upstream as well. If the processor does not
+ * implement Free - we just call free() on the processor object itself.
+ *
+ * Do NOT call Free() callbacks on processors directly! */
+void ResultProcessor_Free(ResultProcessor *rp);
 
 #endif  // !RS_RESULT_PROCESSOR_H_
