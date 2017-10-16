@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <sys/param.h>
+#include <stdarg.h>
 
 #include "redisearch.h"
 #include "sortable.h"
@@ -17,17 +18,30 @@ typedef enum {
   RSValue_String,
   RSValue_Null,
   RSValue_RedisString,
+  // An array of values, that can be of any type
+  RSValue_Array,
 } RSValueType;
 
 // Variant value union
-typedef struct {
+typedef struct rsvalue {
   union {
+    // numeric value
     double numval;
+
+    // string value
     struct {
       char *str;
       uint32_t len;
     } strval;
-    RedisModuleString *rstrval;
+
+    // array value
+    struct {
+      struct rsvalue *vals;
+      uint32_t len;
+    } arrval;
+
+    // redis string value
+    struct RedisModuleString *rstrval;
   };
   RSValueType t;
 } RSValue;
@@ -56,6 +70,36 @@ static inline RSValue RS_NumVal(double n) {
   };
 }
 
+/* Wrap an array of RSValue objects into an RSValue array object */
+static inline RSValue RS_ArrVal(RSValue *vals, uint32_t len) {
+  return (RSValue){
+      .t = RSValue_Array, .arrval = {.vals = vals, .len = len},
+  };
+}
+
+/* Wrap a variadic list of NULL terminated C strings into an RSVAlue array value */
+static inline RSValue RS_VStringArray(uint32_t sz, ...) {
+  RSValue *arr = calloc(sz, sizeof(RSValue));
+  va_list ap;
+  va_start(ap, sz);
+  for (uint32_t i = 0; i < sz; i++) {
+    char *p = va_arg(ap, char *);
+    arr[i] = RS_CStringVal(p);
+  }
+  va_end(ap);
+  return RS_ArrVal(arr, sz);
+}
+
+/* Wrap an array of NULL terminated C strings into an RSValue array */
+static inline RSValue RS_StringArray(char **strs, uint32_t sz) {
+  RSValue *arr = calloc(sz, sizeof(RSValue));
+
+  for (uint32_t i = 0; i < sz; i++) {
+    arr[i] = RS_CStringVal(strs[i]);
+  }
+  return RS_ArrVal(arr, sz);
+}
+
 /* Create a new NULL RSValue */
 static inline RSValue RS_NullVal() {
   return (RSValue){
@@ -77,6 +121,11 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
       return RedisModule_ReplyWithDouble(ctx, v->numval);
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
+    case RSValue_Array:
+      RedisModule_ReplyWithArray(ctx, v->arrval.len);
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        RSValue_SendReply(ctx, &v->arrval.vals[i]);
+      }
   }
   return REDISMODULE_OK;
 }

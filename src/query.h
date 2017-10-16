@@ -132,7 +132,7 @@ typedef struct {
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
-QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode);
+QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode);
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
 /* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
