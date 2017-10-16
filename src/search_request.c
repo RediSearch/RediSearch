@@ -324,7 +324,7 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     req->numericFilters = NULL;
   }
 
-  QueryPlan *plan = Query_BuildBlan(q, req, concurrentMode);
+  QueryPlan *plan = Query_BuildPlan(q, req, concurrentMode);
   // Execute the query
   // const char *err;
   int rc = QueryPlan_Execute(plan, (const char **)&err);

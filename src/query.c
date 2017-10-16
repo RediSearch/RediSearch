@@ -765,7 +765,7 @@ void QueryPlan_Free(QueryPlan *plan) {
   free(plan);
 }
 
-QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode) {
+QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
