@@ -758,23 +758,31 @@ void QueryPlan_Free(QueryPlan *plan) {
   if (plan->rootFilter) {
     plan->rootFilter->Free(plan->rootFilter);
   }
-  ConcurrentSearchCtx_Free(&plan->conc);
+  if (plan->conc) {
+    ConcurrentSearchCtx_Free(plan->conc);
+    free(plan->conc);
+  }
   free(plan);
 }
 
-QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
+QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
+  plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
   plan->req = req;
   plan->execCtx = (QueryProcessingCtx){
 
       .errorString = NULL, .minScore = 0, .totalResults = 0, .state = QueryState_OK,
   };
-  ConcurrentSearchCtx_Init(req->sctx->redisCtx, &plan->conc);
+  if (plan->conc) {
+    ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
+    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
+                            Query_OnReopen, plan, NULL);
+  }
 
   QueryEvalCtx ev = {
       .docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
-      .conc = &plan->conc,
+      .conc = plan->conc,
       .numTokens = parsedQuery->numTokens,
       .tokenId = 1,
       .sctx = plan->ctx,

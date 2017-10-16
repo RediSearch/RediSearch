@@ -280,7 +280,6 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
 int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
   QueryParseCtx *q = NewQueryParseCtx(req);
-  // Query_SetConcurrentMode(q, concurrentMode);
   RedisModuleCtx *ctx = req->sctx->redisCtx;
 
   char *err;
@@ -325,7 +324,7 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     req->numericFilters = NULL;
   }
 
-  QueryPlan *plan = Query_BuildBlan(q, req);
+  QueryPlan *plan = Query_BuildBlan(q, req, concurrentMode);
   // Execute the query
   // const char *err;
   int rc = QueryPlan_Execute(plan, (const char **)&err);
