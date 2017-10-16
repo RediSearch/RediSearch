@@ -227,9 +227,7 @@ void Query_Expand(QueryParseCtx *q, const char *expander) {
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
-    printf("root before: %p\n", q->root);
     QueryNode_Expand(xpc->exp, &expCtx, &q->root);
-    printf("root fater: %p\n", q->root);
     if (xpc->ff) xpc->ff(expCtx.privdata);
   }
 }
@@ -959,6 +957,8 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // not reached beginning of results
   if (pc->count < pc->offset) {
+    IndexResult_Free(r->indexResult);
+    free(r->fields);
     pc->count++;
     return RS_RESULT_QUEUED;
   }
@@ -1114,7 +1114,6 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
 }
 
 QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
-  QueryNode_Print(parsedQuery, parsedQuery->root, 0);
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->req = req;
