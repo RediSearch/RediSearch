@@ -16,6 +16,7 @@ typedef enum {
   RSValue_Number,
   RSValue_String,
   RSValue_Null,
+  RSValue_RedisString,
 } RSValueType;
 
 // Variant value union
@@ -26,6 +27,7 @@ typedef struct {
       char *str;
       uint32_t len;
     } strval;
+    RedisModuleString *rstrval;
   };
   RSValueType t;
 } RSValue;
@@ -40,6 +42,11 @@ static inline RSValue RS_StringVal(char *str, uint32_t len) {
  */
 static inline RSValue RS_CStringVal(char *str) {
   return RS_StringVal(str, strlen(str));
+}
+
+/* Wrap a redis string value */
+static inline RSValue RS_RedisStringVal(RedisModuleString *str) {
+  return (RSValue){.t = RSValue_RedisString, .rstrval = str};
 }
 
 /* Wrap a number into a value object */
@@ -64,6 +71,8 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
+    case RSValue_RedisString:
+      return RedisModule_ReplyWithString(ctx, v->rstrval);
     case RSValue_Number:
       return RedisModule_ReplyWithDouble(ctx, v->numval);
     case RSValue_Null:

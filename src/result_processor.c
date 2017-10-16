@@ -501,13 +501,10 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Set(&r->fields, doc.fields[i].name,
-                   doc.fields[i].text
-                       ? RS_CStringVal((char *)RedisModule_StringPtrLen(doc.fields[i].text, NULL))
-                       : RS_NullVal());
+    RSFieldMap_Add(&r->fields, doc.fields[i].name,
+                   doc.fields[i].text ? RS_RedisStringVal(doc.fields[i].text) : RS_NullVal());
   }
   Document_Free(&doc);
-  // *r = res;
 
   return RS_RESULT_OK;
 }
