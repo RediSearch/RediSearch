@@ -72,10 +72,10 @@ void QueryNode_Free(QueryNode *n) {
       QueryTokenNode_Free(&n->pfx);
       break;
     case QN_GEO:
-    if (n->gn.gf) {
-      GeoFilter_Free(n->gn.gf);
-    }
-    
+      if (n->gn.gf) {
+        GeoFilter_Free(n->gn.gf);
+      }
+
     case QN_WILDCARD:
     case QN_IDS:
       break;
@@ -756,7 +756,7 @@ SearchResult *NewSearchResult() {
   return ret;
 }
 
-ResultProcessor *NewBaseProcessor(QueryPlan *q, QueryExecutionCtx *xc) {
+ResultProcessor *NewBaseProcessor(QueryPlan *q, QueryProcessingCtx *xc) {
   ResultProcessor *rp = NewResultProcessor(NULL, q);
   rp->ctx.qxc = xc;
   rp->Next = baseResultProcessor_Next;
@@ -1117,7 +1117,7 @@ QueryPlan *Query_BuildBlan(QueryParseCtx *parsedQuery, RSSearchRequest *req) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->req = req;
-  plan->execCtx = (QueryExecutionCtx){
+  plan->execCtx = (QueryProcessingCtx){
 
       .errorString = NULL, .minScore = 0, .totalResults = 0, .state = QueryState_OK,
   };

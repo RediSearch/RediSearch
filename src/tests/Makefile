@@ -6,7 +6,7 @@ CFLAGS = -g -O2 -fPIC -std=gnu99 -I./
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
-.SILENT:
+#.SILENT:
 # Sources
 SOURCEDIR=..
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
@@ -34,6 +34,7 @@ LDFLAGS :=  -lc -lm -ldl -lpthread
 
 CC=gcc
 .SUFFIXES: .c .so .xo .o
+all: build test bench-decoder
 
 ext_example:
 	$(MAKE) -C ./ext-example clean all
@@ -116,7 +117,7 @@ build: stemmer trie index range extensions query stopwords blkalloc khtable
 test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords \
 	test_qint test_blkalloc test_khtable
 
-all: build test bench-decoder
+
 
 clean:
 	-rm -f *.o

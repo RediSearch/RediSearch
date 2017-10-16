@@ -1200,46 +1200,44 @@ static void yy_reduce(
     yymsp[-5].minor.yy48 = NewGeoFilter(yymsp[-4].minor.yy21.num, yymsp[-3].minor.yy21.num, yymsp[-2].minor.yy21.num, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
     char *err = NULL;
     if (!GeoFilter_IsValid(yymsp[-5].minor.yy48, &err)) {
-        GeoFilter_Free(yymsp[-5].minor.yy48);
-        yymsp[-5].minor.yy48 = NULL;
         ctx->ok = 0;
         ctx->errorMsg = strdup(err);
     }
 }
-#line 1210 "parser.c"
+#line 1208 "parser.c"
         break;
       case 27: /* num ::= NUMBER */
-#line 263 "parser.y"
+#line 261 "parser.y"
 {
     yylhsminor.yy21.num = yymsp[0].minor.yy0.numval;
     yylhsminor.yy21.inclusive = 1;
 }
-#line 1218 "parser.c"
+#line 1216 "parser.c"
   yymsp[0].minor.yy21 = yylhsminor.yy21;
         break;
       case 28: /* num ::= LP num */
-#line 268 "parser.y"
+#line 266 "parser.y"
 {
     yymsp[-1].minor.yy21=yymsp[0].minor.yy21;
     yymsp[-1].minor.yy21.inclusive = 0;
 }
-#line 1227 "parser.c"
+#line 1225 "parser.c"
         break;
       case 29: /* num ::= MINUS num */
-#line 273 "parser.y"
+#line 271 "parser.y"
 {
     yymsp[0].minor.yy21.num = -yymsp[0].minor.yy21.num;
     yymsp[-1].minor.yy21 = yymsp[0].minor.yy21;
 }
-#line 1235 "parser.c"
+#line 1233 "parser.c"
         break;
       case 30: /* term ::= TERM */
       case 31: /* term ::= NUMBER */ yytestcase(yyruleno==31);
-#line 278 "parser.y"
+#line 276 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
-#line 1243 "parser.c"
+#line 1241 "parser.c"
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       default:
@@ -1308,7 +1306,7 @@ static void yy_syntax_error(
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
-#line 1312 "parser.c"
+#line 1310 "parser.c"
 /************ End %syntax_error code ******************************************/
   ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
