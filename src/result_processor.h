@@ -6,31 +6,46 @@
 #include "value.h"
 #include "concurrent_ctx.h"
 
+/* Query processing state */
 typedef enum {
   QueryState_OK,
   QueryState_Aborted,
   QueryState_Error,
 } QueryState;
 
+/* Query processing context. It is shared by all result processors */
 typedef struct {
+  // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
+  // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
+  // the total results found in the query, incremented by the root processors and decremented by
+  // others who might disqualify results
   uint32_t totalResults;
+  // an optional error string if something went wrong - currently not used
   char *errorString;
+  // the state - used for aborting queries
   QueryState state;
 } QueryProcessingCtx;
 
-/******************************************************************************************************
- *   Result Processor Definitions
- ******************************************************************************************************/
+/*
+ * SearchResult - the object all the processing chain is working on.
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
+ *
+ * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
+ * aggregators later on
+ */
 typedef struct {
   t_docId docId;
 
   // not all results have score - TBD
   double score;
 
+  // The sorting vector of the result.
   RSSortingVector *sv;
 
+  // The entire document metadata. Guaranteed not to be NULL
+  // TODO: Check thread safety of it. Might be deleted on context switches
   RSDocumentMetadata *md;
 
   // index result should cover what you need for highlighting,
@@ -42,13 +57,25 @@ typedef struct {
   RSFieldMap *fields;
 } SearchResult;
 
+/* Result processor return codes */
+
+// OK - we have a valid result
 #define RS_RESULT_OK 0
+// Queued - nothing yet, this is a reducer in accumulation state
 #define RS_RESULT_QUEUED 1
+// EOF - no results from this processor
 #define RS_RESULT_EOF 2
 
+/* Context for a single result processor, including global shared state, upstream processor and
+ * private data */
 typedef struct {
+  // The processor's own private data. It's the processor's responsibility to free it
   void *privdata;
+
+  // The upstream processor from which we read results
   struct resultProcessor *upstream;
+
+  // The global state of the query processing chain
   QueryProcessingCtx *qxc;
 } ResultProcessorCtx;
 
