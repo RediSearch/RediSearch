@@ -122,6 +122,8 @@ typedef struct {
   float score;
 } FragmentSearchTerm;
 
+#define DOCLEN_NULTERM ((size_t)-1)
+
 /**
  * Split a document into a list of fragments.
  * - doc is the document to split
@@ -134,7 +136,7 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
                                     size_t numTerms);
 
-void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc,
+void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
                                   FragmentTermIterator *iter);
 
 typedef struct {

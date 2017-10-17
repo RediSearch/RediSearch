@@ -221,7 +221,8 @@ void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const Highlig
   }
 
   // Write the last preamble
-  size_t preambleLen = strlen(preamble);
+  size_t preambleLen = (fragList->doc + fragList->docLen) - preamble;
+  // size_t preambleLen = strlen(preamble);
   if (preambleLen) {
     addToIov(preamble, preambleLen, iovs);
   }
@@ -431,9 +432,9 @@ void FragmentList_Free(FragmentList *fragList) {
  *    list, then, consume the matches until the maximum distance has been reached,
  *    noting the terms for each.
  */
-void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc,
+void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
                                   FragmentTermIterator *iter) {
-  fragList->docLen = strlen(doc);
+  fragList->docLen = docLen;
   fragList->doc = doc;
   FragmentTerm *curTerm;
   size_t lastTokPos = -1;

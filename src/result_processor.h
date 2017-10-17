@@ -5,6 +5,7 @@
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
+#include "search_request.h"
 
 /********************************************************************************
  * Result Processor Chain
@@ -145,4 +146,5 @@ SearchResult *NewSearchResult();
 void SearchResult_FreeInternal(SearchResult *r);
 void SearchResult_Free(void *p);
 
+ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
 #endif  // !RS_RESULT_PROCESSOR_H_

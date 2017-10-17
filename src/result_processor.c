@@ -544,8 +544,10 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
   if (!(req->flags & Search_NoContent) || req->fields.numFields == 0) {
-
     next = NewLoader(next, req);
+    if (req->fields.wantSummaries) {
+      next = NewHighlightProcessor(next, req);
+    }
   }
 
   return next;
