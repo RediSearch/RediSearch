@@ -25,6 +25,7 @@ int isValidQuery(char *qt, RedisSearchCtx ctx) {
   char *err = NULL;
 
   RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
+
   QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
