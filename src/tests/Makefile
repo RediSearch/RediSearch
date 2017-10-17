@@ -6,7 +6,7 @@ CFLAGS = -g -O2 -fPIC -std=gnu99 -I./
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
-#.SILENT:
+.SILENT:
 # Sources
 SOURCEDIR=..
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
@@ -18,6 +18,13 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c)
 
 # Convert all sources to .o files
 DEP_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
+CC_DEPS = $(patsubst %.c, %.d, $(CC_SOURCES) )
+
+
+TEST_SOURCES = $(wildcard test_*.c)
+TEST_OBJECTS = $(patsubst %.c, %.o, $(TEST_SOURCES)  )
+TEST_EXECUTABLES = $(patsubst %.c, %.run, $(TEST_SOURCES)  )
+TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
 
 # Library dependencies
 LIBRMUTIL=../rmutil/librmutil.a
@@ -29,98 +36,51 @@ LIBSTEMMER=../dep/snowball/libstemmer.o
 DEP_LIBS = $(LIBRMUTIL) $(LIBTRIE) $(LIBTRIEMAP) $(LIBNU) $(LIBSTEMMER)
 DEPS = $(DEP_OBJECTS) $(DEP_LIBS)
 SRCDIR := $(shell pwd)
-#DEPS := $(patsubst %, ../%, $(TEXT)  $(VARINT) $(INDEX) $(UTILOBJS) $(RMUTILOBJS) $(QUERY_PARSE) $(REDIS) $(LIBTRIEMAP) $(LIBTRIE) $(LIBNU) )
 LDFLAGS :=  -lc -lm -ldl -lpthread
 
 CC=gcc
-.SUFFIXES: .c .so .xo .o
-all: build test bench-decoder
 
+%.o: %.c
+%.o: %.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $< -o $@ -MMD -MF $(@:.o=.d)
+
+
+all: build test
+
+# Including this stuff makes sure everything gets built on changes to the source directory
+-include $(TEST_DEPS)
+-include $(CC_DEPS)
+
+# The exampe extension is a dependency to extension tests
 ext_example:
 	$(MAKE) -C ./ext-example clean all
 .PHONY: ext_example
 
-bench-decoder: bench-decoder.o
-	$(CC) $(CFLAGS) -o $@ $^ $(DEPS) $(LDFLAGS)
-
-stemmer: test_stemmer.o
-	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) $(LDFLAGS)
-test_stemmer: 
-	@(sh -c ./test_stemmer)
-.PHONY: test_stemmer
-
-extensions: ext_example test_extensions.o
-	$(CC) $(CFLAGS)  -o test_extensions test_extensions.o  $(DEPS) $(LDFLAGS)
-test_extensions:
-	@(sh -c ./test_extensions)
-.PHONY: test_extensions
-
-trie: test_trie.o
-	$(CC) $(CFLAGS)  -o test_trie test_trie.o $ $(DEPS) $(LDFLAGS)
-test_trie: 	 
-	@(sh -c ./test_trie)
-.PHONY: test_trie
-
-query: test_query.o
-	$(CC) $(CFLAGS) -o test_query test_query.o $ $(DEPS) $(LDFLAGS)
-
-test_query: query 	 
-	@(sh -c ./test_query)
-	
-.PHONY: test_query
-
-index: test_index.o
-	$(CC) $(CFLAGS)  -o test_index test_index.o $ $(DEPS) $(LDFLAGS)
-
-test_index: index	
-	@(sh -c ./test_index)
-.PHONY: test_index
-
-range: test_range.o
-	$(CC) $(CFLAGS)  -o test_range test_range.o $ $(DEPS) $(LDFLAGS)
-
-test_range: range
-	@(sh -c ./test_range)
-.PHONY: test_range
-
-stopwords: test_stopwords.o
-	$(CC) $(CFLAGS)  -o test_stopwords  $^ $(DEPS) $(LDFLAGS)
-
-test_stopwords: stopwords
-	@(sh -c ./test_stopwords)
-.PHONY: test_stopwords
-
-qint: test_qint.o $(DEPS)
-	$(CC) $(CFLAGS) -o test_qint $^ $ $(LDFLAGS)
-
-test_qint: qint
-	./test_qint
-.PHONY: test_qint
-
-blkalloc: test_blkalloc.o
-	$(CC) $(CFLAGS) -o test_blkalloc $^ $(DEPS) $(LDFLAGS)
-
-test_blkalloc: blkalloc
-	./test_blkalloc
-.PHONY: test_blkalloc
-
-khtable: test_khtable.o
-	$(CC) $(CFLAGS) -o test_khtable $^ $(DEPS) $(LDFLAGS)
-
-test_khtable: khtable
-	./test_khtable
-.PHONY: test_khtable
-
-build: stemmer trie index range extensions query stopwords blkalloc khtable
-
-	
-test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords \
-	test_qint test_blkalloc test_khtable
+# Compiling each test runner from its .o file
+%.run: %.o
+	$(CC) $(CFLAGS) -o $@ $^  $(DEPS) $(LDFLAGS)
+# extra rule for test_extensions.run
+test_extensions.run: | ext_example
 
 
+build: $(TEST_OBJECTS) $(DEPS) ext_example
+
+# Test all
+test: build $(TEST_EXECUTABLES)
+	set -e; \
+	for t in ./test_*.run;\
+	 do ./$$t;\
+	done
+
+# Target for individual tests - make run:{test name}, e.g. "make run:query" will run test_query.run
+run\:%: 
+	$(MAKE) test_$*.run
+	./test_$*.run
 
 clean:
 	-rm -f *.o
+	-rm -f ext-example/*.o ext-example/*.so 
+
 .PHONY: clean
 
 rebuild: clean all

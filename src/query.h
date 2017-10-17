@@ -126,9 +126,7 @@ typedef struct {
 } QueryPlan;
 
 /* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn
- * it
- * off,
- * resulting in the QueryParseCtx not performing context switches */
+ * it off, resulting in the QueryParseCtx not performing context switches */
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
