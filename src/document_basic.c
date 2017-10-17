@@ -94,3 +94,19 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
   }
   return REDISMODULE_OK;
 }
+
+int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc) {
+  if (!doc) {
+    return REDISMODULE_ERR;
+  }
+  RedisModule_ReplyWithArray(ctx, doc->numFields * 2);
+  for (size_t j = 0; j < doc->numFields; ++j) {
+    RedisModule_ReplyWithStringBuffer(ctx, doc->fields[j].name, strlen(doc->fields[j].name));
+    if (doc->fields[j].text) {
+      RedisModule_ReplyWithString(ctx, doc->fields[j].text);
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+  }
+  return REDISMODULE_OK;
+}

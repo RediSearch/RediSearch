@@ -406,6 +406,65 @@ O(1)
 
 Integer Reply: 1 if the document was deleted, 0 if not.
 
+--- 
+
+## FT.GET
+
+### Format
+
+```
+FT.GET {index} {doc id}
+```
+
+### Description
+
+Returns the full contents of a document.
+
+Currently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+
+If the document does not exist or is not a HASH object, we reutrn a NULL reply
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **documentId**: The id of the document as inserted to the index
+
+### Returns
+
+Array Reply: Key-value pairs of field names and values of the document
+
+---
+
+## FT.MGET
+
+### Format
+
+```
+FT.GET {index} {docId} ...
+```
+
+### Description
+
+Returns the full contents of multiple documents. 
+Currently it is equivalent to calling multiple HGETALL commands, although faster. 
+This command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. 
+In addition, it allows simpler implementation of fetching documents in clustered mode.
+
+We return an array with exactly the same number of elements as the number of keys sent to the command. 
+
+Each element in turn is an array of key-value pairs representing the document. 
+
+If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **documentIds**: The ids of the requested documents as inserted to the index
+
+### Returns
+
+Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.
+
 ---
 
 ## FT.DROP

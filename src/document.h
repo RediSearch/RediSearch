@@ -230,4 +230,6 @@ Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int
  */
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
 
+/* Serialzie the document's fields to a redis client */
+int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
 #endif

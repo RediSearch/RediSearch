@@ -306,6 +306,71 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/* FT.MGET {index} {key} ...
+* Get document(s) by their id.
+* Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
+* replace the internal representation of the documents.
+*
+* If referred docs are missing or not HASH keys, we simply reply with Null, but the result will be
+* an array the same size of the ids list
+*/
+int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  RedisModule_ReplyWithArray(ctx, argc - 2);
+  for (int i = 2; i < argc; i++) {
+    Document doc;
+
+    if (Redis_LoadDocument(sctx, argv[i], &doc) == REDISMODULE_ERR) {
+      RedisModule_ReplyWithNull(ctx);
+    } else {
+      Document_ReplyFields(ctx, &doc);
+    }
+  }
+
+  SearchCtx_Free(sctx);
+
+  return REDISMODULE_OK;
+}
+
+/* FT.GET {index} {key} ...
+* Get a single document by their id.
+* Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
+* replace the internal representation of the documents.
+*
+* If referred docs are missing or not HASH keys, we simply reply with Null
+*/
+int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  Document doc;
+
+  if (Redis_LoadDocument(sctx, argv[2], &doc) == REDISMODULE_ERR) {
+    RedisModule_ReplyWithNull(ctx);
+  } else {
+    Document_ReplyFields(ctx, &doc);
+  }
+  SearchCtx_Free(sctx);
+
+  return REDISMODULE_OK;
+}
+
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
@@ -1094,6 +1159,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1,
          1);
