@@ -27,13 +27,7 @@ TEST_EXECUTABLES = $(patsubst %.c, %.run, $(TEST_SOURCES)  )
 TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
 
 # Library dependencies
-LIBRMUTIL=../rmutil/librmutil.a
-LIBTRIE=../trie/libtrie.a
-LIBTRIEMAP=../dep/triemap/libtriemap.a
-LIBNU=../dep/libnu/libnu.a
-LIBSTEMMER=../dep/snowball/libstemmer.o
-
-DEP_LIBS = $(LIBRMUTIL) $(LIBTRIE) $(LIBTRIEMAP) $(LIBNU) $(LIBSTEMMER)
+DEP_LIBS = ../rmutil/librmutil.a ../trie/libtrie.a ../dep/triemap/libtriemap.a ../dep/libnu/libnu.a ../dep/snowball/libstemmer.o
 DEPS = $(DEP_OBJECTS) $(DEP_LIBS)
 SRCDIR := $(shell pwd)
 LDFLAGS :=  -lc -lm -ldl -lpthread
@@ -68,7 +62,7 @@ build: $(TEST_OBJECTS) $(DEPS) ext_example
 # Test all
 test: build $(TEST_EXECUTABLES)
 	set -e; \
-	for t in ./test_*.run;\
+	for t in test_*.run;\
 	 do ./$$t;\
 	done
 
