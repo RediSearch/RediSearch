@@ -128,7 +128,7 @@ package: redisearch.so
 	mkdir -p ../build
 	module_packer -v -o "../build/redisearch.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
 
-print_version: version.h print_version.x
-	@$(CC) -x c -o $@ $@.x
+print_version: version.h print_version.c
+	@$(CC) -x c -o $@ -DPRINT_VERSION_TARGET $@.c
 
 rebuild: clean all
