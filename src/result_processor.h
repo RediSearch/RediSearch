@@ -140,4 +140,9 @@ size_t ResultProcessor_Total(ResultProcessor *rp);
  * Do NOT call Free() callbacks on processors directly! */
 void ResultProcessor_Free(ResultProcessor *rp);
 
+SearchResult *NewSearchResult();
+
+void SearchResult_FreeInternal(SearchResult *r);
+void SearchResult_Free(void *p);
+
 #endif  // !RS_RESULT_PROCESSOR_H_
