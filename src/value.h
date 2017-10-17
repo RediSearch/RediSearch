@@ -107,6 +107,10 @@ static inline RSValue RS_NullVal() {
   };
 }
 
+static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
+  return &arr->arrval.vals[index];
+}
+
 /* Based on the value type, serialize the value into redis client response */
 static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   if (!v) {
@@ -169,7 +173,7 @@ static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
 /* Make sure the fieldmap has enough capacity to add elements */
 static void RSFieldMap_EnsureCap(RSFieldMap **m) {
   if ((*m)->len + 1 >= (*m)->cap) {
-    (*m)->cap = MAX((*m)->cap * 2, UINT16_MAX);
+    (*m)->cap = MIN((*m)->cap * 2, UINT16_MAX);
     *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
   }
 }
@@ -190,7 +194,7 @@ static inline RSValue *RSFieldMap_Item(RSFieldMap *m, uint16_t pos) {
 }
 
 /* Find an item by name. */
-static inline RSValue *RSFielfMap_Get(RSFieldMap *m, const char *k) {
+static inline RSValue *RSFieldMap_Get(RSFieldMap *m, const char *k) {
   for (uint16_t i = 0; i < m->len; i++) {
     if (!strcmp(FIELDMAP_FIELD(m, i).key, k)) {
       return &FIELDMAP_FIELD(m, i).val;
@@ -223,4 +227,13 @@ static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
 }
 
+/* Free the field map. If freeKeys is set to 1 we also free the keys */
+static void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
+  for (uint16_t i = 0; i < m->len; i++) {
+    RSValue_Free(&m->fields[i].val);
+
+    if (freeKeys) free((void *)m->fields[i].key);
+  }
+  free(m);
+}
 #endif
