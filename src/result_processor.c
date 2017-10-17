@@ -79,7 +79,7 @@ SearchResult *NewSearchResult() {
 
 /* Free the search result's internal data but not the result itself - it may be allocated on the
  * stack */
-static inline void SearchResult_FreeInternal(SearchResult *r) {
+inline void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
   if (r->indexResult) {

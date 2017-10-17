@@ -66,6 +66,12 @@ test: build $(TEST_EXECUTABLES)
 	 do ./$$t;\
 	done
 
+memcheck: build $(TEST_EXECUTABLES)
+	set -e; \
+	for t in test_*.run;\
+	 do valgrind --tool=memcheck --leak-check=full --error-exitcode=1 --show-possibly-lost=no ./$$t;\
+	done
+
 # Target for individual tests - make run:{test name}, e.g. "make run:query" will run test_query.run
 run\:%: 
 	$(MAKE) test_$*.run
