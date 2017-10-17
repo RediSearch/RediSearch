@@ -146,6 +146,11 @@ static RSField RS_NewField(const char *k, RSValue val) {
 static void RSValue_Free(RSValue *v) {
   if (v->t == RSValue_String) {
     free(v->strval.str);
+  } else if (v->t == RSValue_Array) {
+    for (uint32_t i = 0; i < v->arrval.len; i++) {
+      RSValue_Free(&v->arrval.vals[i]);
+    }
+    free(v->arrval.vals);
   }
 }
 
