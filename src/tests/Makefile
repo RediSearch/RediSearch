@@ -6,7 +6,10 @@ CFLAGS = -g -O2 -fPIC -std=gnu99 -I./
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
+ifndef VERBOSE
 .SILENT:
+endif
+
 # Sources
 SOURCEDIR=..
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
