@@ -7,11 +7,21 @@
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 
-#define rm_malloc(size) RedisModule_Alloc(size)
-#define rm_calloc(count, size) RedisModule_Calloc(count, size)
-#define rm_realloc(ptr, size) RedisModule_Realloc(ptr, size)
-#define rm_free(ptr) RedisModule_Free(ptr)
-#define rm_strdup(s) RedisModule_Strdup(s)
+static inline void *rm_malloc(size_t n) {
+  return RedisModule_Alloc(n);
+}
+static inline void *rm_calloc(size_t nelem, size_t elemsz) {
+  return RedisModule_Calloc(nelem, elemsz);
+}
+static inline void *rm_realloc(void *p, size_t n) {
+  return RedisModule_Realloc(p, n);
+}
+static inline void rm_free(void *p) {
+  RedisModule_Free(p);
+}
+static inline char *rm_strdup(const char *s) {
+  return RedisModule_Strdup(s);
+}
 
 static char *rm_strndup(const char *s, size_t n) {
   char *ret = rm_malloc(n + 1);
@@ -25,7 +35,7 @@ static char *rm_strndup(const char *s, size_t n) {
 #endif
 #ifndef REDIS_MODULE_TARGET
 /* for non redis module targets */
-#define rm_alloc malloc
+#define rm_malloc malloc
 #define rm_free free
 #define rm_realloc realloc
 #define rm_free free
