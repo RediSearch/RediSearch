@@ -5,6 +5,7 @@
 #include "search_ctx.h"
 #include "redisearch.h"
 #include "concurrent_ctx.h"
+#include "byte_offsets.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,6 +114,7 @@ void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
+#define DOCUMENT_ADD_NOSAVE 0x04
 
 struct ForwardIndex;
 union FieldData;
@@ -151,6 +153,11 @@ typedef struct RSAddDocumentCtx {
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
   RSSortingVector *sv;
+
+  // Byte offsets for highlighting. If term offsets are stored, this contains
+  // the field byte offset for each term.
+  RSByteOffsets *byteOffsets;
+  ByteOffsetWriter offsetsWriter;
 
   // Information about each field in the document. This is read from the spec
   // and cached, so that we can look it up without holding the GIL

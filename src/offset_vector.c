@@ -15,6 +15,7 @@ typedef struct {
   Buffer buf;
   BufferReader br;
   uint32_t lastValue;
+  RSQueryTerm *term;
 } _RSOffsetVectorIterator;
 
 typedef struct {
@@ -22,16 +23,17 @@ typedef struct {
   size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
+  RSQueryTerm **terms;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
 
 } _RSAggregateOffsetIterator;
 
 /* Get the next entry, or return RS_OFFSETVECTOR_EOF */
-uint32_t _ovi_Next(void *ctx);
+uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
 /* Rewind the iterator */
 void _ovi_Rewind(void *ctx);
 
-/* memor pool for buffer iterators */
+/* memory pool for buffer iterators */
 mempool_t *__offsetIters = NULL;
 mempool_t *__aggregateIters = NULL;
 
@@ -44,7 +46,7 @@ void *newOffsetIterator() {
   return malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
+RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
     __offsetIters = mempool_new(8, newOffsetIterator, free);
   }
@@ -52,12 +54,13 @@ RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v) {
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
+  it->term = t;
 
   return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
 }
 
 /* An aggregate offset iterator yielding offsets one by one */
-uint32_t _aoi_Next(void *ctx);
+uint32_t _aoi_Next(void *ctx, RSQueryTerm **term);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
@@ -66,6 +69,7 @@ void *_newAggregateIter() {
   it->size = 0;
   it->offsets = NULL;
   it->iters = NULL;
+  it->terms = NULL;
   return it;
 }
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
@@ -80,18 +84,20 @@ RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
     it->size = agg->numChildren;
     free(it->iters);
     free(it->offsets);
+    free(it->terms);
     it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
     it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
+    it->terms = calloc(agg->numChildren, sizeof(RSQueryTerm *));
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
     it->iters[i] = RSIndexResult_IterateOffsets(agg->children[i]);
-    it->offsets[i] = it->iters[i].Next(it->iters[i].ctx);
+    it->offsets[i] = it->iters[i].Next(it->iters[i].ctx, &it->terms[i]);
   }
 
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }
-uint32_t _empty_Next(void *ctx) {
+uint32_t _empty_Next(void *ctx, RSQueryTerm **t) {
   return RS_OFFSETVECTOR_EOF;
 }
 void _empty_Free(void *ctx) {
@@ -109,7 +115,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:
-      return _offsetVector_iterate(&res->term.offsets);
+      return _offsetVector_iterate(&res->term.offsets, res->term.term);
 
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
@@ -136,18 +142,19 @@ void _ovi_Free(void *ctx) {
   rm_free(ctx);
 }
 
-uint32_t _ovi_Next(void *ctx) {
+uint32_t _ovi_Next(void *ctx, RSQueryTerm **t) {
   _RSOffsetVectorIterator *vi = ctx;
 
   if (!BufferReader_AtEnd(&vi->br)) {
     vi->lastValue = ReadVarint(&vi->br) + vi->lastValue;
+    if (t) *t = vi->term;
     return vi->lastValue;
   }
 
   return RS_OFFSETVECTOR_EOF;
 }
 
-uint32_t _aoi_Next(void *ctx) {
+uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
   _RSAggregateOffsetIterator *it = ctx;
 
   int minIdx = -1;
@@ -164,7 +171,11 @@ uint32_t _aoi_Next(void *ctx) {
 
   // if we found a minimal iterator - advance it for the next round
   if (minIdx != -1) {
-    it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx);
+
+    // copy the term of that iterator to t if it's not NULL
+    if (t) *t = it->terms[minIdx];
+
+    it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx, &it->terms[minIdx]);
   }
 
   return minVal;

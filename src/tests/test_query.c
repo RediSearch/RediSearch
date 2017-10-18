@@ -8,14 +8,25 @@
 #include "../rmutil/alloc.h"
 #include <stdio.h>
 
-void QueryNode_Print(Query *q, QueryNode *qs, int depth);
+void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
+
+#define SEARCH_REQUEST(q, ctx)         \
+  ((RSSearchRequest){                  \
+      .sctx = ctx,                     \
+      .flags = RS_DEFAULT_QUERY_FLAGS, \
+      .fieldMask = RS_FIELDMASK_ALL,   \
+      .indexName = "idx",              \
+      .language = "en",                \
+      .rawQuery = (char *)q,           \
+      .qlen = strlen(q),               \
+  })
 
 int isValidQuery(char *qt, RedisSearchCtx ctx) {
   char *err = NULL;
 
-  Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0,
-                      NULL, (RSPayload){}, NULL);
+  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
 
+  QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) {
@@ -134,8 +145,8 @@ int testQueryParser() {
   IndexSpec_Free(ctx.spec);
 
   char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
-  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "zz", DefaultStopWordList(), NULL, -1, 0,
-                      NULL, (RSPayload){}, NULL);
+  RSSearchRequest req = SEARCH_REQUEST(qt, NULL);
+  QueryParseCtx *q = NewQueryParseCtx(&req);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -193,9 +204,8 @@ int testPureNegative() {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
 
   for (int i = 0; qs[i] != NULL; i++) {
-    Query *q = NewQuery(&ctx, qs[i], strlen(qs[i]), 0, 1, RS_FIELDMASK_ALL, 0, "en",
-                        DefaultStopWordList(), NULL, -1, 0, NULL, (RSPayload){}, NULL);
-
+    RSSearchRequest req = SEARCH_REQUEST(qs[i], &ctx);
+    QueryParseCtx *q = NewQueryParseCtx(&req);
     QueryNode *n = Query_Parse(q, &err);
 
     if (err) FAIL("Error parsing query: %s", err);
@@ -216,9 +226,9 @@ int testGeoQuery() {
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
-  Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0,
-                      NULL, (RSPayload){}, NULL);
+  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
 
+  QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
@@ -248,9 +258,9 @@ int testFieldSpec() {
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@title:hello world";
-  Query *q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0,
-                      NULL, (RSPayload){}, NULL);
+  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
 
+  QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
@@ -262,8 +272,10 @@ int testFieldSpec() {
   Query_Free(q);
 
   qt = "(@title:hello) (@body:world)";
-  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0, NULL,
-               (RSPayload){}, NULL);
+  req = SEARCH_REQUEST(qt, &ctx);
+
+  q = NewQueryParseCtx(&req);
+
   n = Query_Parse(q, &err);
   if (err) {
     Query_Free(q);
@@ -282,8 +294,9 @@ int testFieldSpec() {
 
   // test field modifiers
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
-  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0, NULL,
-               (RSPayload){}, NULL);
+  req = SEARCH_REQUEST(qt, &ctx);
+  q = NewQueryParseCtx(&req);
+
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -303,10 +316,11 @@ int testFieldSpec() {
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
   // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
+
   // test numeric ranges
   qt = "@num:[0.4 (500]";
-  q = NewQuery(&ctx, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0, NULL,
-               (RSPayload){}, NULL);
+  req = SEARCH_REQUEST(qt, &ctx);
+  q = NewQueryParseCtx(&req);
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -320,14 +334,18 @@ int testFieldSpec() {
 
   return 0;
 }
-void benchmarkQueryParser() {
-  char *qt = "(hello|world) \"another world\"";
-  char *err = NULL;
+// void benchmarkQueryParser() {
+//   char *qt = "(hello|world) \"another world\"";
+//   char *err = NULL;
 
-  Query *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(), NULL, -1, 0,
-                      NULL, (RSPayload){}, NULL);
-  TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
-}
+//   RSSearcreq = SEARCH_REQUEST(qt, NULL);
+
+//   q = NewQueryParseCtx(&req);
+
+//   QueryParseCtx *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(),
+//                               NULL, -1, 0, NULL, (RSPayload){}, NULL);
+//   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
+// }
 
 void RMUTil_InitAlloc();
 TEST_MAIN({
@@ -337,6 +355,6 @@ TEST_MAIN({
   TESTFUNC(testQueryParser);
   TESTFUNC(testPureNegative);
   TESTFUNC(testFieldSpec);
-  benchmarkQueryParser();
+  // benchmarkQueryParser();
 
 });

@@ -78,6 +78,7 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
     ctx->ctx = NULL;
   }
   ctx->ctx = rctx;
+  ctx->isLocked = 0;
   ctx->numOpenKeys = 0;
   ctx->openKeys = NULL;
   ConcurrentSearchCtx_ResetClock(ctx);
