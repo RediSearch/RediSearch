@@ -155,7 +155,7 @@ typedef struct {
  * by iterating over it with RSOffsetVector_Iterate */
 typedef struct RSOffsetVector {
   char *data;
-  size_t len;
+  uint32_t len;
 } RSOffsetVector;
 
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
