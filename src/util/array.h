@@ -4,14 +4,31 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+typedef struct {
+  void *(*Alloc)(size_t);
+  void *(*Realloc)(void *, size_t);
+  void (*Free)(void *);
+} ArrayAllocProcs;
+
 /** Array datatype. Simple wrapper around a C array, with capacity and length. */
 typedef struct Array {
   char *data;
   uint32_t len;
   uint32_t capacity;
+  const ArrayAllocProcs *procs;
 } Array;
 
-void Array_Init(Array *array);
+typedef enum {
+  ArrayAlloc_LibC,
+  ArrayAlloc_RM,
+  ArrayAlloc_Default = ArrayAlloc_RM
+} ArrayAllocatorType;
+
+void Array_InitEx(Array *array, ArrayAllocatorType allocType);
+
+static inline void Array_Init(Array *array) {
+  Array_InitEx(array, ArrayAlloc_Default);
+}
 
 /**
  * Free any memory allocated by this array.

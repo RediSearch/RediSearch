@@ -2,14 +2,23 @@
 #include "rmalloc.h"
 #include "util/minmax.h"
 
-void Array_Init(Array *array) {
+static ArrayAllocProcs libcAllocProcs_g = {.Alloc = malloc, .Realloc = realloc, .Free = free};
+static ArrayAllocProcs rmAllocProcs_g = {
+    .Alloc = rm_malloc, .Realloc = rm_realloc, .Free = rm_free};
+
+void Array_InitEx(Array *array, ArrayAllocatorType allocType) {
   array->capacity = 0;
   array->len = 0;
   array->data = NULL;
+  if (allocType == ArrayAlloc_LibC) {
+    array->procs = &libcAllocProcs_g;
+  } else {
+    array->procs = &rmAllocProcs_g;
+  }
 }
 
 void Array_Free(Array *array) {
-  rm_free(array->data);
+  array->procs->Free(array->data);
   array->capacity = 0;
   array->len = 0;
   array->data = NULL;
@@ -24,7 +33,7 @@ int Array_Resize(Array *array, uint32_t newSize) {
     }
   }
   newCapacity = Max(newCapacity, 16);
-  if ((array->data = rm_realloc(array->data, newCapacity)) == NULL) {
+  if ((array->data = array->procs->Realloc(array->data, newCapacity)) == NULL) {
     return -1;
   }
   array->capacity = newCapacity;
@@ -53,6 +62,6 @@ void Array_Write(Array *arr, const void *data, size_t len) {
 void Array_ShrinkToSize(Array *array) {
   if (array->capacity > array->len) {
     array->capacity = array->len;
-    array->data = rm_realloc(array->data, array->capacity);
+    array->data = array->procs->Realloc(array->data, array->capacity);
   }
 }
