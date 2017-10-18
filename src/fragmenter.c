@@ -29,6 +29,7 @@ static Fragment *FragmentList_AddFragment(FragmentList *fragList) {
   Fragment *frag = Array_Add(&fragList->frags, sizeof(Fragment));
   memset(frag, 0, sizeof(*frag));
   frag->fragPos = fragList->numFrags++;
+  Array_Init(&frag->termLocs);
   return frag;
 }
 
@@ -384,8 +385,8 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
     }
   }
 
-  size_t openLen = strlen(tags->openTag);
-  size_t closeLen = strlen(tags->closeTag);
+  size_t openLen = tags->openTag ? strlen(tags->openTag) : 0;
+  size_t closeLen = tags->closeTag ? strlen(tags->closeTag) : 0;
 
   for (size_t ii = 0; ii < niovs; ++ii) {
     Array *curArr = iovArrList + ii;
