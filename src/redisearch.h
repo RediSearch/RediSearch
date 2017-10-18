@@ -246,6 +246,8 @@ typedef struct RSIndexResult {
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
 RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);
 
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v);
+
 int RSIndexResult_HasOffsets(RSIndexResult *res);
 
 int RSIndexResult_IsAggregate(RSIndexResult *r);

@@ -15,7 +15,6 @@
 #include <time.h>
 #include <float.h>
 
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v);
 int testVarint() {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
   uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
@@ -29,7 +28,7 @@ int testVarint() {
 
   RSOffsetVector vec = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
   // Buffer_Seek(vw->bw.buf, 0);
-  RSOffsetIterator it = _offsetVector_iterate(&vec);
+  RSOffsetIterator it = RSOffsetVector_Iterate(&vec);
   int x = 0;
   uint32_t n = 0;
   while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx))) {
@@ -639,12 +638,9 @@ typedef struct {
 
 int tokenFunc(void *ctx, const Token *t) {
   tokenContext *tx = ctx;
-  int ret = strcmp(t->s, tx->expected[tx->num++]);
+  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
   assert(ret == 0);
-  assert(t->len == strlen(t->s));
-  assert(t->fieldId == 1);
   assert(t->pos > 0);
-  assert(t->score == 1);
   return 0;
 }
 
@@ -654,7 +650,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
+  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
   ASSERT(ctx.num == 5);
 
   free(txt);
