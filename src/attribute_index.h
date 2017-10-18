@@ -4,25 +4,8 @@
 #include "redismodule.h"
 #include "doc_table.h"
 #include "document.h"
+#include "value.h"
 #include "geo_index.h"
-
-typedef enum {
-  AttributeType_String,
-  AttributeType_Number,
-  AttributeType_Geopoint,
-} AttributeType;
-
-typedef struct {
-  union {
-    const char *strval;
-    double numval;
-    struct {
-      float lon;
-      float lat;
-    } geoval;
-  };
-  AttributeType t;
-} Attribute;
 
 typedef enum {
   AttributeTokenizer_CaseSensitive = 0x01,
@@ -44,7 +27,7 @@ typedef struct {
 } AttributeIndex;
 
 AttributeIndex *NewAttributeIndex(const char *namespace, const char *fieldName);
-const char *AttributeIndex_EncodeSingle(Attribute *attr, size_t *sz);
+const char *AttributeIndex_EncodeSingle(RSValue *attr, size_t *enclen);
 Vector *AttributeIndex_Preprocess(AttributeIndex *idx, DocumentField *data);
 size_t AttributeIndex_Index(AttributeIndex *idx, Vector *values, t_docId docId);
 IndexIterator *AttributeIndex_OpenReader(AttributeIndex *idx, DocTable *dt, const char *value,

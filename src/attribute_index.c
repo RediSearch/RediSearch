@@ -12,10 +12,6 @@ AttributeIndex *NewAttributeIndex(const char *namespace, const char *fieldName) 
   return idx;
 }
 
-const char *AttributeIndex_Encode(Attribute *attrs, size_t num, size_t *sz) {
-  return NULL;
-}
-
 static size_t attributeIndex_EncodeNumber(BufferWriter *bw, double num) {
   // TODO: implement me
   return 0;
@@ -26,10 +22,11 @@ static size_t attributeIndex_EncodeString(BufferWriter *bw, const char *str, siz
   return Buffer_Write(bw, (void *)str, len);
 }
 
-const char *AttributeIndex_EncodeSingle(Attribute *attr, size_t *sz) {
+const char *AttributeIndex_EncodeSingle(RSValue *attr, size_t *slen) {
   switch (attr->t) {
-    case AttributeType_String:
-      return attr->strval;
+    case RSValue_String:
+      *slen = attr->strval.len;
+      return attr->strval.str;
     default:
       return NULL;
   }
@@ -53,9 +50,11 @@ static inline char *mySep(char **s) {
 }
 
 Vector *AttributeIndex_Preprocess(AttributeIndex *idx, DocumentField *data) {
-  Vector *ret = NewVector(char *, 4);
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
+  if (!p) return NULL;
+  Vector *ret = NewVector(char *, 4);
+  p = strndup(p, sz);
   while (p) {
     // get the next token
     char *tok = mySep(&p);
@@ -131,7 +130,7 @@ AttributeIndex *AttributeIndex_Load(RedisModuleCtx *ctx, RedisModuleString *form
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     if (openWrite) {
       ret = NewAttributeIndex();
-      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+      RedisModule_ModuleTypeSetValue((*keyp), AttributeIndexType, ret);
     }
   } else {
     t = RedisModule_ModuleTypeGetValue(*idxKey);
