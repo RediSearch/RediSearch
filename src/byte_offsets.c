@@ -1,4 +1,5 @@
 #include "byte_offsets.h"
+#include <arpa/inet.h>
 
 RSByteOffsets *NewByteOffsets() {
   RSByteOffsets *ret = rm_calloc(1, sizeof(*ret));
