@@ -25,12 +25,12 @@ static char *rm_strndup(const char *s, size_t n) {
 #endif
 #ifndef REDIS_MODULE_TARGET
 /* for non redis module targets */
-#define rm_malloc(size) malloc(size)
-#define rm_calloc(count, size) calloc(count, size)
-#define rm_realloc(ptr, size) realloc(ptr, size)
-#define rm_free(ptr) free(ptr)
-#define rm_strdup(s) strdup(s)
-#define rm_strndup(s, n) strndup(s, n)
+#define rm_alloc malloc
+#define rm_free free
+#define rm_realloc realloc
+#define rm_free free
+#define rm_strdup strdup
+#define rm_strndup strndup
 #endif
 
 #define rm_new(x) rm_malloc(sizeof(x))
