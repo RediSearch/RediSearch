@@ -57,7 +57,7 @@ ext_example:
 test_extensions.run: | ext_example
 
 
-build: $(TEST_OBJECTS) $(DEPS) ext_example
+build: $(TEST_OBJECTS) $(TEST_EXECUTABLES) $(DEPS) ext_example
 
 # Test all
 test: build $(TEST_EXECUTABLES)
