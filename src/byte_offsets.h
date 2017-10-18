@@ -7,7 +7,7 @@
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {
   // ID this belongs to.
-  uint8_t fieldId;
+  uint16_t fieldId;
 
   // The position of the first token for this field.
   uint32_t firstTokPos;
