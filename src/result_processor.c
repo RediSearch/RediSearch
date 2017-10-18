@@ -86,7 +86,7 @@ inline void SearchResult_FreeInternal(SearchResult *r) {
     IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
   }
-  free(r->fields);
+  RSFieldMap_Free(r->fields, 0);
 }
 
 /* Free the search result object including the object itself */
