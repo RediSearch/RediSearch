@@ -238,10 +238,13 @@ static void FieldList_Free(FieldList *fields) {
   free(fields->closeTag);
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     ReturnedField *field = fields->fields + ii;
-    if (field->openTag == NULL && fields->closeTag == NULL) {
+    if (fields->openTag == NULL && fields->closeTag == NULL) {
       free(field->openTag);
       free(field->closeTag);
     }
+  }
+  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
+    free(fields->rawFields[ii]);
   }
   free(fields->fields);
   free(fields->rawFields);
