@@ -4,6 +4,14 @@
 #include "util/minmax.h"
 #include <ctype.h>
 
+/**
+ * Attempts to fragmentize a single field from its offset entries. This takes
+ * the field name, gets the matching field ID, retrieves the offset iterator
+ * for the field ID, and fragments the text based on the offsets. The fragmenter
+ * itself is in fragmenter.{c,h}
+ *
+ * Returns true if the fragmentation succeeded, false otherwise.
+ */
 static int fragmentizeOffsets(const RSSearchRequest *req, const char *fieldName,
                               const char *fieldText, size_t fieldLen, RSIndexResult *indexResult,
                               RSByteOffsets *byteOffsets, FragmentList *fragList) {
@@ -12,21 +20,27 @@ static int fragmentizeOffsets(const RSSearchRequest *req, const char *fieldName,
     return 0;
   }
 
+  int rc = 0;
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter;
   RSByteOffsetIterator bytesIter;
   if (RSByteOffset_Iterate(byteOffsets, fs->id, &bytesIter) != REDISMODULE_OK) {
-    return 0;
+    goto done;
   }
 
   FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
   FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter);
-  return 1;
+  rc = 1;
+
+done:
+  offsIter.Free(offsIter.ctx);
+  return rc;
 }
 
 #define HL_SEP_STR "... "
 
-// Strip spaces from a buffer in place.
+// Strip spaces from a buffer in place. Returns the new length of the text,
+// with all duplicate spaces stripped and converted to a single ' '.
 static size_t stripDuplicateSpaces(char *s, size_t n) {
   int isLastSpace = 0;
   size_t oix = 0;
@@ -55,26 +69,21 @@ static void summarizeField(const RSSearchRequest *req, const ReturnedField *fiel
 
   // Start gathering the terms
   HighlightTags tags = {.openTag = fieldInfo->openTag, .closeTag = fieldInfo->closeTag};
-  if (!tags.openTag) {
-    tags.openTag = "";
-  }
-  if (!tags.closeTag) {
-    tags.closeTag = "";
-  }
 
   // First actually generate the fragments
-  const char *docStr;
   size_t docLen;
-  docStr = RedisModule_StringPtrLen(returnedField->rstrval, &docLen);
+  const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (!fragmentizeOffsets(req, fieldName, docStr, docLen, r->indexResult, r->md->byteOffsets,
                           &frags)) {
+    // Can't fragmentize from the offsets
     // Should we fragmentize on the fly? TODO
     RSFieldMap_Set(&r->fields, fieldName, RS_NullVal());
     return;
   }
 
   if (fieldInfo->mode == SummarizeMode_WholeField) {
-    // Simplest. Just send entire doc
+    // No need to return snippets; just return the entire doc with relevant tags
+    // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
     RSFieldMap_Set(&r->fields, fieldName, RS_CStringVal(hlDoc));
     FragmentList_Free(&frags);
@@ -94,20 +103,25 @@ static void summarizeField(const RSSearchRequest *req, const ReturnedField *fiel
       break;
     case SummarizeMode_ByRelOrder:
     case SummarizeMode_Synopsis:
+      // TODO: Now that we're no longer returning a nested array, is it still
+      // necessary to distinguish between RelOrder and Synopsis?
       order = HIGHLIGHT_ORDER_SCOREPOS;
       break;
 
     case SummarizeMode_WholeField:
     case SummarizeMode_None:
-      // Unreached?
+    default:
+      // Should never reach here.
       order = -1;
       break;
   }
 
+  // Storage for the list of fragments
   iovsArr = calloc(numIovArr, sizeof(*iovsArr));
 
   FragmentList_HighlightFragments(&frags, &tags, fieldInfo->contextLen, iovsArr, numIovArr, order);
 
+  // Buffer to store concatenated fragments
   Array bufTmp;
   Array_Init(&bufTmp);
 
@@ -121,12 +135,16 @@ static void summarizeField(const RSSearchRequest *req, const ReturnedField *fiel
       Array_Write(&bufTmp, iovs[jj].iov_base, iovs[jj].iov_len);
     }
 
+    // Duplicate spaces for the current snippet are eliminated here. We shouldn't
+    // move it to the end because the delimiter itself may contain a special kind
+    // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
     Array_Write(&bufTmp, HL_SEP_STR, sizeof(HL_SEP_STR) - 1);
   }
 
-  // Set the string value to the contents of the array
+  // Set the string value to the contents of the array. It might be nice if we didn't
+  // need to strndup it.
   RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(strndup(bufTmp.data, bufTmp.len), bufTmp.len));
 
   Array_Free(&bufTmp);
@@ -149,7 +167,7 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // Assume we have highlighting here
   for (size_t ii = 0; ii < req->fields.numFields; ++ii) {
     if (req->fields.fields[ii].mode == SummarizeMode_None) {
-      // Ignore!
+      // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
       continue;
     }
 
@@ -160,7 +178,7 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     // Check if we have the value for this field.
     // TODO: Might this be 'RSValue_String' later on?
-    if (fieldValue == NULL || fieldValue->t != RSValue_RedisString) {
+    if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
       RSFieldMap_Set(&r->fields, fName, RS_NullVal());
       continue;
     }
