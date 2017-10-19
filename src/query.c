@@ -770,10 +770,11 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   plan->ctx = req->sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
   plan->req = req;
-  plan->execCtx = (QueryProcessingCtx){
-
-      .errorString = NULL, .minScore = 0, .totalResults = 0, .state = QueryState_OK,
-  };
+  plan->execCtx = (QueryProcessingCtx){.errorString = NULL,
+                                       .minScore = 0,
+                                       .totalResults = 0,
+                                       .state = QueryState_OK,
+                                       .sctx = plan->ctx};
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,

@@ -12,10 +12,10 @@
  *
  * Returns true if the fragmentation succeeded, false otherwise.
  */
-static int fragmentizeOffsets(const RSSearchRequest *req, const char *fieldName,
-                              const char *fieldText, size_t fieldLen, RSIndexResult *indexResult,
+static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
+                              size_t fieldLen, RSIndexResult *indexResult,
                               RSByteOffsets *byteOffsets, FragmentList *fragList) {
-  const FieldSpec *fs = IndexSpec_GetField(req->sctx->spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
   if (!fs) {
     return 0;
   }
@@ -61,8 +61,8 @@ static size_t stripDuplicateSpaces(char *s, size_t n) {
   return oix;
 }
 
-static void summarizeField(const RSSearchRequest *req, const ReturnedField *fieldInfo,
-                           const char *fieldName, RSValue *returnedField, SearchResult *r) {
+static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
+                           RSValue *returnedField, SearchResult *r) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -73,7 +73,7 @@ static void summarizeField(const RSSearchRequest *req, const ReturnedField *fiel
   // First actually generate the fragments
   size_t docLen;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
-  if (!fragmentizeOffsets(req, fieldName, docStr, docLen, r->indexResult, r->md->byteOffsets,
+  if (!fragmentizeOffsets(spec, fieldName, docStr, docLen, r->indexResult, r->md->byteOffsets,
                           &frags)) {
     // Can't fragmentize from the offsets
     // Should we fragmentize on the fly? TODO
@@ -161,19 +161,19 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     return rc;
   }
 
-  RSSearchRequest *req = ctx->privdata;
+  const FieldList *fields = ctx->privdata;
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
 
   // Assume we have highlighting here
-  for (size_t ii = 0; ii < req->fields.numFields; ++ii) {
-    if (req->fields.fields[ii].mode == SummarizeMode_None) {
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (fields->fields[ii].mode == SummarizeMode_None) {
       // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
       continue;
     }
 
     // Otherwise, summarize this field now
-    const ReturnedField *rf = req->fields.fields + ii;
-    const char *fName = req->fields.rawFields[rf->nameIndex];
+    const ReturnedField *rf = fields->fields + ii;
+    const char *fName = fields->rawFields[rf->nameIndex];
     RSValue *fieldValue = RSFieldMap_Get(r->fields, fName);
 
     // Check if we have the value for this field.
@@ -183,13 +183,13 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       continue;
     }
 
-    summarizeField(req, rf, fName, fieldValue, r);
+    summarizeField(RP_SPEC(ctx), rf, fName, fieldValue, r);
   }
   return RS_RESULT_OK;
 }
 
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
-  ResultProcessor *rp = NewResultProcessor(parent, req);
+  ResultProcessor *rp = NewResultProcessor(parent, &req->fields);
   rp->Next = hlp_Next;
   return rp;
 }

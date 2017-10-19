@@ -132,7 +132,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
       continue;
     }
 
-    dmd = DocTable_Get(&q->ctx->spec->docs, r->docId);
+    dmd = DocTable_Get(&RP_SPEC(ctx)->docs, r->docId);
 
     // skip deleted documents
     if (!dmd || (dmd->flags & Document_Deleted)) {
