@@ -63,6 +63,23 @@ static inline RSValue RS_RedisStringVal(RedisModuleString *str) {
   return (RSValue){.t = RSValue_RedisString, .rstrval = str};
 }
 
+// Returns true if the value contains a string
+static inline int RSValue_IsString(const RSValue *value) {
+  return value->t == RSValue_String || value->t == RSValue_RedisString;
+}
+
+// Gets the string pointer and length from the value
+static inline const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
+  if (value->t == RSValue_String) {
+    if (lenp) {
+      *lenp = value->strval.len;
+    }
+    return value->strval.str;
+  } else {
+    return RedisModule_StringPtrLen(value->rstrval, lenp);
+  }
+}
+
 /* Wrap a number into a value object */
 static inline RSValue RS_NumVal(double n) {
   return (RSValue){

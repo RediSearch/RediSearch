@@ -43,6 +43,9 @@ typedef struct RSQuery {
   // Index spec
   RedisSearchCtx *sctx;
 
+  // Pointer to payload info. The target resides in the search request itself
+  RSPayload *payloadptr;
+
   // query root
   QueryNode *root;
 

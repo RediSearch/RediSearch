@@ -86,7 +86,7 @@ inline void SearchResult_FreeInternal(SearchResult *r) {
     IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
   }
-  free(r->fields);
+  RSFieldMap_Free(r->fields, 0);
 }
 
 /* Free the search result object including the object itself */
@@ -132,7 +132,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
       continue;
     }
 
-    dmd = DocTable_Get(&q->ctx->spec->docs, r->docId);
+    dmd = DocTable_Get(&RP_SPEC(ctx)->docs, r->docId);
 
     // skip deleted documents
     if (!dmd || (dmd->flags & Document_Deleted)) {
@@ -214,7 +214,7 @@ static void scorer_Free(ResultProcessor *rp) {
 
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
-ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
+ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSearchRequest *req) {
   struct scorerCtx *sc = malloc(sizeof(*sc));
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&sc->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
@@ -224,6 +224,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
 
   sc->scorer = scx->sf;
   sc->scorerFree = scx->ff;
+  sc->scorerCtx.payload = req->payload;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
@@ -476,8 +477,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
  *******************************************************************************************************************/
 struct loaderCtx {
   RedisSearchCtx *ctx;
-  size_t numFields;
-  const char **loadfields;
+  FieldList *fields;
 };
 
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
@@ -496,7 +496,8 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   RedisModuleString *idstr =
       RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
-  Redis_LoadDocumentEx(lc->ctx, idstr, lc->loadfields, lc->numFields, &doc, &rkey);
+  Redis_LoadDocumentEx(lc->ctx, idstr, (const char **)lc->fields->rawFields, lc->fields->numFields,
+                       &doc, &rkey);
   RedisModule_FreeString(lc->ctx->redisCtx, idstr);
 
   // TODO: load should return strings, not redis strings
@@ -512,8 +513,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
   struct loaderCtx *sc = malloc(sizeof(*sc));
   sc->ctx = r->sctx;
-  sc->loadfields = r->retfields;
-  sc->numFields = r->nretfields;
+  sc->fields = &r->fields;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
@@ -533,7 +533,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 
   // If we are not in SORTBY mode - add a scorer to the chain
   if (req->sortBy == NULL) {
-    next = NewScorer(req->scorer, next);
+    next = NewScorer(req->scorer, next, req);
   }
 
   // The sorter sorts the top-N results
@@ -544,9 +544,11 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
-  if (!(req->flags & Search_NoContent) || req->nretfields == 0) {
-
+  if (!(req->flags & Search_NoContent) || req->fields.numFields == 0) {
     next = NewLoader(next, req);
+    if (req->fields.wantSummaries) {
+      next = NewHighlightProcessor(next, req);
+    }
   }
 
   return next;

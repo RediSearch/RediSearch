@@ -36,12 +36,30 @@ typedef struct ForwardIndex {
 } ForwardIndex;
 
 typedef struct {
+  const char *doc;
+  VarintVectorWriter *allOffsets;
+  ForwardIndex *idx;
+  t_fieldMask fieldId;
+  float fieldScore;
+} ForwardIndexTokenizerCtx;
+
+static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
+                                                 const char *doc, VarintVectorWriter *vvw,
+                                                 t_fieldMask fieldId, float score) {
+  ctx->idx = idx;
+  ctx->fieldId = fieldId;
+  ctx->fieldScore = score;
+  ctx->doc = doc;
+  ctx->allOffsets = vvw;
+}
+
+typedef struct {
   KHTable *hits;
   KHTableEntry *curEnt;
   uint32_t curBucketIdx;
 } ForwardIndexIterator;
 
-int forwardIndexTokenFunc(void *ctx, const Token *t);
+int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);
 void ForwardIndexFree(ForwardIndex *idx);
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);

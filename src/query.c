@@ -508,6 +508,7 @@ QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
   ctx->language = req->language ? req->language : DEFAULT_LANGUAGE;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;
+  ctx->payloadptr = &req->payload;
   return ctx;
 }
 
@@ -717,7 +718,7 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
     count += serializeResult(qex, &r, flags);
 
     IndexResult_Free(r.indexResult);
-    free(r.fields);
+    RSFieldMap_Free(r.fields, 0);
   } while (rc != RS_RESULT_EOF);
   if (count == 0) {
     RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
@@ -770,10 +771,11 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   plan->ctx = req->sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
   plan->req = req;
-  plan->execCtx = (QueryProcessingCtx){
-
-      .errorString = NULL, .minScore = 0, .totalResults = 0, .state = QueryState_OK,
-  };
+  plan->execCtx = (QueryProcessingCtx){.errorString = NULL,
+                                       .minScore = 0,
+                                       .totalResults = 0,
+                                       .state = QueryState_OK,
+                                       .sctx = plan->ctx};
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,

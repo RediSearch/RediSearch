@@ -5,6 +5,7 @@
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
+#include "search_request.h"
 
 /********************************************************************************
  * Result Processor Chain
@@ -36,6 +37,8 @@ typedef enum {
 typedef struct {
   // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
+  // Contains our spec
+  RedisSearchCtx *sctx;
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
   // the total results found in the query, incremented by the root processors and decremented by
@@ -140,9 +143,13 @@ size_t ResultProcessor_Total(ResultProcessor *rp);
  * Do NOT call Free() callbacks on processors directly! */
 void ResultProcessor_Free(ResultProcessor *rp);
 
+// Get the index spec from the result processor
+#define RP_SPEC(rpctx) ((rpctx)->qxc->sctx->spec)
+
 SearchResult *NewSearchResult();
 
 void SearchResult_FreeInternal(SearchResult *r);
 void SearchResult_Free(void *p);
 
+ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
 #endif  // !RS_RESULT_PROCESSOR_H_

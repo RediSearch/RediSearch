@@ -729,7 +729,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
                                 RSQueryTerm *term) {
   if (term) {
     // compute IDF based on num of docs in the header
-    term->idf = logb(1.0F + docTable->size / (idx->numDocs ? idx->numDocs : (double)1));
+    term->idf = CalculateIDF(docTable->size, idx->numDocs);
   }
 
   // Get the decoder

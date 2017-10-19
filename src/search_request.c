@@ -8,50 +8,8 @@
 #include "concurrent_ctx.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "summarize_spec.h"
 #include <sys/param.h>
-
-#define BAD_LENGTH_ARGS ((size_t)-1)
-/**
- * Gets a variable list of arguments to a given keyword.
- * The number of variable arguments are found in `outlen`.
- * If offset is specified, the first <offset> arguments will be ignored when
- * checking for the presence of the keyword and subsequent arguments.
- *
- * If the return value is NULL then the keyword is not present. If
- * the value of outlen is `BAD_LENGTH_ARGS` then the keyword was found, but
- * there was a problem with how the numbers are formatted.
- *
- */
-static RedisModuleString **getLengthArgs(const char *keyword, size_t *outlen,
-                                         RedisModuleString **argv, int argc, size_t offset) {
-  if (offset > argc) {
-    return NULL;
-  }
-
-  argv += offset;
-  argc -= offset;
-
-  int ix = RMUtil_ArgIndex(keyword, argv, argc);
-  if (ix < 0) {
-    return NULL;
-  } else if (ix >= argc - 1) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  argv += (ix + 1);
-  argc -= (ix + 1);
-
-  long long n = 0;
-  RMUtil_ParseArgs(argv, argc, 0, "l", &n);
-  if (n > argc - 1 || n < 0) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  *outlen = n;
-  return argv + 1;
-}
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
@@ -91,6 +49,34 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     req->slop = __INT_MAX__;
   }
 
+  int sumIdx;
+  if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
+    size_t tmpOffset = sumIdx;
+    if (ParseSummarizeSpecSimple(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Couldn't parse `SUMMARIZE`";
+      goto err;
+    }
+  }
+
+  if ((sumIdx = RMUtil_ArgExists("HIGHLIGHTER", argv, argc, 3)) > 0) {
+    // Parse the highlighter spec
+    size_t tmpOffset;
+    if (argc - sumIdx < 2) {
+      *errStr = "Not enough arguments for `HIGHLIGHTER";
+      goto err;
+    }
+    sumIdx++;
+    if (!RMUtil_StringEqualsCaseC(argv[sumIdx], "DEFAULT")) {
+      *errStr = "Unknown highlighter";
+      goto err;
+    }
+    tmpOffset = sumIdx;
+    if (ParseSummarizeSpecDetailed(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Bad args for `HIGHLIGHTER DEFAULT`";
+      goto err;
+    }
+  }
+
   // Parse LIMIT argument
   long long offset = 0, limit = 10;
   if (RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &offset, &limit) == REDISMODULE_OK) {
@@ -107,8 +93,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // if INFIELDS exists, parse the field mask
   req->fieldMask = RS_FIELDMASK_ALL;
-  if ((vargs = getLengthArgs("INFIELDS", &nargs, argv, argc, 3))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 3, "INFIELDS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INFIELDS`";
       goto err;
     }
@@ -192,8 +178,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse the id filter arguments
-  if ((vargs = getLengthArgs("INKEYS", &nargs, argv, argc, 2))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "INKEYS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INKEYS`";
       goto err;
     }
@@ -201,14 +187,12 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse RETURN argument
-  if ((vargs = getLengthArgs("RETURN", &nargs, argv, argc, 2))) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "RETURN", &nargs))) {
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
-      req->retfields = malloc(sizeof(*req->retfields) * nargs);
-      req->nretfields = nargs;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        req->retfields[ii] = strdup(RedisModule_StringPtrLen(vargs[ii], NULL));
+        FieldList_AddFieldR(&req->fields, vargs[ii]);
       }
     }
   }
@@ -220,6 +204,50 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 err:
   RSSearchRequest_Free(req);
   return NULL;
+}
+
+ReturnedField *FieldList_AddField(FieldList *fields, const char *name) {
+  size_t foundIndex = -1;
+  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
+    if (!strcasecmp(fields->rawFields[ii], name)) {
+      foundIndex = ii;
+      break;
+    }
+  }
+
+  if (foundIndex == -1) {
+    foundIndex = fields->numRawFields;
+    fields->rawFields =
+        realloc(fields->rawFields, sizeof(*fields->rawFields) * ++fields->numRawFields);
+    fields->rawFields[foundIndex] = strdup(name);
+  }
+
+  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  ReturnedField *ret = fields->fields + (fields->numFields - 1);
+  memset(ret, 0, sizeof *ret);
+  ret->nameIndex = foundIndex;
+  return ret;
+}
+
+ReturnedField *FieldList_AddFieldR(FieldList *fields, RedisModuleString *s) {
+  return FieldList_AddField(fields, RedisModule_StringPtrLen(s, NULL));
+}
+
+static void FieldList_Free(FieldList *fields) {
+  free(fields->openTag);
+  free(fields->closeTag);
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    ReturnedField *field = fields->fields + ii;
+    if (fields->openTag == NULL && fields->closeTag == NULL) {
+      free(field->openTag);
+      free(field->closeTag);
+    }
+  }
+  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
+    free(fields->rawFields[ii]);
+  }
+  free(fields->fields);
+  free(fields->rawFields);
 }
 
 void RSSearchRequest_Free(RSSearchRequest *req) {
@@ -263,12 +291,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
     Vector_Free(req->numericFilters);
   }
 
-  if (req->retfields) {
-    for (size_t ii = 0; ii < req->nretfields; ++ii) {
-      free((void *)req->retfields[ii]);
-    }
-    free(req->retfields);
-  }
+  FieldList_Free(&req->fields);
 
   if (req->sctx) {
     SearchCtx_Free(req->sctx);

@@ -142,8 +142,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
 
 /* Set the query payload */
 void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
-  // ctx->query->payload = payload;
-  printf("NO PAYLOAD SET!\n");
+  *ctx->query->payloadptr = payload;
 }
 
 /* Get an expander by name */

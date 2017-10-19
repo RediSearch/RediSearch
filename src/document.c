@@ -47,17 +47,18 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     aCtx->fdatas = realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
   }
 
+  size_t numIndexable = 0;
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
       aCtx->fspecs[i] = *fs;
       if (FieldSpec_IsSortable(fs)) {
-        if (aCtx->sv == NULL) {
-          aCtx->sv = NewSortingVector(sp->sortables->len);
-        }
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
+      }
+      if (fs->type == F_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+        numIndexable++;
       }
       // mark non text fields in the state flags
       if (fs->type != F_FULLTEXT) {
@@ -71,6 +72,19 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     } else {
       aCtx->fspecs[i].name = NULL;
     }
+  }
+
+  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
+    aCtx->sv = NewSortingVector(sp->sortables->len);
+  }
+
+  if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numIndexable &&
+      (sp->flags & Index_StoreTermOffsets)) {
+    if (!aCtx->byteOffsets) {
+      aCtx->byteOffsets = NewByteOffsets();
+      ByteOffsetWriter_Init(&aCtx->offsetsWriter);
+    }
+    RSByteOffsets_ReserveFields(aCtx->byteOffsets, numIndexable);
   }
 }
 
@@ -192,6 +206,13 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->sv = NULL;
   }
 
+  if (aCtx->byteOffsets) {
+    RSByteOffsets_Free(aCtx->byteOffsets);
+    aCtx->byteOffsets = NULL;
+  }
+
+  ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
+
   if (aCtx->stopwords) {
     StopWordList_Unref(aCtx->stopwords);
     aCtx->stopwords = NULL;
@@ -216,11 +237,24 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  // Only tokenize indexable fields
   if (FieldSpec_IsIndexable(fs)) {
     Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
-    aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
-                                 aCtx->totalTokens, aCtx->stopwords);
+    ForwardIndexTokenizerCtx tokCtx;
+    VarintVectorWriter *curOffsetWriter = NULL;
+    RSByteOffsetField *curOffsetField = NULL;
+    if (aCtx->byteOffsets) {
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->id, aCtx->totalTokens + 1);
+      curOffsetWriter = &aCtx->offsetsWriter;
+    }
+
+    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->id, fs->weight);
+    size_t newTokPos =
+        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
+
+    if (curOffsetField) {
+      curOffsetField->lastTokPos = newTokPos;
+    }
+    aCtx->totalTokens = newTokPos;
   }
   return 0;
 }
