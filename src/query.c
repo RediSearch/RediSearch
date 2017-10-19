@@ -508,6 +508,7 @@ QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
   ctx->language = req->language ? req->language : DEFAULT_LANGUAGE;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;
+  ctx->payloadptr = &req->payload;
   return ctx;
 }
 

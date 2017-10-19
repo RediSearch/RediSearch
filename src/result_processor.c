@@ -214,7 +214,7 @@ static void scorer_Free(ResultProcessor *rp) {
 
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
-ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
+ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSearchRequest *req) {
   struct scorerCtx *sc = malloc(sizeof(*sc));
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&sc->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
@@ -224,6 +224,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream) {
 
   sc->scorer = scx->sf;
   sc->scorerFree = scx->ff;
+  sc->scorerCtx.payload = req->payload;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
@@ -532,7 +533,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
 
   // If we are not in SORTBY mode - add a scorer to the chain
   if (req->sortBy == NULL) {
-    next = NewScorer(req->scorer, next);
+    next = NewScorer(req->scorer, next, req);
   }
 
   // The sorter sorts the top-N results
