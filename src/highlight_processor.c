@@ -188,13 +188,8 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
-static void hlp_Free(ResultProcessor *rp) {
-  free(rp);
-}
-
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
   ResultProcessor *rp = NewResultProcessor(parent, req);
   rp->Next = hlp_Next;
-  rp->Free = hlp_Free;
   return rp;
 }
