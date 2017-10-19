@@ -525,7 +525,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                         'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
                 self.assertEqual(
-                    [100L, 'doc2', '5', 'doc3', '4', 'doc4', '3', 'doc5', '2', 'doc6', '1'], res)
+                    [100L, 'doc2', '0', 'doc3', '0', 'doc4', '0', 'doc5', '0', 'doc6', '0'], res)
 
                 res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                         'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
@@ -738,7 +738,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual('hotel79', res[1])
                 res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
                 self.assertListEqual(res,res2)
-
+                    
                 res = gsearch('hilton', "-0.1757", "51.5156", '10')
                 self.assertEqual(14, res[0])
                 self.assertEqual('hotel93', res[1])
@@ -972,9 +972,10 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                         "filter", "score", 0, 50)
                 self.assertEqual(51, res[0])
+                
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                         "filter", "score", "(0", "(50")
-
+                
                 self.assertEqual(49, res[0])
                 res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                         "filter", "score", "-inf", "+inf")
@@ -1361,6 +1362,82 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
         self.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
 
+    def testSummarization(self):
+        # Load the file
+        txt = open('../tests/genesis.txt', 'r').read()
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        self.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
+
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', "<b>", "</b>", 'FRAGSIZE', 20, 1, 'txt')
+        self.assertEqual(1, res[0])
+        print res
+        res_txt = res[2][1]
+        print res_txt
+
+        self.assertTrue("<b>Abraham</b>" in res_txt)
+        self.assertTrue("<b>Isaac</b>" in res_txt)
+        self.assertTrue("<b>Jacob</b>" in res_txt)
+
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'SUMMARIZE', 'TAGS', '<i>', '</i>', 'NOTRUNCATE', 1, 'txt')
+        res_txt = res[2][1]
+        self.assertGreaterEqual(len(res_txt), 160000)
+
+        # Do another search..
+        res = self.cmd('ft.search', 'idx', 'abraham isaac jacob',
+                       'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'TAGS', '<b>', '</b>')
+
+        res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHTER', 'DEFAULT', 'FIELD', 'txt', 'FORMAT', 'RELEVANCE', 'FRAGLIMIT', 10000)
+        # print res
+
+        res_list = res[2][1]
+        # self.assertIsInstance(res_list, list)
+
+        # Search with prefix
+        res = self.cmd('FT.SEARCH', 'idx', 'begi*', 'SUMMARIZE', 'TAGS', "<b>", "</b>", 'FRAGSIZE', 20, 1, 'txt')
+        self.assertEqual([1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
+
+    def testSummarizationMultiField(self):
+        p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
+        p2 = "Redis typically holds the whole dataset in memory. Versions up to 2.4 could be configured to use what they refer to as virtual memory[19] in which some of the dataset is stored on disk, but this feature is deprecated. Persistence is now achieved in two different ways: one is called snapshotting, and is a semi-persistent durability mode where the dataset is asynchronously transferred from memory to disk from time to time, written in RDB dump format. Since version 1.1 the safer alternative is AOF, an append-only file (a journal) that is written as operations modifying the dataset in memory are processed. Redis is able to rewrite the append-only file in the background in order to avoid an indefinite growth of the journal."
+
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT', 'txt2', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'redis', 1.0, 'FIELDS', 'txt1', p1, 'txt2', p2)
+
+        # Now perform the multi-field search
+        print self.cmd('FT.SEARCH', 'idx', 'memory persistence salvatore',
+                       'SUMMARIZE', 'TAGS', '<b>', '</b>', 'FRAGSIZE', 5, '2', 'txt1', 'txt2')
+
+
+        # # Now perform the multi-field search
+        # res = self.cmd('FT.SEARCH', 'idx', 'memory persistence salvatore',
+        #                'SUMMARIZE', 'FRAGSIZE', 5, '2', 'txt1', 'txt2')
+        # # print res
+        # self.assertEqual( [1L, 'redis', ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2', 'Redis typically holds the whole dataset in memory.... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']], res)
+    
+    # def testSummarizationNoOffsets(self):
+    #     self.cmd('FT.CREATE', 'idx', 'NOFFSETS', 'SCHEMA', 'body', 'TEXT')
+    #     self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
+    #     res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 1, 'body')
+    #     self.assertEqual([1L, 'doc', ['body', 'hello ... ']], res)
+    
+    def testSummarizationNoSave(self):
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE', 'fields', 'body', 'hello world')
+        res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 1, 'body')
+        # print res
+        self.assertEqual([1L, 'doc', ['body', None]], res)
+
+    def testSummarizationMeta(self):
+        self.cmd('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text', 'baz', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'pill', 'bar', 'pillow', 'baz', 'piller')
+
+        # Now, return the fields:
+        res = self.cmd('ft.search', 'idx', 'pill pillow piller',
+                       'RETURN', 1, 'baz', 'SUMMARIZE', 2, 'foo', 'bar')
+        self.assertEqual(1, res[0])
+        result = res[2]
+        names = [x[0] for x in grouper(result, 2)]
+        self.assertEqual(set(('foo', 'bar', 'baz')), set(names))
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

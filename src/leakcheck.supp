@@ -4,11 +4,7 @@
    match-leak-kinds: definite
    ...
    fun:DefaultExtensionInit
-   fun:Extension_Load
-   fun:RediSearch_InitModuleInternal
-   fun:moduleLoad
-   fun:moduleLoadFromQueue
-   fun:main
+   ...
 }
 {
    <insert_a_suppression_name_here>
@@ -201,3 +197,20 @@
 }
 
 
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Cond
+   fun:lzf_compress
+}
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value4
+   fun:lzf_compress
+}
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value8
+   fun:lzf_compress
+}

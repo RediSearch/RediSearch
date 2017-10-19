@@ -156,6 +156,9 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (partial) {
     options |= DOCUMENT_ADD_PARTIAL;
   }
+  if (nosave) {
+    options |= DOCUMENT_ADD_NOSAVE;
+  }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   AddDocumentCtx_Submit(aCtx, &sctx, options);
 
@@ -373,6 +376,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
   // at least one field, and number of field/text args must be even
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -394,7 +398,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
   req->sctx = sctx;
 
-  Query *q = NewQueryFromRequest(req);
+  QueryParseCtx *q = NewQueryParseCtx(req);
   if (!q) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
@@ -414,9 +418,9 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
     goto end;
   }
-
-  Query_Expand(q);
-
+  if (!(req->flags & Search_Verbatim)) {
+    Query_Expand(q, req->expander);
+  }
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
   }
@@ -449,7 +453,7 @@ end:
   return REDISMODULE_OK;
 }
 
-/* FT.DTADD {index} {key} {flags} {score} [{payload}]
+/* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
 *
 *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
 *
@@ -460,7 +464,7 @@ end:
 */
 int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc < 5 || argc > 6) return RedisModule_WrongArity(ctx);
+  if (argc != 7) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -473,14 +477,21 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
   }
 
-  const char *payload = NULL;
-  size_t payloadSize = 0;
-  // optionally take the payload
-  if (argc == 6) {
-    payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
-  }
+  size_t payloadSize = 0, offsetsSize = 0;
+  const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
+  const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
+
   t_docId d = DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score,
                            (u_char)flags, payload, payloadSize);
+
+  if (offsetsSize) {
+    Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
+    RSByteOffsets *offsets = LoadByteOffsets(b);
+    free(b);
+    if (offsets) {
+      DocTable_SetByteOffsets(&sp->docs, d, offsets);
+    }
+  }
 
   return RedisModule_ReplyWithLongLong(ctx, d);
 }

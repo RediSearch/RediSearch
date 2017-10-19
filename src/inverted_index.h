@@ -10,6 +10,7 @@
 #include "spec.h"
 #include "numeric_filter.h"
 #include <stdint.h>
+#include <math.h>
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
@@ -157,5 +158,9 @@ void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
+
+static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
+  return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
+}
 
 #endif

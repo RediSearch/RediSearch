@@ -6,7 +6,7 @@
 
 #define DEFAULT_RECORDLIST_SIZE 4
 
-RSQueryTerm *NewTerm(RSToken *tok);
+RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
 /** Reset the state of an existing index hit. This can be used to
@@ -30,6 +30,10 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 
 /* Append a child to an aggregate result */
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
+
+/* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
+ * caution */
+RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
 
 /* Debug print a result */
 void IndexResult_Print(RSIndexResult *r, int depth);
