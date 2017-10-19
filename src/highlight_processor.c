@@ -123,7 +123,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
 
   // Buffer to store concatenated fragments
   Array bufTmp;
-  Array_Init(&bufTmp);
+  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
 
   for (size_t ii = 0; ii < numIovArr; ++ii) {
     Array *curIovs = iovsArr + ii;
@@ -145,7 +145,9 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
-  RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(strndup(bufTmp.data, bufTmp.len), bufTmp.len));
+  size_t hlLen;
+  char *hlText = Array_Steal(&bufTmp, &hlLen);
+  RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(hlText, hlLen));
 
   Array_Free(&bufTmp);
   for (size_t ii = 0; ii < numIovArr; ++ii) {

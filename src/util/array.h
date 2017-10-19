@@ -36,6 +36,18 @@ static inline void Array_Init(Array *array) {
 void Array_Free(Array *array);
 
 /**
+ * "Steal" the contents of the array. The caller now owns its contents.
+ */
+static inline char *Array_Steal(Array *array, size_t *len) {
+  *len = array->len;
+  char *ret = array->data;
+  array->data = NULL;
+  array->len = 0;
+  array->capacity = 0;
+  return ret;
+}
+
+/**
  * Add item to the array
  * elemSize is the size of the new item.
  * Returns a pointer to the newly added item. The memory is allocated but uninitialized
