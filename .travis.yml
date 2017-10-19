@@ -24,4 +24,7 @@ deploy:
   upload-dir: redisearch-oss
   on:
     branch: master
-  local_dir: $TRAVIS_BUILD_DIR/build
+  local_dir: "$TRAVIS_BUILD_DIR/build"
+notifications:
+  slack:
+    secure: O333QLHQ9pwIGSnolDY2ZGuFiHLQRdYR/47dWy6pE5nBPVHZ0H/OwophxzEFQ5Ewvm0rHvjjsxBG3gug7I0R0VQKrz8zO7r41NJI+3rOkoS935keaOek+evB6M7g1oj2rCvUhF9994/j12pzBBg+EmAJy+BLenkV6oIKyevzUAMdRlGM6A+RYzr6lgNpSlclc/I34g++piOr2Dpm3Gzm/ZqPjdHj/ALHphK4b3LnCwBtM+bZWScRYTuTC7A1Z7oDTvbaswMzjsHkW8hFoTGZ/8Ajg5zZWBkM+fQ3d4qrTWrqdqI9qflkKjGWpx54yH+m6+0fKEmSq7Cium+AqTraIZQwI6QwhVNqEa2g85mp6x/IzdQ55DjFSbwb3VPFEcMP2M7tQN/GgOcMxALhM0GAgQ11I7BfXnXZyclEiL5KqG+jK8tuf367um5RMlrdWChtMI+6n1+Yuw5/ZKTs+hih8CSxSDHQn88UmUqqnc6vvT7ZDNt2tcDD9tCBb688sCMH2fARxYidQGg72W+ghbs0Oh5sqdTgX93oIMKFHlEEG4f2pint5Tdbt3nl1v+u42bx/J9iJzCA/wXc7nHVygIfh8AD32F6gTnDgo4Fjq3wblQW4jxNj1faznUdZikyev9tuNesOc2r874crv/cszkCPJGTeSGmRodIkxpYDifbLsk=
