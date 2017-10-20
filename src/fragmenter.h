@@ -10,6 +10,37 @@
 #include "stopwords.h"
 #include "byte_offsets.h"
 
+/**
+ *
+ ## Implementation
+The summarization/highlight subsystem is implemented using an environment-agnostic
+highlighter/fragmenter, and a higher level which is integrated with RediSearch and
+the query keyword parser.
+
+The summarization process begins by tokenizing the requested field, and splitting
+the document into *fragments*.
+
+When a matching token (or its stemmed variant) is found, a distance counter begins.
+This counts the number of tokens following the matched token. If another matching
+token occurs before the maximum token distance has been exceeded, the counter is
+reset to 0 and the fragment is extended.
+
+Each time a token is found in a fragment, the fragment's score increases. The
+score increase is dependent on the base token score (this is provided as
+input to the fragmenter), and whether this term is being repeated, or if it is
+a new occurrence (within the same fragment). New terms get higher scores; which
+helps eliminate forms like "I said to Abraham: Abraham, why...".
+
+The input score for each term is calculated based on the term's overall frequency
+in the DB (lower frequency means higher score), but this is consider out of bounds
+for the fragmenter.
+
+Once all fragments are scored, they are then *contextualized*. The fragment's
+context is determined to be X amount of tokens surrounding the given matched
+tokens. Words in between the tokens are considered as well, ensuring that every
+fragment is more or less the same size.
+ */
+
 typedef struct {
   uint32_t tokPos;
   uint32_t bytePos;

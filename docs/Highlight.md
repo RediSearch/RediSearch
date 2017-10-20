@@ -6,115 +6,84 @@ It would be good to support multiple highlighter engines, but also allow for
 sane defaults. As such, two entry points will be available. One is a simplified
 syntax, and the other is a more complicated one.
 
-### Simple Syntax
+### Command Syntax
 
 ```
-FT.SEARCH ... SUMMARIZE
-    [TAGS {open} {close}]
-    [FRAGSIZE {size}]
-    [NOTRUNCATE]
-    {num} {field}
-```
-
-* **TAGS** If passed, should specify the open and close tags to surround each
-    term with.
-    If not specified, then no special text will wrap the terms.
-* **FRAGSIZE** return (approximately) {size}-sized summaries. If the raw text is
-    less than this size, or within +/- 10 chars, it is not truncated.
-    If not specified, the module default will be used.
-* **NOTRUNCATE** Rather than returning a synopsis of the field, return the entire
-    field's body with highlighting applied.
-
-* **num** number of fields to summarize
-* **field** fields to summarize
-
-The return value will be augmented to the fields returned via `RETURN`.
-Conversely, if `RETURN` appears after this keyword, then the fields indicated
-in `RETURN` follow after those from `SUMMARIZE`.
-
-### Extended Syntax
+FT.SEARCH ...
+    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}]
+    HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 
 ```
-FT.SEARCH ... HIGHLIGHTER {engine} {engine args}
-```
 
-This will invoke the highlighter `engine` with the given arguments. The arguments
-themselves are engine-specific
+There are two sub-commands commands used for highlighting. One is `HIGHLIGHT`
+which surrounds matching text with an open and/or close tag; and the other is
+`SUMMARIZE` which splits a field into contextual fragments surrounding the
+found terms. It is possible to summarize a field, highlight a field, or perform
+both actions in the same query.
 
-### Default Engine
+#### Summarization
 
-```
-FT.SEARCH ... HIGHLIGHTER DEFAULT
-    FIELD {name}
-        [TAGS {open} {close}]
-        [FRAGSIZE size]
-        [FORMAT {ORDER|RELEVANCE|RELORDER|SYNOPSIS|FULL}]
-        [FRAGLIMIT {number}]
-    FIELD {name} ...
-```
-
-This format allows finer grained control over each field's summarization/highlighting.
-Rather than setting a tag policy for all fields, it is set individually for each
-one.
-
-The `FORMAT` argument controls how the fragments are returned. The options are:
-
-* **ORDER**: The fragments are returned in the order they appear in the field
-* **RELEVANCE**: The fragments are returned sorted by relevance to the search terms.
-* **RELORDER**: The top `FRAGLIMIT` results are returned, but they are sorted
-    by order of appearance in the field
-* **SYNOPSIS**: The top `FRAGLIMIT` fragments are returned, concatenated by
-    ellipses. This replicates the 'simplified' format.
-* **FULL**: The entire field is returned as a single document, highlighted.
-    This is the `NOTRUNCATE` keyword.
-
-The default format is `SYNOPSIS`.
-
-The return value depends on the `FORMAT` argument. For `SYNOPSIS` and `FULL`,
-each returned field is a string. For the other formats, the field is returned
-as an array.
-
-The return value for this format is also different, as it will be an array of
-arrays of fragments per field, whereas the simplified version will simply return
-the best fragment as a field of its own.
-
-
-### Return Semantics
-
-The `HIGHLIGHTER` and/or `SUMMARIZE` keywords are logical extensions of the `RETURN`
-keyword. If they are used in conjunction with that keyword, the fields will be
-added to the list. A field can be RETURNed and SUMMARIZEd in the same query.
 
 ```
-SUMMARIZE 2 foo bar RETURN 1 baz
+FT.SEARCH ... SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}]
 ```
 
+Summarization or snippetization will fragment the text into smaller sized
+snippets; each snippet will contain the found term(s) and some additional
+surrounding context.
 
-## Implementation
+Redis Search can perform summarization using the `SUMMARIZE` keyword. If no
+additional arguments are passed, all _returned fields_ are summarized using
+built-in defaults.
 
-The summarization/highlight subsystem is implemented using an environment-agnostic
-highlighter/fragmenter, and a higher level which is integrated with RediSearch and
-the query keyword parser.
+The `SUMMARIZE` keyword accepts the following arguments:
 
-The summarization process begins by tokenizing the requested field, and splitting
-the document into *fragments*.
+* **`FIELDS`** If present, must be the first argument. This should be followed
+    by the number of fields to summarize, which itself is followed by a list of
+    fields. Each field present is summarized. If no `FIELD` directive is passed,
+    then *all* fields returned are summarized.
+* **`FRAGS`** How many fragments should be returned. If not specified, a sane
+    default is used.
+* **`LEN`** The number of context words each fragment should contain. Context
+    words surround the found term. A higher value will return a larger block of
+    text.
 
-When a matching token (or its stemmed variant) is found, a distance counter begins.
-This counts the number of tokens following the matched token. If another matching
-token occurs before the maximum token distance has been exceeded, the counter is
-reset to 0 and the fragment is extended.
 
-Each time a token is found in a fragment, the fragment's score increases. The
-score increase is dependent on the base token score (this is provided as
-input to the fragmenter), and whether this term is being repeated, or if it is
-a new occurrence (within the same fragment). New terms get higher scores; which
-helps eliminate forms like "I said to Abraham: Abraham, why...".
 
-The input score for each term is calculated based on the term's overall frequency
-in the DB (lower frequency means higher score), but this is consider out of bounds
-for the fragmenter.
+#### Highlighting
 
-Once all fragments are scored, they are then *contextualized*. The fragment's
-context is determined to be X amount of tokens surrounding the given matched
-tokens. Words in between the tokens are considered as well, ensuring that every
-fragment is more or less the same size.
+```
+FT.SEARCH ... HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
+```
+
+Highlighting will highlight the found term (and its variants) with a user-defined
+tag. This may be used to display the matched text in a different typeface using
+a markup language, or to otherwise make the text appear differently.
+
+Redis Search can perform highlighting using the `HIGHLIGHT` keyword. If no
+additional arguments are passed, all _returned fields_ are highlighted using
+build-in defaults.
+
+The `HIGHLIGHT` keyword accepts the following arguments:
+
+* **`FIELDS`** If present, must be the first argument. This should be followed
+    by the number of fields to highlight, which itself is followed by a list of
+    fields. Each field present is highlighted. If no `FIELD` directive is passed,
+    then *all* fields returned are highlighted.
+* **`TAGS`** If present, must be followed by two strings; the first is prepended
+    to each term match, and the second is appended to it. If no `TAGS` are
+    specified, a built-in tag value is appended and prepended.
+
+
+#### Field Selection
+
+If no specific fields are passed to the `RETURN`, `SUMMARIZE`, or `HIGHLIGHT`
+keywords, then all of a document's fields are returned. However, if any of these
+keywords contain a `FIELD` directive, then the `SEARCH` command will only retun
+the sum total of all fields enumerated in any of those directives. For example
+in the command `RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz`,
+the fields `foo` is returned as-is, `bar` is returned summarized and `baz` is
+returned highlighted. If a keyword (e.g. `SUMMARIZE` or `HIGHLIGHT`) is
+passed without any additional fields, then it affects all fields returned; thus
+`RETURN 2 foo bar HIGHLIGHT FIELDS 1 baz SUMMARIZE` will return `foo` and `bar`
+summarized, and `baz` summarized and highlighted.
