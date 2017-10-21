@@ -663,6 +663,7 @@ int OI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 ok:
 
   // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
+  nc->current = nc->virt;
   nc->lastDocId = nc->current->docId = docId;
   *hit = nc->current;
   return INDEXREAD_OK;
