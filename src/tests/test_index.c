@@ -376,7 +376,7 @@ int testOptional() {
   // printf("Reading!\n");
   IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
-  irs[1] = NewOptionalIterator(NewReadIterator(r2));
+  irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId);
 
   IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0);
   RSIndexResult *h = NULL;

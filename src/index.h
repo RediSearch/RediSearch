@@ -111,10 +111,12 @@ typedef struct {
   RSIndexResult *current;
   t_fieldMask fieldMask;
   t_docId lastDocId;
+  t_docId maxDocId;
+
 } OptionalMatchContext;
 
 /* Create a NOT iterator by wrapping another index iterator */
-IndexIterator *NewOptionalIterator(IndexIterator *it);
+IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId);
 
 /* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only
  * -

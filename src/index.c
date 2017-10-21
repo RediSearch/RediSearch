@@ -638,8 +638,8 @@ void OI_Free(IndexIterator *it) {
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
  * return OK */
 int OI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
-
   OptionalMatchContext *nc = ctx;
+  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
   // If we don't have a child it means the sub iterator is of a meaningless expression.
   // So negating it means we will always return OK!
   if (!nc->child) {
@@ -672,6 +672,7 @@ ok:
  * our child */
 int OI_Read(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
+  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
   if (nc->child) {
     if (nc->child->Read(nc->child->ctx, &nc->current) == INDEXREAD_OK) {
       if (hit) {
@@ -685,7 +686,8 @@ int OI_Read(void *ctx, RSIndexResult **hit) {
 
 /* We always have next, in case anyone asks... ;) */
 int OI_HasNext(void *ctx) {
-  return 1;
+  OptionalMatchContext *nc = ctx;
+  return (nc->lastDocId <= nc->maxDocId);
 }
 
 void OI_Abort(void *ctx) {
@@ -712,14 +714,16 @@ t_docId OI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-IndexIterator *NewOptionalIterator(IndexIterator *it) {
+IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
 
   OptionalMatchContext *nc = malloc(sizeof(*nc));
   nc->virt = NewVirtualResult();
+  nc->virt->freq = 0;
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->current = nc->virt;
   nc->child = it;
   nc->lastDocId = 0;
+  nc->maxDocId = maxDocId;
 
   IndexIterator *ret = malloc(sizeof(*ret));
   ret->ctx = nc;

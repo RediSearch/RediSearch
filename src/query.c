@@ -371,7 +371,8 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryOptionalNode *node = &qn->opt;
 
-  return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL);
+  return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL,
+                             q->docTable->maxDocId);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
