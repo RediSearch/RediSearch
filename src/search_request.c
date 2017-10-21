@@ -181,12 +181,15 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
+      req->fields.explicitReturn = 1;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        FieldList_GetCreateField(&req->fields, vargs[ii]);
+        ReturnedField *rf = FieldList_GetCreateField(&req->fields, vargs[ii]);
+        rf->explicitReturn = 1;
       }
     }
   }
 
+  FieldList_RestrictReturn(&req->fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -223,6 +226,24 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rn
   memset(ret, 0, sizeof *ret);
   ret->name = strdup(name);
   return ret;
+}
+
+void FieldList_RestrictReturn(FieldList *fields) {
+  if (!fields->explicitReturn) {
+    return;
+  }
+
+  size_t oix = 0;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (fields->fields[ii].explicitReturn == 0) {
+      ReturnedField_Free(fields->fields + ii);
+    } else if (ii != oix) {
+      fields->fields[oix++] = fields->fields[ii];
+    } else {
+      ++oix;
+    }
+  }
+  fields->numFields = oix;
 }
 
 void RSSearchRequest_Free(RSSearchRequest *req) {

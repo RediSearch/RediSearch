@@ -1441,7 +1441,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(1, res[0])
         result = res[2]
         names = [x[0] for x in grouper(result, 2)]
-        self.assertEqual(set(('foo', 'bar', 'baz')), set(names))
+
+        # RETURN restricts the number of fields
+        self.assertEqual(set(('baz',)), set(names))
+
+        
+        res = self.cmd('ft.search', 'idx', 'pill pillow piller',
+                    'RETURN', 3, 'foo', 'bar', 'baz', 'SUMMARIZE')
+        self.assertEqual([1L, 'doc1', ['foo', 'pill... ', 'bar', 'pillow... ', 'baz', 'piller... ']], res)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
