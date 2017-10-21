@@ -10,7 +10,7 @@ syntax, and the other is a more complicated one.
 
 ```
 FT.SEARCH ...
-    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}]
+    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
     HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 
 ```
@@ -25,7 +25,8 @@ both actions in the same query.
 
 
 ```
-FT.SEARCH ... SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}]
+FT.SEARCH ...
+    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepStr}]
 ```
 
 Summarization or snippetization will fragment the text into smaller sized
@@ -47,7 +48,12 @@ The `SUMMARIZE` keyword accepts the following arguments:
 * **`LEN`** The number of context words each fragment should contain. Context
     words surround the found term. A higher value will return a larger block of
     text.
-
+* **`SEPARATOR`** The string used to divide between individual summary snippets.
+    The default is `... ` which is common among search engines; but you may
+    override this with any other string if you desire to programmatically divide them
+    later on. You may use a newline sequence, as newlines are stripped from the
+    result body anyway (thus, it will not be conflated with an embedded newline
+    in the text)
 
 
 #### Highlighting
@@ -80,10 +86,14 @@ The `HIGHLIGHT` keyword accepts the following arguments:
 If no specific fields are passed to the `RETURN`, `SUMMARIZE`, or `HIGHLIGHT`
 keywords, then all of a document's fields are returned. However, if any of these
 keywords contain a `FIELD` directive, then the `SEARCH` command will only retun
-the sum total of all fields enumerated in any of those directives. For example
-in the command `RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz`,
-the fields `foo` is returned as-is, `bar` is returned summarized and `baz` is
-returned highlighted. If a keyword (e.g. `SUMMARIZE` or `HIGHLIGHT`) is
-passed without any additional fields, then it affects all fields returned; thus
-`RETURN 2 foo bar HIGHLIGHT FIELDS 1 baz SUMMARIZE` will return `foo` and `bar`
-summarized, and `baz` summarized and highlighted.
+the sum total of all fields enumerated in any of those directives.
+
+The `RETURN` keyword is treated specially, as it overrides any fields specified
+in `SUMMARIZE` or `HIGHLIGHT`.
+
+In the command `RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz`,
+the fields `foo` is returned as-is, while `bar` and `baz` are not returned, because
+`RETURN` was specified, but did not include those fields.
+
+In the command `SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz`, `bar` is returned
+summarized and `baz` is returned highlighted.
