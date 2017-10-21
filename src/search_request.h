@@ -34,10 +34,12 @@ typedef enum {
 #define SUMMARIZE_FRAGCOUNT_DEFAULT 3
 #define SUMMARIZE_DEFAULT_OPEN_TAG "<u>"
 #define SUMMARIZE_DEFAULT_CLOSE_TAG "</u>"
+#define SUMMARIZE_DEFAULT_SEPARATOR "... "
 
 typedef struct {
   uint32_t contextLen;
   uint16_t numFrags;
+  char *separator;
 } SummarizeSettings;
 
 typedef struct {

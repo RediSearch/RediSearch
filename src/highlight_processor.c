@@ -37,8 +37,6 @@ done:
   return rc;
 }
 
-#define HL_SEP_STR "... "
-
 // Strip spaces from a buffer in place. Returns the new length of the text,
 // with all duplicate spaces stripped and converted to a single ' '.
 static size_t stripDuplicateSpaces(char *s, size_t n) {
@@ -146,7 +144,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
-    Array_Write(&bufTmp, HL_SEP_STR, sizeof(HL_SEP_STR) - 1);
+    Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
+                strlen(fieldInfo->summarizeSettings.separator));
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't

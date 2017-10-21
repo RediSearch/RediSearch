@@ -202,6 +202,7 @@ err:
 static void ReturnedField_Free(ReturnedField *field) {
   free(field->highlightSettings.openTag);
   free(field->highlightSettings.closeTag);
+  free(field->summarizeSettings.separator);
   free(field->name);
 }
 

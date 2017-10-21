@@ -1398,6 +1398,13 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             'SUMMARIZE', 'FIELDS', 1, 'txt', 'LEN', 20)
         self.assertEqual([1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
 
+        # Search with custom separator
+        res = self.cmd('FT.SEARCH', 'idx', 'isaac',
+            'SUMMARIZE', 'FIELDS', 1, 'txt',
+            'SEPARATOR', '\r\n',
+            'FRAGS', 4, 'LEN', 3)
+        self.assertEqual([1L, 'gen1', ['txt', 'name Isaac: and\r\nwith Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\n']], res)
+
     def testSummarizationMultiField(self):
         p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
         p2 = "Redis typically holds the whole dataset in memory. Versions up to 2.4 could be configured to use what they refer to as virtual memory[19] in which some of the dataset is stored on disk, but this feature is deprecated. Persistence is now achieved in two different ways: one is called snapshotting, and is a semi-persistent durability mode where the dataset is asynchronously transferred from memory to disk from time to time, written in RDB dump format. Since version 1.1 the safer alternative is AOF, an append-only file (a journal) that is written as operations modifying the dataset in memory are processed. Redis is able to rewrite the append-only file in the background in order to avoid an indefinite growth of the journal."

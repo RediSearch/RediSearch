@@ -22,6 +22,16 @@ static int parseTags(RedisModuleString **argv, int argc, size_t *offset, const c
   return REDISMODULE_OK;
 }
 
+static int parseSeparator(RedisModuleString **argv, int argc, size_t *offset, const char **sep) {
+  if (argc - *offset < 2) {
+    return REDISMODULE_ERR;
+  }
+  ++*offset;
+  *sep = RedisModule_StringPtrLen(argv[*offset], NULL);
+  ++*offset;
+  return REDISMODULE_OK;
+}
+
 static int parseFragLen(RedisModuleString **argv, int argc, size_t *offset, uint32_t *fragSize) {
   if (argc - *offset < 2) {
     return REDISMODULE_ERR;
@@ -86,6 +96,9 @@ static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings
 
 static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
   *tgt = *defaults;
+  if (tgt->separator) {
+    tgt->separator = strdup(tgt->separator);
+  }
 }
 
 static void setFieldSettings(ReturnedField *tgt, const ReturnedField *defaults, int isHighlight) {
@@ -104,7 +117,8 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
   int rc = REDISMODULE_OK;
 
   ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGCOUNT_DEFAULT,
-                                                 .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT},
+                                                 .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT,
+                                                 .separator = SUMMARIZE_DEFAULT_SEPARATOR},
                            .highlightSettings = {.openTag = SUMMARIZE_DEFAULT_OPEN_TAG,
                                                  .closeTag = SUMMARIZE_DEFAULT_CLOSE_TAG}};
 
@@ -133,6 +147,12 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
       }
     } else if (!isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "FRAGS")) {
       if (parseNumFrags(argv, argc, offset, &defOpts.summarizeSettings.numFrags) != 0) {
+        rc = REDISMODULE_ERR;
+        goto done;
+      }
+    } else if (!isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "SEPARATOR")) {
+      if (parseSeparator(argv, argc, offset, (const char **)&defOpts.summarizeSettings.separator) !=
+          0) {
         rc = REDISMODULE_ERR;
         goto done;
       }
