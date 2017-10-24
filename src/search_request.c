@@ -52,27 +52,17 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   int sumIdx;
   if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
     size_t tmpOffset = sumIdx;
-    if (ParseSummarizeSpecSimple(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+    if (ParseSummarize(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
       *errStr = "Couldn't parse `SUMMARIZE`";
       goto err;
     }
   }
 
-  if ((sumIdx = RMUtil_ArgExists("HIGHLIGHTER", argv, argc, 3)) > 0) {
+  if ((sumIdx = RMUtil_ArgExists("HIGHLIGHT", argv, argc, 3)) > 0) {
     // Parse the highlighter spec
-    size_t tmpOffset;
-    if (argc - sumIdx < 2) {
-      *errStr = "Not enough arguments for `HIGHLIGHTER";
-      goto err;
-    }
-    sumIdx++;
-    if (!RMUtil_StringEqualsCaseC(argv[sumIdx], "DEFAULT")) {
-      *errStr = "Unknown highlighter";
-      goto err;
-    }
-    tmpOffset = sumIdx;
-    if (ParseSummarizeSpecDetailed(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
-      *errStr = "Bad args for `HIGHLIGHTER DEFAULT`";
+    size_t tmpOffset = sumIdx;
+    if (ParseHighlight(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Couldn't parse `HIGHLIGHT`";
       goto err;
     }
   }
@@ -191,12 +181,15 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
+      req->fields.explicitReturn = 1;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        FieldList_AddFieldR(&req->fields, vargs[ii]);
+        ReturnedField *rf = FieldList_GetCreateField(&req->fields, vargs[ii]);
+        rf->explicitReturn = 1;
       }
     }
   }
 
+  FieldList_RestrictReturn(&req->fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -206,48 +199,52 @@ err:
   return NULL;
 }
 
-ReturnedField *FieldList_AddField(FieldList *fields, const char *name) {
-  size_t foundIndex = -1;
-  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
-    if (!strcasecmp(fields->rawFields[ii], name)) {
-      foundIndex = ii;
-      break;
-    }
-  }
+static void ReturnedField_Free(ReturnedField *field) {
+  free(field->highlightSettings.openTag);
+  free(field->highlightSettings.closeTag);
+  free(field->summarizeSettings.separator);
+  free(field->name);
+}
 
-  if (foundIndex == -1) {
-    foundIndex = fields->numRawFields;
-    fields->rawFields =
-        realloc(fields->rawFields, sizeof(*fields->rawFields) * ++fields->numRawFields);
-    fields->rawFields[foundIndex] = strdup(name);
+static void FieldList_Free(FieldList *fields) {
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    ReturnedField_Free(fields->fields + ii);
+  }
+  ReturnedField_Free(&fields->defaultField);
+}
+
+ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname) {
+  const char *name = RedisModule_StringPtrLen(rname, NULL);
+  size_t foundIndex = -1;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (!strcasecmp(fields->fields[ii].name, name)) {
+      return fields->fields + ii;
+    }
   }
 
   fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->nameIndex = foundIndex;
+  ret->name = strdup(name);
   return ret;
 }
 
-ReturnedField *FieldList_AddFieldR(FieldList *fields, RedisModuleString *s) {
-  return FieldList_AddField(fields, RedisModule_StringPtrLen(s, NULL));
-}
+void FieldList_RestrictReturn(FieldList *fields) {
+  if (!fields->explicitReturn) {
+    return;
+  }
 
-static void FieldList_Free(FieldList *fields) {
-  free(fields->openTag);
-  free(fields->closeTag);
+  size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    ReturnedField *field = fields->fields + ii;
-    if (fields->openTag == NULL && fields->closeTag == NULL) {
-      free(field->openTag);
-      free(field->closeTag);
+    if (fields->fields[ii].explicitReturn == 0) {
+      ReturnedField_Free(fields->fields + ii);
+    } else if (ii != oix) {
+      fields->fields[oix++] = fields->fields[ii];
+    } else {
+      ++oix;
     }
   }
-  for (size_t ii = 0; ii < fields->numRawFields; ++ii) {
-    free(fields->rawFields[ii]);
-  }
-  free(fields->fields);
-  free(fields->rawFields);
+  fields->numFields = oix;
 }
 
 void RSSearchRequest_Free(RSSearchRequest *req) {

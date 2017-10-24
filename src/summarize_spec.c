@@ -2,6 +2,12 @@
 #include "search_request.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
+#include "util/array.h"
+
+/**
+ * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]
+ * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
+*/
 
 static int parseTags(RedisModuleString **argv, int argc, size_t *offset, const char **open,
                      const char **close) {
@@ -16,7 +22,17 @@ static int parseTags(RedisModuleString **argv, int argc, size_t *offset, const c
   return REDISMODULE_OK;
 }
 
-static int parseFragsize(RedisModuleString **argv, int argc, size_t *offset, uint32_t *fragSize) {
+static int parseSeparator(RedisModuleString **argv, int argc, size_t *offset, const char **sep) {
+  if (argc - *offset < 2) {
+    return REDISMODULE_ERR;
+  }
+  ++*offset;
+  *sep = RedisModule_StringPtrLen(argv[*offset], NULL);
+  ++*offset;
+  return REDISMODULE_OK;
+}
+
+static int parseFragLen(RedisModuleString **argv, int argc, size_t *offset, uint32_t *fragSize) {
   if (argc - *offset < 2) {
     return REDISMODULE_ERR;
   }
@@ -30,174 +46,142 @@ static int parseFragsize(RedisModuleString **argv, int argc, size_t *offset, uin
   return REDISMODULE_OK;
 }
 
-/**
-* SUMMARIZE {num} .. FIELDnum
-* SUMMARIZE [OPTIONS] {num} FIELDnum
-*/
-int ParseSummarizeSpecSimple(RedisModuleString **argv, int argc, size_t *offset,
-                             FieldList *fields) {
-  if (argc - *offset < 2) {
-    return REDISMODULE_ERR;
+static int parseNumFrags(RedisModuleString **argv, int argc, size_t *offset, uint16_t *numFrags) {
+  uint32_t numP;
+  int rv = parseFragLen(argv, argc, offset, &numP);
+  if (rv == 0) {
+    *numFrags = numP;
   }
-
-  const char *openTag = "";
-  const char *closeTag = "";
-  uint32_t fragSize = SUMMARIZE_FRAGSIZE_DEFAULT;
-  SummarizeMode mode = SUMMARIZE_MODE_DEFAULT;
-
-  ++*offset;
-
-  while (*offset != argc) {
-    if (RMUtil_StringEqualsCaseC(argv[*offset], "TAGS")) {
-      if (parseTags(argv, argc, offset, &openTag, &closeTag) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-      if (fields->closeTag) {
-        free(fields->closeTag);
-      }
-      if (fields->openTag) {
-        free(fields->openTag);
-      }
-      fields->closeTag = strdup(closeTag);
-      fields->openTag = strdup(openTag);
-
-    } else if (RMUtil_StringEqualsCaseC(argv[*offset], "FRAGSIZE")) {
-      if (parseFragsize(argv, argc, offset, &fragSize) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-    } else if (RMUtil_StringEqualsCaseC(argv[*offset], "NOTRUNCATE")) {
-      mode = SummarizeMode_WholeField;
-      ++*offset;
-    } else {
-      break;
-    }
-  }
-
-  if (*offset == argc) {
-    return REDISMODULE_ERR;
-  }
-
-  long long nargs;
-  if (RedisModule_StringToLongLong(argv[(*offset)++], &nargs) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  } else if (nargs < 1) {
-    return REDISMODULE_ERR;
-  } else if (nargs > argc - *offset) {
-    return REDISMODULE_ERR;
-  }
-
-  // Otherwise, the fields are returned per spec.
-  for (size_t ii = 0; ii < nargs; ++ii) {
-    ReturnedField *field = FieldList_AddFieldR(fields, argv[*offset + ii]);
-    field->contextLen = fragSize;
-    field->openTag = fields->openTag;
-    field->closeTag = fields->closeTag;
-    field->mode = mode;
-    field->numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT;
-  }
-  fields->wantSummaries = 1;
-  *offset += nargs;
-  return REDISMODULE_OK;
+  return rv;
 }
 
-static int parseSummarizeFormat(RedisModuleString **argv, int argc, size_t *offset,
-                                SummarizeMode *mode) {
-  if (argc - *offset < 1) {
-    return REDISMODULE_ERR;
+static int parseFieldList(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields,
+                          Array *fieldPtrs) {
+  ++*offset;
+  if (*offset == argc) {
+    return -1;
+  }
+  long long numFields = 0;
+  if (RedisModule_StringToLongLong(argv[*offset], &numFields) != REDISMODULE_OK) {
+    return -1;
   }
 
-  size_t nformat;
-  const char *format = RedisModule_StringPtrLen(argv[++*offset], &nformat);
-  if (!strncasecmp(format, "ORDER", nformat)) {
-    *mode = SummarizeMode_ByOrder;
-  } else if (!strncasecmp(format, "RELEVANCE", nformat)) {
-    *mode = SummarizeMode_ByRelevance;
-  } else if (!strncasecmp(format, "RELORDER", nformat)) {
-    *mode = SummarizeMode_ByRelOrder;
-  } else if (!strncasecmp(format, "SYNOPSIS", nformat)) {
-    *mode = SummarizeMode_Synopsis;
-  } else if (!strncasecmp(format, "FULL", nformat)) {
-    *mode = SummarizeMode_WholeField;
+  ++*offset;
+  if (argc - *offset < numFields) {
+    return -1;
+  }
+
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, argv[*offset + ii]);
+    size_t ix = (fieldInfo - fields->fields);
+    Array_Write(fieldPtrs, &ix, sizeof(size_t));
+  }
+  *offset += numFields;
+  return 0;
+}
+
+static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings *defaults) {
+  free(tgt->closeTag);
+  free(tgt->openTag);
+
+  tgt->closeTag = NULL;
+  tgt->openTag = NULL;
+  if (defaults->openTag) {
+    tgt->openTag = strdup(defaults->openTag);
+  }
+  if (defaults->closeTag) {
+    tgt->closeTag = strdup(defaults->closeTag);
+  }
+}
+
+static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
+  *tgt = *defaults;
+  if (tgt->separator) {
+    tgt->separator = strdup(tgt->separator);
+  }
+}
+
+static void setFieldSettings(ReturnedField *tgt, const ReturnedField *defaults, int isHighlight) {
+  if (isHighlight) {
+    setHighlightSettings(&tgt->highlightSettings, &defaults->highlightSettings);
+    tgt->mode |= SummarizeMode_Highlight;
   } else {
-    return REDISMODULE_ERR;
+    setSummarizeSettings(&tgt->summarizeSettings, &defaults->summarizeSettings);
+    tgt->mode |= SummarizeMode_Synopsis;
   }
-
-  ++*offset;
-  return REDISMODULE_OK;
 }
 
-static int parseSingleField(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields) {
-  // Parse all the field items
+static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields,
+                       int isHighlight) {
+  size_t numFields = 0;
+  int rc = REDISMODULE_OK;
+
+  ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGCOUNT_DEFAULT,
+                                                 .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT,
+                                                 .separator = SUMMARIZE_DEFAULT_SEPARATOR},
+                           .highlightSettings = {.openTag = SUMMARIZE_DEFAULT_OPEN_TAG,
+                                                 .closeTag = SUMMARIZE_DEFAULT_CLOSE_TAG}};
+
+  Array fieldPtrs;
   ++*offset;
-  const char *openTag = "";
-  const char *closeTag = "";
-  if (*offset == argc) {
-    // printf("Not enough args\n");
-    return REDISMODULE_ERR;
+  Array_Init(&fieldPtrs);
+
+  if (RMUtil_StringEqualsCaseC(argv[*offset], "FIELDS")) {
+    if (parseFieldList(argv, argc, offset, fields, &fieldPtrs) != 0) {
+      rc = -1;
+      goto done;
+    }
   }
 
-  ReturnedField *field = FieldList_AddFieldR(fields, argv[(*offset)++]);
-  fields->wantSummaries = 1;
-  field->mode = SUMMARIZE_MODE_DEFAULT;
-  field->contextLen = SUMMARIZE_FRAGSIZE_DEFAULT;
-  field->numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT;
-
   while (*offset != argc) {
-    if (RMUtil_StringEqualsCaseC(argv[*offset], "TAGS")) {
-      if (parseTags(argv, argc, offset, &openTag, &closeTag) != REDISMODULE_OK) {
-        // printf("Bad tags!\n");
-        return REDISMODULE_ERR;
+    if (isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "TAGS")) {
+      if (parseTags(argv, argc, offset, (const char **)&defOpts.highlightSettings.openTag,
+                    (const char **)&defOpts.highlightSettings.closeTag) != 0) {
+        rc = REDISMODULE_ERR;
+        goto done;
       }
-    } else if (RMUtil_StringEqualsCaseC(argv[*offset], "FRAGSIZE")) {
-      if (parseFragsize(argv, argc, offset, &field->contextLen) != REDISMODULE_OK) {
-        // printf("Bad fragsize\n");
-        return REDISMODULE_ERR;
+    } else if (!isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "LEN")) {
+      if (parseFragLen(argv, argc, offset, &defOpts.summarizeSettings.contextLen) != 0) {
+        rc = REDISMODULE_ERR;
+        goto done;
       }
-    } else if (RMUtil_StringEqualsCaseC(argv[*offset], "FORMAT")) {
-      if (parseSummarizeFormat(argv, argc, offset, &field->mode) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
+    } else if (!isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "FRAGS")) {
+      if (parseNumFrags(argv, argc, offset, &defOpts.summarizeSettings.numFrags) != 0) {
+        rc = REDISMODULE_ERR;
+        goto done;
       }
-    } else if (RMUtil_StringEqualsCaseC(argv[*offset], "FRAGLIMIT")) {
-      if (++*offset == argc) {
-        return REDISMODULE_ERR;
+    } else if (!isHighlight && RMUtil_StringEqualsCaseC(argv[*offset], "SEPARATOR")) {
+      if (parseSeparator(argv, argc, offset, (const char **)&defOpts.summarizeSettings.separator) !=
+          0) {
+        rc = REDISMODULE_ERR;
+        goto done;
       }
-
-      long long limit;
-      if (RedisModule_StringToLongLong(argv[(*offset)++], &limit) != REDISMODULE_OK || limit < 0 ||
-          limit > UINT16_MAX) {
-        return REDISMODULE_ERR;
-      }
-      field->numFrags = limit;
     } else {
       break;
     }
   }
 
-  field->openTag = strdup(openTag);
-  field->closeTag = strdup(closeTag);
-  return REDISMODULE_OK;
+  if (fieldPtrs.len) {
+    size_t numNewPtrs = ARRAY_GETSIZE_AS(&fieldPtrs, size_t);
+    for (size_t ii = 0; ii < numNewPtrs; ++ii) {
+      size_t ix = ARRAY_GETARRAY_AS(&fieldPtrs, size_t *)[ii];
+      ReturnedField *fieldInfo = fields->fields + ix;
+      setFieldSettings(fieldInfo, &defOpts, isHighlight);
+    }
+  } else {
+    setFieldSettings(&fields->defaultField, &defOpts, isHighlight);
+  }
+  fields->wantSummaries = 1;
+
+done:
+  Array_Free(&fieldPtrs);
+  return rc;
 }
 
-int ParseSummarizeSpecDetailed(RedisModuleString **argv, int argc, size_t *offset,
-                               FieldList *fields) {
-  if (argc - *offset < 3) {
-    return REDISMODULE_ERR;
-  }
+int ParseSummarize(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields) {
+  return parseCommon(argv, argc, offset, fields, 0);
+}
 
-  size_t numFields = 0;
-
-  ++*offset;
-
-  while (*offset != argc) {
-    if (!RMUtil_StringEqualsCaseC(argv[*offset], "FIELD")) {
-      // printf("Unknown arg %s\n", RedisModule_StringPtrLen(argv[*offset], NULL));
-      return numFields == 0 ? REDISMODULE_ERR : REDISMODULE_OK;
-    }
-
-    ++numFields;
-    if (parseSingleField(argv, argc, offset, fields) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
-  }
-  return REDISMODULE_OK;
+int ParseHighlight(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields) {
+  return parseCommon(argv, argc, offset, fields, 1);
 }

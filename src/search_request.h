@@ -25,46 +25,46 @@ typedef enum {
 typedef enum {
   // No summaries
   SummarizeMode_None = 0x00,
-
-  // Use best fragments, stringing together by elipsis
-  SummarizeMode_Synopsis,
-
-  // Return a list of fragments, ordered by relevance
-  SummarizeMode_ByRelevance,
-
-  // Return a list of fragments, ordered by their appearance in the document
-  SummarizeMode_ByOrder,
-
-  // Return a list of top fragments, ordered by appearance
-  SummarizeMode_ByRelOrder,
-
-  // Return the entire field highlighted
-  SummarizeMode_WholeField
+  SummarizeMode_Highlight = 0x01,
+  SummarizeMode_Synopsis = 0x02
 } SummarizeMode;
 
 #define SUMMARIZE_MODE_DEFAULT SummarizeMode_Synopsis
 #define SUMMARIZE_FRAGSIZE_DEFAULT 20
 #define SUMMARIZE_FRAGCOUNT_DEFAULT 3
+#define SUMMARIZE_DEFAULT_OPEN_TAG "<u>"
+#define SUMMARIZE_DEFAULT_CLOSE_TAG "</u>"
+#define SUMMARIZE_DEFAULT_SEPARATOR "... "
+
+typedef struct {
+  uint32_t contextLen;
+  uint16_t numFrags;
+  char *separator;
+} SummarizeSettings;
 
 typedef struct {
   char *openTag;
   char *closeTag;
-  uint32_t contextLen;
-  uint16_t nameIndex;
-  uint16_t numFrags;
+} HighlightSettings;
+
+typedef struct {
+  char *name;
+  SummarizeSettings summarizeSettings;
+  HighlightSettings highlightSettings;
   SummarizeMode mode;
+  // Whether this field was explicitly requested by `RETURN`
+  int explicitReturn;
 } ReturnedField;
 
 typedef struct {
-  char *openTag;
-  char *closeTag;
+  ReturnedField defaultField;
 
+  // List of individual field specifications
   ReturnedField *fields;
   size_t numFields;
-
-  char **rawFields;
-  uint32_t numRawFields;
-  uint32_t wantSummaries;
+  uint16_t wantSummaries;
+  // Whether this list contains fields explicitly selected by `RETURN`
+  uint16_t explicitReturn;
 } FieldList;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
@@ -121,8 +121,11 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
 void RSSearchRequest_Free(RSSearchRequest *req);
 
-ReturnedField *FieldList_AddField(FieldList *fields, const char *name);
-ReturnedField *FieldList_AddFieldR(FieldList *fields, RedisModuleString *name);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
+
+// Remove any fields not explicitly requested by `RETURN`, iff any explicit
+// fields actually exist.
+void FieldList_RestrictReturn(FieldList *fields);
 
 /* Process the request in the thread pool concurrently */
 int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req);

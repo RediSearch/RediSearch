@@ -37,8 +37,6 @@ done:
   return rc;
 }
 
-#define HL_SEP_STR "... "
-
 // Strip spaces from a buffer in place. Returns the new length of the text,
 // with all duplicate spaces stripped and converted to a single ' '.
 static size_t stripDuplicateSpaces(char *s, size_t n) {
@@ -61,6 +59,33 @@ static size_t stripDuplicateSpaces(char *s, size_t n) {
   return oix;
 }
 
+static void normalizeSettings(const char *name, const ReturnedField *srcField,
+                              const ReturnedField *defaults, ReturnedField *out) {
+  if (srcField == NULL) {
+    // Global setting
+    *out = *defaults;
+    out->name = (char *)name;
+    return;
+  }
+
+  // Otherwise it gets more complex
+  if ((defaults->mode & SummarizeMode_Highlight) &&
+      (srcField->mode & SummarizeMode_Highlight) == 0) {
+    out->highlightSettings = defaults->highlightSettings;
+  } else if (srcField->mode && SummarizeMode_Highlight) {
+    out->highlightSettings = srcField->highlightSettings;
+  }
+
+  if ((defaults->mode & SummarizeMode_Synopsis) && (srcField->mode & SummarizeMode_Synopsis) == 0) {
+    out->summarizeSettings = defaults->summarizeSettings;
+  } else {
+    out->summarizeSettings = srcField->summarizeSettings;
+  }
+
+  out->mode |= defaults->mode | srcField->mode;
+  out->name = (char *)name;
+}
+
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
                            RSValue *returnedField, SearchResult *r) {
 
@@ -68,7 +93,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   FragmentList_Init(&frags, 8, 6);
 
   // Start gathering the terms
-  HighlightTags tags = {.openTag = fieldInfo->openTag, .closeTag = fieldInfo->closeTag};
+  HighlightTags tags = {.openTag = fieldInfo->highlightSettings.openTag,
+                        .closeTag = fieldInfo->highlightSettings.closeTag};
 
   // First actually generate the fragments
   size_t docLen;
@@ -81,7 +107,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     return;
   }
 
-  if (fieldInfo->mode == SummarizeMode_WholeField) {
+  // Highlight only
+  if (fieldInfo->mode == SummarizeMode_Highlight) {
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
@@ -91,35 +118,12 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   }
 
   Array *iovsArr;
-  size_t numIovArr = Min(fieldInfo->numFrags, FragmentList_GetNumFrags(&frags));
-
-  int order;
-  switch (fieldInfo->mode) {
-    case SummarizeMode_ByOrder:
-      order = HIGHLIGHT_ORDER_POS;
-      break;
-    case SummarizeMode_ByRelevance:
-      order = HIGHLIGHT_ORDER_SCORE;
-      break;
-    case SummarizeMode_ByRelOrder:
-    case SummarizeMode_Synopsis:
-      // TODO: Now that we're no longer returning a nested array, is it still
-      // necessary to distinguish between RelOrder and Synopsis?
-      order = HIGHLIGHT_ORDER_SCOREPOS;
-      break;
-
-    case SummarizeMode_WholeField:
-    case SummarizeMode_None:
-    default:
-      // Should never reach here.
-      order = -1;
-      break;
-  }
+  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
 
   // Storage for the list of fragments
   iovsArr = calloc(numIovArr, sizeof(*iovsArr));
-
-  FragmentList_HighlightFragments(&frags, &tags, fieldInfo->contextLen, iovsArr, numIovArr, order);
+  FragmentList_HighlightFragments(&frags, &tags, fieldInfo->summarizeSettings.contextLen, iovsArr,
+                                  numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
   Array bufTmp;
@@ -140,7 +144,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
-    Array_Write(&bufTmp, HL_SEP_STR, sizeof(HL_SEP_STR) - 1);
+    Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
+                strlen(fieldInfo->summarizeSettings.separator));
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't
@@ -157,6 +162,20 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   FragmentList_Free(&frags);
 }
 
+static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField *spec) {
+  const char *fName = spec->name;
+  RSValue *fieldValue = RSFieldMap_Get(r->fields, fName);
+
+  // Check if we have the value for this field.
+  // TODO: Might this be 'RSValue_String' later on?
+  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+    RSFieldMap_Set(&r->fields, fName, RS_NullVal());
+    return;
+  }
+
+  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r);
+}
+
 static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   int rc = ResultProcessor_Next(ctx->upstream, r, 0);
   if (rc == RS_RESULT_EOF) {
@@ -165,27 +184,25 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   const FieldList *fields = ctx->privdata;
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
-
-  // Assume we have highlighting here
-  for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (fields->fields[ii].mode == SummarizeMode_None) {
-      // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
-      continue;
+  if (fields->numFields) {
+    for (size_t ii = 0; ii < fields->numFields; ++ii) {
+      if (fields->fields[ii].mode == SummarizeMode_None &&
+          fields->defaultField.mode == SummarizeMode_None) {
+        // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
+        continue;
+      } else {
+        ReturnedField combinedSpec = {0};
+        normalizeSettings(fields->fields[ii].name, fields->fields + ii, &fields->defaultField,
+                          &combinedSpec);
+        processField(ctx, r, &combinedSpec);
+      }
     }
-
-    // Otherwise, summarize this field now
-    const ReturnedField *rf = fields->fields + ii;
-    const char *fName = fields->rawFields[rf->nameIndex];
-    RSValue *fieldValue = RSFieldMap_Get(r->fields, fName);
-
-    // Check if we have the value for this field.
-    // TODO: Might this be 'RSValue_String' later on?
-    if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
-      RSFieldMap_Set(&r->fields, fName, RS_NullVal());
-      continue;
+  } else if (fields->defaultField.mode != SummarizeMode_None) {
+    for (size_t ii = 0; ii < r->fields->len; ++ii) {
+      ReturnedField spec = {0};
+      normalizeSettings(r->fields->fields[ii].key, NULL, &fields->defaultField, &spec);
+      processField(ctx, r, &spec);
     }
-
-    summarizeField(RP_SPEC(ctx), rf, fName, fieldValue, r);
   }
   return RS_RESULT_OK;
 }
