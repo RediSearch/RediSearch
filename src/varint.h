@@ -42,6 +42,7 @@ void VVW_Init(VarintVectorWriter *w, size_t cap);
 
 static inline void VVW_Cleanup(VarintVectorWriter *w) {
   Buffer_Free(&w->buf);
+  memset(&w->buf, 0, sizeof w->buf);
 }
 
 static inline void VVW_Reset(VarintVectorWriter *w) {
