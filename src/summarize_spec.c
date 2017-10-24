@@ -126,6 +126,10 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
   ++*offset;
   Array_Init(&fieldPtrs);
 
+  if (*offset == argc) {
+    goto ok;
+  }
+
   if (RMUtil_StringEqualsCaseC(argv[*offset], "FIELDS")) {
     if (parseFieldList(argv, argc, offset, fields, &fieldPtrs) != 0) {
       rc = -1;
@@ -161,6 +165,7 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
     }
   }
 
+ok:
   if (fieldPtrs.len) {
     size_t numNewPtrs = ARRAY_GETSIZE_AS(&fieldPtrs, size_t);
     for (size_t ii = 0; ii < numNewPtrs; ++ii) {
