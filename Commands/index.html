@@ -956,6 +956,18 @@
 
 
   <li class="md-nav__item">
+    <a href="../Highlight/" title="Highlighting Results" class="md-nav__link">
+      Highlighting Results
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
     <a href="../python_client/" title="Python API" class="md-nav__link">
       Python API
     </a>
@@ -993,13 +1005,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-14" type="checkbox" id="nav-14">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-15" type="checkbox" id="nav-15">
     
-    <label class="md-nav__link" for="nav-14">
+    <label class="md-nav__link" for="nav-15">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-14">
+      <label class="md-nav__title" for="nav-15">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1029,13 +1041,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-15" type="checkbox" id="nav-15">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-16" type="checkbox" id="nav-16">
     
-    <label class="md-nav__link" for="nav-15">
+    <label class="md-nav__link" for="nav-16">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-15">
+      <label class="md-nav__title" for="nav-16">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1966,6 +1978,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
   [INKEYS {num} {key} ... ]
   [INFIELDS {num} {field} ... ]
   [RETURN {num} {field} ... ]
+  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] ]
+  [HIGHLIGHT [FIELDS {num} {ield} ... ] [TAGS {open} {close}] [SEPARATOR {sepstr}] ]
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
@@ -1987,6 +2001,10 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
   the content. This is useful if rediseach is only an index on an external document collection</li>
 <li><strong>RETURN {num} {field} ...</strong>: Use this keyword to limit which fields from the document are returned.
   <code>num</code> is the number of fields following the keyword. If <code>num</code> is 0, it acts like <code>NOCONTENT</code>.</li>
+<li><strong>SUMMARIZE ...</strong>: Use this option to return only the sections of the field which contain the matched text.
+  See <a href="../Highlight">Highlighting</a> for more detailts</li>
+<li><strong>HIGHLIGHT ...</strong>: Use this option to format occurrences of matched text. See <a href="../Higlight">Highligting</a> for more
+  details</li>
 <li><strong>LIMIT first num</strong>: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10</li>
 <li><strong>INFIELDS {num} {field} ...</strong>: If set, filter the results to ones appearing only in specific

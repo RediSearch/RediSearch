@@ -7,7 +7,7 @@
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
-        <link rel="canonical" href="http://redisearch.io/Quick_Start/">
+        <link rel="canonical" href="http://redisearch.io/Highlight/">
       
       
       
@@ -17,7 +17,7 @@
     
     
       
-        <title>Quick Start - RediSearch Documentation</title>
+        <title>Highlighting Results - RediSearch Documentation</title>
       
     
     
@@ -78,7 +78,7 @@
             
               
             
-            Quick Start
+            Highlighting Results
           
         </span>
       </div>
@@ -189,87 +189,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Quick Start
-      </label>
-    
-    <a href="./" title="Quick Start" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#running-with-docker" title="Running with Docker" class="md-nav__link">
-    Running with Docker
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building-and-running-from-source" title="Building and running from source:" class="md-nav__link">
-    Building and running from source:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Creating an index with fields and weights (default weight is 1.0):" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0):
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-documents-to-the-index" title="Adding documents to the index:" class="md-nav__link">
-    Adding documents to the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#searching-the-index" title="Searching the index:" class="md-nav__link">
-    Searching the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping-the-index" title="Dropping the index:" class="md-nav__link">
-    Dropping the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-and-getting-auto-complete-suggestions" title="Adding and getting Auto-complete suggestions:" class="md-nav__link">
-    Adding and getting Auto-complete suggestions:
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -373,11 +297,85 @@
       
       
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Highlight/" title="Highlighting Results" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Highlighting Results
+      </label>
+    
+    <a href="./" title="Highlighting Results" class="md-nav__link md-nav__link--active">
       Highlighting Results
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#entry-points" title="Entry Points" class="md-nav__link">
+    Entry Points
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-syntax" title="Command Syntax" class="md-nav__link">
+    Command Syntax
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#summarization" title="Summarization" class="md-nav__link">
+    Summarization
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#highlighting" title="Highlighting" class="md-nav__link">
+    Highlighting
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field-selection" title="Field Selection" class="md-nav__link">
+    Field Selection
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
     
@@ -510,51 +508,49 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#running-with-docker" title="Running with Docker" class="md-nav__link">
-    Running with Docker
+  <a href="#entry-points" title="Entry Points" class="md-nav__link">
+    Entry Points
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-syntax" title="Command Syntax" class="md-nav__link">
+    Command Syntax
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#summarization" title="Summarization" class="md-nav__link">
+    Summarization
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#building-and-running-from-source" title="Building and running from source:" class="md-nav__link">
-    Building and running from source:
+        
+          <li class="md-nav__item">
+  <a href="#highlighting" title="Highlighting" class="md-nav__link">
+    Highlighting
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Creating an index with fields and weights (default weight is 1.0):" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0):
+        
+          <li class="md-nav__item">
+  <a href="#field-selection" title="Field Selection" class="md-nav__link">
+    Field Selection
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-documents-to-the-index" title="Adding documents to the index:" class="md-nav__link">
-    Adding documents to the index:
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#searching-the-index" title="Searching the index:" class="md-nav__link">
-    Searching the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping-the-index" title="Dropping the index:" class="md-nav__link">
-    Dropping the index:
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-and-getting-auto-complete-suggestions" title="Adding and getting Auto-complete suggestions:" class="md-nav__link">
-    Adding and getting Auto-complete suggestions:
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -569,67 +565,90 @@
           <div class="md-content">
             <article class="md-content__inner md-typeset">
                
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Highlight.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
                
               
                 
-                <h1 id="quick-start-guide-for-redisearch">Quick Start Guide for RediSearch:<a class="headerlink" href="#quick-start-guide-for-redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="running-with-docker">Running with Docker<a class="headerlink" href="#running-with-docker" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>docker run -p <span class="m">6379</span>:6379 redislabs/redisearch:latest
+                <h1 id="highlighting-api">Highlighting API<a class="headerlink" href="#highlighting-api" title="Permanent link">&para;</a></h1>
+<h2 id="entry-points">Entry Points<a class="headerlink" href="#entry-points" title="Permanent link">&para;</a></h2>
+<p>It would be good to support multiple highlighter engines, but also allow for
+sane defaults. As such, two entry points will be available. One is a simplified
+syntax, and the other is a more complicated one.</p>
+<h3 id="command-syntax">Command Syntax<a class="headerlink" href="#command-syntax" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>FT.SEARCH ...
+    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
+    HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 </pre></div>
 
 
-<h2 id="building-and-running-from-source">Building and running from source:<a class="headerlink" href="#building-and-running-from-source" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
-<span class="nb">cd</span> RediSearch/src
-make all
-
-<span class="c1"># Assuming you have a redis build from the unstable branch:</span>
-/path/to/redis-server --loadmodule ./redisearch.so
+<p>There are two sub-commands commands used for highlighting. One is <code>HIGHLIGHT</code>
+which surrounds matching text with an open and/or close tag; and the other is
+<code>SUMMARIZE</code> which splits a field into contextual fragments surrounding the
+found terms. It is possible to summarize a field, highlight a field, or perform
+both actions in the same query.</p>
+<h4 id="summarization">Summarization<a class="headerlink" href="#summarization" title="Permanent link">&para;</a></h4>
+<div class="codehilite"><pre><span></span>FT.SEARCH ...
+    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepStr}]
 </pre></div>
 
 
-<h2 id="creating-an-index-with-fields-and-weights-default-weight-is-10">Creating an index with fields and weights (default weight is 1.0):<a class="headerlink" href="#creating-an-index-with-fields-and-weights-default-weight-is-10" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
-OK 
+<p>Summarization or snippetization will fragment the text into smaller sized
+snippets; each snippet will contain the found term(s) and some additional
+surrounding context.</p>
+<p>Redis Search can perform summarization using the <code>SUMMARIZE</code> keyword. If no
+additional arguments are passed, all <em>returned fields</em> are summarized using
+built-in defaults.</p>
+<p>The <code>SUMMARIZE</code> keyword accepts the following arguments:</p>
+<ul>
+<li><strong><code>FIELDS</code></strong> If present, must be the first argument. This should be followed
+    by the number of fields to summarize, which itself is followed by a list of
+    fields. Each field present is summarized. If no <code>FIELD</code> directive is passed,
+    then <em>all</em> fields returned are summarized.</li>
+<li><strong><code>FRAGS</code></strong> How many fragments should be returned. If not specified, a sane
+    default is used.</li>
+<li><strong><code>LEN</code></strong> The number of context words each fragment should contain. Context
+    words surround the found term. A higher value will return a larger block of
+    text.</li>
+<li><strong><code>SEPARATOR</code></strong> The string used to divide between individual summary snippets.
+    The default is <code>...</code> which is common among search engines; but you may
+    override this with any other string if you desire to programmatically divide them
+    later on. You may use a newline sequence, as newlines are stripped from the
+    result body anyway (thus, it will not be conflated with an embedded newline
+    in the text)</li>
+</ul>
+<h4 id="highlighting">Highlighting<a class="headerlink" href="#highlighting" title="Permanent link">&para;</a></h4>
+<div class="codehilite"><pre><span></span>FT.SEARCH ... HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 </pre></div>
 
 
-<h2 id="adding-documents-to-the-index">Adding documents to the index:<a class="headerlink" href="#adding-documents-to-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
-OK
-</pre></div>
-
-
-<h2 id="searching-the-index">Searching the index:<a class="headerlink" href="#searching-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
-1) (integer) 1
-2) &quot;doc1&quot;
-3) 1) &quot;title&quot;
-   2) &quot;hello world&quot;
-   3) &quot;body&quot;
-   4) &quot;lorem ipsum&quot;
-   5) &quot;url&quot;
-   6) &quot;http://redis.io&quot;
-</pre></div>
-
-
-<blockquote>
-<p><strong>NOTE</strong>: Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment. </p>
-</blockquote>
-<h2 id="dropping-the-index">Dropping the index:<a class="headerlink" href="#dropping-the-index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.DROP myIdx
-OK
-</pre></div>
-
-
-<h2 id="adding-and-getting-auto-complete-suggestions">Adding and getting Auto-complete suggestions:<a class="headerlink" href="#adding-and-getting-auto-complete-suggestions" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
-OK
-
-127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
-1) &quot;hello world&quot;
-</pre></div>
+<p>Highlighting will highlight the found term (and its variants) with a user-defined
+tag. This may be used to display the matched text in a different typeface using
+a markup language, or to otherwise make the text appear differently.</p>
+<p>Redis Search can perform highlighting using the <code>HIGHLIGHT</code> keyword. If no
+additional arguments are passed, all <em>returned fields</em> are highlighted using
+build-in defaults.</p>
+<p>The <code>HIGHLIGHT</code> keyword accepts the following arguments:</p>
+<ul>
+<li><strong><code>FIELDS</code></strong> If present, must be the first argument. This should be followed
+    by the number of fields to highlight, which itself is followed by a list of
+    fields. Each field present is highlighted. If no <code>FIELD</code> directive is passed,
+    then <em>all</em> fields returned are highlighted.</li>
+<li><strong><code>TAGS</code></strong> If present, must be followed by two strings; the first is prepended
+    to each term match, and the second is appended to it. If no <code>TAGS</code> are
+    specified, a built-in tag value is appended and prepended.</li>
+</ul>
+<h4 id="field-selection">Field Selection<a class="headerlink" href="#field-selection" title="Permanent link">&para;</a></h4>
+<p>If no specific fields are passed to the <code>RETURN</code>, <code>SUMMARIZE</code>, or <code>HIGHLIGHT</code>
+keywords, then all of a document's fields are returned. However, if any of these
+keywords contain a <code>FIELD</code> directive, then the <code>SEARCH</code> command will only retun
+the sum total of all fields enumerated in any of those directives.</p>
+<p>The <code>RETURN</code> keyword is treated specially, as it overrides any fields specified
+in <code>SUMMARIZE</code> or <code>HIGHLIGHT</code>.</p>
+<p>In the command <code>RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>,
+the fields <code>foo</code> is returned as-is, while <code>bar</code> and <code>baz</code> are not returned, because
+<code>RETURN</code> was specified, but did not include those fields.</p>
+<p>In the command <code>SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>, <code>bar</code> is returned
+summarized and <code>baz</code> is returned highlighted.</p>
               
               
             </article>
@@ -643,7 +662,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href=".." title="Home" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -652,19 +671,19 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Home
+                Stemming Support
               </span>
             </div>
           </a>
         
         
-          <a href="../Clients/" title="Client Libraries" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../python_client/" title="Python API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Client Libraries
+                Python API
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
