@@ -101,9 +101,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  if (RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1) != REDISMODULE_OK) {
-    printf("Couldn't replicate!\n");
-  }
+  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
   RedisModule_AutoMemory(ctx);
   // Load the document score
   double ds = 0;
@@ -606,7 +604,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisModule_ReplicateVerbatim(ctx);
+  RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
