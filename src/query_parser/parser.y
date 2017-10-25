@@ -89,15 +89,21 @@ query ::= . {
 }
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
-        B->fieldMask == RS_FIELDMASK_ALL ) {
-        A = B;
-    } else {
-        A = NewPhraseNode(0);
-       QueryPhraseNode_AddChild(A, B);
-    } 
-    QueryPhraseNode_AddChild(A, C);
 
+    // if both B and C are null we return null
+    if (B == NULL && C == NULL) {
+        A = NULL;
+    } else {
+
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+            B->fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryPhraseNode_AddChild(A, B);
+        } 
+        QueryPhraseNode_AddChild(A, C);
+    }
 } 
 
 expr(A) ::= union(B) . [ORX] {
