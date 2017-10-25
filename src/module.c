@@ -88,7 +88,7 @@ English.
 Returns OK on success, or an error if something went wrong.
 */
 
-int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
@@ -101,8 +101,9 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_ReplicateVerbatim(ctx);
-
+  if (RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1) != REDISMODULE_OK) {
+    printf("Couldn't replicate!\n");
+  }
   RedisModule_AutoMemory(ctx);
   // Load the document score
   double ds = 0;
@@ -160,10 +161,21 @@ int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     options |= DOCUMENT_ADD_NOSAVE;
   }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+  if (!canBlock) {
+    aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  }
   AddDocumentCtx_Submit(aCtx, &sctx, options);
 
 cleanup:
   return REDISMODULE_OK;
+}
+
+int AddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return doAddDocument(ctx, argv, argc, 1);
+}
+
+int SafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return doAddDocument(ctx, argv, argc, 0);
 }
 
 /* FT.SETPAYLOAD {index} {docId} {payload} */
@@ -587,7 +599,8 @@ exists
 
   Returns OK on success, or an error if something went wrong.
 */
-int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                            int isBlockable) {
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -637,10 +650,21 @@ int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+  if (!isBlockable) {
+    aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  }
   AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
 
 cleanup:
   return REDISMODULE_OK;
+}
+
+int AddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return doAddHashCommand(ctx, argv, argc, 1);
+}
+
+int SafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return doAddHashCommand(ctx, argv, argc, 0);
 }
 
 /*
@@ -1158,10 +1182,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, AddDocumentCommand, "write deny-oom", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, SafeAddDocumentCommand, "write deny-oom",
+         1, 1, 1);
+
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1,
          1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, AddHashCommand, "write deny-oom", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, SafeAddHashCommand, "write deny-oom",
+         1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1);
 

@@ -99,7 +99,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   aCtx->stateFlags = 0;
   aCtx->errorString = NULL;
   aCtx->totalTokens = 0;
-  aCtx->bc = NULL;
+  aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->stopwords = sp->stopwords;
@@ -120,14 +120,18 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   return aCtx;
 }
 
-static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   if (aCtx->errorString) {
     RedisModule_ReplyWithError(ctx, aCtx->errorString);
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
   AddDocumentCtx_Free(aCtx);
+}
+
+static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  doReplyFinish(aCtx, ctx);
   return REDISMODULE_OK;
 }
 
@@ -136,7 +140,11 @@ static void threadCallback(void *p) {
 }
 
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  RedisModule_UnblockClient(aCtx->bc, aCtx);
+  if (aCtx->stateFlags & ACTX_F_NOBLOCK) {
+    doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
+  } else {
+    RedisModule_UnblockClient(aCtx->client.bc, aCtx);
+  }
 }
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
@@ -178,8 +186,12 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
     return;
   }
-  aCtx->bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
-  assert(aCtx->bc);
+  if (AddDocumentCtx_IsBlockable(aCtx)) {
+    aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
+  } else {
+    aCtx->client.sctx = sctx;
+  }
+  assert(aCtx->client.bc);
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
@@ -190,7 +202,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     }
   }
 
-  if (totalSize >= SELF_EXEC_THRESHOLD) {
+  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   } else {
     Document_AddToIndexes(aCtx);
