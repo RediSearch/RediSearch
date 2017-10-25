@@ -24,11 +24,9 @@ int isValidQuery(char *qt, RedisSearchCtx ctx) {
     free(err);
     return 1;
   }
-  if (!n) {
-    Query_Free(q);
+  if (n) {
+    QueryNode_Print(q, n, 0);
   }
-  ASSERT(n != NULL);
-  QueryNode_Print(q, n, 0);
   Query_Free(q);
 
   return 0;
@@ -121,7 +119,7 @@ int testQueryParser() {
 
   assertInvalidQuery("(foo", ctx);
   assertInvalidQuery("\"foo", ctx);
-  assertInvalidQuery("", ctx);
+  assertValidQuery("", ctx);
   assertInvalidQuery("()", ctx);
 
   // test stopwords
