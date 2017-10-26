@@ -1,6 +1,6 @@
 FROM redis:latest as builder
 
-ENV LIBDIR /var/lib/redis/modules
+ENV LIBDIR /usr/lib/redis/modules
 ENV DEPS "python python-setuptools python-pip wget unzip build-essential"
 # Set up a build environment
 RUN set -ex;\
@@ -19,10 +19,10 @@ RUN set -ex;\
 
 # Package the runner
 FROM redis:latest
-ENV LIBDIR /var/lib/redis/modules
+ENV LIBDIR /usr/lib/redis/modules
 WORKDIR /data
 RUN set -ex;\
     mkdir -p "$LIBDIR";
 COPY --from=builder /src/redisearch.so  "$LIBDIR"
 
-CMD ["redis-server", "--loadmodule", "/var/lib/redis/modules/redisearch.so"]
+CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so"]
