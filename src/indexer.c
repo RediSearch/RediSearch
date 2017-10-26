@@ -125,6 +125,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
                               KHTable *ht, RSAddDocumentCtx **parentMap) {
 
   IndexEncoder encoder = InvertedIndex_GetEncoder(ctx->spec->flags);
+  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   // This is used as a cache layer, so that we don't need to derefernce the
   // RSAddDocumentCtx each time.
@@ -175,7 +176,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         RedisModule_CloseKey(idxKey);
       }
 
-      if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
+      if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
         aCtx->errorString = "ERR Index is no longer valid!";
         return -1;
       }
@@ -194,6 +195,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
+  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
@@ -213,7 +215,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     }
 
     entry = ForwardIndexIterator_Next(&it);
-    if (CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
+    if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
       aCtx->errorString = "ERR Index is no longer valid!";
       return;
     }
@@ -321,19 +323,24 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     doMerge(aCtx, &indexer->mergeHt, parentMap);
   }
 
-  // Force a context at this point:
-  if (!indexer->isDbSelected) {
-    RedisModuleCtx *thCtx = RedisModule_GetThreadSafeContext(aCtx->bc);
-    RedisModule_SelectDb(indexer->redisCtx, RedisModule_GetSelectedDb(thCtx));
-    RedisModule_FreeThreadSafeContext(thCtx);
-    indexer->isDbSelected = 1;
+  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
+
+  if (isBlocked) {
+    // Force a context at this point:
+    if (!indexer->isDbSelected) {
+      RedisModuleCtx *thCtx = RedisModule_GetThreadSafeContext(aCtx->client.bc);
+      RedisModule_SelectDb(indexer->redisCtx, RedisModule_GetSelectedDb(thCtx));
+      RedisModule_FreeThreadSafeContext(thCtx);
+      indexer->isDbSelected = 1;
+    }
+
+    ctx.redisCtx = indexer->redisCtx;
+    ConcurrentSearch_SetKey(&indexer->concCtx, indexer->redisCtx, indexer->specKeyName, &ctx);
+    ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
+    ConcurrentSearchCtx_Lock(&indexer->concCtx);
+  } else {
+    ctx = *aCtx->client.sctx;
   }
-
-  ctx.redisCtx = indexer->redisCtx;
-
-  ConcurrentSearch_SetKey(&indexer->concCtx, indexer->redisCtx, indexer->specKeyName, &ctx);
-  ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
-  ConcurrentSearchCtx_Lock(&indexer->concCtx);
 
   if (!ctx.spec) {
     aCtx->errorString = "ERR Index no longer valid";
@@ -392,7 +399,9 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 
 cleanup:
-  ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+  if (isBlocked) {
+    ConcurrentSearchCtx_Unlock(&indexer->concCtx);
+  }
   if (useHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
@@ -422,6 +431,11 @@ static void *Indexer_Run(void *p) {
 }
 
 int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
+  if (!AddDocumentCtx_IsBlockable(aCtx)) {
+    Indexer_Process(indexer, aCtx);
+    AddDocumentCtx_Finish(aCtx);
+    return 0;
+  }
 
   pthread_mutex_lock(&indexer->lock);
 

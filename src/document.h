@@ -135,6 +135,10 @@ union FieldData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
+// Don't block/unblock the client when indexing. This is the case when the
+// operation is being done from within the context of AOF
+#define ACTX_F_NOBLOCK 0x20
+
 struct DocumentIndexer;
 
 /**
@@ -143,7 +147,10 @@ struct DocumentIndexer;
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
-  RedisModuleBlockedClient *bc;   // Client
+  union {
+    RedisModuleBlockedClient *bc;  // Client
+    RedisSearchCtx *sctx;
+  } client;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
@@ -172,6 +179,8 @@ typedef struct RSAddDocumentCtx {
   uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;       // Indexing state, ACTX_F_xxx
 } RSAddDocumentCtx;
+
+#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
 /**
  * Creates a new context used for adding documents. Once created, call
