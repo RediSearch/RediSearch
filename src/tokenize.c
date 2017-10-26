@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <assert.h>
 
 int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
              StopWordList *stopwords, uint32_t options) {
@@ -65,12 +66,10 @@ int _tokenize(TokenizerCtx *ctx) {
 
   while (*ctx->pos != NULL) {
     // get the next token
-    char *tok = toksep(ctx->pos);
-    // this means we're at the end
-    if (tok == NULL) break;
+    size_t origLen;
+    char *tok = toksep(ctx->pos, &origLen);
 
     // normalize the token
-    size_t origLen = *ctx->pos ? (*ctx->pos - 1) - tok : strlen(tok);
     size_t normLen = origLen;
 
     char normalized_s[MAX_NORMALIZE_SIZE];

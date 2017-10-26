@@ -13,21 +13,26 @@ static const char ToksepMap_g[256] = {
 };
 
 /**
- * This function acts exactly like strsep, but is optimized specifically to
- * separate tokens. This means ignoring things like newlines, and so on.
+ * Function reads string pointed to by `s` and indicates the length of the next
+ * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep(char **s) {
+static inline char *toksep(char **s, size_t *tokLen) {
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
   for (; *pos; ++pos) {
     if (ToksepMap_g[*pos]) {
       *s = (char *)++pos;
-      break;
+      *tokLen = ((char *)pos - orig) - 1;
+      if (!*pos) {
+        *s = NULL;
+      }
+      return orig;
     }
   }
-  if (!*pos) {
-    *s = NULL;
-  }
+
+  // Didn't find a terminating token. Use a simpler length calculation
+  *s = NULL;
+  *tokLen = (char *)pos - orig;
   return orig;
 }
 
