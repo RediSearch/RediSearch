@@ -124,7 +124,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, 
 void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                      RSTokenFlags flags) {
 
-  Query *q = ctx->query;
+  QueryParseCtx *q = ctx->query;
   QueryNode *qn = *ctx->currentNode;
 
   /* Replace current node with a new union node if needed */
@@ -142,7 +142,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
 
 /* Set the query payload */
 void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
-  ctx->query->payload = payload;
+  *ctx->query->payloadptr = payload;
 }
 
 /* Get an expander by name */

@@ -30,6 +30,7 @@ pages:
     - 'Sortable Values': 'Sorting.md'
     - 'Extension API': Extensions.md
     - 'Stemming Support': Stemming.md
+    - 'Highlighting Results': Highlight.md
     - 'Python API': python_client.md
     - 'Java API': java_client.md
     - 'Document Payloads': payloads.md

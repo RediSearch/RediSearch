@@ -3,16 +3,17 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
+#include <stdint.h>
 #include "buffer.h"
 
-size_t varintSize(int value);
+size_t varintSize(uint32_t value);
 
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
-static inline int ReadVarint(BufferReader *b) {
+static inline uint32_t ReadVarint(BufferReader *b) {
 
   unsigned char c = BUFFER_READ_BYTE(b);
 
-  int val = c & 127;
+  uint32_t val = c & 127;
   while (c >> 7) {
     ++val;
     c = BUFFER_READ_BYTE(b);
@@ -22,19 +23,19 @@ static inline int ReadVarint(BufferReader *b) {
   return val;
 }
 
-int WriteVarint(int value, BufferWriter *w);
+size_t WriteVarint(uint32_t value, BufferWriter *w);
 
 typedef struct {
   Buffer buf;
   // how many members we've put in
   size_t nmemb;
-  int lastValue;
+  uint32_t lastValue;
 } VarintVectorWriter;
 
 #define MAX_VARINT_LEN 5
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
-size_t VVW_Write(VarintVectorWriter *w, int i);
+size_t VVW_Write(VarintVectorWriter *w, uint32_t i);
 size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
 void VVW_Init(VarintVectorWriter *w, size_t cap);

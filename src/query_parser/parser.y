@@ -45,7 +45,7 @@ char *strdupcase(const char *s, size_t len) {
    
 } // END %include  
 
-%extra_argument { parseCtx *ctx }
+%extra_argument { QueryParseCtx *ctx }
 %default_type { QueryToken }
 %default_destructor { }
 
@@ -137,17 +137,17 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     if (C == NULL) {
         A = NULL;
     } else {
-        if (ctx->q->ctx && ctx->q->ctx->spec) {
-            C->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
+        if (ctx->sctx->spec) {
+            C->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
         }
         A = C; 
     }
 }
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
-    A = NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len);
-    if (ctx->q->ctx && ctx->q->ctx->spec) {
-        A->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, B.s, B.len); 
+    A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
+    if (ctx->sctx->spec) {
+        A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
     }
 }
 
@@ -159,11 +159,11 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         C->fieldMask = 0;
-        if (ctx->q->ctx && ctx->q->ctx->spec) {
+        if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(B); i++) {
                 char *p;
                 Vector_Get(B, i, &p);
-                C->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+                C->fieldMask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
                 free(p);
             }
         }
@@ -186,7 +186,7 @@ term(A) ::= QUOTE term(B) QUOTE. {
 }
 
 expr(A) ::= term(B) .  {
-    A = NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len);
+        A = NewTokenNode(ctx, strdupcase(B.s, B.len), B.len);
 }
 
 expr(A) ::= STOPWORD . [STOPWORD] {
@@ -196,13 +196,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(B.s, B.len), B.len));
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), B.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), C.len));
 
 }
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx->q, strdupcase(C.s, C.len), C.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), C.len));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -218,7 +218,7 @@ expr(A) ::= TILDE expr(B) . {
 }
 
 expr(A) ::= term(B) STAR. {
-    A = NewPrefixNode(ctx->q, strdupcase(B.s, B.len), B.len);
+    A = NewPrefixNode(ctx, strdupcase(B.s, B.len), B.len);
 }
 
 modifier(A) ::= MODIFIER(B) . {

@@ -5,6 +5,7 @@
 #include "search_ctx.h"
 #include "redisearch.h"
 #include "concurrent_ctx.h"
+#include "byte_offsets.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,6 +114,7 @@ void Document_Free(Document *doc);
 
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
+#define DOCUMENT_ADD_NOSAVE 0x04
 
 struct ForwardIndex;
 union FieldData;
@@ -133,6 +135,10 @@ union FieldData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
+// Don't block/unblock the client when indexing. This is the case when the
+// operation is being done from within the context of AOF
+#define ACTX_F_NOBLOCK 0x20
+
 struct DocumentIndexer;
 
 /**
@@ -141,7 +147,10 @@ struct DocumentIndexer;
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
-  RedisModuleBlockedClient *bc;   // Client
+  union {
+    RedisModuleBlockedClient *bc;  // Client
+    RedisSearchCtx *sctx;
+  } client;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
@@ -151,6 +160,11 @@ typedef struct RSAddDocumentCtx {
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
   RSSortingVector *sv;
+
+  // Byte offsets for highlighting. If term offsets are stored, this contains
+  // the field byte offset for each term.
+  RSByteOffsets *byteOffsets;
+  ByteOffsetWriter offsetsWriter;
 
   // Information about each field in the document. This is read from the spec
   // and cached, so that we can look it up without holding the GIL
@@ -165,6 +179,8 @@ typedef struct RSAddDocumentCtx {
   uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;       // Indexing state, ACTX_F_xxx
 } RSAddDocumentCtx;
+
+#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
 /**
  * Creates a new context used for adding documents. Once created, call

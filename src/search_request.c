@@ -8,50 +8,8 @@
 #include "concurrent_ctx.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "summarize_spec.h"
 #include <sys/param.h>
-
-#define BAD_LENGTH_ARGS ((size_t)-1)
-/**
- * Gets a variable list of arguments to a given keyword.
- * The number of variable arguments are found in `outlen`.
- * If offset is specified, the first <offset> arguments will be ignored when
- * checking for the presence of the keyword and subsequent arguments.
- *
- * If the return value is NULL then the keyword is not present. If
- * the value of outlen is `BAD_LENGTH_ARGS` then the keyword was found, but
- * there was a problem with how the numbers are formatted.
- *
- */
-static RedisModuleString **getLengthArgs(const char *keyword, size_t *outlen,
-                                         RedisModuleString **argv, int argc, size_t offset) {
-  if (offset > argc) {
-    return NULL;
-  }
-
-  argv += offset;
-  argc -= offset;
-
-  int ix = RMUtil_ArgIndex(keyword, argv, argc);
-  if (ix < 0) {
-    return NULL;
-  } else if (ix >= argc - 1) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  argv += (ix + 1);
-  argc -= (ix + 1);
-
-  long long n = 0;
-  RMUtil_ParseArgs(argv, argc, 0, "l", &n);
-  if (n > argc - 1 || n < 0) {
-    *outlen = BAD_LENGTH_ARGS;
-    return argv;
-  }
-
-  *outlen = n;
-  return argv + 1;
-}
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
@@ -91,6 +49,24 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     req->slop = __INT_MAX__;
   }
 
+  int sumIdx;
+  if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
+    size_t tmpOffset = sumIdx;
+    if (ParseSummarize(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Couldn't parse `SUMMARIZE`";
+      goto err;
+    }
+  }
+
+  if ((sumIdx = RMUtil_ArgExists("HIGHLIGHT", argv, argc, 3)) > 0) {
+    // Parse the highlighter spec
+    size_t tmpOffset = sumIdx;
+    if (ParseHighlight(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+      *errStr = "Couldn't parse `HIGHLIGHT`";
+      goto err;
+    }
+  }
+
   // Parse LIMIT argument
   long long offset = 0, limit = 10;
   if (RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &offset, &limit) == REDISMODULE_OK) {
@@ -107,8 +83,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // if INFIELDS exists, parse the field mask
   req->fieldMask = RS_FIELDMASK_ALL;
-  if ((vargs = getLengthArgs("INFIELDS", &nargs, argv, argc, 3))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 3, "INFIELDS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INFIELDS`";
       goto err;
     }
@@ -192,8 +168,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse the id filter arguments
-  if ((vargs = getLengthArgs("INKEYS", &nargs, argv, argc, 2))) {
-    if (nargs == BAD_LENGTH_ARGS) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "INKEYS", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INKEYS`";
       goto err;
     }
@@ -201,18 +177,19 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   // parse RETURN argument
-  if ((vargs = getLengthArgs("RETURN", &nargs, argv, argc, 2))) {
+  if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "RETURN", &nargs))) {
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
-      req->retfields = malloc(sizeof(*req->retfields) * nargs);
-      req->nretfields = nargs;
+      req->fields.explicitReturn = 1;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        req->retfields[ii] = strdup(RedisModule_StringPtrLen(vargs[ii], NULL));
+        ReturnedField *rf = FieldList_GetCreateField(&req->fields, vargs[ii]);
+        rf->explicitReturn = 1;
       }
     }
   }
 
+  FieldList_RestrictReturn(&req->fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -220,6 +197,54 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 err:
   RSSearchRequest_Free(req);
   return NULL;
+}
+
+static void ReturnedField_Free(ReturnedField *field) {
+  free(field->highlightSettings.openTag);
+  free(field->highlightSettings.closeTag);
+  free(field->summarizeSettings.separator);
+  free(field->name);
+}
+
+static void FieldList_Free(FieldList *fields) {
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    ReturnedField_Free(fields->fields + ii);
+  }
+  ReturnedField_Free(&fields->defaultField);
+}
+
+ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname) {
+  const char *name = RedisModule_StringPtrLen(rname, NULL);
+  size_t foundIndex = -1;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (!strcasecmp(fields->fields[ii].name, name)) {
+      return fields->fields + ii;
+    }
+  }
+
+  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  ReturnedField *ret = fields->fields + (fields->numFields - 1);
+  memset(ret, 0, sizeof *ret);
+  ret->name = strdup(name);
+  return ret;
+}
+
+void FieldList_RestrictReturn(FieldList *fields) {
+  if (!fields->explicitReturn) {
+    return;
+  }
+
+  size_t oix = 0;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (fields->fields[ii].explicitReturn == 0) {
+      ReturnedField_Free(fields->fields + ii);
+    } else if (ii != oix) {
+      fields->fields[oix++] = fields->fields[ii];
+    } else {
+      ++oix;
+    }
+  }
+  fields->numFields = oix;
 }
 
 void RSSearchRequest_Free(RSSearchRequest *req) {
@@ -259,15 +284,11 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
         NumericFilter_Free(nf);
       }
     }
+
     Vector_Free(req->numericFilters);
   }
 
-  if (req->retfields) {
-    for (size_t ii = 0; ii < req->nretfields; ++ii) {
-      free((void *)req->retfields[ii]);
-    }
-    free(req->retfields);
-  }
+  FieldList_Free(&req->fields);
 
   if (req->sctx) {
     SearchCtx_Free(req->sctx);
@@ -278,8 +299,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
 
 int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
 
-  Query *q = NewQueryFromRequest(req);
-  Query_SetConcurrentMode(q, concurrentMode);
+  QueryParseCtx *q = NewQueryParseCtx(req);
   RedisModuleCtx *ctx = req->sctx->redisCtx;
 
   char *err;
@@ -295,13 +315,16 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
     Query_Free(q);
-    goto err;
+    return REDISMODULE_ERR;
   }
-
-  Query_Expand(q);
+  if (!(req->flags & Search_Verbatim)) {
+    Query_Expand(q, req->expander);
+  }
 
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
+    // Let the query tree handle the deletion
+    req->geoFilter = NULL;
   }
 
   if (req->idFilter) {
@@ -321,22 +344,17 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     req->numericFilters = NULL;
   }
 
+  QueryPlan *plan = Query_BuildPlan(q, req, concurrentMode);
   // Execute the query
-  QueryResult *r = Query_Execute(q);
-  if (r == NULL) {
+  // const char *err;
+  int rc = QueryPlan_Execute(plan, (const char **)&err);
+  if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-    Query_Free(q);
-    goto err;
   }
-
-  QueryResult_Serialize(r, req->sctx, req);
-  QueryResult_Free(r);
+  QueryPlan_Free(plan);
   Query_Free(q);
 
-  return REDISMODULE_OK;
-
-err:
-  return REDISMODULE_ERR;
+  return rc;
 }
 
 // process the query in the thread pool - thread pool callback

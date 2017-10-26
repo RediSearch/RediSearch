@@ -118,9 +118,9 @@ typedef union {
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
 #endif
-#define ParseARG_SDECL  parseCtx *ctx ;
-#define ParseARG_PDECL , parseCtx *ctx 
-#define ParseARG_FETCH  parseCtx *ctx  = yypParser->ctx 
+#define ParseARG_SDECL  QueryParseCtx *ctx ;
+#define ParseARG_PDECL , QueryParseCtx *ctx 
+#define ParseARG_FETCH  QueryParseCtx *ctx  = yypParser->ctx 
 #define ParseARG_STORE yypParser->ctx  = ctx 
 #define YYNSTATE             37
 #define YYNRULE              32
@@ -1012,8 +1012,8 @@ static void yy_reduce(
     if (yymsp[0].minor.yy53 == NULL) {
         yylhsminor.yy53 = NULL;
     } else {
-        if (ctx->q->ctx && ctx->q->ctx->spec) {
-            yymsp[0].minor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
+        if (ctx->sctx->spec) {
+            yymsp[0].minor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
         }
         yylhsminor.yy53 = yymsp[0].minor.yy53; 
     }
@@ -1024,9 +1024,9 @@ static void yy_reduce(
       case 7: /* expr ::= modifier COLON TERM */
 #line 147 "parser.y"
 {
-    yylhsminor.yy53 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
-    if (ctx->q->ctx && ctx->q->ctx->spec) {
-        yylhsminor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->q->ctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
+    yylhsminor.yy53 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
+    if (ctx->sctx->spec) {
+        yylhsminor.yy53->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len); 
     }
 }
 #line 1033 "parser.c"
@@ -1040,11 +1040,11 @@ static void yy_reduce(
         yylhsminor.yy53 = NULL;
     } else {
         yymsp[0].minor.yy53->fieldMask = 0;
-        if (ctx->q->ctx && ctx->q->ctx->spec) {
+        if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy44); i++) {
                 char *p;
                 Vector_Get(yymsp[-2].minor.yy44, i, &p);
-                yymsp[0].minor.yy53->fieldMask |= IndexSpec_GetFieldBit(ctx->q->ctx->spec, p, strlen(p)); 
+                yymsp[0].minor.yy53->fieldMask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
                 free(p);
             }
         }
@@ -1080,7 +1080,7 @@ static void yy_reduce(
       case 12: /* expr ::= term */
 #line 188 "parser.y"
 {
-    yylhsminor.yy53 = NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
+        yylhsminor.yy53 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len);
 }
 #line 1086 "parser.c"
   yymsp[0].minor.yy53 = yylhsminor.yy53;
@@ -1097,8 +1097,8 @@ static void yy_reduce(
 {
     
     yylhsminor.yy53 = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len));
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
+    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len));
+    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 
 }
 #line 1105 "parser.c"
@@ -1108,7 +1108,7 @@ static void yy_reduce(
 #line 203 "parser.y"
 {
     yylhsminor.yy53 = yymsp[-1].minor.yy53;
-    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx->q, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
+    QueryPhraseNode_AddChild(yylhsminor.yy53, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 }
 #line 1114 "parser.c"
   yymsp[-1].minor.yy53 = yylhsminor.yy53;
@@ -1138,7 +1138,7 @@ static void yy_reduce(
       case 19: /* expr ::= term STAR */
 #line 220 "parser.y"
 {
-    yylhsminor.yy53 = NewPrefixNode(ctx->q, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len);
+    yylhsminor.yy53 = NewPrefixNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), yymsp[-1].minor.yy0.len);
 }
 #line 1144 "parser.c"
   yymsp[-1].minor.yy53 = yylhsminor.yy53;

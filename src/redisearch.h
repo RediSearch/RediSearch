@@ -31,6 +31,7 @@ typedef enum {
   Document_Deleted = 0x01,
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
+  Document_HasOffsetVector = 0x08
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
@@ -63,7 +64,8 @@ typedef struct {
   RSPayload *payload;
 
   struct RSSortingVector *sortVector;
-
+  /* Offsets of all terms in the document (in bytes). Used by highlighter */
+  struct RSByteOffsets *byteOffsets;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
@@ -101,7 +103,7 @@ typedef struct RSQueryExpanderCtx {
   struct RSQueryNode **currentNode;
 
   /* Private data of the extension, set on extension initialization or during expansion. If a Free
-   * calbackk is provided, it will be used automatically to free this data */
+   * calback is provided, it will be used automatically to free this data */
   void *privdata;
 
   /* The language of the query. Defaults to "english" */
@@ -125,6 +127,22 @@ typedef void (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
 
+/* A single term being evaluated in query time */
+typedef struct {
+  /* The term string, not necessarily NULL terminated, hence the length is given as well */
+  char *str;
+  /* The term length */
+  size_t len;
+  /* Inverse document frequency of the term in the index. See
+   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
+  double idf;
+
+  /* Each term in the query gets an incremental id */
+  int id;
+  /* Flags given by the engine or by the query expander */
+  RSTokenFlags flags;
+} RSQueryTerm;
+
 /**************************************
  * Scoring Function API
  **************************************/
@@ -135,31 +153,18 @@ typedef void (*RSFreeFunction)(void *);
 
 /* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
  * by iterating over it with RSOffsetVector_Iterate */
-typedef struct {
+typedef struct RSOffsetVector {
   char *data;
-  size_t len;
+  uint32_t len;
 } RSOffsetVector;
 
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
-  uint32_t (*Next)(void *ctx);
+  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
   void (*Rewind)(void *ctx);
   void (*Free)(void *ctx);
 } RSOffsetIterator;
-
-/* A single term being evaluated in query time */
-typedef struct {
-  /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
-  /* Inverse document frequency of the term in the index. See
-   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
-  double idf;
-  /* Flags given by the engine or by the query expander */
-  RSTokenFlags flags;
-} RSQueryTerm;
 
 /* RSIndexRecord represents a single record of a document inside a term in the inverted index */
 typedef struct {
@@ -209,9 +214,9 @@ typedef struct RSIndexResult {
   /******************************************************************************
    * IMPORTANT: The order of the following 4 variables must remain the same, and all
    * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redunadnt memcpy
+   * to an array of 4 uint32_t integers to avoid redundant memcpy
    *******************************************************************************/
-  /* The docuId of the result */
+  /* The docId of the result */
   t_docId docId;
 
   /* the total frequency of all the records in this result */
@@ -238,7 +243,11 @@ typedef struct RSIndexResult {
     // numeric record with float value
     RSNumericRecord num;
   };
+
   RSResultType type;
+  // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
+  // want
+  int isCopy;
 } RSIndexResult;
 
 #pragma pack()

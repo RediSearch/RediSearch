@@ -11,7 +11,7 @@
 
 typedef uint8_t varintBuf[16];
 
-static size_t varintEncode(int value, uint8_t *vbuf) {
+static size_t varintEncode(uint32_t value, uint8_t *vbuf) {
   unsigned pos = sizeof(varintBuf) - 1;
   vbuf[pos] = value & 127;
   while (value >>= 7) {
@@ -23,14 +23,14 @@ static size_t varintEncode(int value, uint8_t *vbuf) {
 #define VARINT_BUF(buf, pos) ((buf) + pos)
 #define VARINT_LEN(pos) (16 - (pos))
 
-size_t WriteVarintRaw(int value, char *buf) {
+size_t WriteVarintRaw(uint32_t value, char *buf) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   memcpy(buf, VARINT_BUF(varint, pos), VARINT_LEN(pos));
   return VARINT_LEN(pos);
 }
 
-size_t WriteVarintBuffer(int value, Buffer *buf) {
+size_t WriteVarintBuffer(uint32_t value, Buffer *buf) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   size_t n = VARINT_LEN(pos);
@@ -40,7 +40,7 @@ size_t WriteVarintBuffer(int value, Buffer *buf) {
   return n;
 }
 
-int WriteVarint(int value, BufferWriter *w) {
+size_t WriteVarint(uint32_t value, BufferWriter *w) {
   // printf("writing %d bytes\n", 16 - pos);
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
@@ -58,7 +58,7 @@ int WriteVarint(int value, BufferWriter *w) {
   return nw;
 }
 
-size_t varintSize(int value) {
+size_t varintSize(uint32_t value) {
   assert(value > 0);
   size_t outputSize = 0;
   do {
@@ -90,7 +90,7 @@ Write an integer to the vector.
 @param i the integer we want to write
 @retur 0 if we're out of capacity, the varint's actual size otherwise
 */
-size_t VVW_Write(VarintVectorWriter *w, int i) {
+size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
   Buffer_Reserve(&w->buf, 16);
   size_t n = WriteVarintBuffer(i - w->lastValue, &w->buf);
   if (n != 0) {

@@ -47,17 +47,18 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     aCtx->fdatas = realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
   }
 
+  size_t numIndexable = 0;
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
       aCtx->fspecs[i] = *fs;
       if (FieldSpec_IsSortable(fs)) {
-        if (aCtx->sv == NULL) {
-          aCtx->sv = NewSortingVector(sp->sortables->len);
-        }
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
+      }
+      if (fs->type == F_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+        numIndexable++;
       }
       // mark non text fields in the state flags
       if (fs->type != F_FULLTEXT) {
@@ -72,6 +73,19 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
       aCtx->fspecs[i].name = NULL;
     }
   }
+
+  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
+    aCtx->sv = NewSortingVector(sp->sortables->len);
+  }
+
+  if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numIndexable &&
+      (sp->flags & Index_StoreTermOffsets)) {
+    if (!aCtx->byteOffsets) {
+      aCtx->byteOffsets = NewByteOffsets();
+      ByteOffsetWriter_Init(&aCtx->offsetsWriter);
+    }
+    RSByteOffsets_ReserveFields(aCtx->byteOffsets, numIndexable);
+  }
 }
 
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
@@ -85,7 +99,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   aCtx->stateFlags = 0;
   aCtx->errorString = NULL;
   aCtx->totalTokens = 0;
-  aCtx->bc = NULL;
+  aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->stopwords = sp->stopwords;
@@ -106,14 +120,18 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   return aCtx;
 }
 
-static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   if (aCtx->errorString) {
     RedisModule_ReplyWithError(ctx, aCtx->errorString);
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
   AddDocumentCtx_Free(aCtx);
+}
+
+static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  doReplyFinish(aCtx, ctx);
   return REDISMODULE_OK;
 }
 
@@ -122,7 +140,11 @@ static void threadCallback(void *p) {
 }
 
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  RedisModule_UnblockClient(aCtx->bc, aCtx);
+  if (aCtx->stateFlags & ACTX_F_NOBLOCK) {
+    doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
+  } else {
+    RedisModule_UnblockClient(aCtx->client.bc, aCtx);
+  }
 }
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
@@ -164,8 +186,12 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
     return;
   }
-  aCtx->bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
-  assert(aCtx->bc);
+  if (AddDocumentCtx_IsBlockable(aCtx)) {
+    aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
+  } else {
+    aCtx->client.sctx = sctx;
+  }
+  assert(aCtx->client.bc);
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
@@ -176,7 +202,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     }
   }
 
-  if (totalSize >= SELF_EXEC_THRESHOLD) {
+  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   } else {
     Document_AddToIndexes(aCtx);
@@ -191,6 +217,13 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     SortingVector_Free(aCtx->sv);
     aCtx->sv = NULL;
   }
+
+  if (aCtx->byteOffsets) {
+    RSByteOffsets_Free(aCtx->byteOffsets);
+    aCtx->byteOffsets = NULL;
+  }
+
+  ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
 
   if (aCtx->stopwords) {
     StopWordList_Unref(aCtx->stopwords);
@@ -216,11 +249,24 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  // Only tokenize indexable fields
   if (FieldSpec_IsIndexable(fs)) {
     Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
-    aCtx->totalTokens = tokenize(c, fs->weight, fs->id, aCtx->fwIdx, forwardIndexTokenFunc, stemmer,
-                                 aCtx->totalTokens, aCtx->stopwords);
+    ForwardIndexTokenizerCtx tokCtx;
+    VarintVectorWriter *curOffsetWriter = NULL;
+    RSByteOffsetField *curOffsetField = NULL;
+    if (aCtx->byteOffsets) {
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->id, aCtx->totalTokens + 1);
+      curOffsetWriter = &aCtx->offsetsWriter;
+    }
+
+    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->id, fs->weight);
+    size_t newTokPos =
+        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
+
+    if (curOffsetField) {
+      curOffsetField->lastTokPos = newTokPos;
+    }
+    aCtx->totalTokens = newTokPos;
   }
   return 0;
 }

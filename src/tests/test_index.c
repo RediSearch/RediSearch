@@ -1,6 +1,7 @@
 #include "../buffer.h"
 #include "../index.h"
 #include "../inverted_index.h"
+#include "../index_result.h"
 #include "../query_parser/tokenizer.h"
 #include "../rmutil/alloc.h"
 #include "../spec.h"
@@ -32,7 +33,7 @@ int testVarint() {
   RSOffsetIterator it = _offsetVector_iterate(&vec);
   int x = 0;
   uint32_t n = 0;
-  while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx))) {
+  while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx, NULL))) {
 
     ASSERTM(n == expected[x++], "Wrong number decoded");
     // printf("%d %d\n", x, n);
@@ -103,7 +104,7 @@ int testDistance() {
   uint32_t rc;
   int i = 0;
   do {
-    rc = it.Next(it.ctx);
+    rc = it.Next(it.ctx, NULL);
     ASSERT_EQUAL(rc, (expected[i++]));
   } while (rc != RS_OFFSETVECTOR_EOF);
   it.Free(it.ctx);
@@ -292,6 +293,17 @@ int testUnion() {
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT(h->docId == expected[i++]);
+
+    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    ASSERT(copy != NULL);
+    ASSERT(copy != h);
+    ASSERT(copy->isCopy == 1);
+
+    ASSERT(copy->docId == h->docId);
+    ASSERT(copy->type == h->type);
+
+    IndexResult_Free(copy);
+
     // printf("%d, ", h.docId);
   }
 
@@ -562,6 +574,17 @@ int testIntersection() {
     ASSERT(RSIndexResult_IsAggregate(h));
     ASSERT(RSIndexResult_HasOffsets(h));
     topFreq = topFreq > h->freq ? topFreq : h->freq;
+
+    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    ASSERT(copy != NULL);
+    ASSERT(copy != h);
+    ASSERT(copy->isCopy == 1);
+
+    ASSERT(copy->docId == h->docId);
+    ASSERT(copy->type == RSResultType_Intersection);
+
+    IndexResult_Free(copy);
+
     // printf("%d\n", h.docId);
     TimeSampler_Tick(&ts);
     ++count;
@@ -639,12 +662,9 @@ typedef struct {
 
 int tokenFunc(void *ctx, const Token *t) {
   tokenContext *tx = ctx;
-  int ret = strcmp(t->s, tx->expected[tx->num++]);
+  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
   assert(ret == 0);
-  assert(t->len == strlen(t->s));
-  assert(t->fieldId == 1);
   assert(t->pos > 0);
-  assert(t->score == 1);
   return 0;
 }
 
@@ -654,7 +674,7 @@ int testTokenize() {
   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
   ctx.expected = (char **)expected;
 
-  tokenize(txt, 1, 1, &ctx, tokenFunc, NULL, 0, DefaultStopWordList());
+  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
   ASSERT(ctx.num == 5);
 
   free(txt);
@@ -911,7 +931,7 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
-  ASSERT_EQUAL(6780, (int)dt.memsize);
+  ASSERT_EQUAL(7580, (int)dt.memsize);
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -1018,26 +1038,26 @@ TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testPureNot);
-  // TESTFUNC(testHugeSpec);
+  TESTFUNC(testHugeSpec);
 
-  // TESTFUNC(testAbort)
-  // TESTFUNC(testNumericInverted);
-  // TESTFUNC(testNumericVaried);
-  // TESTFUNC(testNumericEncoding);
+  TESTFUNC(testAbort)
+  TESTFUNC(testNumericInverted);
+  TESTFUNC(testNumericVaried);
+  TESTFUNC(testNumericEncoding);
 
-  // TESTFUNC(testVarint);
-  // TESTFUNC(testDistance);
-  // TESTFUNC(testIndexReadWrite);
+  TESTFUNC(testVarint);
+  TESTFUNC(testDistance);
+  TESTFUNC(testIndexReadWrite);
 
-  // TESTFUNC(testReadIterator);
-  // TESTFUNC(testIntersection);
-  // TESTFUNC(testNot);
-  // TESTFUNC(testUnion);
+  TESTFUNC(testReadIterator);
+  TESTFUNC(testIntersection);
+  TESTFUNC(testNot);
+  TESTFUNC(testUnion);
 
-  // TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  // TESTFUNC(testIndexSpec);
-  // TESTFUNC(testIndexFlags);
-  // TESTFUNC(testDocTable);
-  // TESTFUNC(testSortable);
+  TESTFUNC(testBuffer);
+  TESTFUNC(testTokenize);
+  TESTFUNC(testIndexSpec);
+  TESTFUNC(testIndexFlags);
+  TESTFUNC(testDocTable);
+  TESTFUNC(testSortable);
 });
