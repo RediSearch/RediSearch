@@ -1,8 +1,8 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
-# Compile flags for linux / osx
-ifeq ($(uname_S),Linux)
+# Compile flags for non-osx / osx
+ifneq ($(uname_S),Darwin)
 	CFLAGS ?= -W -Wall -fno-common -g -ggdb -fPIC -std=c99 -O2
 	CPPFLAGS ?= -W -Wall -fno-common -g -ggdb
 else
