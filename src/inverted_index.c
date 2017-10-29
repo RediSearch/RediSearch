@@ -776,6 +776,7 @@ void IR_Rewind(void *ctx) {
   ir->atEnd = 0;
   ir->currentBlock = 0;
   ir->lastId = 0;
+  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {

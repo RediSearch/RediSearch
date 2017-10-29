@@ -29,7 +29,8 @@ void UI_Rewind(void *ctx) {
   ui->atEnd = 0;
   ui->minDocId = 0;
   ui->pos = 0;
-
+  ui->current->docId = 0;
+  // rewind all child iterators
   for (int i = 0; i < ui->num; i++) {
     if (ui->its[i]) {
       ui->its[i]->Rewind(ui->its[i]->ctx);
@@ -291,6 +292,7 @@ void II_Rewind(void *ctx) {
   IntersectContext *ii = ctx;
   ii->atEnd = 0;
   ii->lastDocId = 0;
+  // rewind all child iterators
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
       ii->its[i]->Rewind(ii->its[i]->ctx);
@@ -499,6 +501,9 @@ void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
   nc->current->docId = 0;
+  if (nc->child) {
+    nc->child->Rewind(nc->child->ctx);
+  }
 }
 void NI_Free(IndexIterator *it) {
 
@@ -752,6 +757,9 @@ void OI_Rewind(void *ctx) {
   OptionalMatchContext *nc = ctx;
   nc->lastDocId = 0;
   nc->virt->docId = 0;
+  if (nc->child) {
+    nc->child->Rewind(nc->child->ctx);
+  }
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
@@ -780,8 +788,10 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
 }
 
 /* Wildcard iterator, matchin ALL documents in the index. This is used for one thing only -
- * purely negative queries. If the root of the query is a negative expression, we cannot process it
- * without a positive expression. So we create a wildcard iterator that basically just iterates all
+ * purely negative queries. If the root of the query is a negative expression, we cannot process
+ * it
+ * without a positive expression. So we create a wildcard iterator that basically just iterates
+ * all
  * the incremental document ids, and matches every skip within its range. */
 typedef struct {
   t_docId topId;
@@ -808,7 +818,8 @@ int WI_Read(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-/* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has no
+/* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has
+ * no
  * meaning */
 int WI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   // printf("WI_Skipto %d\n", docId);
