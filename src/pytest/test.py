@@ -305,6 +305,18 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertEqual([1, 'doc2'],  r.execute_command(
                     'ft.search', 'idx3', 'to be or not', 'nocontent'))
 
+    def testStopwords(self):
+        # This test was taken from Python's tests, and failed due to some changes
+        # made earlier
+        self.cmd('ft.create', 'idx', 'stopwords', 3, 'foo', 'bar', 'baz', 'schema', 'txt', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'foo bar')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello world')
+
+        r1 = self.cmd('ft.search', 'idx', 'foo bar', 'nocontent')
+        r2 = self.cmd('ft.search', 'idx', 'foo bar hello world', 'nocontent')
+        self.assertEqual(0, r1[0])
+        self.assertEqual(1, r2[0])
+
     def testOptional(self):
         with self.redis() as r:
             r.flushdb()
