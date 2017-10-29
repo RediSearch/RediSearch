@@ -87,7 +87,7 @@ static void normalizeSettings(const char *name, const ReturnedField *srcField,
 }
 
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
-                           RSValue *returnedField, SearchResult *r) {
+                           RSValue *returnedField, SearchResult *r, RSIndexResult *indexResult) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -99,7 +99,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   // First actually generate the fragments
   size_t docLen;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
-  if (!fragmentizeOffsets(spec, fieldName, docStr, docLen, r->indexResult, r->md->byteOffsets,
+  if (!fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, r->md->byteOffsets,
                           &frags)) {
     // Can't fragmentize from the offsets
     // Should we fragmentize on the fly? TODO
@@ -162,7 +162,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   FragmentList_Free(&frags);
 }
 
-static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField *spec) {
+static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField *spec,
+                         RSIndexResult *indexResult) {
   const char *fName = spec->name;
   RSValue *fieldValue = RSFieldMap_Get(r->fields, fName);
 
@@ -173,13 +174,24 @@ static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField
     return;
   }
 
-  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r);
+  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult);
 }
 
 static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   int rc = ResultProcessor_Next(ctx->upstream, r, 0);
   if (rc == RS_RESULT_EOF) {
     return rc;
+  }
+
+  // Get the index result for the current document from the root iterator.
+  // The current result should not contain an index result
+  RSIndexResult *ir = r->indexResult;
+  if (!ir) {
+    ctx->qxc->rootFilter->Rewind(ctx->qxc->rootFilter->ctx);
+    if (INDEXREAD_OK !=
+        (rc = ctx->qxc->rootFilter->SkipTo(ctx->qxc->rootFilter->ctx, r->docId, &ir))) {
+      return RS_RESULT_QUEUED;
+    }
   }
 
   const FieldList *fields = ctx->privdata;
@@ -194,14 +206,14 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
         ReturnedField combinedSpec = {0};
         normalizeSettings(fields->fields[ii].name, fields->fields + ii, &fields->defaultField,
                           &combinedSpec);
-        processField(ctx, r, &combinedSpec);
+        processField(ctx, r, &combinedSpec, ir);
       }
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
     for (size_t ii = 0; ii < r->fields->len; ++ii) {
       ReturnedField spec = {0};
       normalizeSettings(r->fields->fields[ii].key, NULL, &fields->defaultField, &spec);
-      processField(ctx, r, &spec);
+      processField(ctx, r, &spec, ir);
     }
   }
   return RS_RESULT_OK;

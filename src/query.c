@@ -794,5 +794,6 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
   plan->rootProcessor = Query_BuildProcessorChain(plan, req);
+  plan->execCtx.rootFilter = plan->rootFilter;
   return plan;
 }

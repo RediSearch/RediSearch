@@ -48,6 +48,8 @@ typedef struct {
   char *errorString;
   // the state - used for aborting queries
   QueryState state;
+
+  IndexIterator *rootFilter;
 } QueryProcessingCtx;
 
 /*

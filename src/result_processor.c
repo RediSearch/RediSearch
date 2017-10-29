@@ -83,7 +83,7 @@ SearchResult *NewSearchResult() {
 inline void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
-  IndexResult_Free(r->indexResult);
+  // IndexResult_Free(r->indexResult);
 
   RSFieldMap_Free(r->fields, 0);
 }
@@ -328,7 +328,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = sc->saveIndexResults ? IndexResult_DeepCopy(h->indexResult) : NULL;
+    h->indexResult = NULL;
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -347,10 +347,9 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     // if needed - pop it and insert a new result
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
       // copy the index result to make it thread safe - but only if it is pushed to the heap
-      h->indexResult = sc->saveIndexResults ? IndexResult_DeepCopy(h->indexResult) : NULL;
+      h->indexResult = NULL;
 
       sc->pooledResult = mmh_pop_min(sc->pq);
-      IndexResult_Free(sc->pooledResult->indexResult);
       sc->pooledResult->indexResult = NULL;
       mmh_insert(sc->pq, h);
     } else {
