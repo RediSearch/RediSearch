@@ -24,6 +24,19 @@ void UI_Abort(void *ctx) {
   }
 }
 
+void UI_Rewind(void *ctx) {
+  UnionContext *ui = ctx;
+  ui->atEnd = 0;
+  ui->minDocId = 0;
+  ui->pos = 0;
+
+  for (int i = 0; i < ui->num; i++) {
+    if (ui->its[i]) {
+      ui->its[i]->Rewind(ui->its[i]->ctx);
+    }
+  }
+}
+
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit) {
   // create union context
   UnionContext *ctx = calloc(1, sizeof(UnionContext));
@@ -46,6 +59,8 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->Free = UnionIterator_Free;
   it->Len = UI_Len;
   it->Abort = UI_Abort;
+  it->Rewind = UI_Rewind;
+
   return it;
 }
 
@@ -272,6 +287,17 @@ void II_Abort(void *ctx) {
   }
 }
 
+void II_Rewind(void *ctx) {
+  IntersectContext *ii = ctx;
+  ii->atEnd = 0;
+  ii->lastDocId = 0;
+  for (int i = 0; i < ii->num; i++) {
+    if (ii->its[i]) {
+      ii->its[i]->Rewind(ii->its[i]->ctx);
+    }
+  }
+}
+
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder) {
 
@@ -299,6 +325,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   it->Len = II_Len;
   it->Free = IntersectIterator_Free;
   it->Abort = II_Abort;
+  it->Rewind = II_Rewind;
   return it;
 }
 
@@ -468,6 +495,11 @@ void NI_Abort(void *ctx) {
   nc->child->Abort(nc->child->ctx);
 }
 
+void NI_Rewind(void *ctx) {
+  NotContext *nc = ctx;
+  nc->lastDocId = 0;
+  nc->current->docId = 0;
+}
 void NI_Free(IndexIterator *it) {
 
   NotContext *nc = it->ctx;
@@ -617,6 +649,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId) {
   ret->Read = NI_Read;
   ret->SkipTo = NI_SkipTo;
   ret->Abort = NI_Abort;
+  ret->Rewind = NI_Rewind;
   return ret;
 }
 
@@ -715,6 +748,12 @@ t_docId OI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
+void OI_Rewind(void *ctx) {
+  OptionalMatchContext *nc = ctx;
+  nc->lastDocId = 0;
+  nc->virt->docId = 0;
+}
+
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
 
   OptionalMatchContext *nc = malloc(sizeof(*nc));
@@ -736,6 +775,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
   ret->Read = OI_Read;
   ret->SkipTo = OI_SkipTo;
   ret->Abort = OI_Abort;
+  ret->Rewind = OI_Rewind;
   return ret;
 }
 
@@ -815,6 +855,11 @@ t_docId WI_LastDocId(void *ctx) {
   return nc->current;
 }
 
+void WI_Rewind(void *p) {
+  WildcardIteratorCtx *ctx = p;
+  ctx->current = 1;
+}
+
 /* Create a new wildcard iterator */
 IndexIterator *NewWildcardIterator(t_docId maxId) {
   WildcardIteratorCtx *c = malloc(sizeof(*c));
@@ -834,5 +879,6 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
   ret->Abort = WI_Abort;
+  ret->Rewind = WI_Rewind;
   return ret;
 }

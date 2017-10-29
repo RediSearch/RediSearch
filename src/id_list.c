@@ -115,6 +115,14 @@ static int cmp_docids(const void *p1, const void *p2) {
   return (int)(*d1 - *d2);
 }
 
+void IL_Rewind(void *p) {
+  IdListIterator *il = p;
+  il->atEOF = 0;
+  il->lastDocId = 0;
+  il->res->docId = 0;
+  il->offset = 0;
+}
+
 IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
 
   // first sort the ids, so the caller will not have to deal with it
@@ -141,5 +149,6 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   ret->Current = IL_Current;
   ret->SkipTo = IL_SkipTo;
   ret->Abort = IL_Abort;
+  ret->Rewind = IL_Rewind;
   return ret;
 }
