@@ -208,6 +208,7 @@ inline void AggregateResult_Reset(RSIndexResult *r) {
 }
 
 void IndexResult_Free(RSIndexResult *r) {
+  if (!r) return;
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {

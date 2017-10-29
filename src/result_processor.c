@@ -83,10 +83,8 @@ SearchResult *NewSearchResult() {
 inline void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
-  if (r->indexResult) {
-    IndexResult_Free(r->indexResult);
-    r->indexResult = NULL;
-  }
+  IndexResult_Free(r->indexResult);
+
   RSFieldMap_Free(r->fields, 0);
 }
 
@@ -277,6 +275,8 @@ struct sorterCtx {
 
   // accumulation state - while this is true, any call to next() will yield QUEUED
   int accumulating;
+
+  int saveIndexResults;
 };
 
 /* Yield - pops the current top result from the heap */
@@ -328,7 +328,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = IndexResult_DeepCopy(h->indexResult);
+    h->indexResult = sc->saveIndexResults ? IndexResult_DeepCopy(h->indexResult) : NULL;
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -347,7 +347,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     // if needed - pop it and insert a new result
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
       // copy the index result to make it thread safe - but only if it is pushed to the heap
-      h->indexResult = IndexResult_DeepCopy(h->indexResult);
+      h->indexResult = sc->saveIndexResults ? IndexResult_DeepCopy(h->indexResult) : NULL;
 
       sc->pooledResult = mmh_pop_min(sc->pq);
       IndexResult_Free(sc->pooledResult->indexResult);
@@ -386,7 +386,8 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
-ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream) {
+ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream,
+                           int copyIndexResults) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
 
@@ -403,6 +404,7 @@ ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *ups
   sc->offset = 0;
   sc->pooledResult = NULL;
   sc->accumulating = 1;
+  sc->saveIndexResults = copyIndexResults;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = sorter_Next;
@@ -440,6 +442,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // not reached beginning of results
   if (pc->count < pc->offset) {
+
     IndexResult_Free(r->indexResult);
     free(r->fields);
     pc->count++;
@@ -544,7 +547,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(req->sortBy, req->offset + req->num, next);
+  next = NewSorter(req->sortBy, req->offset + req->num, next, req->fields.wantSummaries);
 
   // The pager pages over the results of the sorter
   next = NewPager(next, req->offset, req->num);
