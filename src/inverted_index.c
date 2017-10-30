@@ -772,10 +772,12 @@ inline t_docId IR_LastDocId(void *ctx) {
 }
 
 void IR_Rewind(void *ctx) {
+
   IndexReader *ir = ctx;
   ir->atEnd = 0;
   ir->currentBlock = 0;
   ir->lastId = 0;
+  ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
 }
 

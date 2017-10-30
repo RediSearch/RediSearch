@@ -30,8 +30,10 @@ void UI_Rewind(void *ctx) {
   ui->minDocId = 0;
   ui->pos = 0;
   ui->current->docId = 0;
+
   // rewind all child iterators
   for (int i = 0; i < ui->num; i++) {
+    ui->docIds[i] = 0;
     if (ui->its[i]) {
       ui->its[i]->Rewind(ui->its[i]->ctx);
     }
@@ -292,8 +294,10 @@ void II_Rewind(void *ctx) {
   IntersectContext *ii = ctx;
   ii->atEnd = 0;
   ii->lastDocId = 0;
+
   // rewind all child iterators
   for (int i = 0; i < ii->num; i++) {
+    ii->docIds[i] = 0;
     if (ii->its[i]) {
       ii->its[i]->Rewind(ii->its[i]->ctx);
     }
