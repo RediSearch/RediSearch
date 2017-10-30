@@ -116,7 +116,7 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
   size_t numFields = 0;
   int rc = REDISMODULE_OK;
 
-  ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGCOUNT_DEFAULT,
+  ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGSIZE_DEFAULT,
                                                  .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT,
                                                  .separator = SUMMARIZE_DEFAULT_SEPARATOR},
                            .highlightSettings = {.openTag = SUMMARIZE_DEFAULT_OPEN_TAG,
