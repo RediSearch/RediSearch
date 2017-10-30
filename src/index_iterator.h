@@ -41,6 +41,9 @@ typedef struct indexIterator {
   /* Abort the execution of the iterator and mark it as EOF. This is used for early aborting in case
    * of data consistency issues due to multi threading */
   void (*Abort)(void *ctx);
+
+  /* Rewinde the iterator to the beginning and reset its state */
+  void (*Rewind)(void *ctx);
 } IndexIterator;
 
 #endif

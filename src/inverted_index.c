@@ -771,6 +771,14 @@ inline t_docId IR_LastDocId(void *ctx) {
   return ((IndexReader *)ctx)->lastId;
 }
 
+void IR_Rewind(void *ctx) {
+  IndexReader *ir = ctx;
+  ir->atEnd = 0;
+  ir->currentBlock = 0;
+  ir->lastId = 0;
+  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+}
+
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
@@ -782,6 +790,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Len = IR_NumDocs;
   ri->Current = IR_Current;
   ri->Abort = IR_Abort;
+  ri->Rewind = IR_Rewind;
   return ri;
 }
 
