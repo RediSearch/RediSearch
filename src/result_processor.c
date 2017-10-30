@@ -559,7 +559,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   // If we do not need to return any fields - we do not need the loader in the loop
   if (!(req->flags & Search_NoContent)) {
     next = NewLoader(next, req);
-    if (req->fields.wantSummaries) {
+    if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
     }
   }

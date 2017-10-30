@@ -1441,12 +1441,12 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                        'SUMMARIZE', 'FIELDS', 2, 'txt1', 'txt2', 'LEN', 5)
         # print res
         self.assertEqual([1L, 'redis', ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2', 'dataset in memory. Versions... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']], res)
-    
-    # def testSummarizationNoOffsets(self):
-    #     self.cmd('FT.CREATE', 'idx', 'NOFFSETS', 'SCHEMA', 'body', 'TEXT')
-    #     self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
-    #     res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 1, 'body')
-    #     self.assertEqual([1L, 'doc', ['body', 'hello ... ']], res)
+
+    def testSummarizationNoOffsets(self):
+        self.cmd('FT.CREATE', 'idx', 'NOOFFSETS', 'SCHEMA', 'body', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
+        res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 'FIELDS', 1, 'body')
+        self.assertEqual([1L, 'doc', ['body', 'hello world']], res)
     
     def testSummarizationNoSave(self):
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT')
