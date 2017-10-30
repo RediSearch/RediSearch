@@ -202,38 +202,37 @@ int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
 }
 
 /* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
- * default is ASC if not specified.  This function returns 1 if we found sorting args, they are
- * valid and the field name exists */
+ * default is ASC if not specified.*/
 int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
-                            int argc) {
+                            int argc, size_t *offset) {
   const char *field = NULL;
   k->index = -1;
   k->ascending = 1;
-  if (!tbl) return 0;
+  if (!tbl) return REDISMODULE_ERR;
 
-  int sortPos = RMUtil_ArgIndex("SORTBY", argv, argc);
-  if (sortPos >= 0 && sortPos + 1 < argc) {
-
-    // parse the sorting field
-    RMUtil_ParseArgs(argv, argc, sortPos + 1, "c", &field);
-
-    // if we've found a field...
-    if (field) {
-      // parse optional ASC/DESC
-      if (sortPos + 2 < argc) {
-
-        if (RMUtil_StringEqualsCaseC(argv[sortPos + 2], "ASC")) {
-          k->ascending = 1;
-        } else if (RMUtil_StringEqualsCaseC(argv[sortPos + 2], "DESC")) {
-          k->ascending = 0;
-        }
-      }
-      // Get the actual field index from the descriptor
-      k->index = RSSortingTable_GetFieldIdx(tbl, field);
-    }
+  if (argc - *offset < 2) {
+    return REDISMODULE_ERR;
   }
-  // return 1 on successful parse, 0 if not found or no sorting key
-  return k->index == -1 ? 0 : 1;
+
+  // Parse the field
+  const char *fieldName = RedisModule_StringPtrLen(argv[++*offset], NULL);
+  k->index = RSSortingTable_GetFieldIdx(tbl, fieldName);
+  if (k->index == -1) {
+    return REDISMODULE_ERR;
+  }
+
+  if (++*offset == argc) {
+    return REDISMODULE_OK;
+  }
+
+  if (RMUtil_StringEqualsCaseC(argv[*offset], "ASC")) {
+    k->ascending = 1;
+    ++*offset;
+  } else if (RMUtil_StringEqualsCaseC(argv[*offset], "DESC")) {
+    k->ascending = 0;
+    ++*offset;
+  }
+  return REDISMODULE_OK;
 }
 
 void RSSortingKey_Free(RSSortingKey *k) {
