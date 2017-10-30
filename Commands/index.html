@@ -1978,8 +1978,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
   [INKEYS {num} {key} ... ]
   [INFIELDS {num} {field} ... ]
   [RETURN {num} {field} ... ]
-  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] ]
-  [HIGHLIGHT [FIELDS {num} {ield} ... ] [TAGS {open} {close}] [SEPARATOR {sepstr}] ]
+  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]
+  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
@@ -2002,8 +2002,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 <li><strong>RETURN {num} {field} ...</strong>: Use this keyword to limit which fields from the document are returned.
   <code>num</code> is the number of fields following the keyword. If <code>num</code> is 0, it acts like <code>NOCONTENT</code>.</li>
 <li><strong>SUMMARIZE ...</strong>: Use this option to return only the sections of the field which contain the matched text.
-  See <a href="../Highlight">Highlighting</a> for more detailts</li>
-<li><strong>HIGHLIGHT ...</strong>: Use this option to format occurrences of matched text. See <a href="../Higlight">Highligting</a> for more
+  See <a href="../Highlight/">Highlighting</a> for more detailts</li>
+<li><strong>HIGHLIGHT ...</strong>: Use this option to format occurrences of matched text. See <a href="../Highlight/">Highligting</a> for more
   details</li>
 <li><strong>LIMIT first num</strong>: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10</li>
