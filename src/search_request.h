@@ -32,8 +32,8 @@ typedef enum {
 #define SUMMARIZE_MODE_DEFAULT SummarizeMode_Synopsis
 #define SUMMARIZE_FRAGSIZE_DEFAULT 20
 #define SUMMARIZE_FRAGCOUNT_DEFAULT 3
-#define SUMMARIZE_DEFAULT_OPEN_TAG "<u>"
-#define SUMMARIZE_DEFAULT_CLOSE_TAG "</u>"
+#define SUMMARIZE_DEFAULT_OPEN_TAG "<b>"
+#define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
 #define SUMMARIZE_DEFAULT_SEPARATOR "... "
 
 typedef struct {
