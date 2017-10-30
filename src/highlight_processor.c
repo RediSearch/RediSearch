@@ -177,6 +177,17 @@ static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField
   summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult);
 }
 
+static RSIndexResult *getIndexResult(QueryProcessingCtx *ctx, t_docId docId) {
+  RSIndexResult *ir = NULL;
+  if (ctx->rootFilter) {
+    ctx->rootFilter->Rewind(ctx->rootFilter->ctx);
+    if (INDEXREAD_OK != ctx->rootFilter->SkipTo(ctx->rootFilter->ctx, docId, &ir)) {
+      return NULL;
+    }
+  }
+  return ir;
+}
+
 static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   int rc = ResultProcessor_Next(ctx->upstream, r, 0);
   if (rc == RS_RESULT_EOF) {
@@ -185,13 +196,11 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  RSIndexResult *ir = r->indexResult;
+  RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(ctx->qxc, r->docId);
+
+  // we can't work withot the inex result, just return QUEUED
   if (!ir) {
-    ctx->qxc->rootFilter->Rewind(ctx->qxc->rootFilter->ctx);
-    if (INDEXREAD_OK !=
-        (rc = ctx->qxc->rootFilter->SkipTo(ctx->qxc->rootFilter->ctx, r->docId, &ir))) {
-      return RS_RESULT_QUEUED;
-    }
+    return RS_RESULT_QUEUED;
   }
 
   const FieldList *fields = ctx->privdata;

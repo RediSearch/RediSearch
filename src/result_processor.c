@@ -83,7 +83,8 @@ SearchResult *NewSearchResult() {
 inline void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
-  // IndexResult_Free(r->indexResult);
+  // This won't affect anything if the result is null
+  IndexResult_Free(r->indexResult);
 
   RSFieldMap_Free(r->fields, 0);
 }
