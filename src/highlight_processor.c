@@ -98,9 +98,10 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
 
   // First actually generate the fragments
   size_t docLen;
+  RSByteOffsets *byteOffsets = r->md->byteOffsets;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
-  if (!fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, r->md->byteOffsets,
-                          &frags)) {
+  if (byteOffsets == NULL ||
+      !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, &frags)) {
     // Can't fragmentize from the offsets
     // Should we fragmentize on the fly? TODO
     RSFieldMap_Set(&r->fields, fieldName, RS_NullVal());
