@@ -497,19 +497,22 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
-
-  Array fieldList;
-  Array_Init(&fieldList);
-  for (size_t ii = 0; ii < lc->fields->numFields; ++ii) {
-    Array_Write(&fieldList, &lc->fields->fields[ii].name, sizeof(char *));
-  }
   RedisModuleString *idstr =
       RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
-  Redis_LoadDocumentEx(lc->ctx, idstr, (const char **)fieldList.data, lc->fields->numFields, &doc,
-                       &rkey);
-  RedisModule_FreeString(lc->ctx->redisCtx, idstr);
-  Array_Free(&fieldList);
+  if (!lc->fields->explicitReturn) {
+    Redis_LoadDocument(lc->ctx, idstr, &doc);
+  } else {
+    Array fieldList;
+    Array_Init(&fieldList);
+    for (size_t ii = 0; ii < lc->fields->numFields; ++ii) {
+      Array_Write(&fieldList, &lc->fields->fields[ii].name, sizeof(char *));
+    }
 
+    Redis_LoadDocumentEx(lc->ctx, idstr, (const char **)fieldList.data, lc->fields->numFields, &doc,
+                         &rkey);
+    RedisModule_FreeString(lc->ctx->redisCtx, idstr);
+    Array_Free(&fieldList);
+  }
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
     RSFieldMap_Add(&r->fields, doc.fields[i].name,
