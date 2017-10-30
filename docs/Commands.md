@@ -257,8 +257,8 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [INKEYS {num} {key} ... ]
   [INFIELDS {num} {field} ... ]
   [RETURN {num} {field} ... ]
-  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] ]
-  [HIGHLIGHT [FIELDS {num} {ield} ... ] [TAGS {open} {close}] [SEPARATOR {sepstr}] ]
+  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]
+  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
@@ -282,8 +282,8 @@ Search the index with a textual query, returning either documents or just ids.
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the matched text.
-  See [Highlighting](/Highlight) for more detailts
-- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Higlight) for more
+  See [Highlighting](/Highlight/) for more detailts
+- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight/) for more
   details
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
