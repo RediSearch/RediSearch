@@ -2,6 +2,7 @@
 #include "fragmenter.h"
 #include "value.h"
 #include "util/minmax.h"
+#include "toksep.h"
 #include <ctype.h>
 
 /**
@@ -30,6 +31,9 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
 
   FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
   FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter);
+  if (fragList->numFrags == 0) {
+    goto done;
+  }
   rc = 1;
 
 done:
@@ -86,6 +90,37 @@ static void normalizeSettings(const char *name, const ReturnedField *srcField,
   out->name = (char *)name;
 }
 
+// Called when we cannot fragmentize based on byte offsets.
+// docLen is an in/out parameter. On input it should contain the length of the
+// field, and on output it contains the length of the trimmed summary.
+// Returns a string which should be freed using free()
+static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_t *docLen,
+                       size_t estWordSize) {
+
+  // Number of desired fragments times the number of context words in each fragments,
+  // in characters (estWordSize)
+  size_t headLen =
+      fieldInfo->summarizeSettings.contextLen * fieldInfo->summarizeSettings.numFrags * estWordSize;
+  headLen += estWordSize;  // Because we trim off a word when finding the toksep
+  headLen = Min(headLen, *docLen);
+
+  Array bufTmp;
+  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
+
+  Array_Write(&bufTmp, docStr, headLen);
+  headLen = stripDuplicateSpaces(bufTmp.data, headLen);
+  Array_Resize(&bufTmp, headLen);
+
+  while (bufTmp.len > 1) {
+    if (istoksep(bufTmp.data[--bufTmp.len])) {
+      --bufTmp.len;
+      break;
+    }
+  }
+
+  return Array_Steal(&bufTmp, docLen);
+}
+
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
                            RSValue *returnedField, SearchResult *r, RSIndexResult *indexResult) {
 
@@ -102,9 +137,15 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (byteOffsets == NULL ||
       !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, &frags)) {
-    // Can't fragmentize from the offsets
-    // Should we fragmentize on the fly? TODO
-    RSFieldMap_Set(&r->fields, fieldName, RS_NullVal());
+    if (fieldInfo->mode == SummarizeMode_Synopsis) {
+      // If summarizing is requested then trim the field so that the user isn't
+      // spammed with a large blob of text
+      char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
+      RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(summarized, docLen));
+    } else {
+      // Otherwise, just return the whole field, but without highlighting
+    }
+    FragmentList_Free(&frags);
     return;
   }
 
