@@ -435,10 +435,29 @@ DECODER(readFreqsFlags) {
   CHECK_FLAGS(ctx, res);
 }
 
+DECODER(readFreqsFlagsWide) {
+  uint32_t maskSz;
+  qint_decode3(br, &res->docId, &res->freq, &maskSz);
+
+  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+  CHECK_FLAGS(ctx, res);
+}
+
 DECODER(readFreqOffsetsFlags) {
   // qint_decode(br, (uint32_t *)res, 4);
   qint_decode4(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask, &res->offsetsSz);
 
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
+  Buffer_Skip(br, res->offsetsSz);
+  CHECK_FLAGS(ctx, res);
+}
+
+DECODER(readFreqOffsetsFlagsWide) {
+  // qint_decode(br, (uint32_t *)res, 4);
+  uint32_t maskSz;
+
+  qint_decode4(br, &res->docId, &res->freq, (uint32_t *)maskSz, &res->offsetsSz);
+  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -499,9 +518,27 @@ DECODER(readFlags) {
   CHECK_FLAGS(ctx, res);
 }
 
+DECODER(readFlagsWide) {
+  uint32_t maskSz;
+  qint_decode2(br, &res->docId, &maskSz);
+  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+  CHECK_FLAGS(ctx, res);
+}
+
 DECODER(readFlagsOffsets) {
   qint_decode3(br, &res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
+  Buffer_Skip(br, res->offsetsSz);
+  CHECK_FLAGS(ctx, res);
+}
+
+DECODER(readFlagsOffsetsWide) {
+  uint32_t maskSz;
+
+  qint_decode3(br, &res->docId, &maskSz, &res->offsetsSz);
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
+  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
 }
