@@ -227,6 +227,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags &= ~Index_StoreTermOffsets;
   }
 
+  if (__argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
+    spec->flags &= ~Index_StoreByteOffsets;
+  }
+
   if (__argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFieldFlags;
   }
@@ -642,6 +646,9 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
   // serialize flags
   if (!(sp->flags & Index_StoreTermOffsets)) {
     __vpushStr(args, ctx, SPEC_NOOFFSETS_STR);
+  }
+  if (!(sp->flags & Index_StoreByteOffsets)) {
+    __vpushStr(args, ctx, SPEC_NOHL_STR);
   }
   if (!(sp->flags & Index_StoreFieldFlags)) {
     __vpushStr(args, ctx, SPEC_NOFIELDS_STR);

@@ -18,6 +18,7 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
 #define SPEC_NOFREQS_STR "NOFREQS"
+#define SPEC_NOHL_STR "NOHL"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
@@ -86,10 +87,14 @@ typedef enum {
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
+  Index_StoreByteOffsets = 0x40,
   Index_DocIdsOnly = 0x00
 } IndexFlags;
 
-#define INDEX_DEFAULT_FLAGS Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags
+#define INDEX_DEFAULT_FLAGS \
+  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
+
+// This mask is only used to determine how to encode the inverted index
 #define INDEX_STORAGE_MASK \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric)
 #define INDEX_CURRENT_VERSION 6
@@ -97,6 +102,9 @@ typedef enum {
 
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
+
+#define Index_SupportsHighlight(spec) \
+  (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
 typedef struct {
   char *name;

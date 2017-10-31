@@ -189,6 +189,11 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     }
   }
 
+  if (req->fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
+    *errStr = "HIGHLIGHT and SUMMARIZE not supported for this index";
+    goto err;
+  }
+
   FieldList_RestrictReturn(&req->fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
