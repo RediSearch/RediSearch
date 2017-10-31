@@ -430,13 +430,15 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
 #define CHECK_FLAGS(ctx, res) return (res->fieldMask & ctx.num)
 
 DECODER(readFreqsFlags) {
-  qint_decode(br, (uint32_t *)res, 3);
+  qint_decode3(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask);
   // qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
   CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFreqOffsetsFlags) {
-  qint_decode(br, (uint32_t *)res, 4);
+  // qint_decode(br, (uint32_t *)res, 4);
+  qint_decode4(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask, &res->offsetsSz);
+
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -493,12 +495,12 @@ DECODER(readFreqs) {
 }
 
 DECODER(readFlags) {
-  qint_decode2(br, &res->docId, &res->fieldMask);
+  qint_decode2(br, &res->docId, (uint32_t *)&res->fieldMask);
   CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFlagsOffsets) {
-  qint_decode3(br, &res->docId, &res->fieldMask, &res->offsetsSz);
+  qint_decode3(br, &res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);

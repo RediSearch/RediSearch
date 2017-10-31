@@ -35,7 +35,7 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
 #define SPEC_MAX_FIELDS 1024
-#define SPEC_MAX_FIELD_ID (t_fieldMask)(1 << 31)
+#define SPEC_MAX_FIELD_ID 128
 
 typedef enum {
   FieldSpec_Sortable = 0x01,
@@ -88,7 +88,8 @@ typedef enum {
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
   Index_StoreByteOffsets = 0x40,
-  Index_DocIdsOnly = 0x00
+  Index_WideSchema = 0x080,
+  Index_DocIdsOnly = 0x00,
 } IndexFlags;
 
 #define INDEX_DEFAULT_FLAGS \
@@ -103,8 +104,10 @@ typedef enum {
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
 
-#define Index_SupportsHighlight(spec) \
-  (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
+#define Index_SupportsHighlight(spec) (((spec)->flags &Index_StoreTermOffsets) &&
+                                       ((spec)->flags &Index_StoreByteOffsets))
+#define FIELD_BIT(id)(((t_fieldMask) 1) << (id - 1));
+
 
 typedef struct {
   char *name;
@@ -137,7 +140,7 @@ FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 char *GetFieldNameByBit(IndexSpec *sp, uint32_t id);
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
-uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
+t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */

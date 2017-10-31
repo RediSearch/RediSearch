@@ -6,7 +6,7 @@
 
 typedef uint32_t t_docId;
 typedef uint32_t t_offset;
-typedef uint32_t t_fieldMask;
+typedef __uint128_t t_fieldMask;
 
 #define RSFieldMask_Contains(mask, n) (((1 << (n - 1)) & mask) != 0)
 
@@ -15,7 +15,7 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
-#define RS_FIELDMASK_ALL 0xFFFFFFFF
+#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector

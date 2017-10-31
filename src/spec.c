@@ -27,7 +27,7 @@ inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t l
   return NULL;
 };
 
-uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
+t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   FieldSpec *sp = IndexSpec_GetField(spec, name, len);
   if (!sp) return 0;
 
@@ -210,6 +210,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
     }
   }
 }
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -262,6 +263,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       *err = "Could not parse field spec";
       goto failure;
     }
+    printf("field Id -- %d\n", id);
 
     if (spec->fields[spec->numFields].type == F_FULLTEXT &&
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
@@ -270,8 +272,9 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
         *err = "Too many TEXT fields in schema, the maximum is 32";
         goto failure;
       }
-      spec->fields[spec->numFields].id = (t_fieldMask)(id & RS_FIELDMASK_ALL);
-      id *= 2;
+
+      spec->fields[spec->numFields].id = ((t_fieldMask)1) << (id - 1);
+      id++;
     }
     if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
       spec->fields[spec->numFields].sortIdx = sortIdx++;
@@ -489,9 +492,19 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   }
 }
 
+int bit(t_fieldMask id) {
+  for (int i = 0; i < sizeof(t_fieldMask) * 8; i++) {
+    if (id >> i == 1) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
-  RedisModule_SaveUnsigned(rdb, f->id);
+
+  RedisModule_SaveUnsigned(rdb, bit(f->id));
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveDouble(rdb, f->weight);
   RedisModule_SaveUnsigned(rdb, f->options);
@@ -501,7 +514,7 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
 void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  f->id = RedisModule_LoadUnsigned(rdb);
+  f->id = 1 << RedisModule_LoadUnsigned(rdb);
   f->type = RedisModule_LoadUnsigned(rdb);
   f->weight = RedisModule_LoadDouble(rdb);
   if (encver >= 4) {

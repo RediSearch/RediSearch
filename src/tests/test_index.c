@@ -718,7 +718,7 @@ int testIndexSpec() {
   ASSERT(s->flags & Index_StoreTermOffsets);
   ASSERT(s->flags & Index_HasCustomStopwords);
 
-  ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
+    ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
   ASSERT(IndexSpec_IsStopWord(s, "world", 5));
   ASSERT(!IndexSpec_IsStopWord(s, "werld", 5));
 
@@ -847,14 +847,16 @@ int testHugeSpec() {
     FAIL("Error parsing spec: %s", err);
   }
   ASSERT(s != NULL);
+
   ASSERT(err == NULL);
-  ASSERT(s->numFields == N)
+  ASSERT(s->numFields == N);
   IndexSpec_Free(s);
 
   // test too big a schema
-  N = 65;
+  N = 300;
   n = 2;
   char *args2[n + N * 3];
+
   fillSchema(args2, N, &n);
 
   err = NULL;
@@ -867,6 +869,7 @@ int testHugeSpec() {
 }
 
 typedef union {
+
   int i;
   float f;
 } u;
