@@ -274,7 +274,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
       // If we need to store field flags and we have over 32 fields, we need to switch to wide
       // schema encoding
-      if (id > SPEC_WIDEFIELD_THRESHOLD && spec->flags & Index_StoreFieldFlags) {
+      if (id == SPEC_WIDEFIELD_THRESHOLD && spec->flags & Index_StoreFieldFlags) {
         spec->flags |= Index_WideSchema;
       }
 
