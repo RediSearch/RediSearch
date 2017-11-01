@@ -210,7 +210,7 @@ typedef struct {
   RSResultType typeMask;
 } RSAggregateResult;
 
-#pragma pack(4)
+#pragma pack(16)
 
 typedef struct RSIndexResult {
 
