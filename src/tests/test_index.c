@@ -718,7 +718,7 @@ int testIndexSpec() {
   ASSERT(s->flags & Index_StoreTermOffsets);
   ASSERT(s->flags & Index_HasCustomStopwords);
 
-    ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
+  ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
   ASSERT(IndexSpec_IsStopWord(s, "world", 5));
   ASSERT(!IndexSpec_IsStopWord(s, "werld", 5));
 
@@ -891,7 +891,7 @@ int testIndexFlags() {
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  // printf("written %d bytes. Offset=%d\n", sz, h.vw->bw.buf->offset);
+  // printf("written %zd bytes. Offset=%zd\n", sz, h.vw->buf.offset);
   ASSERT_EQUAL(16, sz);
   InvertedIndex_Free(w);
 
@@ -900,17 +900,45 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  // printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
+  // printf("Wrote %zd bytes. Offset=%zd\n", sz2, h.vw->buf.offset);
   ASSERT_EQUAL(sz2, sz - Buffer_Offset(&h.vw->buf) - 1);
   InvertedIndex_Free(w);
 
-  flags &= ~Index_StoreFieldFlags;
+  flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
+  w = NewInvertedIndex(flags, 1);
+  ASSERT((w->flags & Index_WideSchema));
+  enc = InvertedIndex_GetEncoder(w->flags);
+  h.fieldMask = 0xffffffffffff;
+
+  ASSERT_EQUAL(22, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  InvertedIndex_Free(w);
+
+  flags |= Index_WideSchema;
+  w = NewInvertedIndex(flags, 1);
+  ASSERT((w->flags & Index_WideSchema));
+  enc = InvertedIndex_GetEncoder(w->flags);
+  h.fieldMask = 0xffffffffffff;
+  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  ASSERT_EQUAL(22, sz);
+  InvertedIndex_Free(w);
+
+  flags &= Index_StoreFreqs;
   w = NewInvertedIndex(flags, 1);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQUAL(4, sz);
+  InvertedIndex_Free(w);
+
+  flags |= Index_StoreFieldFlags | Index_WideSchema;
+  w = NewInvertedIndex(flags, 1);
+  ASSERT((w->flags & Index_WideSchema));
+  ASSERT((w->flags & Index_StoreFieldFlags));
+  enc = InvertedIndex_GetEncoder(w->flags);
+  h.fieldMask = 0xffffffffffff;
+  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  ASSERT_EQUAL(11, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1036,10 +1064,29 @@ int testSortable() {
   return 0;
 }
 
+int testVarint128() {
+
+  __uint128_t x = 127;
+  size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
+  BufferWriter bw = NewBufferWriter(NewBuffer(1));
+  for (int i = 0; i < 16; i++, x |= x << 8) {
+    size_t sz = WriteVarint128(x, &bw);
+    ASSERT_EQUAL(expected[i], sz);
+    BufferWriter_Seek(&bw, 0);
+    BufferReader br = NewBufferReader(bw.buf);
+
+    __uint128_t y = ReadVarint128(&br);
+
+    ASSERT(y == x);
+  }
+  RETURN_TEST_SUCCESS;
+}
 TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
+  TESTFUNC(testVarint128);
+
   TESTFUNC(testPureNot);
   TESTFUNC(testHugeSpec);
 

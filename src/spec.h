@@ -36,6 +36,8 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID 128
+// The threshold after which we move to a special encoding for wide fields
+#define SPEC_WIDEFIELD_THRESHOLD 32
 
 typedef enum {
   FieldSpec_Sortable = 0x01,
@@ -92,22 +94,23 @@ typedef enum {
   Index_DocIdsOnly = 0x00,
 } IndexFlags;
 
-#define INDEX_DEFAULT_FLAGS \
-  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-// This mask is only used to determine how to encode the inverted index
-#define INDEX_STORAGE_MASK \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric)
-#define INDEX_CURRENT_VERSION 6
+#define INDEX_DEFAULT_FLAGS Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
+
+#define INDEX_STORAGE_MASK                                                                  \
+  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
+   Index_WideSchema)
+#define INDEX_CURRENT_VERSION 7
 #define INDEX_MIN_COMPAT_VERSION 2
-
-// Versions below this always store the frequency
-#define INDEX_MIN_NOFREQ_VERSION 6
 
 #define Index_SupportsHighlight(spec) (((spec)->flags &Index_StoreTermOffsets) &&
                                        ((spec)->flags &Index_StoreByteOffsets))
-#define FIELD_BIT(id)(((t_fieldMask) 1) << (id - 1));
 
+// Versions below this encode field ids as the actual value,
+// avove - field ides are encoded as their exponent (bit offset)
+#define INDEX_MIN_WIDESCHEMA_VERSION 7
+
+#define FIELD_BIT(id) (((t_fieldMask)1) << (id - 1));
 
 typedef struct {
   char *name;

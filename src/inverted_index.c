@@ -111,8 +111,14 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
-  size_t sz = 0;
-  sz = qint_encode4(bw, delta, res->freq, res->fieldMask, res->offsetsSz);
+  size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
+}
+
+ENCODER(encodeFullWide) {
+  size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
+  sz += WriteVarint128(res->fieldMask, bw);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -120,6 +126,12 @@ ENCODER(encodeFull) {
 // 2. (Frequency, Field)
 ENCODER(encodeFreqsFields) {
   return qint_encode3(bw, (uint32_t)delta, (uint32_t)res->freq, (uint32_t)res->fieldMask);
+}
+
+ENCODER(encodeFreqsFieldsWide) {
+  size_t sz = qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
+  sz += WriteVarint128(res->fieldMask, bw);
+  return sz;
 }
 
 // 3. Frequencies only
@@ -132,9 +144,22 @@ ENCODER(encodeFieldsOnly) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->fieldMask);
 }
 
+ENCODER(encodeFieldsOnlyWide) {
+  size_t sz = WriteVarint((uint32_t)delta, bw);
+  sz += WriteVarint128(res->fieldMask, bw);
+  return sz;
+}
+
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  return sz;
+}
+
+ENCODER(encodeFieldsOffsetsWide) {
+  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
+  sz += WriteVarint128(res->fieldMask, bw);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -306,14 +331,20 @@ ENCODER(encodeNumeric) {
 
 /* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
-
   switch (flags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
       return encodeFull;
+
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
+      return encodeFullWide;
+
     // 2. (Frequency, Field)
     case Index_StoreFreqs | Index_StoreFieldFlags:
       return encodeFreqsFields;
+
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+      return encodeFreqsFieldsWide;
 
     // 3. Frequencies only
     case Index_StoreFreqs:
@@ -323,9 +354,15 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
     case Index_StoreFieldFlags:
       return encodeFieldsOnly;
 
+    case Index_StoreFieldFlags | Index_WideSchema:
+      return encodeFieldsOnlyWide;
+
     // 5. (field, offset)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
       return encodeFieldsOffsets;
+
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+      return encodeFieldsOffsetsWide;
 
     // 6. (offset)
     case Index_StoreTermOffsets:
@@ -437,9 +474,8 @@ DECODER(readFreqsFlags) {
 
 DECODER(readFreqsFlagsWide) {
   uint32_t maskSz;
-  qint_decode3(br, &res->docId, &res->freq, &maskSz);
-
-  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+  qint_decode(br, (uint32_t *)res, 2);
+  res->fieldMask = ReadVarint128(br);
   CHECK_FLAGS(ctx, res);
 }
 
@@ -456,8 +492,8 @@ DECODER(readFreqOffsetsFlagsWide) {
   // qint_decode(br, (uint32_t *)res, 4);
   uint32_t maskSz;
 
-  qint_decode4(br, &res->docId, &res->freq, (uint32_t *)maskSz, &res->offsetsSz);
-  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+  qint_decode3(br, &res->docId, &res->freq, &res->offsetsSz);
+  res->fieldMask = ReadVarint128(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -519,9 +555,9 @@ DECODER(readFlags) {
 }
 
 DECODER(readFlagsWide) {
-  uint32_t maskSz;
-  qint_decode2(br, &res->docId, &maskSz);
-  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
+  res->docId = ReadVarint(br);
+  res->freq = 1;
+  res->fieldMask = ReadVarint128(br);
   CHECK_FLAGS(ctx, res);
 }
 
@@ -533,11 +569,10 @@ DECODER(readFlagsOffsets) {
 }
 
 DECODER(readFlagsOffsetsWide) {
-  uint32_t maskSz;
 
-  qint_decode3(br, &res->docId, &maskSz, &res->offsetsSz);
+  qint_decode2(br, &res->docId, &res->offsetsSz);
+  res->fieldMask = ReadVarint128(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
-  Buffer_Read(br, (void *)&res->fieldMask, maskSz);
 
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -572,6 +607,9 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
 
       return readFreqOffsetsFlags;
 
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+      return readFreqOffsetsFlagsWide;
+
     // (freqs)
     case Index_StoreFreqs:
       return readFreqs;
@@ -583,6 +621,9 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
     // (fields)
     case Index_StoreFieldFlags:
       return readFlags;
+
+    case Index_StoreFieldFlags | Index_WideSchema:
+      return readFlagsWide;
 
     // ()
     case Index_DocIdsOnly:
@@ -596,9 +637,15 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
     case Index_StoreFreqs | Index_StoreFieldFlags:
       return readFreqsFlags;
 
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+      return readFreqsFlagsWide;
+
     // (fields, offsets)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
       return readFlagsOffsets;
+
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+      return readFlagsOffsetsWide;
 
     case Index_StoreNumeric:
       return readNumeric;

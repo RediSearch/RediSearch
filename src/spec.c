@@ -263,7 +263,6 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       *err = "Could not parse field spec";
       goto failure;
     }
-    printf("field Id -- %d\n", id);
 
     if (spec->fields[spec->numFields].type == F_FULLTEXT &&
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
@@ -271,6 +270,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       if (id > SPEC_MAX_FIELD_ID) {
         *err = "Too many TEXT fields in schema, the maximum is 32";
         goto failure;
+      }
+
+      if (id > SPEC_WIDEFIELD_THRESHOLD) {
+        spec->flags |= Index_WideSchema;
       }
 
       spec->fields[spec->numFields].id = ((t_fieldMask)1) << (id - 1);
@@ -430,7 +433,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
     FieldSpec *fs = IndexSpec_GetField(sp, p, len);
     if (fs != NULL) {
-      LG_DEBUG("Found mask for %s: %u\n", p, fs->id);
+      LG_DEBUG("Found mask for %s: %llx\n", p, (uint64_t)fs->id);
       ret |= (fs->id & RS_FIELDMASK_ALL);
     }
   }
@@ -492,9 +495,10 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   }
 }
 
+// given a field mask with one bit lit, it returns its offset
 int bit(t_fieldMask id) {
   for (int i = 0; i < sizeof(t_fieldMask) * 8; i++) {
-    if (id >> i == 1) {
+    if (((id >> i) & 1) == 1) {
       return i;
     }
   }
@@ -514,7 +518,13 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
 void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  f->id = 1 << RedisModule_LoadUnsigned(rdb);
+  // the old versions encoded the bit id of the field directly
+  if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
+    f->id = RedisModule_LoadUnsigned(rdb);
+  } else {
+    // the new version encodes just the power of 2 of the bit
+    f->id = 1 << RedisModule_LoadUnsigned(rdb);
+  }
   f->type = RedisModule_LoadUnsigned(rdb);
   f->weight = RedisModule_LoadDouble(rdb);
   if (encver >= 4) {
