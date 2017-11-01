@@ -538,13 +538,13 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!q || !q->sctx->spec) {
-      s = sdscatprintf(s, "@%x", qs->fieldMask);
+      s = sdscatprintf(s, "@%llx", (uint64_t)qs->fieldMask);
     } else {
       s = sdscat(s, "@");
-      uint32_t fm = qs->fieldMask;
+      t_fieldMask fm = qs->fieldMask;
       int i = 0, n = 0;
       while (fm) {
-        uint32_t bit = (fm & 1) << i;
+        t_fieldMask bit = (fm & 1) << i;
         if (bit) {
           char *f = GetFieldNameByBit(q->sctx->spec, bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");

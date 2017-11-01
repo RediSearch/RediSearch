@@ -9,9 +9,18 @@
 
 // static int msb = (int)(~0ULL << 25);
 
-typedef uint8_t varintBuf[16];
+typedef uint8_t varintBuf[24];
 
-static size_t varintEncode(uint32_t value, uint8_t *vbuf) {
+static inline size_t varintEncode(uint32_t value, uint8_t *vbuf) {
+  unsigned pos = sizeof(varintBuf) - 1;
+  vbuf[pos] = value & 127;
+  while (value >>= 7) {
+    vbuf[--pos] = 128 | (--value & 127);
+  }
+  return pos;
+}
+
+static size_t varintEncode128(__uint128_t value, uint8_t *vbuf) {
   unsigned pos = sizeof(varintBuf) - 1;
   vbuf[pos] = value & 127;
   while (value >>= 7) {
@@ -21,7 +30,7 @@ static size_t varintEncode(uint32_t value, uint8_t *vbuf) {
 }
 
 #define VARINT_BUF(buf, pos) ((buf) + pos)
-#define VARINT_LEN(pos) (16 - (pos))
+#define VARINT_LEN(pos) (sizeof(varintBuf) - (pos))
 
 size_t WriteVarintRaw(uint32_t value, char *buf) {
   varintBuf varint;
@@ -58,13 +67,21 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   return nw;
 }
 
-size_t varintSize(uint32_t value) {
-  assert(value > 0);
-  size_t outputSize = 0;
-  do {
-    ++outputSize;
-  } while (value >>= 7);
-  return outputSize;
+// return the minimal number of bits needed to represent a 128bit integer
+static inline size_t int128Width(__uint128_t i) {
+  size_t ret = 1;
+
+  while (ret < 16 && (i >> (ret * 8)) != 0) ++ret;
+  return ret;
+}
+
+size_t WriteVarint128(__uint128_t value, BufferWriter *w) {
+  // printf("writing %d bytes\n", 16 - pos);
+
+  varintBuf varint;
+  size_t pos = varintEncode128(value, varint);
+  size_t nw = VARINT_LEN(pos);
+  return Buffer_Write(w, VARINT_BUF(varint, pos), nw);
 }
 
 void VVW_Free(VarintVectorWriter *w) {

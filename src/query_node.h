@@ -90,7 +90,7 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryWildcardNode wc;
   };
-  uint32_t fieldMask;
+  t_fieldMask fieldMask;
   /* The node type, for resolving the union access */
   QueryNodeType type;
 } QueryNode;

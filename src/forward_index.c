@@ -143,7 +143,7 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 }
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
-                                     uint32_t pos, float fieldScore, t_fieldMask fieldId,
+                                     uint32_t pos, float fieldScore, t_fieldId fieldId,
                                      int isStem) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
@@ -178,7 +178,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
-  h->fieldMask |= (fieldId & RS_FIELDMASK_ALL);
+  h->fieldMask |= FIELD_BIT(fieldId);
   float score = (float)fieldScore;
 
   // stem tokens get lower score

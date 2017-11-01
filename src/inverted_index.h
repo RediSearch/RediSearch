@@ -38,7 +38,7 @@ struct indexReadCtx;
  * the entry */
 typedef union {
   void *ptr;
-  uint32_t num;
+  __uint128_t num;
 } IndexDecoderCtx;
 
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first

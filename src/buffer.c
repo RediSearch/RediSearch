@@ -11,18 +11,6 @@ void Buffer_Grow(Buffer *buf, size_t extraLen) {
   buf->data = rm_realloc(buf->data, buf->cap);
 }
 
-size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
-
-  Buffer *buf = bw->buf;
-  if (Buffer_Reserve(buf, len)) {
-    bw->pos = buf->data + buf->offset;
-  }
-  memcpy(bw->pos, data, len);
-  bw->pos += len;
-  buf->offset += len;
-  return len;
-}
-
 /**
 Truncate the buffer to newlen. If newlen is 0 - trunacte capacity
 */

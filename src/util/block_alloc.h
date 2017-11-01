@@ -7,7 +7,7 @@ typedef struct BlkAllocBlock {
   struct BlkAllocBlock *next;
   size_t numUsed;
   size_t capacity;
-  char data[0];
+  char data[0] __attribute__((aligned(16)));;
 } BlkAllocBlock;
 
 typedef struct BlkAlloc {

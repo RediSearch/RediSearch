@@ -37,6 +37,7 @@ static char *rm_strndup(const char *s, size_t n) {
 /* for non redis module targets */
 #define rm_malloc malloc
 #define rm_free free
+#define rm_calloc calloc
 #define rm_realloc realloc
 #define rm_free free
 #define rm_strdup strdup

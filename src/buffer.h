@@ -81,7 +81,6 @@ typedef struct {
 
 } BufferWriter;
 
-size_t Buffer_Write(BufferWriter *b, void *data, size_t len);
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
 // Ensure that at least extraLen new bytes can be added to the buffer.
@@ -94,6 +93,18 @@ static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
   }
   Buffer_Grow(buf, n);
   return 1;
+}
+
+static inline size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
+
+  Buffer *buf = bw->buf;
+  if (Buffer_Reserve(buf, len)) {
+    bw->pos = buf->data + buf->offset;
+  }
+  memcpy(bw->pos, data, len);
+  bw->pos += len;
+  buf->offset += len;
+  return len;
 }
 
 BufferWriter NewBufferWriter(Buffer *b);

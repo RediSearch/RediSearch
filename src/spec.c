@@ -27,11 +27,11 @@ inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t l
   return NULL;
 };
 
-uint32_t IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
+t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   FieldSpec *sp = IndexSpec_GetField(spec, name, len);
   if (!sp) return 0;
 
-  return sp->id;
+  return FIELD_BIT(sp->id);
 }
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
@@ -39,9 +39,9 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
-char *GetFieldNameByBit(IndexSpec *sp, uint32_t id) {
+char *GetFieldNameByBit(IndexSpec *sp, __uint128_t id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (sp->fields[i].id == id) {
+    if (FIELD_BIT(sp->fields[i].id) == id) {
       return sp->fields[i].name;
     }
   }
@@ -210,6 +210,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
     }
   }
 }
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -252,7 +253,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->stopwords = DefaultStopWordList();
   }
 
-  uint64_t id = 1;
+  uint64_t id = 0;
   int sortIdx = 0;
 
   int i = schemaOffset + 1;
@@ -266,12 +267,18 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     if (spec->fields[spec->numFields].type == F_FULLTEXT &&
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
       // make sure we don't have too many indexable fields
-      if (id > SPEC_MAX_FIELD_ID) {
+      if (id == SPEC_MAX_FIELD_ID) {
         *err = "Too many TEXT fields in schema, the maximum is 32";
         goto failure;
       }
-      spec->fields[spec->numFields].id = (t_fieldMask)(id & RS_FIELDMASK_ALL);
-      id *= 2;
+
+      // If we need to store field flags and we have over 32 fields, we need to switch to wide
+      // schema encoding
+      if (id == SPEC_WIDEFIELD_THRESHOLD && spec->flags & Index_StoreFieldFlags) {
+        spec->flags |= Index_WideSchema;
+      }
+
+      spec->fields[spec->numFields].id = id++;
     }
     if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
       spec->fields[spec->numFields].sortIdx = sortIdx++;
@@ -425,11 +432,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
     size_t len;
     const char *p = RedisModule_StringPtrLen(argv[i], &len);
 
-    FieldSpec *fs = IndexSpec_GetField(sp, p, len);
-    if (fs != NULL) {
-      LG_DEBUG("Found mask for %s: %u\n", p, fs->id);
-      ret |= (fs->id & RS_FIELDMASK_ALL);
-    }
+    ret |= IndexSpec_GetFieldBit(sp, p, len);
   }
 
   return ret;
@@ -489,8 +492,19 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   }
 }
 
+// given a field mask with one bit lit, it returns its offset
+int bit(t_fieldMask id) {
+  for (int i = 0; i < sizeof(t_fieldMask) * 8; i++) {
+    if (((id >> i) & 1) == 1) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
+
   RedisModule_SaveUnsigned(rdb, f->id);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveDouble(rdb, f->weight);
@@ -501,7 +515,14 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
 void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  f->id = RedisModule_LoadUnsigned(rdb);
+  // the old versions encoded the bit id of the field directly
+  // we convert that to a power of 2
+  if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
+    f->id = bit(RedisModule_LoadUnsigned(rdb));
+  } else {
+    // the new version encodes just the power of 2 of the bit
+    f->id = RedisModule_LoadUnsigned(rdb);
+  }
   f->type = RedisModule_LoadUnsigned(rdb);
   f->weight = RedisModule_LoadDouble(rdb);
   if (encver >= 4) {
