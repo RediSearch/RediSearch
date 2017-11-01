@@ -17,8 +17,8 @@ CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC
 	-DREDISMODULE_EXPERIMENTAL_API 
 CFLAGS += $(DEBUGFLAGS)
 
-# Compile flags for linux / osx
-ifeq ($(uname_S),Linux)
+# Compile flags for non-osx / osx
+ifneq ($(uname_S),Darwin)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
 	CFLAGS += -mmacosx-version-min=10.6
