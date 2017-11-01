@@ -721,6 +721,8 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
   // if we don't need to move beyond the current block
   if (BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) return 1;
+  // the current block doesn't match and it's the last one - no point in searching
+  if (ir->currentBlock+1 == idx->size) return 0;
 
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
@@ -738,6 +740,7 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
     }
     i = (bottom + top) / 2;
   }
+
   ir->currentBlock = i;
 
 found:
