@@ -6,8 +6,6 @@
 #include <stdint.h>
 #include "buffer.h"
 
-size_t varintSize(uint32_t value);
-
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
 static inline uint32_t ReadVarint(BufferReader *b) {
 
@@ -23,7 +21,23 @@ static inline uint32_t ReadVarint(BufferReader *b) {
   return val;
 }
 
+static inline __uint128_t ReadVarint128(BufferReader *b) {
+
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  __uint128_t val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
 size_t WriteVarint(uint32_t value, BufferWriter *w);
+
+size_t WriteVarint128(__uint128_t value, BufferWriter *w);
 
 typedef struct {
   Buffer buf;
