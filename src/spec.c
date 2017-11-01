@@ -267,7 +267,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     if (spec->fields[spec->numFields].type == F_FULLTEXT &&
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
       // make sure we don't have too many indexable fields
-      if (id > SPEC_MAX_FIELD_ID) {
+      if (id == SPEC_MAX_FIELD_ID) {
         *err = "Too many TEXT fields in schema, the maximum is 32";
         goto failure;
       }

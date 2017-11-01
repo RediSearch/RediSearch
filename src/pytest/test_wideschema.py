@@ -25,13 +25,13 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             for _ in r.retry_with_rdb_reload():
                 for i in range(128):
 
-                    res = self.search(r,'idx', '@field_%d:token_%d' % (i, i))
+                    res = self.search(r,'idx', '@field_%d:token_%d' % (i, i), 'NOCONTENT')
                     self.assertEqual(res[0], N)
 
                     res = r.execute_command('ft.explain','idx', '@field_%d:token_%d' % (i, i)).strip()
                     self.assertEqual('@field_%d:token_%d' % (i, i), res)
 
-                    res = self.search(r,'idx', 'hello @field_%d:token_%d' % (i, i))
+                    res = self.search(r,'idx', 'hello @field_%d:token_%d' % (i, i), 'NOCONTENT')
                     self.assertEqual(res[0], N)
 
                 res = self.search(r, 'idx', ' '.join(('@field_%d:token_%d' % (i, i) for i in range(128))))
