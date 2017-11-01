@@ -464,7 +464,7 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
 
 #define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
 
-#define CHECK_FLAGS(ctx, res) return (res->fieldMask & ctx.num)
+#define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx.num) != 0)
 
 DECODER(readFreqsFlags) {
   qint_decode3(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask);
@@ -828,7 +828,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {.num = (uint32_t)fieldMask};
+  IndexDecoderCtx dctx = {.num = fieldMask};
 
   return NewIndexReaderGeneric(idx, decoder, dctx, record);
 }

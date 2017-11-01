@@ -6,6 +6,9 @@
 
 typedef uint32_t t_docId;
 typedef uint32_t t_offset;
+// used to represent the id of a single field.
+// to produce a field mask we calculate 2^fieldId
+typedef uint16_t t_fieldId;
 typedef __uint128_t t_fieldMask;
 
 #define RSFieldMask_Contains(mask, n) (((1 << (n - 1)) & mask) != 0)

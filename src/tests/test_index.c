@@ -727,7 +727,7 @@ int testIndexSpec() {
   ASSERT(f->type == F_FULLTEXT);
   ASSERT(strcmp(f->name, body) == 0);
   ASSERT(f->weight == 2.0);
-  ASSERT(f->id == 2);
+  ASSERT_EQUAL(FIELD_BIT(f->id), 2);
   ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
@@ -736,7 +736,7 @@ int testIndexSpec() {
   ASSERT(f->type == F_FULLTEXT);
   ASSERT(strcmp(f->name, title) == 0);
   ASSERT(f->weight == 0.1);
-  ASSERT(f->id == 1);
+  ASSERT(FIELD_BIT(f->id) == 1);
   ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
@@ -745,7 +745,7 @@ int testIndexSpec() {
   ASSERT(f->type == F_FULLTEXT);
   ASSERT(strcmp(f->name, foo) == 0);
   ASSERT(f->weight == 1);
-  ASSERT(f->id == 4);
+  ASSERT(FIELD_BIT(f->id) == 4);
   ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 0);
 
@@ -754,7 +754,7 @@ int testIndexSpec() {
   ASSERT(f->type == F_NUMERIC);
   ASSERT(strcmp(f->name, bar) == 0);
   ASSERT(f->weight == 0);
-  ASSERT(f->id == 0);
+  ASSERT(FIELD_BIT(f->id) == 1);
   ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 1);
   ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
@@ -764,7 +764,7 @@ int testIndexSpec() {
   ASSERT(f->type == F_FULLTEXT);
   ASSERT(strcmp(f->name, name) == 0);
   ASSERT(f->weight == 1);
-  ASSERT(f->id == 8);
+  ASSERT(FIELD_BIT(f->id) == 8);
   ASSERT(f->options == FieldSpec_NoStemming);
   ASSERT(f->sortIdx == -1);
 

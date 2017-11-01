@@ -53,7 +53,7 @@ typedef struct fieldSpec {
   char *name;
   FieldType type;
   double weight;
-  t_fieldMask id;
+  t_fieldId id;
   FieldSpecOptions options;
 
   int sortIdx;
@@ -110,7 +110,7 @@ typedef enum {
 // avove - field ides are encoded as their exponent (bit offset)
 #define INDEX_MIN_WIDESCHEMA_VERSION 7
 
-#define FIELD_BIT(id) (((t_fieldMask)1) << (id - 1));
+#define FIELD_BIT(id) (((t_fieldMask)1) << id)
 
 typedef struct {
   char *name;
@@ -140,7 +140,8 @@ extern RedisModuleType *IndexSpecType;
 */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
-char *GetFieldNameByBit(IndexSpec *sp, uint32_t id);
+char *GetFieldNameByBit(IndexSpec *sp, __uint128_t id);
+
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
