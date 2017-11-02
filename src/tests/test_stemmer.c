@@ -27,27 +27,6 @@ typedef struct {
   const char **expectedStems;
 } tokenContext;
 
-int tokenFunc(void *ctx, const Token *t) {
-  // printf("%s %d\n", t.s, t.type);
-
-  tokenContext *tx = ctx;
-  int ret = strncmp(t->tok, tx->expectedTokens[tx->num], t->tokLen);
-  assert(ret == 0);
-  assert(t->pos > 0);
-
-  if (t->stem) {
-    printf("Stem: %.*s, num=%lu, orig=%.*s\n", (int)t->stemLen, t->stem, tx->num, (int)t->tokLen,
-           t->tok);
-    assert(tx->expectedStems[tx->num]);
-    assert(strlen(tx->expectedStems[tx->num]) == t->stemLen);
-    assert(strncmp(tx->expectedStems[tx->num], t->stem, t->stemLen) == 0);
-  } else {
-    assert(tx->expectedStems[tx->num] == NULL);
-  }
-  tx->num++;
-  return 0;
-}
-
 int testTokenize() {
 
   char *txt = strdup("Hello? world... worlds going ? -WAZZ@UP? שלום");
@@ -67,8 +46,30 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, "en");
   ASSERT(s != NULL)
 
-  tokenize(txt, &ctx, tokenFunc, s, 0, DefaultStopWordList(), 0);
-  ASSERT(ctx.num == 7);
+  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0);
+  Token t;
+
+  tokenContext *tx = &ctx;
+  RSTokenizer_StartField(&tk->ctx, txt, strlen(txt), 0);
+  while (tk->Next(&tk->ctx, &t)) {
+    printf("round %d\n", ctx.num);
+    int ret = strncmp(t.tok, tx->expectedTokens[tx->num], t.tokLen);
+    ASSERT(ret == 0);
+    ASSERT(t.pos > 0);
+
+    if (t.stem) {
+      printf("Stem: %.*s, num=%lu, orig=%.*s\n", (int)t.stemLen, t.stem, tx->num, (int)t.tokLen,
+             t.tok);
+      ASSERT(tx->expectedStems[tx->num]);
+      ASSERT(strlen(tx->expectedStems[tx->num]) == t.stemLen);
+      ASSERT(strncmp(tx->expectedStems[tx->num], t.stem, t.stemLen) == 0);
+    } else {
+      ASSERT(tx->expectedStems[tx->num] == NULL);
+    }
+    tx->num++;
+  }
+
+  ASSERT_EQUAL(ctx.num, 7);
 
   free(txt);
 

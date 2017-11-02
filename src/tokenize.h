@@ -35,39 +35,40 @@ typedef struct {
   uint32_t pos;
 } Token;
 
-// A TokenFunc handles tokens in a tokenizer, for example aggregates them
-// or builds the query tree.
-// t - is the normalized token, which may be used for comparisons, processing, etc.
-// tOrig - is the original token in the input text. Used if TOKENIZE_NOMODIFY was
-// requested
-typedef int (*TokenFunc)(void *ctx, const Token *tokInfo);
-
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
 
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
+  void *privdata;
+  char *text;
   char **pos;
-  TokenFunc tokenFunc;
-  void *tokenFuncCtx;
+  size_t len;
   Stemmer *stemmer;
   StopWordList *stopwords;
-  u_int lastOffset;
+  uint32_t lastOffset;
   uint32_t options;
 } TokenizerCtx;
 
-/* The actual tokenizing process runner */
-int _tokenize(TokenizerCtx *ctx);
+void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, StopWordList *stopwords,
+                       uint32_t opts);
 
+void RSTokenizer_StartField(TokenizerCtx *ctx, char *text, size_t len, uint32_t options);
+
+typedef struct rsTokenizer {
+  TokenizerCtx ctx;
+  // read the next token. Return its position or 0 if we can't read anymore
+  uint32_t (*Next)(TokenizerCtx *ctx, Token *tok);
+  void (*Free)(struct rsTokenizer *self);
+} RSTokenizer;
+
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+
+#define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
 #define TOKENIZE_NOMODIFY 0x01
-
-/** The extenral API. Tokenize text, and create tokens with the given score and fieldId.
-TokenFunc is a callback that will be called for each token found
-if doStem is 1, we will add stemming extraction for the text
-*/
-int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
-             StopWordList *stopwords, uint32_t options);
+// don't stem a field
+#define TOKENIZE_NOSTEM 0x02
 
 #endif

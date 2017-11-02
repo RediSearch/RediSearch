@@ -126,17 +126,17 @@ static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
 void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
                                     size_t numTerms) {
-  fragList->doc = doc;
-  fragList->docLen = strlen(doc);
-  bufTokenizerCtx ctx = {.fragList = fragList, .terms = terms, .numTerms = numTerms};
+  // fragList->doc = doc;
+  // fragList->docLen = strlen(doc);
+  // bufTokenizerCtx ctx = {.fragList = fragList, .terms = terms, .numTerms = numTerms};
 
-  tokenize(doc, &ctx, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
-  const Fragment *frags = FragmentList_GetFragments(fragList);
+  // tokenize(doc, &ctx, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
+  // const Fragment *frags = FragmentList_GetFragments(fragList);
 
-  float totalScore = 0;
-  if (fragList->numFrags) {
-    return;
-  }
+  // float totalScore = 0;
+  // if (fragList->numFrags) {
+  //   return;
+  // }
 }
 
 static void addToIov(const char *s, size_t n, Array *b) {

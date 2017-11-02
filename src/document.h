@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
+#include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 
@@ -171,11 +172,11 @@ typedef struct RSAddDocumentCtx {
   // Information about each field in the document. This is read from the spec
   // and cached, so that we can look it up without holding the GIL
   FieldSpec *fspecs;
+  RSTokenizer *tokenizer;
 
   // Scratch space used by per-type field preprocessors (see the source)
   union FieldData *fdatas;
   const char *errorString;  // Error message is placed here if there is an error during processing
-  StopWordList *stopwords;  // Reference to stopword entry
   uint32_t totalTokens;     // Number of tokens, used for offset vector
   uint32_t specFlags;       // Cached index flags
   uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx

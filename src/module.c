@@ -22,7 +22,6 @@
 #include "rmutil/util.h"
 #include "spec.h"
 #include "stopwords.h"
-#include "tokenize.h"
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"

@@ -8,17 +8,23 @@
 #include <strings.h>
 #include <assert.h>
 
-int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
-             StopWordList *stopwords, uint32_t options) {
-  TokenizerCtx tctx;
-  tctx.pos = (char **)&text;
-  tctx.tokenFunc = f;
-  tctx.tokenFuncCtx = ctx;
-  tctx.stemmer = s;
-  tctx.lastOffset = offset;
-  tctx.stopwords = stopwords;
-  tctx.options = options;
-  return _tokenize(&tctx);
+void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, StopWordList *stopwords,
+                       uint32_t opts) {
+  ctx->lastOffset = 0;
+  ctx->options = opts;
+  ctx->pos = NULL;
+  ctx->privdata = privdata;
+  ctx->stemmer = stemmer;
+  ctx->stopwords = stopwords;
+}
+
+void RSTokenizer_StartField(TokenizerCtx *ctx, char *text, size_t len, uint32_t options) {
+  ctx->text = text;
+  ctx->pos = &ctx->text;
+  ctx->options = options;
+  ctx->len = len;
+
+  printf("tokenizer %p text: %p %s\n", ctx, ctx->pos, *ctx->pos);
 }
 
 // Shortest word which can/should actually be stemmed
@@ -61,13 +67,13 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 }
 
 // tokenize the text in the context
-int _tokenize(TokenizerCtx *ctx) {
-  u_int pos = ctx->lastOffset;
-
+uint32_t simpleTokenizer_Next(TokenizerCtx *ctx, Token *t) {
+  printf("tokenizer %p text: %p %s\n", ctx, ctx->pos, *ctx->pos);
   while (*ctx->pos != NULL) {
     // get the next token
     size_t origLen;
     char *tok = toksep(ctx->pos, &origLen);
+    printf("tok: %s\n", tok);
 
     // normalize the token
     size_t normLen = origLen;
@@ -83,8 +89,11 @@ int _tokenize(TokenizerCtx *ctx) {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    // create the token struct
+    ctx->lastOffset++;
 
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    printf("%s %d\n", normalized, ctx->lastOffset);
     // ignore tokens that turn into nothing
     if (normalized == NULL || normLen == 0) {
       continue;
@@ -94,30 +103,38 @@ int _tokenize(TokenizerCtx *ctx) {
     if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
-    // create the token struct
-    ++pos;
-    Token tokInfo = {.tok = normalized,
-                     .tokLen = normLen,
-                     .raw = tok,
-                     .rawLen = origLen,
-                     .pos = pos,
-                     .stem = NULL};
+
+    *t = (Token){.tok = normalized,
+                 .tokLen = normLen,
+                 .raw = tok,
+                 .rawLen = origLen,
+                 .pos = ctx->lastOffset,
+                 .stem = NULL};
 
     // if we support stemming - try to stem the word
-    if (ctx->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
+    if (!(ctx->options & TOKENIZE_NOSTEM) && ctx->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
       const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, normLen, &sl);
       if (stem && strncmp(stem, tok, normLen)) {
-        tokInfo.stem = stem;
-        tokInfo.stemLen = sl;
+        t->stem = stem;
+        t->stemLen = sl;
       }
     }
 
-    // let it be handled - and break on non zero response
-    if (ctx->tokenFunc(ctx->tokenFuncCtx, &tokInfo) != 0) {
-      break;
-    }
+    return ctx->lastOffset;
   }
 
-  return pos;
+  return 0;
+}
+
+void simpleTokenizer_Free(RSTokenizer *self) {
+  free(self);
+}
+
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+  RSTokenizer *t = malloc(sizeof(RSTokenizer));
+  TokenizerCtx_Init(&t->ctx, NULL, stemmer, stopwords, opts);
+  t->Free = simpleTokenizer_Free;
+  t->Next = simpleTokenizer_Next;
+  return t;
 }
