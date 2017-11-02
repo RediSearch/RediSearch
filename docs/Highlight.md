@@ -1,10 +1,8 @@
 # Highlighting API
 
-## Entry Points
-
-It would be good to support multiple highlighter engines, but also allow for
-sane defaults. As such, two entry points will be available. One is a simplified
-syntax, and the other is a more complicated one.
+The highlighting API allows you to have only the relvant (matching)
+portions of document matches returned. This allows users to quickly see how a
+document relates to their query.
 
 ### Command Syntax
 
