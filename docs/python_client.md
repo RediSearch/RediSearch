@@ -14,7 +14,7 @@ The source code can be found at [http://github.com/RedisLabs/redisearch-py](http
 
 ```py
 
-from redisearch import Client, TextField, NumericField
+from redisearch import Client, TextField, NumericField, Query
 
 # Creating a client with a given index name
 client = Client('myIndex')
