@@ -326,14 +326,6 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#entry-points" title="Entry Points" class="md-nav__link">
-    Entry Points
-  </a>
-  
-    <nav class="md-nav">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#command-syntax" title="Command Syntax" class="md-nav__link">
     Command Syntax
   </a>
@@ -359,11 +351,6 @@
   <a href="#field-selection" title="Field Selection" class="md-nav__link">
     Field Selection
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -508,14 +495,6 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#entry-points" title="Entry Points" class="md-nav__link">
-    Entry Points
-  </a>
-  
-    <nav class="md-nav">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#command-syntax" title="Command Syntax" class="md-nav__link">
     Command Syntax
   </a>
@@ -548,11 +527,6 @@
     </nav>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
     </ul>
   
@@ -570,10 +544,9 @@
               
                 
                 <h1 id="highlighting-api">Highlighting API<a class="headerlink" href="#highlighting-api" title="Permanent link">&para;</a></h1>
-<h2 id="entry-points">Entry Points<a class="headerlink" href="#entry-points" title="Permanent link">&para;</a></h2>
-<p>It would be good to support multiple highlighter engines, but also allow for
-sane defaults. As such, two entry points will be available. One is a simplified
-syntax, and the other is a more complicated one.</p>
+<p>The highlighting API allows you to have only the relvant (matching)
+portions of document matches returned. This allows users to quickly see how a
+document relates to their query.</p>
 <h3 id="command-syntax">Command Syntax<a class="headerlink" href="#command-syntax" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
