@@ -18,7 +18,11 @@ so keep it short!
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not allow exact searches)
+* **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not allow exact searches or highlighting).
+  Implies `NOHL`
+
+* **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
+  not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
 
 * **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.
 
