@@ -225,7 +225,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   IndexSpec *spec = NewIndexSpec(name, 0);
 
   if (__argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~Index_StoreTermOffsets;
+    spec->flags &= ~(Index_StoreTermOffsets | Index_StoreByteOffsets);
   }
 
   if (__argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
