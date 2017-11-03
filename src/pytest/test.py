@@ -1378,6 +1378,29 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.cmd('ft.create', 'ix', 'schema', 'txt', 'text', 'num', 'numeric', 'sortable')
         self.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
         self.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
+    
+    def testParallelIndexing(self):
+        # GH Issue 207
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        from threading import Thread
+        self.server.client()
+        ndocs = 100
+
+        def runner(tid):
+            cli = self.server.client()
+            for num in range(ndocs):
+                cli.execute_command('ft.add', 'idx', 'doc{}_{}'.format(tid, num), 1.0,
+                                    'fields', 'txt', 'hello world' * 20)
+        ths = []
+        for tid in range(10):
+            ths.append(Thread(target=runner, args=(tid,)))
+
+        [th.start() for th in ths]
+        [th.join() for th in ths]
+        res = self.cmd('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        self.assertEqual(1000, int(d['num_docs']))
+        
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
