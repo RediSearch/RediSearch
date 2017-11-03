@@ -68,7 +68,12 @@ static size_t countMerged(mergedEntry *ent) {
 
 // Merges all terms in the queue into a single hash table.
 // parentMap is assumed to be a RSAddDocumentCtx*[] of capacity MAX_DOCID_ENTRIES
-static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **parentMap) {
+//
+// This function returns the first aCtx which lacks its own document ID.
+// This wil be used when actually assigning document IDs later on, so that we
+// don't need to seek the document list again for it.
+static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
+                                 RSAddDocumentCtx **parentMap) {
 
   // Counter is to make sure we don't block the CPU if there are many many items
   // in the queue, though in reality the number of iterations is also limited
@@ -80,6 +85,7 @@ static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **pare
   size_t curIdIdx = 0;
 
   RSAddDocumentCtx *cur = aCtx;
+  RSAddDocumentCtx *firstZeroId = NULL;
 
   while (cur && ++counter < 1000 && curIdIdx < MAX_DOCID_ENTRIES) {
 
@@ -112,9 +118,13 @@ static void doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **pare
 
     cur->stateFlags |= ACTX_F_MERGED;
     parentMap[curIdIdx++] = cur;
+    if (firstZeroId == NULL && cur->doc.docId == 0) {
+      firstZeroId = cur;
+    }
 
     cur = cur->next;
   }
+  return firstZeroId;
 }
 
 // Writes all the entries in the hash table to the inverted index.
@@ -301,6 +311,7 @@ static const KHTableProcs mergedHtProcs = {
  */
 static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
+  RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = {NULL};
 
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
@@ -320,7 +331,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   int useHt = 0;
   if (indexer->size > 1 && needsFtIndex) {
     useHt = 1;
-    doMerge(aCtx, &indexer->mergeHt, parentMap);
+    firstZeroId = doMerge(aCtx, &indexer->mergeHt, parentMap);
   }
 
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
@@ -353,16 +364,20 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   /**
    * Document ID assignment:
    * In order to hold the GIL for as short a time as possible, we assign
-   * document IDs in bulk. The assumption is made that all aCtxs which have
-   * the MERGED flag set are either merged from a previous aCtx, and therefore
-   * already have a document ID, or they are merged as the beginning of a new
-   * merge table (mergedEntries) and all lack document IDs.
+   * document IDs in bulk. We begin using the first document ID that is assumed
+   * to be zero.
+   *
+   * When merging multiple document IDs, the merge stage scans through the chain
+   * of proposed documents and selects the first document in the chain missing an
+   * ID - the subsequent documents should also all be missing IDs. If none of
+   * the documents are missing IDs then the firstZeroId document is NULL and
+   * no ID assignment takes place.
    *
    * Assigning IDs in bulk speeds up indexing of smaller documents by about
    * 10% overall.
    */
-  if (!doc->docId) {
-    doAssignIds(aCtx, &ctx);
+  if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
+    doAssignIds(firstZeroId, &ctx);
     if (aCtx->stateFlags & ACTX_F_ERRORED) {
       if (useHt) {
         writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
