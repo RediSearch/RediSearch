@@ -145,9 +145,15 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 }
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
-    A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
-    if (ctx->sctx->spec) {
-        A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
+
+    FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, B.s, B.len);
+    if (fs->type == FIELD_TEXT) {
+        A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
+        if (ctx->sctx->spec) {
+            A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
+        }
+    } else if (fs->type == FIELD_TAG) {
+        A = NewTagNode()
     }
 }
 

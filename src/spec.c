@@ -31,7 +31,7 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
   FieldSpec *sp = IndexSpec_GetField(spec, name, len);
   if (!sp || sp->type != FIELD_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
 
-  return FIELD_BIT(sp->id);
+  return FIELD_BIT(sp);
 }
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
@@ -41,7 +41,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
 
 char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(sp->fields[i].id) == id && sp->fields[i].type == FIELD_FULLTEXT &&
+    if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].type == FIELD_FULLTEXT &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
       return sp->fields[i].name;
     }
@@ -144,7 +144,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
 
     // init default weight and type
     sp->type = FIELD_FULLTEXT;
-    sp->weight = 1.0;
+    sp->textOpts.weight = 1.0;
 
     while (++*offset < argc) {
       if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
@@ -160,7 +160,8 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
         if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
           return 0;
         }
-        sp->weight = d;
+        sp->textOpts.weight = d;
+
       } else {
         break;
       }
@@ -172,12 +173,15 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
 
   } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
     sp->type = FIELD_NUMERIC;
-    sp->weight = 0.0;
     ++*offset;
 
   } else if (!strcasecmp(argv[*offset], GEO_STR)) {  // geo field
     sp->type = FIELD_GEO;
-    sp->weight = 0;
+    ++*offset;
+  } else if (!strcasecmp(argv[*offset], SPEC_TAG_STR)) {  // tag field
+    sp->type = FIELD_TAG;
+    sp->tagOpts.separator = ',';
+    sp->tagOpts.flags = TagField_TrimSpace;
     ++*offset;
   } else {  // not numeric and not text - nothing more supported currently
     return 0;
@@ -186,7 +190,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   while (*offset < argc) {
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
-      if (sp->type == FIELD_GEO) {
+      if (sp->type == FIELD_GEO || sp->type == FIELD_TAG) {
         return 0;
       }
       sp->options |= FieldSpec_Sortable;
@@ -279,7 +283,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
         spec->flags |= Index_WideSchema;
       }
 
-      spec->fields[spec->numFields].id = id++;
+      spec->fields[spec->numFields].textOpts.id = id++;
     }
     if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
       spec->fields[spec->numFields].sortIdx = sortIdx++;
@@ -506,9 +510,9 @@ int bit(t_fieldMask id) {
 void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
 
-  RedisModule_SaveUnsigned(rdb, f->id);
+  RedisModule_SaveUnsigned(rdb, f->type == FIELD_FULLTEXT ? f->textOpts.id : 0);
   RedisModule_SaveUnsigned(rdb, f->type);
-  RedisModule_SaveDouble(rdb, f->weight);
+  RedisModule_SaveDouble(rdb, f->type == FIELD_FULLTEXT ? f->textOpts.weight : 0);
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
 }
@@ -519,13 +523,13 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    f->id = bit(RedisModule_LoadUnsigned(rdb));
+    f->textOpts.id = bit(RedisModule_LoadUnsigned(rdb));
   } else {
     // the new version encodes just the power of 2 of the bit
-    f->id = RedisModule_LoadUnsigned(rdb);
+    f->textOpts.id = RedisModule_LoadUnsigned(rdb);
   }
   f->type = RedisModule_LoadUnsigned(rdb);
-  f->weight = RedisModule_LoadDouble(rdb);
+  f->textOpts.weight = RedisModule_LoadDouble(rdb);
   if (encver >= 4) {
     f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);
@@ -686,9 +690,10 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
       case FIELD_FULLTEXT:
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, SPEC_TEXT_STR);
-        if (sp->fields[i].weight != 1.0) {
+        if (sp->fields[i].textOpts.weight != 1.0) {
           __vpushStr(args, ctx, SPEC_WEIGHT_STR);
-          Vector_Push(args, RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].weight));
+          Vector_Push(args,
+                      RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].textOpts.weight));
         }
         if (FieldSpec_IsNoStem(&sp->fields[i])) {
           __vpushStr(args, ctx, SPEC_NOSTEM_STR);

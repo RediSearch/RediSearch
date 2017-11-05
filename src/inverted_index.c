@@ -599,7 +599,6 @@ DECODER(readDocIdsOnly) {
 }
 
 IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
-  printf("Flags: %d\n", flags);
   switch (flags & INDEX_STORAGE_MASK) {
 
     // (freqs, fields, offset)

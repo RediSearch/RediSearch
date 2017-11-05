@@ -178,7 +178,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
-  h->fieldMask |= FIELD_BIT(fieldId);
+  h->fieldMask |= ((t_fieldMask)1) << fieldId;
   float score = (float)fieldScore;
 
   // stem tokens get lower score

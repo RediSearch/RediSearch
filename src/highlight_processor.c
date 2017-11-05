@@ -25,7 +25,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter;
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->id, &bytesIter) != REDISMODULE_OK) {
+  if (RSByteOffset_Iterate(byteOffsets, fs->textOpts.id, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 

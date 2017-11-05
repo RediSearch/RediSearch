@@ -272,7 +272,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int nn = 1;
     REPLY_KVSTR(nn, "type", SpecTypeNames[sp->fields[i].type]);
     if (sp->fields[i].type == FIELD_FULLTEXT) {
-      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].weight);
+      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].textOpts.weight);
     }
     if (FieldSpec_IsSortable(&sp->fields[i])) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);

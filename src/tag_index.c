@@ -26,7 +26,7 @@ static inline char *mySep(char sep, char **s) {
   return orig;
 }
 
-Vector *TagIndex_Preprocess(TagIndex *idx, DocumentField *data) {
+Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p) return NULL;
@@ -34,7 +34,7 @@ Vector *TagIndex_Preprocess(TagIndex *idx, DocumentField *data) {
   p = strndup(p, sz);
   while (p) {
     // get the next token
-    char *tok = mySep(idx->tokCtx.separator, &p);
+    char *tok = mySep(opts->separator, &p);
     // this means we're at the end
     if (tok == NULL) break;
 
@@ -85,6 +85,10 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
   return NewReadIterator(r);
 }
 
+RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, "tag:%s/%s", sctx->spec->name, field);
+}
+
 TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   RedisModuleKey *key_s = NULL;
@@ -130,6 +134,7 @@ void TagIndex_Free(void *p) {
 }
 
 size_t TagIndex_MemUsage(const void *value) {
+  return 0;
 }
 
 int TagIndex_RegisterType(RedisModuleCtx *ctx) {

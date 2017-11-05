@@ -14,6 +14,7 @@
 #include "search_request.h"
 #include "rmalloc.h"
 #include "indexer.h"
+#include "tag_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -255,11 +256,13 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->id, aCtx->totalTokens + 1);
+      curOffsetField =
+          RSByteOffsets_AddField(aCtx->byteOffsets, fs->textOpts.id, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
-    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->id, fs->weight);
+    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.id,
+                                  fs->textOpts.weight);
     size_t newTokPos =
         tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
 
@@ -317,6 +320,29 @@ FIELD_INDEXER(geoIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(tagPreprocessor) {
+
+  fdata->tags = TagIndex_Preprocess(&fs->tagOpts, field);
+  if (fdata->tags == NULL) {
+    *errorString = "Could not index tag field";
+    return -1;
+  }
+  return 0;
+}
+
+FIELD_INDEXER(tagIndexer) {
+  RedisModuleKey *idxKey;
+  TagIndex *ti = TagIndex_Open(ctx->redisCtx, TagIndex_FormatName(ctx, fs->name), 1, &idxKey);
+  if (!ti) {
+    *errorString = "Could not open tag index for indexing";
+    return -1;
+  }
+
+  TagIndex_Index(ti, fdata->tags, aCtx->doc.docId);
+  RedisModule_CloseKey(idxKey);
+  return 0;
+}
+
 PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
   switch (ft) {
     case FIELD_FULLTEXT:
@@ -325,6 +351,8 @@ PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
       return numericPreprocessor;
     case FIELD_GEO:
       return geoPreprocessor;
+    case FIELD_TAG:
+      return tagPreprocessor;
     default:
       return NULL;
   }
@@ -336,6 +364,8 @@ IndexerFunc GetIndexIndexer(const FieldType ft) {
       return numericIndexer;
     case FIELD_GEO:
       return geoIndexer;
+    case FIELD_TAG:
+      return tagIndexer;
     case FIELD_FULLTEXT:
     default:
       return NULL;
