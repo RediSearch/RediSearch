@@ -29,7 +29,7 @@ inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t l
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   FieldSpec *sp = IndexSpec_GetField(spec, name, len);
-  if (!sp || sp->type != F_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
+  if (!sp || sp->type != FIELD_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
 
   return FIELD_BIT(sp->id);
 }
@@ -41,7 +41,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
 
 char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(sp->fields[i].id) == id && sp->fields[i].type == F_FULLTEXT &&
+    if (FIELD_BIT(sp->fields[i].id) == id && sp->fields[i].type == FIELD_FULLTEXT &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
       return sp->fields[i].name;
     }

@@ -57,7 +57,7 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
       }
-      if (fs->type == F_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+      if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
         numIndexable++;
       }
       // mark non text fields in the state flags

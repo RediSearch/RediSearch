@@ -113,7 +113,7 @@ TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, in
   return ret;
 }
 
-extern RedisModuleType *TagIndexType;
+RedisModuleType *TagIndexType;
 
 void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   return NULL;
@@ -132,7 +132,7 @@ void TagIndex_Free(void *p) {
 size_t TagIndex_MemUsage(const void *value) {
 }
 
-int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
+int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TagIndex_RdbLoad,
                                .rdb_save = TagIndex_RdbSave,
@@ -147,5 +147,4 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
-}
 }
