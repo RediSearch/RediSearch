@@ -14,7 +14,7 @@
 Creates an index with the given spec. The index name will be used in all the key names
 so keep it short!
 
-!! warning "Note on field number limits"
+!!! warning "Note on field number limits"
         
         RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
 
