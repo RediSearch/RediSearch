@@ -17,7 +17,7 @@ typedef __uint128_t t_fieldMask;
 #else
 /* 32 bit architectures use 64 bits and 64 fields only */
 typedef uint64_t t_fieldMask;
-#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF;
+#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 
 struct RSSortingVector;
