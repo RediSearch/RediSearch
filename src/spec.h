@@ -35,7 +35,7 @@ static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] 
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
 #define SPEC_MAX_FIELDS 1024
-#define SPEC_MAX_FIELD_ID 128
+#define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
@@ -141,7 +141,7 @@ extern RedisModuleType *IndexSpecType;
 */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
-char *GetFieldNameByBit(IndexSpec *sp, __uint128_t id);
+char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */

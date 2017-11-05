@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include "buffer.h"
+#include "redisearch.h"
 
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
 static inline uint32_t ReadVarint(BufferReader *b) {
@@ -21,11 +22,11 @@ static inline uint32_t ReadVarint(BufferReader *b) {
   return val;
 }
 
-static inline __uint128_t ReadVarint128(BufferReader *b) {
+static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
 
   unsigned char c = BUFFER_READ_BYTE(b);
 
-  __uint128_t val = c & 127;
+  t_fieldMask val = c & 127;
   while (c >> 7) {
     ++val;
     c = BUFFER_READ_BYTE(b);
@@ -37,7 +38,7 @@ static inline __uint128_t ReadVarint128(BufferReader *b) {
 
 size_t WriteVarint(uint32_t value, BufferWriter *w);
 
-size_t WriteVarint128(__uint128_t value, BufferWriter *w);
+size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
 
 typedef struct {
   Buffer buf;

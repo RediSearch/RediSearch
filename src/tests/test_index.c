@@ -864,7 +864,7 @@ int testHugeSpec() {
   s = IndexSpec_Parse("idx", (const char **)args2, n, &err);
   ASSERT(s == NULL);
   ASSERT(err != NULL);
-  ASSERT_STRING_EQ("Too many TEXT fields in schema, the maximum is 32", err);
+  ASSERT_STRING_EQ("Too many TEXT fields in schema", err);
   return 0;
 }
 
@@ -1064,18 +1064,18 @@ int testSortable() {
   return 0;
 }
 
-int testVarint128() {
+int testVarintFieldMask() {
 
-  __uint128_t x = 127;
+  t_fieldMask x = 127;
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
   BufferWriter bw = NewBufferWriter(NewBuffer(1));
   for (int i = 0; i < 16; i++, x |= x << 8) {
-    size_t sz = WriteVarint128(x, &bw);
+    size_t sz = WriteVarintFieldMask(x, &bw);
     ASSERT_EQUAL(expected[i], sz);
     BufferWriter_Seek(&bw, 0);
     BufferReader br = NewBufferReader(bw.buf);
 
-    __uint128_t y = ReadVarint128(&br);
+    t_fieldMask y = ReadVarintFieldMask(&br);
 
     ASSERT(y == x);
   }
@@ -1085,7 +1085,7 @@ TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
-  TESTFUNC(testVarint128);
+  TESTFUNC(testVarintFieldMask);
 
   TESTFUNC(testPureNot);
   TESTFUNC(testHugeSpec);

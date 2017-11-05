@@ -9,16 +9,21 @@ typedef uint32_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
-typedef __uint128_t t_fieldMask;
 
-#define RSFieldMask_Contains(mask, n) (((1 << (n - 1)) & mask) != 0)
+#ifdef __x86_64__
+/* 64 bit architectures use 128 bit field masks and up to 128 fields */
+typedef __uint128_t t_fieldMask;
+#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
+#else
+/* 32 bit architectures use 64 bits and 64 fields only */
+typedef uint64_t t_fieldMask;
+#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF;
+#endif
 
 struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
-
-#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector

@@ -20,7 +20,7 @@ static inline size_t varintEncode(uint32_t value, uint8_t *vbuf) {
   return pos;
 }
 
-static size_t varintEncode128(__uint128_t value, uint8_t *vbuf) {
+static size_t varintEncodeFieldMask(t_fieldMask value, uint8_t *vbuf) {
   unsigned pos = sizeof(varintBuf) - 1;
   vbuf[pos] = value & 127;
   while (value >>= 7) {
@@ -67,19 +67,11 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   return nw;
 }
 
-// return the minimal number of bits needed to represent a 128bit integer
-static inline size_t int128Width(__uint128_t i) {
-  size_t ret = 1;
-
-  while (ret < 16 && (i >> (ret * 8)) != 0) ++ret;
-  return ret;
-}
-
-size_t WriteVarint128(__uint128_t value, BufferWriter *w) {
+size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w) {
   // printf("writing %d bytes\n", 16 - pos);
 
   varintBuf varint;
-  size_t pos = varintEncode128(value, varint);
+  size_t pos = varintEncodeFieldMask(value, varint);
   size_t nw = VARINT_LEN(pos);
   return Buffer_Write(w, VARINT_BUF(varint, pos), nw);
 }

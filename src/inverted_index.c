@@ -118,7 +118,7 @@ ENCODER(encodeFull) {
 
 ENCODER(encodeFullWide) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
-  sz += WriteVarint128(res->fieldMask, bw);
+  sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -130,7 +130,7 @@ ENCODER(encodeFreqsFields) {
 
 ENCODER(encodeFreqsFieldsWide) {
   size_t sz = qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
-  sz += WriteVarint128(res->fieldMask, bw);
+  sz += WriteVarintFieldMask(res->fieldMask, bw);
   return sz;
 }
 
@@ -146,7 +146,7 @@ ENCODER(encodeFieldsOnly) {
 
 ENCODER(encodeFieldsOnlyWide) {
   size_t sz = WriteVarint((uint32_t)delta, bw);
-  sz += WriteVarint128(res->fieldMask, bw);
+  sz += WriteVarintFieldMask(res->fieldMask, bw);
   return sz;
 }
 
@@ -159,7 +159,7 @@ ENCODER(encodeFieldsOffsets) {
 
 ENCODER(encodeFieldsOffsetsWide) {
   size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
-  sz += WriteVarint128(res->fieldMask, bw);
+  sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -475,7 +475,7 @@ DECODER(readFreqsFlags) {
 DECODER(readFreqsFlagsWide) {
   uint32_t maskSz;
   qint_decode(br, (uint32_t *)res, 2);
-  res->fieldMask = ReadVarint128(br);
+  res->fieldMask = ReadVarintFieldMask(br);
   CHECK_FLAGS(ctx, res);
 }
 
@@ -493,7 +493,7 @@ DECODER(readFreqOffsetsFlagsWide) {
   uint32_t maskSz;
 
   qint_decode3(br, &res->docId, &res->freq, &res->offsetsSz);
-  res->fieldMask = ReadVarint128(br);
+  res->fieldMask = ReadVarintFieldMask(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -557,7 +557,7 @@ DECODER(readFlags) {
 DECODER(readFlagsWide) {
   res->docId = ReadVarint(br);
   res->freq = 1;
-  res->fieldMask = ReadVarint128(br);
+  res->fieldMask = ReadVarintFieldMask(br);
   CHECK_FLAGS(ctx, res);
 }
 
@@ -571,7 +571,7 @@ DECODER(readFlagsOffsets) {
 DECODER(readFlagsOffsetsWide) {
 
   qint_decode2(br, &res->docId, &res->offsetsSz);
-  res->fieldMask = ReadVarint128(br);
+  res->fieldMask = ReadVarintFieldMask(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
 
   Buffer_Skip(br, res->offsetsSz);
@@ -722,7 +722,7 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   // if we don't need to move beyond the current block
   if (BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) return 1;
   // the current block doesn't match and it's the last one - no point in searching
-  if (ir->currentBlock+1 == idx->size) return 0;
+  if (ir->currentBlock + 1 == idx->size) return 0;
 
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;

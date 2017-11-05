@@ -39,7 +39,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
-char *GetFieldNameByBit(IndexSpec *sp, __uint128_t id) {
+char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(sp->fields[i].id) == id && sp->fields[i].type == F_FULLTEXT &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
@@ -269,7 +269,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
         FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
       // make sure we don't have too many indexable fields
       if (id == SPEC_MAX_FIELD_ID) {
-        *err = "Too many TEXT fields in schema, the maximum is 32";
+        *err = "Too many TEXT fields in schema";
         goto failure;
       }
 
