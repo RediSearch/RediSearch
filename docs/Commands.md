@@ -14,6 +14,17 @@
 Creates an index with the given spec. The index name will be used in all the key names
 so keep it short!
 
+!! warning "Note on field number limits"
+        
+        RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
+
+        On 32 bit builds, at most 64 fields can be TEXT fields.
+
+        Notice that the more fields you have, the larger your index will be, as each additional 8 fiedls require one extra byte per index record to encode.
+
+        You can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
+        
+
 ### Parameters:
 
 * **index**: the index name to create. If it exists the old spec will be overwritten

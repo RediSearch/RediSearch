@@ -7,7 +7,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [0.90.0](https://github.com/RedisLabsModules/RediSearch/releases)
+### Latest Release: [0.90.1](https://github.com/RedisLabsModules/RediSearch/releases)
 
 # Overview
 
