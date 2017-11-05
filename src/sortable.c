@@ -97,6 +97,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
   }
 }
 RSSortableValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k) {
+  if (!v || !k) return NULL;
   if (k->index >= 0 && k->index < v->len) {
     return &v->values[k->index];
   }
