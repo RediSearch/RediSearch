@@ -962,8 +962,9 @@ int testDocTable() {
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
+#ifdef __x86_64__
   ASSERT_EQUAL(7580, (int)dt.memsize);
-
+#endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
 
@@ -1069,7 +1070,7 @@ int testVarintFieldMask() {
   t_fieldMask x = 127;
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
   BufferWriter bw = NewBufferWriter(NewBuffer(1));
-  for (int i = 0; i < 16; i++, x |= x << 8) {
+  for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
     ASSERT_EQUAL(expected[i], sz);
     BufferWriter_Seek(&bw, 0);
