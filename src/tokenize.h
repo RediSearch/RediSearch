@@ -10,13 +10,18 @@
 #include <stdlib.h>
 #include <strings.h>
 
+typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
+
 /* Represents a token found in a document */
 typedef struct {
   // Normalized string
   const char *tok;
 
   // token string length
-  size_t tokLen;
+  uint32_t tokLen;
+
+  // Token needs to be copied. Don't rely on `raw` pointer.
+  uint32_t flags;
 
   // Stem. May be NULL
   const char *stem;

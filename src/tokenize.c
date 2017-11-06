@@ -110,7 +110,8 @@ uint32_t simpleTokenizer_Next(TokenizerCtx *ctx, Token *t) {
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ctx->lastOffset,
-                 .stem = NULL};
+                 .stem = NULL,
+                 .flags = Token_CopyStem};
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && ctx->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
