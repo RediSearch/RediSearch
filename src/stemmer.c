@@ -7,7 +7,7 @@
 const char *__supportedLanguages[] = {"arabic",     "danish",   "dutch",     "english", "finnish",
                                       "french",     "german",   "hungarian", "italian", "norwegian",
                                       "portuguese", "romanian", "russian",   "spanish", "swedish",
-                                      "tamil",      "turkish",  NULL};
+                                      "tamil",      "turkish",  "chinese",   NULL};
 
 int IsSupportedLanguage(const char *language, size_t len) {
   for (int i = 0; __supportedLanguages[i] != NULL; i++) {

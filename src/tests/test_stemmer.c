@@ -50,7 +50,7 @@ int testTokenize() {
   Token t;
 
   tokenContext *tx = &ctx;
-  RSTokenizer_StartField(&tk->ctx, txt, strlen(txt), 0);
+  tk->Start(tk, txt, strlen(txt), 0);
   while (tk->Next(&tk->ctx, &t)) {
     printf("round %d\n", ctx.num);
     int ret = strncmp(t.tok, tx->expectedTokens[tx->num], t.tokLen);

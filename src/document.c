@@ -115,7 +115,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
-  aCtx->tokenizer = NewSimpleTokenizer(aCtx->fwIdx->stemmer, sp->stopwords, 0);
+  if (!strcasecmp(b->language, "CHINESE")) {
+    aCtx->tokenizer = NewChineseTokenizer(aCtx->fwIdx->stemmer, sp->stopwords, 0);
+  } else {
+    aCtx->tokenizer = NewSimpleTokenizer(aCtx->fwIdx->stemmer, sp->stopwords, 0);
+  }
 
   StopWordList_Ref(sp->stopwords);
 
