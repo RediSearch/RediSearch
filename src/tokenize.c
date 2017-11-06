@@ -18,7 +18,8 @@ void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, Stop
   ctx->stopwords = stopwords;
 }
 
-void RSTokenizer_StartField(TokenizerCtx *ctx, char *text, size_t len, uint32_t options) {
+static void simpleTokenizer_Start(RSTokenizer *self, char *text, size_t len, uint32_t options) {
+  TokenizerCtx *ctx = &self->ctx;
   ctx->text = text;
   ctx->pos = &ctx->text;
   ctx->options = options;
@@ -136,5 +137,6 @@ RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint3
   TokenizerCtx_Init(&t->ctx, NULL, stemmer, stopwords, opts);
   t->Free = simpleTokenizer_Free;
   t->Next = simpleTokenizer_Next;
+  t->Start = simpleTokenizer_Start;
   return t;
 }

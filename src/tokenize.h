@@ -54,13 +54,12 @@ typedef struct {
 void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, StopWordList *stopwords,
                        uint32_t opts);
 
-void RSTokenizer_StartField(TokenizerCtx *ctx, char *text, size_t len, uint32_t options);
-
 typedef struct rsTokenizer {
   TokenizerCtx ctx;
   // read the next token. Return its position or 0 if we can't read anymore
   uint32_t (*Next)(TokenizerCtx *ctx, Token *tok);
   void (*Free)(struct rsTokenizer *self);
+  void (*Start)(struct rsTokenizer *self, char *txt, size_t len, uint32_t options);
 } RSTokenizer;
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);

@@ -261,8 +261,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
     ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.id,
                                   fs->textOpts.weight);
-
-    RSTokenizer_StartField(&aCtx->tokenizer->ctx, (char *)c, fl,
+    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl,
                            FieldSpec_IsNoStem(fs) ? TOKENIZE_NOSTEM : TOKENIZE_DEFAULT_OPTIONS);
     Token tok;
     uint32_t newTokPos;
