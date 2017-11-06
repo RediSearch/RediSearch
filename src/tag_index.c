@@ -34,7 +34,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
   p = strndup(p, sz);
   while (p) {
     // get the next token
-    char *tok = mySep(opts->separator, &p);
+    char *tok = mySep(',', &p);
     // this means we're at the end
     if (tok == NULL) break;
 
@@ -65,6 +65,7 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
   for (size_t i = 0; i < Vector_Size(values); i++) {
     Vector_Get(values, i, &tok);
     if (tok && *tok != '\0') {
+      printf("Indexing token %s\n", tok);
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
     }
   }
@@ -75,6 +76,7 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len) {
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv) {
+    printf("Term %s not found\n", value);
     return NULL;
   }
 
@@ -114,6 +116,7 @@ TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, in
   } else {
     ret = RedisModule_ModuleTypeGetValue(*keyp);
   }
+
   return ret;
 }
 

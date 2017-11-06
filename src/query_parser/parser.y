@@ -1,4 +1,6 @@
 %left TILDE.
+%left TAGLIST.
+
 %left TERM. 
 %left QUOTE.
 %left COLON.
@@ -6,6 +8,7 @@
 %left NUMBER.
 %left MODIFIER.
 %left STOPWORD.
+
 %left TERMLIST.
 %right LP.
 %left RP.
@@ -37,9 +40,20 @@
 
 char *strdupcase(const char *s, size_t len) {
   char *ret = strndup(s, len);
-  for (int i = 0; i < len; i++) {
-    ret[i] = tolower(ret[i]);
+  char *dst = ret;
+  char *src = dst;
+  while (*src) {
+      if (*src == '\\') {
+          ++src;
+          continue;
+      }
+      *dst = tolower(*src);
+      ++dst;
+      ++src;
+
   }
+  *dst = '\0';
+  
   return ret;
 }
    
@@ -57,6 +71,9 @@ char *strdupcase(const char *s, size_t len) {
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
+
+%type tag_list { QueryNode *}
+%destructor tag_list { QueryNode_Free($$); }
 
 %type geo_filter { GeoFilter *}
 %destructor geo_filter { GeoFilter_Free($$); }
@@ -146,14 +163,10 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
 
-    FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, B.s, B.len);
-    if (fs->type == FIELD_TEXT) {
-        A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
-        if (ctx->sctx->spec) {
-            A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
-        }
-    } else if (fs->type == FIELD_TAG) {
-        A = NewTagNode()
+
+    A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
+    if (ctx->sctx->spec) {
+        A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
     }
 }
 
@@ -242,6 +255,43 @@ modifierlist(A) ::= modifier(B) OR term(C). {
 modifierlist(A) ::= modifierlist(B) OR term(C). {
     char *s = strndup(C.s, C.len);
     Vector_Push(B, s);
+    A = B;
+}
+
+expr(A) ::= modifier(B) COLON tag_list(C) . {
+    if (!C) {
+        A= NULL;
+    } else {
+        A = NewTagNode(strndup(B.s, B.len), B.len);
+        QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
+        C->pn.numChildren = 0;
+        QueryNode_Free(C);
+    }
+}
+
+tag_list(A) ::= LB term(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), B.len));
+}
+
+tag_list(A) ::= LB termlist(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(A, B);
+}
+
+tag_list(A) ::= tag_list(B) COMMA term(C) . [TAGLIST] {
+    printf("Tag list comma %.*s\n", C.len, C.s);
+    QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), C.len));
+    A = B;
+}
+tag_list(A) ::= tag_list(B) COMMA termlist(C) . [TAGLIST] {
+    printf("Tag list comma list\n");
+    QueryPhraseNode_AddChild(B, C);
+    A = B;
+}
+
+
+tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
     A = B;
 }
 

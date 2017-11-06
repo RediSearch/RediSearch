@@ -81,6 +81,7 @@ QueryNode *NewNumericNode(NumericFilter *flt);
 QueryNode *NewIdFilterNode(IdFilter *flt);
 QueryNode *NewWildcardNode();
 QueryNode *NewGeofilterNode(GeoFilter *flt);
+QueryNode *NewTagNode(const char *tag, size_t len);
 
 void Query_SetNumericFilter(QueryParseCtx *q, NumericFilter *nf);
 void Query_SetGeoFilter(QueryParseCtx *q, GeoFilter *gf);
