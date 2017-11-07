@@ -28,11 +28,13 @@ typedef struct ForwardIndexEntry {
 typedef struct ForwardIndex {
   KHTable *hits;
   uint32_t maxFreq;
+  uint32_t totalFreq;
   uint32_t idxFlags;
   Stemmer *stemmer;
   BlkAlloc terms;
   BlkAlloc entries;
   mempool_t *vvwPool;
+
 } ForwardIndex;
 
 typedef struct {

@@ -5,19 +5,19 @@
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
 
-double _tfidfRecursive(RSIndexResult *r) {
+double _tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 
   if (r->type == RSResultType_Term) {
-    return r->freq * (r->term.term ? r->term.term->idf : 0);
+    return ((double)r->freq / (double)dmd->len) * (r->term.term ? r->term.term->idf : 0);
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     double ret = 0;
     for (int i = 0; i < r->agg.numChildren; i++) {
-      ret += _tfidfRecursive(r->agg.children[i]);
+      ret += _tfidfRecursive(r->agg.children[i], dmd);
     }
     return ret;
   }
-  return r->freq;
+  return (double)r->freq / (double)dmd->len;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
@@ -25,10 +25,10 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
   // printf("score for %d: %f\n", h->docId, dmd->score);
   if (dmd->score == 0) return 0;
 
-  double tfidf = _tfidfRecursive(h);
+  double tfidf = _tfidfRecursive(h, dmd);
   // printf("tfidf: for %d: %f\n", h->docId, tfidf);
 
-  tfidf *= dmd->score / (double)dmd->maxFreq;
+  // tfidf *= dmd->score / (double)dmd->;
 
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
