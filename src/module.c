@@ -136,7 +136,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   Document doc;
   Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
   if (!Document_CanAdd(&doc, sp, replace)) {
-    RedisModule_ReplyWithError(ctx, "Couldn't save document");
+    RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
   }
   if (!nosave) {
