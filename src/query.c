@@ -114,6 +114,10 @@ QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RST
 }
 
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
+  if (len == (size_t)-1) {
+    len = strlen(s);
+  }
+
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 

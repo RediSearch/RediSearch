@@ -35,10 +35,8 @@ rsqb = ']';
 comma = ',';
 lsqb = '[';
 escape = '\\';
-escaped_character = escape (["/bfnrt\ ] | escape);
-unescaped_space = [^\\] ' ';
+escaped_character = escape (punct | space | escape);
 mod = '@'.alpha.(alnum | '_')* $ 1;
-#//((any - (‘“‘ | escape)) | escaped_character)*
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
 
 main := |*

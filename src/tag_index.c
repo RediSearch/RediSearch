@@ -65,7 +65,7 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
   for (size_t i = 0; i < Vector_Size(values); i++) {
     Vector_Get(values, i, &tok);
     if (tok && *tok != '\0') {
-      printf("Indexing token %s\n", tok);
+      // printf("Indexing token '%s'\n", tok);
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
     }
   }
@@ -74,9 +74,10 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
 }
 
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len) {
+
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv) {
-    printf("Term %s not found\n", value);
+    printf("Term '%.*s' not found, iv %p\n", (int)len, value, iv);
     return NULL;
   }
 
