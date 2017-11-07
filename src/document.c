@@ -447,3 +447,10 @@ done:
   }
   AddDocumentCtx_Free(aCtx);
 }
+
+int Document_CanAdd(Document *doc, IndexSpec *sp, int replace) {
+  if (!replace && DocTable_GetId(&sp->docs, RedisModule_StringPtrLen(doc->docKey, NULL)) != 0) {
+    return 0;
+  }
+  return 1;
+}

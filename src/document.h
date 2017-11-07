@@ -78,6 +78,8 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
                             RedisModuleString **argv, size_t fieldsOffset, size_t argc,
                             const char *language, RedisModuleString *payload, RedisModuleCtx *ctx);
 
+int Document_CanAdd(Document *doc, IndexSpec *sp, int replace);
+
 /**
  * Copy any data from the document into its own independent copies. srcCtx is
  * the context owning any RedisModuleString items - which are assigned using

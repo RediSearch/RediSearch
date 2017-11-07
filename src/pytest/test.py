@@ -1400,6 +1400,24 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         res = self.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         self.assertEqual(1000, int(d['num_docs']))
+
+    def testDoubleAdd(self):
+        # Tests issue #210
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'hello world')
+        with self.assertResponseError():
+            self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'goodbye world')
+
+        self.assertEqual('hello world', self.cmd('ft.get', 'idx', 'doc1')[1])
+        self.assertEqual(0, self.cmd('ft.search', 'idx', 'goodbye')[0])
+        self.assertEqual(1, self.cmd('ft.search', 'idx', 'hello')[0])
+
+        # Now with replace
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'replace', 'fields', 'txt', 'goodbye world')
+        self.assertEqual(1, self.cmd('ft.search', 'idx', 'goodbye')[0])
+        self.assertEqual(0, self.cmd('ft.search', 'idx', 'hello')[0])
+        self.assertEqual('goodbye world', self.cmd('ft.get', 'idx', 'doc1')[1])
+
         
 
 def grouper(iterable, n, fillvalue=None):
