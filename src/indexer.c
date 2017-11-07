@@ -332,6 +332,11 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   if (indexer->size > 1 && needsFtIndex) {
     useHt = 1;
     firstZeroId = doMerge(aCtx, &indexer->mergeHt, parentMap);
+    if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
+      // Don't treat an errored ctx as being the head of a new ID chain. It's
+      // likely that subsequent entries do indeed have IDs.
+      firstZeroId = NULL;
+    }
   }
 
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
