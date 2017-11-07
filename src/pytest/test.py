@@ -1417,7 +1417,36 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(1, self.cmd('ft.search', 'idx', 'goodbye')[0])
         self.assertEqual(0, self.cmd('ft.search', 'idx', 'hello')[0])
         self.assertEqual('goodbye world', self.cmd('ft.get', 'idx', 'doc1')[1])
+    
+    def testConcurrentErrors(self):
+        from multiprocessing import Process
+        import random
 
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        docs_per_thread = 100
+        num_threads = 50
+
+        docIds = ['doc{}'.format(x) for x in range(docs_per_thread)]
+
+        def thrfn():
+            myIds = docIds[::]
+            random.shuffle(myIds)
+            cli = self.server.client()
+            with cli.pipeline(transaction=False) as pl:
+                for x in myIds:
+                    pl.execute_command('ft.add', 'idx', x, 1.0, 'fields', 'txt', ' hello world ' * 50)
+                try:
+                    pl.execute()
+                except Exception as e:
+                    pass
+                    # print e
+        
+        thrs = [Process(target=thrfn) for x in range(num_threads)]
+        [th.start() for th in thrs]
+        [th.join() for th in thrs]
+        res = self.cmd('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        self.assertEqual(100, int(d['num_docs']))
         
 
 def grouper(iterable, n, fillvalue=None):
