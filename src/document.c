@@ -268,15 +268,17 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl,
                            FieldSpec_IsNoStem(fs) ? TOKENIZE_NOSTEM : TOKENIZE_DEFAULT_OPTIONS);
     Token tok;
+    uint32_t lastTokPos = 0;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(&aCtx->tokenizer->ctx, &tok))) {
       forwardIndexTokenFunc(&tokCtx, &tok);
+      lastTokPos = newTokPos;
     }
 
     if (curOffsetField) {
-      curOffsetField->lastTokPos = newTokPos;
+      curOffsetField->lastTokPos = lastTokPos;
     }
-    aCtx->totalTokens = newTokPos;
+    aCtx->totalTokens = lastTokPos;
   }
   return 0;
 }
