@@ -5,7 +5,10 @@
 static friso_config_t config_g;
 static friso_t friso_g;
 
-typedef struct { friso_task_t fTask; } CnTokenizer;
+typedef struct {
+  RSTokenizer base;
+  friso_task_t fTask;
+} cnTokenizer;
 
 // TODO: This is just a global init
 static void maybeFrisoInit() {
@@ -24,19 +27,19 @@ static void maybeFrisoInit() {
   config_g->en_sseg = 0;
 }
 
-static void cnTokenizer_Start(RSTokenizer *self, char *text, size_t len, uint32_t options) {
-  self->ctx.text = text;
-  self->ctx.len = len;
-  self->ctx.options = options;
-  CnTokenizer *ctk = self->ctx.privdata;
-  friso_set_text(ctk->fTask, text);
+static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+  cnTokenizer *self = (cnTokenizer *)base;
+  base->ctx.text = text;
+  base->ctx.len = len;
+  base->ctx.options = options;
+  friso_set_text(self->fTask, text);
 }
 
-static uint32_t cnTokenizer_Next(TokenizerCtx *ctx, Token *t) {
-  CnTokenizer *ctk = ctx->privdata;
-
+static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
+  cnTokenizer *self = (cnTokenizer *)base;
+  TokenizerCtx *ctx = &base->ctx;
   while (1) {
-    friso_token_t tok = config_g->next_token(friso_g, config_g, ctk->fTask);
+    friso_token_t tok = config_g->next_token(friso_g, config_g, self->fTask);
     if (tok == NULL) {
       return 0;
     }
@@ -75,21 +78,20 @@ static uint32_t cnTokenizer_Next(TokenizerCtx *ctx, Token *t) {
   }
 }
 
-static void cnTokenizer_Free(RSTokenizer *self) {
-  CnTokenizer *ctk = self->ctx.privdata;
-  friso_free_task(ctk->fTask);
-  free(ctk);
+static void cnTokenizer_Free(RSTokenizer *base) {
+  cnTokenizer *self = (cnTokenizer *)base;
+  friso_free_task(self->fTask);
   free(self);
 }
 
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  RSTokenizer *tokenizer = calloc(1, sizeof(*tokenizer));
-  CnTokenizer *ctk = calloc(1, sizeof(*ctk));
-  ctk->fTask = friso_new_task();
+  cnTokenizer *tokenizer = calloc(1, sizeof(*tokenizer));
+  tokenizer->fTask = friso_new_task();
   maybeFrisoInit();
-  TokenizerCtx_Init(&tokenizer->ctx, ctk, stemmer, stopwords, opts);
-  tokenizer->Start = cnTokenizer_Start;
-  tokenizer->Next = cnTokenizer_Next;
-  tokenizer->Free = cnTokenizer_Free;
-  return tokenizer;
+  tokenizer->base.ctx.options = opts;
+  tokenizer->base.ctx.stopwords = stopwords;
+  tokenizer->base.Start = cnTokenizer_Start;
+  tokenizer->base.Next = cnTokenizer_Next;
+  tokenizer->base.Free = cnTokenizer_Free;
+  return &tokenizer->base;
 }

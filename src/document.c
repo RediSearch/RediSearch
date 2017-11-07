@@ -270,7 +270,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     Token tok;
     uint32_t lastTokPos = 0;
     uint32_t newTokPos;
-    while (0 != (newTokPos = aCtx->tokenizer->Next(&aCtx->tokenizer->ctx, &tok))) {
+    while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
       forwardIndexTokenFunc(&tokCtx, &tok);
       lastTokPos = newTokPos;
     }

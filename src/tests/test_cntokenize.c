@@ -64,7 +64,7 @@ static int testCnTokenize(void) {
   cnTok->Start(cnTok, cnTxt, strlen(cnTxt), 0);
   Token t;
   uint32_t pos;
-  while ((pos = cnTok->Next(&cnTok->ctx, &t)) != 0) {
+  while ((pos = cnTok->Next(cnTok, &t)) != 0) {
     printf("Token: %.*s. Raw: %.*s. Pos=%u\n", (int)t.tokLen, t.tok, (int)t.rawLen, t.raw, t.pos);
     ASSERT(pos == t.pos);
   }

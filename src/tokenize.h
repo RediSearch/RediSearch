@@ -46,11 +46,8 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
-  void *privdata;
   char *text;
-  char **pos;
   size_t len;
-  Stemmer *stemmer;
   StopWordList *stopwords;
   uint32_t lastOffset;
   uint32_t options;
@@ -59,16 +56,17 @@ typedef struct {
 void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, StopWordList *stopwords,
                        uint32_t opts);
 
-typedef struct rsTokenizer {
+typedef struct RSTokenizer {
   TokenizerCtx ctx;
   // read the next token. Return its position or 0 if we can't read anymore
-  uint32_t (*Next)(TokenizerCtx *ctx, Token *tok);
-  void (*Free)(struct rsTokenizer *self);
-  void (*Start)(struct rsTokenizer *self, char *txt, size_t len, uint32_t options);
+  uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
+  void (*Free)(struct RSTokenizer *self);
+  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
 } RSTokenizer;
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
 #define TOKENIZE_NOMODIFY 0x01
