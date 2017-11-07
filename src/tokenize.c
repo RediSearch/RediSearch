@@ -85,9 +85,6 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    // create the token struct
-    ctx->lastOffset++;
-
     char *normalized = DefaultNormalize(tok, normBuf, &normLen);
     // ignore tokens that turn into nothing
     if (normalized == NULL || normLen == 0) {
@@ -103,7 +100,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .tokLen = normLen,
                  .raw = tok,
                  .rawLen = origLen,
-                 .pos = ctx->lastOffset,
+                 .pos = ++ctx->lastOffset,
                  .stem = NULL,
                  .flags = Token_CopyStem};
 
