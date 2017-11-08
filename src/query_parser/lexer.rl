@@ -32,7 +32,6 @@ minus = '-';
 tilde = '~';
 star = '*';
 rsqb = ']';
-comma = ',';
 lsqb = '[';
 escape = '\\';
 escaped_character = escape (punct | space | escape);
@@ -123,13 +122,7 @@ main := |*
       fbreak;
     }
    };
-  comma => { 
-     tok.pos = ts-q->raw;
-     RSQuery_Parse(pParser, COMMA, tok, q);
-     if (!q->ok) {
-      fbreak;
-    }
-   };
+  
 
   minus =>  { 
     tok.pos = ts-q->raw;

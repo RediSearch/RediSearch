@@ -55,18 +55,18 @@
  * The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
  * this case):
  *
- *    @<field_name>:{ <tag>,<tag>, ...}
+ *    @<field_name>:{ <tag> | <tag> | ...}
  *
  * e.g.
  *
- *    @tags:{hello world, foo bar}
+ *    @tags:{hello world | foo bar}
  *
  * **IMPORTANT**: When specifying multiple tags in the same tag clause, the semantic meaning is a
  *    **UNION** of the documents containing any of the tags (as in a SQL WHERE IN clause).
  *    If you need to intersect tags, you should repeat several tag clauses.
  *    For example:
  *
- *        FT.SEARCH idx "@tags:{hello,world}"
+ *        FT.SEARCH idx "@tags:{hello | world}"
  *
  *    Will return documents containing either hello or world (or both). But:
  *

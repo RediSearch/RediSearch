@@ -15,7 +15,6 @@
 #define ORX                             15
 #define STAR                            16
 #define LB                              17
-#define COMMA                           18
-#define RB                              19
-#define LSQB                            20
-#define RSQB                            21
+#define RB                              18
+#define LSQB                            19
+#define RSQB                            20

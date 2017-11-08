@@ -316,11 +316,11 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     QueryPhraseNode_AddChild(A, B);
 }
 
-tag_list(A) ::= tag_list(B) COMMA term(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }
-tag_list(A) ::= tag_list(B) COMMA termlist(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryPhraseNode_AddChild(B, C);
     A = B;
 }
