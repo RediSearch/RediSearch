@@ -7,10 +7,7 @@
 #include "value.h"
 #include "geo_index.h"
 
-typedef struct {
-  TrieMap *values;
-  TagFieldOptions opts;
-} TagIndex;
+typedef struct { TrieMap *values; } TagIndex;
 
 RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 TagIndex *NewTagIndex();

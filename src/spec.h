@@ -47,17 +47,24 @@ typedef enum {
   FieldSpec_NotIndexable = 0x04
 } FieldSpecOptions;
 
+// Specific options for text fields
 typedef struct {
+  // weight in frequency calculations
   double weight;
+  // bitwise id for field masks
   t_fieldId id;
 } TextFieldOptions;
 
+// Flags for tag fields
 typedef enum {
   TagField_CaseSensitive = 0x01,
   TagField_TrimSpace = 0x02,
   TagField_RemoveAccents = 0x04,
 } TagFieldFlags;
 
+#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace &TagField_RemoveAccents;
+
+// Specific options for tag fields
 typedef struct {
   char separator;
   TagFieldFlags flags;
@@ -78,8 +85,7 @@ typedef struct fieldSpec {
     TextFieldOptions textOpts;
     TagFieldOptions tagOpts;
   };
-  // TODO: const char **separators;
-  // size_t numSeparators;
+
   // TODO: More options here..
 } FieldSpec;
 
@@ -120,13 +126,16 @@ typedef enum {
 #define INDEX_STORAGE_MASK                                                                  \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
-#define INDEX_CURRENT_VERSION 7
+#define INDEX_CURRENT_VERSION 8
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
 // Versions below this encode field ids as the actual value,
 // above - field ides are encoded as their exponent (bit offset)
 #define INDEX_MIN_WIDESCHEMA_VERSION 7
+
+// Versions below this didn't know tag indexes
+#define INDEX_MIN_TAGFIELD_VERSION 8
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))

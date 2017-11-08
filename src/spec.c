@@ -181,8 +181,16 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
   } else if (!strcasecmp(argv[*offset], SPEC_TAG_STR)) {  // tag field
     sp->type = FIELD_TAG;
     sp->tagOpts.separator = ',';
-    sp->tagOpts.flags = TagField_TrimSpace;
+    sp->tagOpts.flags = TAG_FIELD_DEFAULT_FLAGS;
     ++*offset;
+    if (!strcasecmp(argv[*offset], "SEPARATOR") && *offset + 1 < argc) {
+      ++*offset;
+      if (strlen(argv[*offset]) == 1) {
+        sp->tagOpts.separator = argv[*offset][0];
+        printf("New separator %c\n", sp->tagOpts.separator);
+      }
+      ++*offset;
+    }
   } else {  // not numeric and not text - nothing more supported currently
     return 0;
   }
@@ -507,17 +515,8 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
-void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
-
-  RedisModule_SaveUnsigned(rdb, f->type == FIELD_FULLTEXT ? f->textOpts.id : 0);
-  RedisModule_SaveUnsigned(rdb, f->type);
-  RedisModule_SaveDouble(rdb, f->type == FIELD_FULLTEXT ? f->textOpts.weight : 0);
-  RedisModule_SaveUnsigned(rdb, f->options);
-  RedisModule_SaveSigned(rdb, f->sortIdx);
-}
-
-void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+// Backwards compat version of load for rdbs with version < 8
+void __fieldSpec_rdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
   // the old versions encoded the bit id of the field directly
@@ -530,9 +529,56 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   f->type = RedisModule_LoadUnsigned(rdb);
   f->textOpts.weight = RedisModule_LoadDouble(rdb);
+  f->tagOpts.flags = TAG_FIELD_DEFAULT_FLAGS;
+  f->tagOpts.separator = ',';
   if (encver >= 4) {
     f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);
+  }
+}
+
+void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
+  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
+  RedisModule_SaveUnsigned(rdb, f->type);
+  RedisModule_SaveUnsigned(rdb, f->options);
+  RedisModule_SaveSigned(rdb, f->sortIdx);
+  // Save text specific options
+  if (f->type == FIELD_FULLTEXT) {
+    RedisModule_SaveUnsigned(rdb, f->textOpts.id);
+    RedisModule_SaveDouble(rdb, f->textOpts.weight);
+  } else if (f->type == FIELD_TAG) {
+    RedisModule_SaveUnsigned(rdb, f->tagOpts.flags);
+    RedisModule_SaveStringBuffer(rdb, &f->tagOpts.separator, 1);
+  }
+}
+
+void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+
+  if (encver < INDEX_MIN_TAGFIELD_VERSION) {
+    return __fieldSpec_rdbLoadCompat8(rdb, f, encver);
+  }
+
+  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  f->type = RedisModule_LoadUnsigned(rdb);
+  f->options = RedisModule_LoadUnsigned(rdb);
+  f->sortIdx = RedisModule_LoadSigned(rdb);
+
+  // Load text specific options
+  if (f->type == FIELD_FULLTEXT) {
+    f->textOpts.id = bit(RedisModule_LoadUnsigned(rdb));
+    f->textOpts.weight = RedisModule_LoadDouble(rdb);
+  }
+  // Load tag specific options
+  if (f->type == FIELD_TAG) {
+    f->tagOpts.flags = RedisModule_LoadUnsigned(rdb);
+    // Load the separator
+    size_t l;
+    char *s = RedisModule_LoadStringBuffer(rdb, &l);
+    assert(l == 1);
+
+    f->tagOpts.separator = *s;
+    printf("Separator: %c\n", f->tagOpts.separator);
+    rm_free(s);
   }
 }
 

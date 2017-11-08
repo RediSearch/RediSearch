@@ -10,6 +10,7 @@
 #include "version.h"
 #include "forward_index.h"
 #include "geo_index.h"
+#include "tag_index.h"
 #include "index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
@@ -1178,6 +1179,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(TrieType_Register, ctx);
 
   RM_TRY(IndexSpec_RegisterType, ctx);
+
+  RM_TRY(TagIndex_RegisterType, ctx);
 
   RM_TRY(InvertedIndex_RegisterType, ctx);
 
