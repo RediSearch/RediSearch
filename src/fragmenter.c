@@ -86,21 +86,14 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
   return curFrag;
 }
 
-typedef struct {
-  FragmentList *fragList;
-  const FragmentSearchTerm *terms;
-  size_t numTerms;
-} bufTokenizerCtx;
-
-static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
-  bufTokenizerCtx *ctx = ctxPtr;
-  FragmentList *fragList = ctx->fragList;
+static void extractToken(FragmentList *fragList, const Token *tokInfo,
+                         const FragmentSearchTerm *terms, size_t numTerms) {
   const FragmentSearchTerm *term = NULL;
   uint32_t termId;
 
   // See if this token matches any of our terms.
-  for (termId = 0; termId < ctx->numTerms; ++termId) {
-    const FragmentSearchTerm *cur = ctx->terms + termId;
+  for (termId = 0; termId < numTerms; ++termId) {
+    const FragmentSearchTerm *cur = terms + termId;
     if (tokInfo->tokLen == cur->len && strncmp(tokInfo->tok, cur->tok, cur->len) == 0) {
     } else if (tokInfo->stem && tokInfo->stemLen == cur->len &&
                strncmp(tokInfo->stem, cur->tok, cur->len) == 0) {
@@ -114,29 +107,24 @@ static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
   // Don't care about this token
   if (!term) {
     fragList->numToksSinceLastMatch++;
-    return 0;
+    return;
   }
 
-  Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw,
-                                                   tokInfo->rawLen, term->score);
-
-  return 0;
+  FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw, tokInfo->rawLen,
+                               term->score);
 }
 
 void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
                                     size_t numTerms) {
-  // fragList->doc = doc;
-  // fragList->docLen = strlen(doc);
-  // bufTokenizerCtx ctx = {.fragList = fragList, .terms = terms, .numTerms = numTerms};
-
-  // tokenize(doc, &ctx, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
-  // const Fragment *frags = FragmentList_GetFragments(fragList);
-
-  // float totalScore = 0;
-  // if (fragList->numFrags) {
-  //   return;
-  // }
+  fragList->doc = doc;
+  fragList->docLen = strlen(doc);
+  RSTokenizer *tokenizer = NewSimpleTokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
+  tokenizer->Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
+  Token tokInfo;
+  while (tokenizer->Next(tokenizer, &tokInfo)) {
+    extractToken(fragList, &tokInfo, terms, numTerms);
+  }
 }
 
 static void addToIov(const char *s, size_t n, Array *b) {
