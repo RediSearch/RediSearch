@@ -151,6 +151,9 @@ size_t ResultProcessor_Total(ResultProcessor *rp);
  * Do NOT call Free() callbacks on processors directly! */
 void ResultProcessor_Free(ResultProcessor *rp);
 
+/** Frees the processor and privdata with `free()` */
+void ResultProcessor_GenericFree(ResultProcessor *rp);
+
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->qxc->sctx->spec)
 

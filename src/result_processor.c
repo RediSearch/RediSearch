@@ -98,7 +98,7 @@ void SearchResult_Free(void *p) {
 
 /* Generic free function for result processors that just need to free their private data with free()
  */
-static void resultProcessor_GenericFree(ResultProcessor *rp) {
+void ResultProcessor_GenericFree(ResultProcessor *rp) {
   free(rp->ctx.privdata);
   free(rp);
 }
@@ -214,7 +214,7 @@ static void scorer_Free(ResultProcessor *rp) {
   if (sc->scorerFree) {
     sc->scorerFree(sc->scorerCtx.privdata);
   }
-  resultProcessor_GenericFree(rp);
+  ResultProcessor_GenericFree(rp);
 }
 
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
@@ -473,7 +473,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
 
   rp->Next = pager_Next;
   // no need for a special free function
-  rp->Free = resultProcessor_GenericFree;
+  rp->Free = ResultProcessor_GenericFree;
   return rp;
 }
 
@@ -538,7 +538,7 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
   rp->Next = loader_Next;
-  rp->Free = resultProcessor_GenericFree;
+  rp->Free = ResultProcessor_GenericFree;
   return rp;
 }
 
