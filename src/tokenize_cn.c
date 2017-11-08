@@ -17,10 +17,16 @@ static void maybeFrisoInit() {
   }
 
   const char *dictfile = getenv("DICTFILE");
-  assert(dictfile && "Set `DICTFILE` environment variable to your friso.ini path");
+  if (!dictfile) {
+    fprintf(stderr, "No `DICTFILE` specified. Assuming friso/friso.ini\n");
+    dictfile = "friso/friso.ini";
+  }
   friso_g = friso_new();
   config_g = friso_new_config();
-  friso_init_from_ifile(friso_g, config_g, (char *)dictfile);
+  if (!friso_init_from_ifile(friso_g, config_g, (char *)dictfile)) {
+    fprintf(stderr, "Failed to initialize friso. Abort\n");
+    abort();
+  }
 
   // Overrides:
   // Don't segment english text. We might use our actual tokenizer later if needed
