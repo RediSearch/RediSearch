@@ -11,8 +11,7 @@ before_script:
 env:
 - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/redisearch.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
 script:
-- git clone git://github.com/lionsoul2014/friso
-- export DICTFILE=friso/friso.ini
+- (cd src/tests && git clone git://github.com/lionsoul2014/friso)
 - make test
 - make package
 deploy:
