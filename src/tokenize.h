@@ -53,9 +53,6 @@ typedef struct {
   uint32_t options;
 } TokenizerCtx;
 
-void TokenizerCtx_Init(TokenizerCtx *ctx, void *privdata, Stemmer *stemmer, StopWordList *stopwords,
-                       uint32_t opts);
-
 typedef struct RSTokenizer {
   TokenizerCtx ctx;
   // read the next token. Return its position or 0 if we can't read anymore
