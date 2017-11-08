@@ -102,13 +102,55 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
   return ret;
 }
 
+struct TagReaderCtx {
+  TagIndex *idx;
+  IndexIterator *it;
+};
+
+static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
+
+  struct TagReaderCtx *ctx = privdata;
+
+  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
+  if (k == NULL || RedisModule_ModuleTypeGetType(k) != TagIndexType) {
+    ctx->it->Abort(ctx->it->ctx);
+    return;
+  }
+
+  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
+  ctx->idx = RedisModule_ModuleTypeGetValue(k);
+  IndexReader *ir = ctx->it->ctx;
+  ir->idx = ir->idx;
+
+  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  if (ir->gcMarker == ir->idx->gcMarker) {
+    // no GC - we just go to the same offset we were at
+    size_t offset = ir->br.pos;
+    ir->br = NewBufferReader(ir->idx->blocks[ir->currentBlock].data);
+    ir->br.pos = offset;
+  } else {
+    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+    // anymore. This means that we need to seek to last docId we were at
+
+    // reset the state of the reader
+    t_docId lastId = ir->lastId;
+    ir->br = NewBufferReader(ir->idx->blocks[ir->currentBlock].data);
+    ir->lastId = 0;
+
+    // seek to the previous last id
+    RSIndexResult *dummy = NULL;
+    IR_SkipTo(ir, lastId, &dummy);
+  }
+}
+
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len) {
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
+                                   ConcurrentSearchCtx *csx, RedisModuleKey *k,
+                                   RedisModuleString *keyName) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv) {
-    printf("Term '%.*s' not found, iv %p\n", (int)len, value, iv);
     return NULL;
   }
 
@@ -116,7 +158,18 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
   if (!r) {
     return NULL;
   }
-  return NewReadIterator(r);
+  IndexIterator *it = NewReadIterator(r);
+
+  // register the on reopen function
+  if (csx) {
+    struct TagReaderCtx *tc = malloc(sizeof(*tc));
+    tc->idx = idx;
+    tc->it = it;
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, keyName, TagReader_OnReopen, tc, free,
+                            ConcurrentKey_SharedKey | ConcurrentKey_SharedKeyString);
+  }
+
+  return it;
 }
 
 /* Format the key name for a tag index */

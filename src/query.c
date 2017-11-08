@@ -463,11 +463,15 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
-static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n) {
+static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
+                                              RedisModuleKey *k, RedisModuleString *kn) {
 
   switch (n->type) {
     case QN_TOKEN:
-      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len);
+      /*TagIndex *idx, DocTable *dt, const char *value, size_t len,
+                                         ConcurrentSearchCtx *csx, RedisModuleKey *k,
+                                         RedisModuleString *keyName);*/
+      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn);
     case QN_PHRASE: {
       char *terms[n->pn.numChildren];
       for (int i = 0; i < n->pn.numChildren; i++) {
@@ -480,7 +484,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, n->pn.numChildren, " ");
 
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s));
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), q->conc, k, kn);
       sdsfree(s);
       return ret;
     }
@@ -495,21 +499,21 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-
-  TagIndex *idx =
-      TagIndex_Open(q->sctx->redisCtx, TagIndex_FormatName(q->sctx, node->fieldName), 0, NULL);
+  RedisModuleKey *k;
+  RedisModuleString *str = TagIndex_FormatName(q->sctx, node->fieldName);
+  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, str, 0, &k);
   if (!idx) return NULL;
 
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
-    return query_EvalSingleTagNode(q, idx, node->children[0]);
+    return query_EvalSingleTagNode(q, idx, node->children[0], k, str);
   }
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   int n = 0;
   for (int i = 0; i < node->numChildren; i++) {
-    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i]);
+    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i], k, str);
     if (it) {
       iters[n++] = it;
     }
@@ -891,7 +895,7 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL);
+                            Query_OnReopen, plan, NULL, 0);
   }
 
   QueryEvalCtx ev = {

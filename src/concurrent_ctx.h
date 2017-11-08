@@ -29,15 +29,30 @@
 
 typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
 
+typedef enum {
+  // no shared resources - the default mode
+  ConcurrentKey_SharedNothing = 0x0,
+
+  // the key name string is shared and should not be deleted
+  ConcurrentKey_SharedKeyString = 0x01,
+
+  // the key itself is shared and should not be deleted.
+  // this may be rewritten on reopening
+  ConcurrentKey_SharedKey = 0x02,
+} ConcurrentKeyOptions;
 /* ConcurrentKeyCtx is a reference to a key that's being held open during concurrent execution and
  * needs to be reopened after yielding and gaining back execution. See ConcurrentSearch_AddKey for
  * more details */
 typedef struct {
   RedisModuleKey *key;
   RedisModuleString *keyName;
+  int sharedKey;
   void *privdata;
   ConcurrentReopenCallback cb;
+  // redis key open flags
   int keyFlags;
+  // context specific flags
+  ConcurrentKeyOptions opts;
   // A custom callback to free privdata. If NULL we don't do anything
   void (*freePrivData)(void *);
 } ConcurrentKeyCtx;
@@ -90,7 +105,8 @@ typedef struct {
  * when the context is freed to release the private data. If NULL is passed, we do nothing */
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
-                             void *privdata, void (*freePrivDataCallback)(void *));
+                             void *privdata, void (*freePrivDataCallback)(void *),
+                             ConcurrentKeyOptions opts);
 
 /**
  * Replace the key at a given position. The context must not be locked. It
