@@ -285,5 +285,6 @@ ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest 
   }
   ResultProcessor *rp = NewResultProcessor(parent, hlpCtx);
   rp->Next = hlp_Next;
+  rp->Free = ResultProcessor_GenericFree;
   return rp;
 }
