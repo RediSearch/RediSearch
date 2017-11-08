@@ -6,12 +6,14 @@
 #include "rmutil/util.h"
 #include <assert.h>
 
+/* See tag_index.h for documentation  */
 TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   return idx;
 }
 
+/* read the next token from the string */
 static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
 
   char *orig = *s;
@@ -48,6 +50,7 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
   return orig;
 }
 
+/* Preprocess a document tag field, returning a vector of all tags split from the content */
 Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
@@ -68,6 +71,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
   return ret;
 }
 
+/* Ecode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docId docId) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
@@ -82,6 +86,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docI
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
 }
 
+/* Index a vector of pre-processed tags for a docId */
 size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
 
   char *tok;
@@ -97,6 +102,8 @@ size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
   return ret;
 }
 
+/* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
+ * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
@@ -112,10 +119,12 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
   return NewReadIterator(r);
 }
 
+/* Format the key name for a tag index */
 RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, "tag:%s/%s", sctx->spec->name, field);
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
+/* Open the tag index in redis */
 TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   RedisModuleKey *key_s = NULL;
