@@ -13,7 +13,7 @@ class CnTestCase(ModuleTestCase('../redisearch.so')):
         text = open(SRCTEXT).read()
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'LANGUAGE', 'CHINESE', 'FIELDS', 'txt', text)
-        res = self.cmd('ft.search', 'idx', '之旅', 'SUMMARIZE', 'HIGHLIGHT')
+        res = self.cmd('ft.search', 'idx', '之旅', 'SUMMARIZE', 'HIGHLIGHT', 'LANGUAGE', 'chinese')
         print res[2][1]
         # print self.cmd('ft.search', 'idx', 'hacker', 'HIGHLIGHT')
 

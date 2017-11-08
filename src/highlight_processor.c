@@ -5,6 +5,11 @@
 #include "toksep.h"
 #include <ctype.h>
 
+typedef struct {
+  int fragmentizeOptions;
+  const FieldList *fields;
+} hlpContext;
+
 /**
  * Attempts to fragmentize a single field from its offset entries. This takes
  * the field name, gets the matching field ID, retrieves the offset iterator
@@ -15,7 +20,7 @@
  */
 static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
                               size_t fieldLen, RSIndexResult *indexResult,
-                              RSByteOffsets *byteOffsets, FragmentList *fragList) {
+                              RSByteOffsets *byteOffsets, FragmentList *fragList, int options) {
   const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
   if (!fs) {
     return 0;
@@ -30,7 +35,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   }
 
   FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
-  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter);
+  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, options);
   if (fragList->numFrags == 0) {
     goto done;
   }
@@ -122,7 +127,8 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
-                           RSValue *returnedField, SearchResult *r, RSIndexResult *indexResult) {
+                           RSValue *returnedField, SearchResult *r, RSIndexResult *indexResult,
+                           int options) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -136,7 +142,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (byteOffsets == NULL ||
-      !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, &frags)) {
+      !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, &frags,
+                          options)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
@@ -215,8 +222,8 @@ static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField
     RSFieldMap_Set(&r->fields, fName, RS_NullVal());
     return;
   }
-
-  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult);
+  hlpContext *hlpCtx = ctx->privdata;
+  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult, hlpCtx->fragmentizeOptions);
 }
 
 static RSIndexResult *getIndexResult(QueryProcessingCtx *ctx, t_docId docId) {
@@ -244,8 +251,8 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (!ir) {
     return RS_RESULT_QUEUED;
   }
-
-  const FieldList *fields = ctx->privdata;
+  const hlpContext *hlpCtx = ctx->privdata;
+  const FieldList *fields = hlpCtx->fields;
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
@@ -271,7 +278,12 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 }
 
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
-  ResultProcessor *rp = NewResultProcessor(parent, &req->fields);
+  hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
+  hlpCtx->fields = &req->fields;
+  if (req->language && strcasecmp(req->language, "chinese") == 0) {
+    hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
+  }
+  ResultProcessor *rp = NewResultProcessor(parent, hlpCtx);
   rp->Next = hlp_Next;
   return rp;
 }

@@ -425,7 +425,7 @@ void FragmentList_Free(FragmentList *fragList) {
  *    noting the terms for each.
  */
 void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
-                                  FragmentTermIterator *iter) {
+                                  FragmentTermIterator *iter, int options) {
   fragList->docLen = docLen;
   fragList->doc = doc;
   FragmentTerm *curTerm;
@@ -443,12 +443,17 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
 
     // Get the length of the current token. This is used to highlight the term
     // (if requested), and just terminates at the first non-separator character
-    size_t len = 0;
-    for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+    size_t len;
+    if (options & FRAGMENTIZE_TOKLEN_EXACT) {
+      len = curTerm->len;
+    } else {
+      len = 0;
+      for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+      }
     }
 
-    Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos,
-                                                     doc + curTerm->bytePos, len, curTerm->score);
+    FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos, doc + curTerm->bytePos,
+                                 len, curTerm->score);
     lastTokPos = curTerm->tokPos;
   }
 }
@@ -487,6 +492,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   // printf("Term Pointer: %p\n", term);
   iter->tmpTerm.score = term->idf;
   iter->tmpTerm.termId = term->id;
+  iter->tmpTerm.len = term->len;
   iter->tmpTerm.tokPos = iter->curTokPos;
   iter->tmpTerm.bytePos = iter->curByteOffset;
   *termInfo = &iter->tmpTerm;
