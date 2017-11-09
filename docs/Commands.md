@@ -514,7 +514,7 @@ Status Reply: OK on success.
 ---
 
 
-## FT.SUGGADD
+## FT.SUGADD
 
 ### Format
 
