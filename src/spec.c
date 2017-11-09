@@ -554,6 +554,7 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
 
 void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
+  // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return __fieldSpec_rdbLoadCompat8(rdb, f, encver);
   }
@@ -565,7 +566,7 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Load text specific options
   if (f->type == FIELD_FULLTEXT) {
-    f->textOpts.id = bit(RedisModule_LoadUnsigned(rdb));
+    f->textOpts.id = RedisModule_LoadUnsigned(rdb);
     f->textOpts.weight = RedisModule_LoadDouble(rdb);
   }
   // Load tag specific options
@@ -577,7 +578,6 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     assert(l == 1);
 
     f->tagOpts.separator = *s;
-    printf("Separator: %c\n", f->tagOpts.separator);
     rm_free(s);
   }
 }
