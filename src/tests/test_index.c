@@ -503,7 +503,7 @@ int testNumericEncoding() {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, 1, infos[ii].value);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
     ASSERT_EQUAL(infos[ii].size, sz);
   }
 
@@ -726,8 +726,8 @@ int testIndexSpec() {
   ASSERT(f != NULL);
   ASSERT(f->type == FIELD_FULLTEXT);
   ASSERT(strcmp(f->name, body) == 0);
-  ASSERT(f->weight == 2.0);
-  ASSERT_EQUAL(FIELD_BIT(f->id), 2);
+  ASSERT(f->textOpts.weight == 2.0);
+  ASSERT_EQUAL(FIELD_BIT(f), 2);
   ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
@@ -735,8 +735,8 @@ int testIndexSpec() {
   ASSERT(f != NULL);
   ASSERT(f->type == FIELD_FULLTEXT);
   ASSERT(strcmp(f->name, title) == 0);
-  ASSERT(f->weight == 0.1);
-  ASSERT(FIELD_BIT(f->id) == 1);
+  ASSERT(f->textOpts.weight == 0.1);
+  ASSERT(FIELD_BIT(f) == 1);
   ASSERT(f->options == 0);
   ASSERT(f->sortIdx == -1);
 
@@ -744,17 +744,18 @@ int testIndexSpec() {
   ASSERT(f != NULL);
   ASSERT(f->type == FIELD_FULLTEXT);
   ASSERT(strcmp(f->name, foo) == 0);
-  ASSERT(f->weight == 1);
-  ASSERT(FIELD_BIT(f->id) == 4);
+  ASSERT(f->textOpts.weight == 1);
+  ASSERT(FIELD_BIT(f) == 4);
   ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
   ASSERT(f != NULL);
   ASSERT(f->type == FIELD_NUMERIC);
+
   ASSERT(strcmp(f->name, bar) == 0);
-  ASSERT(f->weight == 0);
-  ASSERT(FIELD_BIT(f->id) == 1);
+  ASSERT(f->textOpts.weight == 0);
+  ASSERT(FIELD_BIT(f) == 1);
   ASSERT(f->options == FieldSpec_Sortable);
   ASSERT(f->sortIdx == 1);
   ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
@@ -763,8 +764,8 @@ int testIndexSpec() {
   ASSERT(f != NULL);
   ASSERT(f->type == FIELD_FULLTEXT);
   ASSERT(strcmp(f->name, name) == 0);
-  ASSERT(f->weight == 1);
-  ASSERT(FIELD_BIT(f->id) == 8);
+  ASSERT(f->textOpts.weight == 1);
+  ASSERT(FIELD_BIT(f) == 8);
   ASSERT(f->options == FieldSpec_NoStemming);
   ASSERT(f->sortIdx == -1);
 

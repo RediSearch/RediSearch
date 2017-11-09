@@ -21,7 +21,7 @@ int testTagIndexCreate() {
   ASSERT_EQUAL(idx->values->cardinality, Vector_Size(v));
 
   printf("%zd\n", totalSZ);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5);
+  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, NULL, NULL, NULL);
   ASSERT(it != NULL);
   RSIndexResult *r;
   t_docId n = 1;

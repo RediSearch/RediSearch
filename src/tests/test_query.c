@@ -84,7 +84,7 @@ int testQueryParser() {
   assertValidQuery("@ti_tle:barack obama  @body:us", ctx);
   assertValidQuery("@title:barack @body:obama", ctx);
   assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
-  assertValidQuery("hello,world;good+bye foo.bar", ctx);
+  assertValidQuery("hello%world;good+bye foo.bar", ctx);
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
   assertValidQuery("foo -bar -(bar baz)", ctx);
   assertValidQuery("(hello world)|(goodbye moon)", ctx);

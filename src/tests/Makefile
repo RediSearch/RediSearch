@@ -11,7 +11,7 @@ ifndef VERBOSE
 endif
 
 # Sources
-SOURCEDIR=..
+SOURCEDIR=$(abspath $(shell pwd -P)/../)
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
@@ -24,7 +24,7 @@ DEP_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
 CC_DEPS = $(patsubst %.c, %.d, $(CC_SOURCES) )
 
 
-TEST_SOURCES = $(wildcard test_*.c)
+TEST_SOURCES = $(abspath $(wildcard test_*.c))
 TEST_OBJECTS = $(patsubst %.c, %.o, $(TEST_SOURCES)  )
 TEST_EXECUTABLES = $(patsubst %.c, %.run, $(TEST_SOURCES)  )
 TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
