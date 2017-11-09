@@ -10,10 +10,10 @@
 * Works like C++ std::vector with an underlying resizable buffer
 */
 typedef struct {
-    char *data;
-    size_t elemSize;
-    size_t cap;
-    size_t top;
+  char *data;
+  size_t elemSize;
+  size_t cap;
+  size_t top;
 
 } Vector;
 
@@ -67,6 +67,9 @@ int Vector_Cap(Vector *v);
 /* free the vector and the underlying data. Does not release its elements if
  * they are pointers*/
 void Vector_Free(Vector *v);
+
+/* free the vector and the underlying data. Calls freeCB() for each non null element */
+void Vector_FreeEx(Vector *v, void (*freeCB)(void *));
 
 int __vecotr_PutPtr(Vector *v, size_t pos, void *elem);
 

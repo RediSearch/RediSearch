@@ -50,6 +50,8 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
   return orig;
 }
 
+char *strtolower(char *str);
+
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
   size_t sz;
@@ -64,6 +66,10 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
     // this means we're at the end
     if (tok == NULL) break;
     if (toklen > 0) {
+      // lowercase the string (TODO: non latin lowercase)
+      if (!(opts->flags & TagField_CaseSensitive)) {
+        tok = strtolower(tok);
+      }
       Vector_Push(ret, tok);
     }
   }
@@ -211,7 +217,6 @@ RedisModuleType *TagIndexType;
 
 void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   unsigned long long elems = RedisModule_LoadUnsigned(rdb);
-  printf("need to load %zd elems\n", elems);
   TagIndex *idx = NewTagIndex();
 
   while (elems--) {

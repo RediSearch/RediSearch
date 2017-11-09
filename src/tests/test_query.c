@@ -56,8 +56,9 @@ int isValidQuery(char *qt, RedisSearchCtx ctx) {
 int testQueryParser() {
 
   RedisSearchCtx ctx;
-  static const char *args[] = {"SCHEMA", "title", "text", "weight",  "0.1", "body", "text",
-                               "weight", "2.0",   "bar",  "numeric", "loc", "geo"};
+  static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
+                               "body",    "text",  "weight", "2.0",    "bar",
+                               "numeric", "loc",   "geo",    "tags",   "tag"};
   char *err = NULL;
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT(err == NULL);
@@ -127,6 +128,15 @@ int testQueryParser() {
   assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
 
   assertInvalidQuery("@number:[100 foo]", ctx);
+
+  // Tag queries
+  assertValidQuery("@tags:{foo}", ctx);
+  assertValidQuery("@tags:{foo|bar baz|boo}", ctx);
+  assertValidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
+
+  assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
+  assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
+  assertInvalidQuery("{foo|bar\\ baz}", ctx);
 
   assertInvalidQuery("(foo", ctx);
   assertInvalidQuery("\"foo", ctx);
@@ -332,6 +342,45 @@ int testFieldSpec() {
 
   return 0;
 }
+
+int testTags() {
+
+  char *err = NULL;
+
+  static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
+  RedisSearchCtx ctx = {
+      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
+  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
+
+  QueryParseCtx *q = NewQueryParseCtx(&req);
+  QueryNode *n = Query_Parse(q, &err);
+
+  if (err) FAIL("Error parsing query: %s", err);
+  QueryNode_Print(q, n, 0);
+  ASSERT(err == NULL);
+  ASSERT(n != NULL);
+
+  ASSERT_EQUAL(n->type, QN_TAG);
+  ASSERT_EQUAL(4, n->tag.numChildren);
+  ASSERT_EQUAL(QN_PHRASE, n->tag.children[0]->type)
+  ASSERT_STRING_EQ("hello", n->tag.children[0]->pn.children[0]->tn.str)
+  ASSERT_STRING_EQ("world", n->tag.children[0]->pn.children[1]->tn.str)
+
+  ASSERT_EQUAL(QN_TOKEN, n->tag.children[1]->type)
+  ASSERT_STRING_EQ("foo", n->tag.children[1]->tn.str)
+
+  ASSERT_EQUAL(QN_TOKEN, n->tag.children[2]->type)
+  ASSERT_STRING_EQ("שלום", n->tag.children[2]->tn.str)
+
+  ASSERT_EQUAL(QN_TOKEN, n->tag.children[3]->type)
+  ASSERT_STRING_EQ("lorem ipsum", n->tag.children[3]->tn.str)
+
+  Query_Free(q);
+  IndexSpec_Free(ctx.spec);
+
+  RETURN_TEST_SUCCESS;
+}
 // void benchmarkQueryParser() {
 //   char *qt = "(hello|world) \"another world\"";
 //   char *err = NULL;
@@ -349,6 +398,7 @@ void RMUTil_InitAlloc();
 TEST_MAIN({
   RMUTil_InitAlloc();
   LOGGING_INIT(L_INFO);
+  TESTFUNC(testTags)
   TESTFUNC(testGeoQuery);
   TESTFUNC(testQueryParser);
   TESTFUNC(testPureNegative);

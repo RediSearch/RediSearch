@@ -80,9 +80,12 @@ void Vector_Free(Vector *v) {
   free(v);
 }
 
-
 /* return the used size of the vector, regardless of capacity */
-inline int Vector_Size(Vector *v) { return v->top; }
+inline int Vector_Size(Vector *v) {
+  return v->top;
+}
 
 /* return the actual capacity */
-inline int Vector_Cap(Vector *v) { return v->cap; }
+inline int Vector_Cap(Vector *v) {
+  return v->cap;
+}

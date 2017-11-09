@@ -17,10 +17,14 @@ int testTagIndexCreate() {
     size_t sz = TagIndex_Index(idx, v, d);
     ASSERT(sz > 0);
     totalSZ += sz;
+    // make sure repeating push of the same vector doesn't get indexed
+    sz = TagIndex_Index(idx, v, d);
+    ASSERT(sz == 0);
   }
-  ASSERT_EQUAL(idx->values->cardinality, Vector_Size(v));
 
-  printf("%zd\n", totalSZ);
+  ASSERT_EQUAL(idx->values->cardinality, Vector_Size(v));
+  ASSERT_EQUAL(305496, totalSZ);
+
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, NULL, NULL, NULL);
   ASSERT(it != NULL);
   RSIndexResult *r;
@@ -33,10 +37,13 @@ int testTagIndexCreate() {
     ASSERT_EQUAL(n++, r->docId);
     TimeSampler_Tick(&ts);
   }
+
   TimeSampler_End(&ts);
   printf("%d iterations in %lldns, rate %fns/iter\n", N, ts.durationNS,
          TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQUAL(N + 1, n);
+  it->Free(it);
+  Vector_Free(v);
   return 0;
 }
 

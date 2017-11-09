@@ -183,11 +183,11 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     sp->tagOpts.separator = ',';
     sp->tagOpts.flags = TAG_FIELD_DEFAULT_FLAGS;
     ++*offset;
-    if (*offset + 1 < argc && !strcasecmp(argv[*offset], "SEPARATOR")) {
+    // Detectet SEPARATOR Argument
+    if (*offset + 1 < argc && !strcasecmp(argv[*offset], SPEC_SEPARATOR_STR)) {
       ++*offset;
       if (strlen(argv[*offset]) == 1) {
         sp->tagOpts.separator = argv[*offset][0];
-        printf("New separator %c\n", sp->tagOpts.separator);
       }
       ++*offset;
     }

@@ -28,7 +28,7 @@ static void QueryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children && pn->numChildren) {
+  if (pn->children) {
     free(pn->children);
     pn->children = NULL;
   }
@@ -38,7 +38,7 @@ static void QueryUnionNode_Free(QueryUnionNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children && pn->numChildren) {
+  if (pn->children) {
     free(pn->children);
     pn->children = NULL;
   }
