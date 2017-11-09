@@ -7,6 +7,8 @@ import os
 
 SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'cn_sample.txt')
 GENTXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'genesis.txt')
+if 'DICTFILE' not in os.environ:
+    os.environ['DICTFILE'] = os.path.join(os.path.dirname(__file__), '..', 'tests', 'friso', 'friso.ini')
 
 class CnTestCase(ModuleTestCase('../redisearch.so')):
     def testCn(self):
