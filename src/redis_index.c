@@ -5,6 +5,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
+#include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
 
@@ -462,11 +463,13 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   // // Delete the actual index sub keys
   Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
-  // Delete the numeric indexes
+  // Delete the numeric and tag indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *spec = ctx->spec->fields + i;
     if (spec->type == FIELD_NUMERIC) {
       Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
+    } else if (spec->type == FIELD_TAG) {
+      Redis_DeleteKey(ctx->redisCtx, TagIndex_FormatName(ctx, spec->name));
     }
   }
 
