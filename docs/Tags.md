@@ -23,26 +23,27 @@ is usually one or two bytes long. This makes them very memory efficient and fast
 
 6. An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.
  
- ## Creating a tag field
+## Creating A Tag Field
  
- Tag fields can be added to the schema in FT.ADD with the following syntax:
- 
- ```
-    FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
- ```
+Tag fields can be added to the schema in FT.ADD with the following syntax:
 
- SEPARATOR defaults to a comma (`,`), and can be any printable ascii character. For example:
+```
+FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
+```
+
+SEPARATOR defaults to a comma (`,`), and can be any printable ascii character. For example:
+
+```
+FT.CREATE idx SCHEMA tags TAG SEPARATOR ";"
+```
+
+## Querying Tag Fields
  
-    FT.CREATE idx SCHEMA tags TAG SEPARATOR ";"
- 
- 
- ## Querying Tag Fields
- 
- As mentioned above, just searching for a tag without any modifiers will not retrieve documents
- containing it.
- 
- The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
- this case):
+As mentioned above, just searching for a tag without any modifiers will not retrieve documents
+containing it.
+
+The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
+this case):
  
  ```
     @<field_name>:{ <tag> | <tag> | ...}
