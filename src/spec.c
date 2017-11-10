@@ -127,7 +127,7 @@ char *strtolower(char *str) {
 }
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
 *  Returns 1 on successful parse, 0 otherwise */
-int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
+int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
@@ -188,6 +188,9 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
       ++*offset;
       if (strlen(argv[*offset]) == 1) {
         sp->tagOpts.separator = argv[*offset][0];
+      } else{
+        *err = "Invalid separator, only 1 byte ascii characters allowed";
+        return 0;
       }
       ++*offset;
     }
@@ -199,6 +202,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp) {
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
       if (sp->type == FIELD_GEO || sp->type == FIELD_TAG) {
+        *err = "Tag and Geo fields cannot be sortable";
         return 0;
       }
       sp->options |= FieldSpec_Sortable;
@@ -228,7 +232,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
-
+  *err = NULL;
   int schemaOffset = __findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
@@ -272,8 +276,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   int i = schemaOffset + 1;
   while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
 
-    if (!__parseFieldSpec(argv, &i, argc, &spec->fields[spec->numFields])) {
-      *err = "Could not parse field spec";
+    if (!__parseFieldSpec(argv, &i, argc, &spec->fields[spec->numFields], err)) {
+      if (!*err) {
+        *err = "Could not parse field spec";
+      }
       goto failure;
     }
 
