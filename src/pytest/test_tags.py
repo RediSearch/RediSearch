@@ -63,11 +63,21 @@ class TagsTestCase(ModuleTestCase('../redisearch.so')):
                     self.assertEqual(1, res[0], msg='Error trying {}'.format(q))
                 
             r.flushdb()
-
+            
+    def testInvalidSyntax(self):
+        with self.redis() as r:
+            r.flushdb()
             #invalid syntax
             with self.assertResponseError():
                 r.execute_command(
                     'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator')
+            with self.assertResponseError():
+                r.execute_command(
+                    'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
+            with self.assertResponseError():
+                r.execute_command(
+                    'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
+
 
 if __name__ == '__main__':
 
