@@ -290,7 +290,7 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
     v1.Free(v1.ctx);
     v2.Free(v2.ctx);
 
-    dist += cd * cd;
+    dist += cd;  // * cd;
   }
 
   // we return 1 if ditance could not be calculate, to avoid division by zero

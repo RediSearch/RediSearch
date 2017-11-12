@@ -101,7 +101,15 @@ static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocum
 /* BM25 scoring function */
 double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
                   double minScore) {
-  return dmd->score * bm25Recursive(ctx, r, dmd);
+  double score = dmd->score * bm25Recursive(ctx, r, dmd);
+
+  // no need to factor the distance if tfidf is already below minimal score
+  if (score < minScore) {
+    return 0;
+  }
+
+  score /= (double)ctx->GetSlop(r);
+  return score;
 }
 
 /******************************************************************************************
@@ -220,7 +228,7 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-    /* Snowball Stemmer is the default expander */
+  /* Snowball Stemmer is the default expander */
   if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
