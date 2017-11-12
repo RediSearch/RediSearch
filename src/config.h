@@ -12,6 +12,12 @@ typedef struct {
   const char *extLoad;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
+
+  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
+  long long minTermPrefix;
+
+  // The maximal number of expansions we allow for a prefix. Default: 200
+  long long maxPrefixExpansions;
 } RSConfig;
 
 // global config extern reference
@@ -22,9 +28,13 @@ extern RSConfig RSGlobalConfig;
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
 // default configuration
-#define RS_DEFAULT_CONFIG                                  \
-  (RSConfig){                                              \
-      .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, \
+#define RS_DEFAULT_CONFIG         \
+  (RSConfig){                     \
+      .concurrentMode = 1,        \
+      .extLoad = NULL,            \
+      .enableGC = 1,              \
+      .minTermPrefix = 2,         \
+      .maxPrefixExpansions = 200, \
   };
 
 #endif

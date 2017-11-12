@@ -71,3 +71,36 @@ Not set
 ```
 $ redis-server --loadmodule ./redisearch.so NOGC
 ```
+
+---
+
+## MINPREFIX
+
+The minimum number of characters we allow for prefix queries (e.g. `hel*`). Setting it to 1 can hurt performance.
+
+### Default:
+
+2
+
+### Example:
+
+```
+$ redis-server --loadmodule ./redisearch.so MINPREFIX 3
+```
+
+---
+
+## MAXEXPANSIONS
+
+The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.
+
+### Default:
+
+200
+
+### Example:
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
+```
+

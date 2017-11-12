@@ -6,6 +6,7 @@
 #include "geo_index.h"
 #include "index.h"
 #include "query.h"
+#include "config.h"
 #include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
@@ -16,8 +17,6 @@
 #include "rmutil/sds.h"
 #include "tag_index.h"
 #include "concurrent_ctx.h"
-
-#define MAX_PREFIX_EXPANSIONS 200
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
@@ -289,8 +288,8 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  // we allow a minimum of 2 letters in the prefx
-  if (qn->pfx.len < 3) {
+  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
   Trie *terms = q->sctx->spec->terms;
@@ -309,7 +308,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
 
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         itsSz < MAX_PREFIX_EXPANSIONS) {
+         itsSz < RSGlobalConfig.maxPrefixExpansions) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){

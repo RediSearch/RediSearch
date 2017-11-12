@@ -1152,8 +1152,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     return REDISMODULE_ERR;
   }
-  RedisModule_Log(ctx, "notice", "Configuration: concurrent mode: %d, ext load: %s",
-                  RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad);
+  RedisModule_Log(
+      ctx, "notice",
+      "Configuration: concurrent mode: %d, ext load: %s, min prefix: %d, max expansions: %d,",
+      RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad, RSGlobalConfig.minTermPrefix,
+      RSGlobalConfig.maxPrefixExpansions);
 
   // Init extension mechanism
   Extensions_Init();

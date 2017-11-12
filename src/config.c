@@ -23,5 +23,23 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     RSGlobalConfig.enableGC = 0;
   }
 
+  /* Read the minum query prefix allowed */
+  if (argc > 2 && RMUtil_ArgIndex("MINPREFIX", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("MINPREFIX", argv, argc, "l", &RSGlobalConfig.minTermPrefix);
+    if (RSGlobalConfig.minTermPrefix <= 0) {
+      *err = "Invalid MINPREFIX value";
+      return REDISMODULE_ERR;
+    }
+  }
+
+  /* Read the maximum prefix expansions */
+  if (argc > 2 && RMUtil_ArgIndex("MAXEXPANSIONS", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("MAXEXPANSIONS", argv, argc, "l", &RSGlobalConfig.maxPrefixExpansions);
+    if (RSGlobalConfig.maxPrefixExpansions <= 0) {
+      *err = "Invalid MAXEXPANSIONS value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
