@@ -505,6 +505,26 @@
 <h3 id="example_2">Example:<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so NOGC
 </pre></div>
+
+
+<hr />
+<h2 id="minprefix">MINPREFIX<a class="headerlink" href="#minprefix" title="Permanent link">&para;</a></h2>
+<p>The minimum number of characters we allow for prefix queries (e.g. <code>hel*</code>). Setting it to 1 can hurt performance.</p>
+<h3 id="default_3">Default:<a class="headerlink" href="#default_3" title="Permanent link">&para;</a></h3>
+<p>2</p>
+<h3 id="example_3">Example:<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so MINPREFIX <span class="m">3</span>
+</pre></div>
+
+
+<hr />
+<h2 id="maxexpansions">MAXEXPANSIONS<a class="headerlink" href="#maxexpansions" title="Permanent link">&para;</a></h2>
+<p>The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.</p>
+<h3 id="default_4">Default:<a class="headerlink" href="#default_4" title="Permanent link">&para;</a></h3>
+<p>200</p>
+<h3 id="example_4">Example:<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS <span class="m">1000</span>
+</pre></div>
               
               
             </article>
