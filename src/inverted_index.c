@@ -388,6 +388,10 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
 
+  // do not allow the same document to be written to the same index twice.
+  // this can happen with duplicate tags for example
+  if (idx->lastId && idx->lastId == docId) return 0;
+
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // see if we need to grow the current block
@@ -395,6 +399,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     InvertedIndex_AddBlock(idx, docId);
     blk = &INDEX_LAST_BLOCK(idx);
   }
+
   // // this is needed on the first block
   if (blk->firstId == 0) {
     blk->firstId = docId;
@@ -599,7 +604,6 @@ DECODER(readDocIdsOnly) {
 }
 
 IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
-
   switch (flags & INDEX_STORAGE_MASK) {
 
     // (freqs, fields, offset)

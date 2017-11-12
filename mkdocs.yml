@@ -28,9 +28,11 @@ pages:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stop-Words': 'Stopwords.md'
     - 'Sortable Values': 'Sorting.md'
+    - 'Tag Fields': 'Tags.md'
+    - 'Highlighting Results': Highlight.md
+    
     - 'Extension API': Extensions.md
     - 'Stemming Support': Stemming.md
-    - 'Highlighting Results': Highlight.md
     - 'Python API': python_client.md
     - 'Java API': java_client.md
     - 'Document Payloads': payloads.md

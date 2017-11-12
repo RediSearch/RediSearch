@@ -10,7 +10,7 @@
 #include "stopwords.h"
 #include "gc.h"
 
-typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
+typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -27,9 +27,11 @@ typedef enum fieldType { F_FULLTEXT, F_NUMERIC, F_GEO, F_TAG } FieldType;
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
+#define SPEC_SEPARATOR_STR "SEPARATOR"
 
-static const char *SpecTypeNames[] = {[F_FULLTEXT] = SPEC_TEXT_STR, [F_NUMERIC] = NUMERIC_STR,
-                                      [F_GEO] = GEO_STR, [F_TAG] = SPEC_TAG_STR};
+static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
+                                      [FIELD_NUMERIC] = NUMERIC_STR, [FIELD_GEO] = GEO_STR,
+                                      [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -45,6 +47,29 @@ typedef enum {
   FieldSpec_NotIndexable = 0x04
 } FieldSpecOptions;
 
+// Specific options for text fields
+typedef struct {
+  // weight in frequency calculations
+  double weight;
+  // bitwise id for field masks
+  t_fieldId id;
+} TextFieldOptions;
+
+// Flags for tag fields
+typedef enum {
+  TagField_CaseSensitive = 0x01,
+  TagField_TrimSpace = 0x02,
+  TagField_RemoveAccents = 0x04,
+} TagFieldFlags;
+
+#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace &TagField_RemoveAccents;
+
+// Specific options for tag fields
+typedef struct {
+  char separator;
+  TagFieldFlags flags;
+} TagFieldOptions;
+
 /* The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
@@ -52,14 +77,15 @@ Each field has a type, allowing us to add non text fields in the future */
 typedef struct fieldSpec {
   char *name;
   FieldType type;
-  double weight;
-  t_fieldId id;
   FieldSpecOptions options;
 
   int sortIdx;
 
-  // TODO: const char **separators;
-  // size_t numSeparators;
+  union {
+    TextFieldOptions textOpts;
+    TagFieldOptions tagOpts;
+  };
+
   // TODO: More options here..
 } FieldSpec;
 
@@ -100,7 +126,7 @@ typedef enum {
 #define INDEX_STORAGE_MASK                                                                  \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
-#define INDEX_CURRENT_VERSION 7
+#define INDEX_CURRENT_VERSION 8
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
@@ -108,10 +134,13 @@ typedef enum {
 // above - field ides are encoded as their exponent (bit offset)
 #define INDEX_MIN_WIDESCHEMA_VERSION 7
 
+// Versions below this didn't know tag indexes
+#define INDEX_MIN_TAGFIELD_VERSION 8
+
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
-#define FIELD_BIT(id) (((t_fieldMask)1) << id)
+#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
 
 typedef struct {
   char *name;

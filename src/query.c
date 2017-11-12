@@ -14,6 +14,7 @@
 #include "extension.h"
 #include "ext/default.h"
 #include "rmutil/sds.h"
+#include "tag_index.h"
 #include "concurrent_ctx.h"
 
 #define MAX_PREFIX_EXPANSIONS 200
@@ -27,7 +28,7 @@ static void QueryPhraseNode_Free(QueryPhraseNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children && pn->numChildren) {
+  if (pn->children) {
     free(pn->children);
     pn->children = NULL;
   }
@@ -37,12 +38,23 @@ static void QueryUnionNode_Free(QueryUnionNode *pn) {
   for (int i = 0; i < pn->numChildren; i++) {
     QueryNode_Free(pn->children[i]);
   }
-  if (pn->children && pn->numChildren) {
+  if (pn->children) {
     free(pn->children);
     pn->children = NULL;
   }
 }
 
+static void QueryTagNode_Free(QueryTagNode *tag) {
+
+  for (int i = 0; i < tag->numChildren; i++) {
+    QueryNode_Free(tag->children[i]);
+  }
+  if (tag->children) {
+    free(tag->children);
+    tag->children = NULL;
+  }
+  free((char *)tag->fieldName);
+}
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
@@ -79,6 +91,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_WILDCARD:
     case QN_IDS:
       break;
+
+    case QN_TAG:
+      QueryTagNode_Free(&n->tag);
   }
   free(n);
 }
@@ -99,6 +114,10 @@ QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RST
 }
 
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
+  if (len == (size_t)-1) {
+    len = strlen(s);
+  }
+
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
@@ -142,6 +161,16 @@ QueryNode *NewNotNode(QueryNode *n) {
 QueryNode *NewOptionalNode(QueryNode *n) {
   QueryNode *ret = NewQueryNode(QN_OPTIONAL);
   ret->not.child = n;
+  return ret;
+}
+
+QueryNode *NewTagNode(const char *field, size_t len) {
+
+  QueryNode *ret = NewQueryNode(QN_TAG);
+  ret->tag.fieldName = field;
+  ret->tag.len = len;
+  ret->tag.numChildren = 0;
+  ret->tag.children = NULL;
   return ret;
 }
 
@@ -259,6 +288,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_PREFX) {
     return NULL;
   }
+
   // we allow a minimum of 2 letters in the prefx
   if (qn->pfx.len < 3) {
     return NULL;
@@ -379,7 +409,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
 
   FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
-  if (!fs || fs->type != F_NUMERIC) {
+  if (!fs || fs->type != FIELD_NUMERIC) {
     return NULL;
   }
 
@@ -389,7 +419,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node) {
 
   FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
-  if (fs == NULL || fs->type != F_GEO) {
+  if (fs == NULL || fs->type != FIELD_GEO) {
     return NULL;
   }
 
@@ -433,6 +463,70 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
+static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
+                                              RedisModuleKey *k, RedisModuleString *kn) {
+
+  switch (n->type) {
+    case QN_TOKEN:
+      /*TagIndex *idx, DocTable *dt, const char *value, size_t len,
+                                         ConcurrentSearchCtx *csx, RedisModuleKey *k,
+                                         RedisModuleString *keyName);*/
+      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn);
+    case QN_PHRASE: {
+      char *terms[n->pn.numChildren];
+      for (int i = 0; i < n->pn.numChildren; i++) {
+        if (n->pn.children[i]->type == QN_TOKEN) {
+          terms[i] = n->pn.children[i]->tn.str;
+        } else {
+          terms[i] = "";
+        }
+      }
+
+      sds s = sdsjoin(terms, n->pn.numChildren, " ");
+
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), q->conc, k, kn);
+      sdsfree(s);
+      return ret;
+    }
+
+    default:
+      return NULL;
+  }
+}
+
+static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
+  if (qn->type != QN_TAG) {
+    return NULL;
+  }
+  QueryTagNode *node = &qn->tag;
+  RedisModuleKey *k;
+  RedisModuleString *str = TagIndex_FormatName(q->sctx, node->fieldName);
+  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, str, 0, &k);
+  if (!idx) return NULL;
+
+  // a union stage with one child is the same as the child, so we just return it
+  if (node->numChildren == 1) {
+    return query_EvalSingleTagNode(q, idx, node->children[0], k, str);
+  }
+
+  // recursively eval the children
+  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  int n = 0;
+  for (int i = 0; i < node->numChildren; i++) {
+    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i], k, str);
+    if (it) {
+      iters[n++] = it;
+    }
+  }
+  if (n == 0) {
+    free(iters);
+    return NULL;
+  }
+
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
+  return ret;
+}
+
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
@@ -441,6 +535,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalPhraseNode(q, n);
     case QN_UNION:
       return Query_EvalUnionNode(q, n);
+    case QN_TAG:
+      return Query_EvalTagNode(q, n);
     case QN_NOT:
       return Query_EvalNotNode(q, n);
     case QN_PREFX:
@@ -491,6 +587,18 @@ void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   }
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
   un->children[un->numChildren++] = child;
+}
+
+void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t num) {
+  if (!children) return;
+  QueryTagNode *tn = &parent->tag;
+
+  tn->children = realloc(tn->children, sizeof(QueryNode *) * (tn->numChildren + num));
+  for (size_t i = 0; i < num; i++) {
+    if (children[i] && (children[i]->type == QN_TOKEN || children[i]->type == QN_PHRASE)) {
+      tn->children[tn->numChildren++] = children[i];
+    }
+  }
 }
 
 QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
@@ -595,6 +703,13 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
       s = sdscat(s, "UNION {\n");
       for (int i = 0; i < qs->un.numChildren; i++) {
         s = QueryNode_DumpSds(s, q, qs->un.children[i], depth + 1);
+      }
+      s = doPad(s, depth);
+      break;
+    case QN_TAG:
+      s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
+      for (int i = 0; i < qs->tag.numChildren; i++) {
+        s = QueryNode_DumpSds(s, q, qs->tag.children[i], depth + 1);
       }
       s = doPad(s, depth);
       break;
@@ -780,7 +895,7 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL);
+                            Query_OnReopen, plan, NULL, 0);
   }
 
   QueryEvalCtx ev = {

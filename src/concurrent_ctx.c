@@ -38,6 +38,8 @@ static void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
   for (size_t i = 0; i < sz; i++) {
     ConcurrentKeyCtx *kx = &ctx->openKeys[i];
     kx->key = RedisModule_OpenKey(ctx->ctx, kx->keyName, kx->keyFlags);
+    // if the key is marked as shared, make sure it isn't now
+    kx->opts &= ~ConcurrentKey_SharedKey;
     kx->cb(kx->key, kx->privdata);
   }
 }
@@ -96,10 +98,16 @@ void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentRe
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
-    if (ctx->isLocked && ctx->openKeys[i].key) {
+
+    if (ctx->isLocked && ctx->openKeys[i].key &&
+        // if this is a shared key, don't do anything
+        !(ctx->openKeys[i].opts & ConcurrentKey_SharedKey)) {
       RedisModule_CloseKey(ctx->openKeys[i].key);
     }
-    RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
+    // If the key name is a shared string, don't do anything
+    if (!(ctx->openKeys[i].opts & ConcurrentKey_SharedKeyString)) {
+      RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
+    }
 
     // free the private data if needed
     if (ctx->openKeys[i].freePrivData) {
@@ -124,7 +132,8 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
  * when the context is freed to release the private data. If NULL is passed, we do nothing */
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
-                             void *privdata, void (*freePrivDataCallback)(void *)) {
+                             void *privdata, void (*freePrivDataCallback)(void *),
+                             ConcurrentKeyOptions opts) {
   ctx->numOpenKeys++;
   ctx->openKeys = realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.key = key,
@@ -132,7 +141,8 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                                                            .keyFlags = openFlags,
                                                            .cb = cb,
                                                            .privdata = privdata,
-                                                           .freePrivData = freePrivDataCallback};
+                                                           .freePrivData = freePrivDataCallback,
+                                                           .opts = opts};
 }
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {

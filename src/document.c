@@ -14,6 +14,7 @@
 #include "search_request.h"
 #include "rmalloc.h"
 #include "indexer.h"
+#include "tag_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -57,11 +58,11 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
       }
-      if (fs->type == F_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+      if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
         numIndexable++;
       }
       // mark non text fields in the state flags
-      if (fs->type != F_FULLTEXT) {
+      if (fs->type != FIELD_FULLTEXT) {
         aCtx->stateFlags |= ACTX_F_NONTXTFLDS;
       }
 
@@ -195,7 +196,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
-    if (fs->name && fs->type == F_FULLTEXT) {
+    if (fs->name && (fs->type == FIELD_FULLTEXT || fs->type == FIELD_TAG)) {
       size_t n;
       RedisModule_StringPtrLen(aCtx->doc.fields[ii].text, &n);
       totalSize += n;
@@ -255,11 +256,13 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->id, aCtx->totalTokens + 1);
+      curOffsetField =
+          RSByteOffsets_AddField(aCtx->byteOffsets, fs->textOpts.id, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
-    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->id, fs->weight);
+    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.id,
+                                  fs->textOpts.weight);
     size_t newTokPos =
         tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
 
@@ -317,14 +320,52 @@ FIELD_INDEXER(geoIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(tagPreprocessor) {
+
+  fdata->tags = TagIndex_Preprocess(&fs->tagOpts, field);
+  if (fdata->tags == NULL) {
+    *errorString = "Could not index tag field";
+    return -1;
+  }
+  return 0;
+}
+
+FIELD_INDEXER(tagIndexer) {
+  RedisModuleKey *idxKey;
+  RedisModuleString *kname = TagIndex_FormatName(ctx, fs->name);
+  int rc = 0;
+  TagIndex *ti = TagIndex_Open(ctx->redisCtx, kname, 1, &idxKey);
+  if (!ti) {
+    *errorString = "Could not open tag index for indexing";
+    rc = -1;
+    goto cleanup;
+  }
+
+  TagIndex_Index(ti, fdata->tags, aCtx->doc.docId);
+cleanup:
+  RedisModule_CloseKey(idxKey);
+  RedisModule_FreeString(ctx->redisCtx, kname);
+  if (fdata->tags) {
+    for (size_t i = 0; i < Vector_Size(fdata->tags); i++) {
+      char *tok = NULL;
+      Vector_Get(fdata->tags, i, &tok);
+      free(tok);
+    }
+    Vector_Free(fdata->tags);
+  }
+  return rc;
+}
+
 PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
   switch (ft) {
-    case F_FULLTEXT:
+    case FIELD_FULLTEXT:
       return fulltextPreprocessor;
-    case F_NUMERIC:
+    case FIELD_NUMERIC:
       return numericPreprocessor;
-    case F_GEO:
+    case FIELD_GEO:
       return geoPreprocessor;
+    case FIELD_TAG:
+      return tagPreprocessor;
     default:
       return NULL;
   }
@@ -332,11 +373,13 @@ PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
 
 IndexerFunc GetIndexIndexer(const FieldType ft) {
   switch (ft) {
-    case F_NUMERIC:
+    case FIELD_NUMERIC:
       return numericIndexer;
-    case F_GEO:
+    case FIELD_GEO:
       return geoIndexer;
-    case F_FULLTEXT:
+    case FIELD_TAG:
+      return tagIndexer;
+    case FIELD_FULLTEXT:
     default:
       return NULL;
   }
@@ -420,11 +463,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       }
 
       switch (fs->type) {
-        case F_FULLTEXT:
+        case FIELD_FULLTEXT:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
-        case F_NUMERIC: {
+        case FIELD_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
@@ -453,4 +496,15 @@ int Document_CanAdd(Document *doc, IndexSpec *sp, int replace) {
     return 0;
   }
   return 1;
+}
+
+DocumentField *Document_GetField(Document *d, const char *fieldName) {
+  if (!d || !fieldName) return NULL;
+
+  for (int i = 0; i < d->numFields; i++) {
+    if (!strcasecmp(d->fields[i].name, fieldName)) {
+      return &d->fields[i];
+    }
+  }
+  return NULL;
 }

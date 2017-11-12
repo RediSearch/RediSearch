@@ -13,6 +13,7 @@ typedef union FieldData {
     char *slon;
     char *slat;
   } geo;  // lon/lat pair
+  Vector *tags;
 } fieldData;
 
 typedef struct DocumentIndexer {

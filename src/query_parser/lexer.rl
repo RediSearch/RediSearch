@@ -25,14 +25,18 @@ quote = '"';
 or = '|';
 lp = '(';
 rp = ')';
+lb = '{';
+rb = '}';
 colon = ':';
 minus = '-';
 tilde = '~';
 star = '*';
 rsqb = ']';
 lsqb = '[';
+escape = '\\';
+escaped_character = escape (punct | space | escape);
 mod = '@'.alpha.(alnum | '_')* $ 1;
-term = ((any - punct - cntrl - space) | '_')+  $ 0 ;
+term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
 
 main := |*
 
@@ -97,6 +101,20 @@ main := |*
       fbreak;
     }
   };
+  lb => { 
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, LB, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
+  rb => { 
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, RB, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
    colon => { 
      tok.pos = ts-q->raw;
      RSQuery_Parse(pParser, COLON, tok, q);
@@ -104,6 +122,7 @@ main := |*
       fbreak;
     }
    };
+  
 
   minus =>  { 
     tok.pos = ts-q->raw;

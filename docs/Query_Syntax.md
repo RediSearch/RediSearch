@@ -10,6 +10,7 @@ We support a simple syntax for complex queries with the following rules:
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
+* Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on tag fields.
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
@@ -59,6 +60,32 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
 
 5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. 
+
+## Tag Filters
+
+RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax: 
+
+```
+@field:{ tag | tag | ...}
+
+e.g.
+
+@cities:{ New York | Los Angeles | Barcelona }
+```
+
+Tags can have multiple words, or include other punctuation marks other than the field's separator (`,` by default). Punctuation marks in tags should be escaped with a backslash (`\`). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.
+
+Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing *all* tags, you should repeat the tag filter several times, e.g.:
+
+```
+# This will return all documents containing all three cities as tags:
+@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }
+
+# This will return all documents containing either city:
+@cities:{ New York | Los Angeles | Barcelona }
+```
+
+Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc.
 
 ## Geo Filters in Query
 
@@ -169,7 +196,6 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 | WHERE num <= 10 | @num:[-inf 10] |
 | WHERE num < 10 OR num > 20 | @num:[-inf (10] \| @num:[(20 +inf] |
 | WHERE name LIKE 'john%' | @name:john* | 
-| WHERE name LIKE 'john lenn%' | @name:"john lenn*" | 
 
 ## Technical Note
 

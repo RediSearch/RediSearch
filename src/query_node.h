@@ -36,7 +36,10 @@ typedef enum {
   QN_IDS,
 
   /* Wildcard node, used only in conjunction with negative root node to allow negative queries */
-  QN_WILDCARD
+  QN_WILDCARD,
+
+  /* Tag node, a list of tags for a specific tag field */
+  QN_TAG
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -53,6 +56,14 @@ typedef struct {
   struct RSQueryNode **children;
   int numChildren;
 } QueryUnionNode;
+
+typedef struct {
+  const char *fieldName;
+  size_t len;
+
+  struct RSQueryNode **children;
+  int numChildren;
+} QueryTagNode;
 
 typedef struct { struct RSQueryNode *child; } QueryNotNode;
 
@@ -89,6 +100,7 @@ typedef struct RSQueryNode {
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
     QueryWildcardNode wc;
+    QueryTagNode tag;
   };
   t_fieldMask fieldMask;
   /* The node type, for resolving the union access */
@@ -101,4 +113,5 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);
 /* Add a child to a union node  */
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child);
 
+void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t num);
 #endif

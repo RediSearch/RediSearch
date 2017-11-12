@@ -252,14 +252,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric'))
+                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag'))
 
             for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                                'f', 'hello world', 'n', 666))
+                                                'f', 'hello world', 'n', 666, 't', 'foo bar'))
 
             keys = r.keys('*')
-            self.assertEqual(204, len(keys))
+            self.assertEqual(205, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')

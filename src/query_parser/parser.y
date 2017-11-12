@@ -1,4 +1,6 @@
 %left TILDE.
+%left TAGLIST.
+
 %left TERM. 
 %left QUOTE.
 %left COLON.
@@ -6,6 +8,7 @@
 %left NUMBER.
 %left MODIFIER.
 %left STOPWORD.
+
 %left TERMLIST.
 %right LP.
 %left RP.
@@ -35,11 +38,24 @@
 #include "../rmutil/vector.h"
 #include "../query_node.h"
 
+// strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
   char *ret = strndup(s, len);
-  for (int i = 0; i < len; i++) {
-    ret[i] = tolower(ret[i]);
+  char *dst = ret;
+  char *src = dst;
+  while (*src) {
+      // unescape 
+      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+          ++src;
+          continue;
+      }
+      *dst = tolower(*src);
+      ++dst;
+      ++src;
+
   }
+  *dst = '\0';
+  
   return ret;
 }
    
@@ -57,6 +73,9 @@ char *strdupcase(const char *s, size_t len) {
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
+
+%type tag_list { QueryNode *}
+%destructor tag_list { QueryNode_Free($$); }
 
 %type geo_filter { GeoFilter *}
 %destructor geo_filter { GeoFilter_Free($$); }
@@ -88,6 +107,10 @@ query ::= . {
     ctx->root = NULL;
 }
 
+/////////////////////////////////////////////////////////////////
+// AND Clause / Phrase
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= expr(B) expr(C) . [AND] {
 
     // if both B and C are null we return null
@@ -106,10 +129,14 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     }
 } 
 
+
+/////////////////////////////////////////////////////////////////
+// Unions
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= union(B) . [ORX] {
     A = B;
 }
-
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
     
@@ -123,8 +150,6 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
     
 }
 
-
-
 union(A) ::= union(B) OR expr(C). [ORX] {
     
     A = B;
@@ -132,6 +157,10 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     QueryUnionNode_AddChild(A, C); 
 
 }
+
+/////////////////////////////////////////////////////////////////
+// Text Field Filters
+/////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     if (C == NULL) {
@@ -145,13 +174,13 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 }
 
 expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
-    A = NewTokenNode(ctx, strdupcase(C.s, C.len), C.len);
+
+
+    A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
     if (ctx->sctx->spec) {
         A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
     }
 }
-
-
 
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     
@@ -176,6 +205,10 @@ expr(A) ::= LP expr(B) RP . {
     A = B;
 }
 
+/////////////////////////////////////////////////////////////////
+// Term Lists
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= QUOTE termlist(B) QUOTE. {
     B->pn.exact =1;
     A = B;
@@ -186,7 +219,7 @@ term(A) ::= QUOTE term(B) QUOTE. {
 }
 
 expr(A) ::= term(B) .  {
-        A = NewTokenNode(ctx, strdupcase(B.s, B.len), B.len);
+        A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
 }
 
 expr(A) ::= STOPWORD . [STOPWORD] {
@@ -196,30 +229,46 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), B.len));
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), C.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 
 }
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), C.len));
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
     A = B;
 }
 
+/////////////////////////////////////////////////////////////////
+// Negative Clause
+/////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . { 
     A = NewNotNode(B);
 }
+
+/////////////////////////////////////////////////////////////////
+// Optional Clause
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= TILDE expr(B) . { 
     A = NewOptionalNode(B);
 }
 
+/////////////////////////////////////////////////////////////////
+// Prefix experessions
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= term(B) STAR. {
     A = NewPrefixNode(ctx, strdupcase(B.s, B.len), B.len);
 }
+
+/////////////////////////////////////////////////////////////////
+// Field Modidiers
+/////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
     A = B;
@@ -239,6 +288,52 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
+
+/////////////////////////////////////////////////////////////////
+// Tag Lists - curly braces separated lists of words
+/////////////////////////////////////////////////////////////////
+expr(A) ::= modifier(B) COLON tag_list(C) . {
+    if (!C) {
+        A= NULL;
+    } else {
+        A = NewTagNode(strndup(B.s, B.len), B.len);
+        QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
+        
+        // Set the children count on C to 0 so they won't get recursively free'd
+        C->pn.numChildren = 0;
+        QueryNode_Free(C);
+    }
+}
+
+tag_list(A) ::= LB term(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+}
+
+
+tag_list(A) ::= LB termlist(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(A, B);
+}
+
+tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
+    QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    A = B;
+}
+tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+    QueryPhraseNode_AddChild(B, C);
+    A = B;
+}
+
+
+tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
+    A = B;
+}
+
+
+/////////////////////////////////////////////////////////////////
+// Numeric Ranges
+/////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
     C->fieldName = strndup(B.s, B.len);
@@ -248,6 +343,10 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
     A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
 }
+
+/////////////////////////////////////////////////////////////////
+// Geo Filters
+/////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
@@ -264,6 +363,10 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     }
 }
 
+
+/////////////////////////////////////////////////////////////////
+// Primitives - numbers and strings
+/////////////////////////////////////////////////////////////////
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
     A.inclusive = 1;

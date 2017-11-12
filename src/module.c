@@ -10,6 +10,7 @@
 #include "version.h"
 #include "forward_index.h"
 #include "geo_index.h"
+#include "tag_index.h"
 #include "index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
@@ -271,8 +272,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
     int nn = 1;
     REPLY_KVSTR(nn, "type", SpecTypeNames[sp->fields[i].type]);
-    if (sp->fields[i].type == F_FULLTEXT) {
-      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].weight);
+    if (sp->fields[i].type == FIELD_FULLTEXT) {
+      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].textOpts.weight);
+    }
+
+    if (sp->fields[i].type == FIELD_TAG) {
+      char buf[2];
+      sprintf(buf, "%c", sp->fields[i].tagOpts.separator);
+      REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
     }
     if (FieldSpec_IsSortable(&sp->fields[i])) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
@@ -1178,6 +1185,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(TrieType_Register, ctx);
 
   RM_TRY(IndexSpec_RegisterType, ctx);
+
+  RM_TRY(TagIndex_RegisterType, ctx);
 
   RM_TRY(InvertedIndex_RegisterType, ctx);
 
