@@ -58,7 +58,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p) return NULL;
   Vector *ret = NewVector(char *, 4);
-  p = strndup(p, sz);
+  char *pp = p = strndup(p, sz);
   while (p) {
     // get the next token
     size_t toklen;
@@ -73,7 +73,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
       Vector_Push(ret, strdup(tok));
     }
   }
-  free(p);
+  free(pp);
   return ret;
 }
 
