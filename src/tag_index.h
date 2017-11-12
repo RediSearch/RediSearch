@@ -111,6 +111,9 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
 TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);
 
+/* Serialize all the tags in the index to the redis client */
+void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
+
 #define TAGIDX_CURRENT_VERSION 1
 extern RedisModuleType *TagIndexType;
 /* Register the tag index type in redis */

@@ -780,6 +780,44 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 }
 
+/* FT.TAGVALS {idx} {field}
+ * Return all the values of a tag field.
+ * There is no sorting or paging, so be careful with high-cradinality tag fields */
+int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // at least one field, and number of field/text args must be even
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+  size_t len;
+  const char *field = RedisModule_StringPtrLen(argv[2], &len);
+  FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "No such field");
+    goto cleanup;
+  }
+  if (sp->type != FIELD_TAG) {
+    RedisModule_ReplyWithError(ctx, "Not a tag field");
+    goto cleanup;
+  }
+
+  TagIndex *idx = TagIndex_Open(ctx, TagIndex_FormatName(sctx, field), 0, NULL);
+  if (!idx) {
+    RedisModule_ReplyWithError(ctx, "Could not open tag index");
+    goto cleanup;
+  }
+
+  TagIndex_SerializeValues(idx, ctx);
+
+cleanup:
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
 /*
 ## FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}]] | [NUMERIC] ...
@@ -1227,6 +1265,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
 

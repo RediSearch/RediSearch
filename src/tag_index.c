@@ -214,6 +214,25 @@ TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, in
   return ret;
 }
 
+/* Serialize all the tags in the index to the redis client */
+void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
+  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+
+  char *str;
+  tm_len_t slen;
+  void *ptr;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  long long count = 0;
+  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+    ++count;
+    RedisModule_ReplyWithStringBuffer(ctx, str, slen);
+  }
+
+  RedisModule_ReplySetArrayLength(ctx, count);
+
+  TrieMapIterator_Free(it);
+}
+
 RedisModuleType *TagIndexType;
 
 void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {

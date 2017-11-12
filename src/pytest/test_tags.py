@@ -77,6 +77,29 @@ class TagsTestCase(ModuleTestCase('../redisearch.so')):
             with self.assertResponseError():
                 r.execute_command(
                     'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
+    
+    def testTagVals(self):
+        with self.redis() as r:
+            r.flushdb()
+        
+            r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+
+            N = 100
+            alltags = set()
+            for n in range(N):
+                tags = ('foo %d' % n, 'bar %d' % n)
+                alltags.add(tags[0])
+                alltags.add(tags[1])
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' %n, 1.0, 'fields', 
+                                                'tags', ','.join(tags), 'othertags', 'baz %d' % int(n//2)) )
+            for _ in r.retry_with_rdb_reload():
+                res = r.execute_command('ft.tagvals', 'idx', 'tags')
+                self.assertEqual(N*2, len(res))
+                self.assertSetEqual(alltags, set(res))
+
+                res = r.execute_command('ft.tagvals', 'idx', 'othertags')
+                self.assertEqual(N/2, len(res))
 
 
 if __name__ == '__main__':
