@@ -332,13 +332,16 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_INDEXER(tagIndexer) {
   RedisModuleKey *idxKey;
+  int rc = 0;
   TagIndex *ti = TagIndex_Open(ctx->redisCtx, TagIndex_FormatName(ctx, fs->name), 1, &idxKey);
   if (!ti) {
     *errorString = "Could not open tag index for indexing";
-    return -1;
+    rc = -1;
+    goto cleanup;
   }
 
   TagIndex_Index(ti, fdata->tags, aCtx->doc.docId);
+cleanup:
   RedisModule_CloseKey(idxKey);
   if (fdata->tags) {
     for (size_t i = 0; i < Vector_Size(fdata->tags); i++) {
@@ -350,7 +353,7 @@ FIELD_INDEXER(tagIndexer) {
     }
     Vector_Free(fdata->tags);
   }
-  return 0;
+  return rc;
 }
 
 PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
