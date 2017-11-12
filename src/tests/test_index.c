@@ -76,7 +76,7 @@ int testDistance() {
   AggregateResult_AddChild(res, tr2);
 
   int delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQUAL(4, delta);
+  ASSERT_EQUAL(2, delta);
 
   ASSERT_EQUAL(0, IndexResult_IsWithinRange(res, 0, 0));
   ASSERT_EQUAL(0, IndexResult_IsWithinRange(res, 0, 1));
@@ -95,7 +95,7 @@ int testDistance() {
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQUAL(53, delta);
+  ASSERT_EQUAL(9, delta);
 
   // test merge iteration
   RSOffsetIterator it = RSIndexResult_IterateOffsets(res);

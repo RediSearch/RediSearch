@@ -38,14 +38,14 @@ class ScorersTestCase(ModuleTestCase('../redisearch.so')):
             ]
 
             scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'DISMAX', 'DOCSCORE']
-
-            for i, scorer in enumerate(scorers):
-                res = self.search(r, 'idx', 'hello world', 'scorer',
-                                  scorer, 'nocontent', 'withscores', 'limit', 0, 5)
-                res = [float(x) if j > 0 and (j - 1) %
-                       2 == 1 else x for j, x in enumerate(res)]
-                #print res
-                self.assertListEqual(results[i], res)
+            for _ in r.retry_with_rdb_reload():
+                for i, scorer in enumerate(scorers):
+                    res = self.search(r, 'idx', 'hello world', 'scorer',
+                                    scorer, 'nocontent', 'withscores', 'limit', 0, 5)
+                    res = [float(x) if j > 0 and (j - 1) %
+                        2 == 1 else x for j, x in enumerate(res)]
+                    #print res
+                    self.assertListEqual(results[i], res)
 
 if __name__ == '__main__':
 
