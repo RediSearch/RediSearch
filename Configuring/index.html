@@ -477,12 +477,23 @@
 <p><code>$ redis-server --loadmodule ./redisearch.so OPT1 OPT2</code></p>
 </div>
 <h1 id="redisearch-configuration-options">RediSearch Configuration Options<a class="headerlink" href="#redisearch-configuration-options" title="Permanent link">&para;</a></h1>
+<h2 id="timeout">TIMEOUT<a class="headerlink" href="#timeout" title="Permanent link">&para;</a></h2>
+<p>The maximum amount of time <strong>in Millisecods</strong> that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
+The defalt is 500ms. </p>
+<p><strong>NOTE</strong>: This works only in concurrent mode, so enabling SAFEMODE disables ths option.</p>
+<h3 id="default">Default:<a class="headerlink" href="#default" title="Permanent link">&para;</a></h3>
+<p>500</p>
+<h3 id="example">Example:<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so TIMEOUT <span class="m">100</span>
+</pre></div>
+
+
 <h2 id="safemode">SAFEMODE<a class="headerlink" href="#safemode" title="Permanent link">&para;</a></h2>
 <p>If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.</p>
 <p>This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted durin query processing).</p>
-<h3 id="default">Default:<a class="headerlink" href="#default" title="Permanent link">&para;</a></h3>
+<h3 id="default_1">Default:<a class="headerlink" href="#default_1" title="Permanent link">&para;</a></h3>
 <p>Off (not present)</p>
-<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<h3 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so SAFEMODE
 </pre></div>
 
@@ -490,9 +501,9 @@
 <hr />
 <h2 id="extload-file_name">EXTLOAD {file_name}<a class="headerlink" href="#extload-file_name" title="Permanent link">&para;</a></h2>
 <p>If present, we try to load a redisearch extension dynamic library from the specified file path. See <a href="../Extensions">Extensions</a> for details.</p>
-<h3 id="default_1">Default:<a class="headerlink" href="#default_1" title="Permanent link">&para;</a></h3>
+<h3 id="default_2">Default:<a class="headerlink" href="#default_2" title="Permanent link">&para;</a></h3>
 <p>None</p>
-<h3 id="example_1">Example:<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
+<h3 id="example_2">Example:<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
 </pre></div>
 
@@ -500,9 +511,9 @@
 <hr />
 <h2 id="nogc">NOGC<a class="headerlink" href="#nogc" title="Permanent link">&para;</a></h2>
 <p>If set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.</p>
-<h3 id="default_2">Default:<a class="headerlink" href="#default_2" title="Permanent link">&para;</a></h3>
+<h3 id="default_3">Default:<a class="headerlink" href="#default_3" title="Permanent link">&para;</a></h3>
 <p>Not set</p>
-<h3 id="example_2">Example:<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h3>
+<h3 id="example_3">Example:<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so NOGC
 </pre></div>
 
@@ -510,9 +521,9 @@
 <hr />
 <h2 id="minprefix">MINPREFIX<a class="headerlink" href="#minprefix" title="Permanent link">&para;</a></h2>
 <p>The minimum number of characters we allow for prefix queries (e.g. <code>hel*</code>). Setting it to 1 can hurt performance.</p>
-<h3 id="default_3">Default:<a class="headerlink" href="#default_3" title="Permanent link">&para;</a></h3>
+<h3 id="default_4">Default:<a class="headerlink" href="#default_4" title="Permanent link">&para;</a></h3>
 <p>2</p>
-<h3 id="example_3">Example:<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h3>
+<h3 id="example_4">Example:<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so MINPREFIX <span class="m">3</span>
 </pre></div>
 
@@ -520,9 +531,9 @@
 <hr />
 <h2 id="maxexpansions">MAXEXPANSIONS<a class="headerlink" href="#maxexpansions" title="Permanent link">&para;</a></h2>
 <p>The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.</p>
-<h3 id="default_4">Default:<a class="headerlink" href="#default_4" title="Permanent link">&para;</a></h3>
+<h3 id="default_5">Default:<a class="headerlink" href="#default_5" title="Permanent link">&para;</a></h3>
 <p>200</p>
-<h3 id="example_4">Example:<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h3>
+<h3 id="example_5">Example:<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS <span class="m">1000</span>
 </pre></div>
               
