@@ -300,6 +300,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#tag-filters" title="Tag Filters" class="md-nav__link">
+    Tag Filters
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
     Geo Filters in Query
   </a>
@@ -384,6 +391,30 @@
 
 
   <li class="md-nav__item">
+    <a href="../Tags/" title="Tag Fields" class="md-nav__link">
+      Tag Fields
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Highlight/" title="Highlighting Results" class="md-nav__link">
+      Highlighting Results
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
     <a href="../Extensions/" title="Extension API" class="md-nav__link">
       Extension API
     </a>
@@ -398,18 +429,6 @@
   <li class="md-nav__item">
     <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
       Stemming Support
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../Highlight/" title="Highlighting Results" class="md-nav__link">
-      Highlighting Results
     </a>
   </li>
 
@@ -457,13 +476,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-15" type="checkbox" id="nav-15">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-16" type="checkbox" id="nav-16">
     
-    <label class="md-nav__link" for="nav-15">
+    <label class="md-nav__link" for="nav-16">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-15">
+      <label class="md-nav__title" for="nav-16">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -493,13 +512,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-16" type="checkbox" id="nav-16">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
     
-    <label class="md-nav__link" for="nav-16">
+    <label class="md-nav__link" for="nav-17">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-16">
+      <label class="md-nav__title" for="nav-17">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -577,6 +596,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#tag-filters" title="Tag Filters" class="md-nav__link">
+    Tag Filters
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
     Geo Filters in Query
   </a>
@@ -650,6 +676,7 @@
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
 <li>Geo radius matches on geo fields with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code></li>
+<li>Tag field filters with the syntax <code>@field:{tag | tag | ...}</code>. See the full documentation on tag fields.</li>
 <li>Optional terms or clauses: <code>foo ~bar</code> means bar is optional but documents with bar in them will rank higher. </li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
@@ -693,6 +720,27 @@
 <p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. </p>
 </li>
 </ol>
+<h2 id="tag-filters">Tag Filters<a class="headerlink" href="#tag-filters" title="Permanent link">&para;</a></h2>
+<p>RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax: </p>
+<div class="codehilite"><pre><span></span>@field:{ tag | tag | ...}
+
+e.g.
+
+@cities:{ New York | Los Angeles | Barcelona }
+</pre></div>
+
+
+<p>Tags can have multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
+<p>Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing <em>all</em> tags, you should repeat the tag filter several times, e.g.:</p>
+<div class="codehilite"><pre><span></span># This will return all documents containing all three cities as tags:
+@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }
+
+# This will return all documents containing either city:
+@cities:{ New York | Los Angeles | Barcelona }
+</pre></div>
+
+
+<p>Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc.</p>
 <h2 id="geo-filters-in-query">Geo Filters in Query<a class="headerlink" href="#geo-filters-in-query" title="Permanent link">&para;</a></h2>
 <p>As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code>. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).</p>
 <p>Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: <code>chinese restaurant @location:[-122.41 37.77 5 km]</code>.</p>
@@ -895,11 +943,6 @@ hello -worl*
 <tr>
 <td>WHERE name LIKE 'john%'</td>
 <td>@name:john*</td>
-<td></td>
-</tr>
-<tr>
-<td>WHERE name LIKE 'john lenn%'</td>
-<td>@name:"john lenn*"</td>
 <td></td>
 </tr>
 </tbody>

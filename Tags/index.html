@@ -7,7 +7,7 @@
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
       
-        <link rel="canonical" href="http://redisearch.io/Stemming/">
+        <link rel="canonical" href="http://redisearch.io/Tags/">
       
       
       
@@ -17,7 +17,7 @@
     
     
       
-        <title>Stemming Support - RediSearch Documentation</title>
+        <title>Tag Fields - RediSearch Documentation</title>
       
     
     
@@ -78,7 +78,7 @@
             
               
             
-            Stemming Support
+            Tag Fields
           
         </span>
       </div>
@@ -273,11 +273,66 @@
       
       
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Tags/" title="Tag Fields" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Tag Fields
+      </label>
+    
+    <a href="./" title="Tag Fields" class="md-nav__link md-nav__link--active">
       Tag Fields
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-tag-field" title="Creating A Tag Field" class="md-nav__link">
+    Creating A Tag Field
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#querying-tag-fields" title="Querying Tag Fields" class="md-nav__link">
+    Querying Tag Fields
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-tags-in-a-single-filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
+    Multiple Tags In A Single Filter
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-word-tags-and-escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
+    Multi-Word Tags And Escaping
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
     
@@ -309,45 +364,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Stemming Support
-      </label>
-    
-    <a href="./" title="Stemming Support" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
       Stemming Support
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#supported-languages" title="Supported languages:" class="md-nav__link">
-    Supported languages:
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -480,8 +501,29 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#supported-languages" title="Supported languages:" class="md-nav__link">
-    Supported languages:
+  <a href="#creating-a-tag-field" title="Creating A Tag Field" class="md-nav__link">
+    Creating A Tag Field
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#querying-tag-fields" title="Querying Tag Fields" class="md-nav__link">
+    Querying Tag Fields
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-tags-in-a-single-filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
+    Multiple Tags In A Single Filter
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-word-tags-and-escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
+    Multi-Word Tags And Escaping
   </a>
   
 </li>
@@ -497,39 +539,94 @@
           <div class="md-content">
             <article class="md-content__inner md-typeset">
                
-                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Stemming.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
+                 <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Tags.md" title="Edit this page" class="md-icon md-content__edit">edit</a>
                
               
                 
-                <h1 id="stemming-support">Stemming Support<a class="headerlink" href="#stemming-support" title="Permanent link">&para;</a></h1>
-<p>RediSearch supports stemming - that is adding the base form of a word to the index. This allows 
-the query for "going" to also return results for "go" and "gone", for example. </p>
-<p>The current stemming support is based on the Snowball stemmer library, which supports most European
-languages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif
-langauge support, please open an issue). </p>
-<p>For further details see the <a href="http://snowballstem.org/">Snowball Stemmer website</a>.</p>
-<h2 id="supported-languages">Supported languages:<a class="headerlink" href="#supported-languages" title="Permanent link">&para;</a></h2>
-<p>The following languages are supported, and can be passed to the engine 
-when indexing or querying, with lowercase letters:</p>
-<ul>
-<li>arabic</li>
-<li>danish</li>
-<li>dutch</li>
-<li>english</li>
-<li>finnish</li>
-<li>french</li>
-<li>german</li>
-<li>hungarian</li>
-<li>italian</li>
-<li>norwegian</li>
-<li>portuguese</li>
-<li>romanian</li>
-<li>russian</li>
-<li>spanish</li>
-<li>swedish</li>
-<li>tamil</li>
-<li>turkish</li>
-</ul>
+                <h1 id="tag-fields">Tag Fields<a class="headerlink" href="#tag-fields" title="Permanent link">&para;</a></h1>
+<p>RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to full-text field, but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax.</p>
+<p>The main differences between tag fields and full-text fields are:</p>
+<ol>
+<li>
+<p>An entire tag field index resides in a single redis key, and doesn't have a key per term as the full-text one.</p>
+</li>
+<li>
+<p>We do not perform stemming on tag indexes.</p>
+</li>
+<li>
+<p>The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags,
+and we only do whitespace trimming at the end of tags.
+Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations
+we perform are lower-casing (for latin languages only as of now), and whitespace trimming.</p>
+</li>
+<li>
+<p>Tags cannot be found from a general full-text search. If a document has a field called
+"tags" with the values "foo" and "bar", searching for foo or bar without a special tag
+modifier (see below) will not return this document.</p>
+</li>
+<li>
+<p>The index is much simpler and more compressed: We do not store frequencies, offset vectors of
+field flags. The index contains only docuent ids encoded as deltas. This means that an entry in a tag index
+is usually one or two bytes long. This makes them very memory efficient and fast.</p>
+</li>
+<li>
+<p>An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.</p>
+</li>
+</ol>
+<h2 id="creating-a-tag-field">Creating A Tag Field<a class="headerlink" href="#creating-a-tag-field" title="Permanent link">&para;</a></h2>
+<p>Tag fields can be added to the schema in FT.ADD with the following syntax:</p>
+<div class="codehilite"><pre><span></span>FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
+</pre></div>
+
+
+<p>SEPARATOR defaults to a comma (<code>,</code>), and can be any printable ascii character. For example:</p>
+<div class="codehilite"><pre><span></span>FT.CREATE idx SCHEMA tags TAG SEPARATOR &quot;;&quot;
+</pre></div>
+
+
+<h2 id="querying-tag-fields">Querying Tag Fields<a class="headerlink" href="#querying-tag-fields" title="Permanent link">&para;</a></h2>
+<p>As mentioned above, just searching for a tag without any modifiers will not retrieve documents
+containing it.</p>
+<p>The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
+this case):</p>
+<p><code>@&lt;field_name&gt;:{ &lt;tag&gt; | &lt;tag&gt; | ...}</code></p>
+<p>e.g.</p>
+<div class="codehilite"><pre><span></span>    @tags:{hello world | foo bar}
+</pre></div>
+
+
+<p>Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc. For example:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH idx &quot;@title:hello @price:[0 100] @tags:{ foo bar | hello world }
+</pre></div>
+
+
+<h2 id="multiple-tags-in-a-single-filter">Multiple Tags In A Single Filter<a class="headerlink" href="#multiple-tags-in-a-single-filter" title="Permanent link">&para;</a></h2>
+<p>Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing <em>all</em> tags, you should repeat the tag filter several times.</p>
+<p>For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:</p>
+<div class="codehilite"><pre><span></span>FT.CREATE myIndex SCHEMA name TEXT cities TAG
+
+FT.ADD myIndex user1 1.0 FIELDS name &quot;John Doe&quot; cities &quot;New York, Barcelona, San Francisco&quot;
+</pre></div>
+
+
+<p>For this index, the following query will return all the people who visited <strong>at least one</strong> of the following cities:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;@cities:{ New York | Los Angeles | Barcelona }&quot;
+</pre></div>
+
+
+<p>But the next query will return all people who have visited <strong>all three cities</strong>:</p>
+<div class="codehilite"><pre><span></span>@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }
+</pre></div>
+
+
+<h2 id="multi-word-tags-and-escaping">Multi-Word Tags And Escaping<a class="headerlink" href="#multi-word-tags-and-escaping" title="Permanent link">&para;</a></h2>
+<p>Tags can be composed multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). </p>
+<p>It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
+<p>The following are identical:</p>
+<div class="codehilite"><pre><span></span>@tags:{foo\ bar\ baz | hello\ world}
+
+@tags:{foo bar baz | hello world }
+</pre></div>
               
               
             </article>
@@ -543,7 +640,7 @@ when indexing or querying, with lowercase letters:</p>
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Extensions/" title="Extension API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Sorting/" title="Sortable Values" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -552,19 +649,19 @@ when indexing or querying, with lowercase letters:</p>
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Extension API
+                Sortable Values
               </span>
             </div>
           </a>
         
         
-          <a href="../python_client/" title="Python API" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Highlight/" title="Highlighting Results" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Python API
+                Highlighting Results
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
