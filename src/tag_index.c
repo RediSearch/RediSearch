@@ -70,7 +70,8 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
       if (!(opts->flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      Vector_Push(ret, strdup(tok));
+      tok = strndup(tok, toklen);
+      Vector_Push(ret, tok);
     }
   }
   free(pp);

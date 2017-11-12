@@ -276,15 +276,15 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   int i = schemaOffset + 1;
   while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
 
-    if (!__parseFieldSpec(argv, &i, argc, &spec->fields[spec->numFields], err)) {
+    FieldSpec *fs = &spec->fields[spec->numFields++];
+    if (!__parseFieldSpec(argv, &i, argc, fs, err)) {
       if (!*err) {
         *err = "Could not parse field spec";
       }
       goto failure;
     }
 
-    if (spec->fields[spec->numFields].type == FIELD_FULLTEXT &&
-        FieldSpec_IsIndexable(&spec->fields[spec->numFields])) {
+    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
       // make sure we don't have too many indexable fields
       if (id == SPEC_MAX_FIELD_ID) {
         *err = "Too many TEXT fields in schema";
@@ -297,14 +297,14 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
         spec->flags |= Index_WideSchema;
       }
 
-      spec->fields[spec->numFields].textOpts.id = id++;
+      fs->textOpts.id = id++;
     }
-    if (FieldSpec_IsSortable(&spec->fields[spec->numFields])) {
-      spec->fields[spec->numFields].sortIdx = sortIdx++;
+    if (FieldSpec_IsSortable(fs)) {
+      fs->sortIdx = sortIdx++;
     }
-    spec->numFields++;
     if (sortIdx > 255) {
       *err = "Too many sortable fields";
+
       goto failure;
     }
   }
