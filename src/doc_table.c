@@ -7,6 +7,7 @@
 #include "dep/triemap/triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
+#include "spec.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap) {
@@ -215,6 +216,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
     RedisModule_SaveStringBuffer(rdb, dmd->key, strlen(dmd->key) + 1);
     RedisModule_SaveUnsigned(rdb, dmd->flags);
     RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
+    RedisModule_SaveUnsigned(rdb, dmd->len);
     RedisModule_SaveFloat(rdb, dmd->score);
     if (dmd->flags & Document_HasPayload && dmd->payload) {
       // save an extra space for the null terminator to make the payload null terminated on load
@@ -249,9 +251,14 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
     t->docs[i].maxFreq = 0;
+    t->docs[i].len = 0;
     if (encver > 1) {
       t->docs[i].maxFreq = RedisModule_LoadUnsigned(rdb);
     }
+    if (encver >= INDEX_MIN_DOCLEN_VERSION) {
+      t->docs[i].len = RedisModule_LoadUnsigned(rdb);
+    }
+
     t->docs[i].score = RedisModule_LoadFloat(rdb);
     t->docs[i].payload = NULL;
     // read payload if set

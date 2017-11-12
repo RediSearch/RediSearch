@@ -322,6 +322,14 @@ failure:  // on failure free the spec fields array and return an error
   return NULL;
 }
 
+/* Initialize some index stats that might be useful for scoring functions */
+void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
+  stats->numDocs = sp->stats.numDocuments;
+  stats->numTerms = sp->stats.numTerms;
+  stats->avgDocLen =
+      stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
+}
+
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
   if (isNew) {
