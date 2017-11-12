@@ -188,7 +188,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, ch
       ++*offset;
       if (strlen(argv[*offset]) == 1) {
         sp->tagOpts.separator = argv[*offset][0];
-      } else{
+      } else {
         *err = "Invalid separator, only 1 byte ascii characters allowed";
         return 0;
       }
@@ -406,6 +406,7 @@ void IndexSpec_Free(void *ctx) {
     }
     rm_free(spec->fields);
   }
+
   rm_free(spec->name);
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);

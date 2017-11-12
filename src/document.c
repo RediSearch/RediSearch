@@ -340,6 +340,16 @@ FIELD_INDEXER(tagIndexer) {
 
   TagIndex_Index(ti, fdata->tags, aCtx->doc.docId);
   RedisModule_CloseKey(idxKey);
+  if (fdata->tags) {
+    for (size_t i = 0; i < Vector_Size(fdata->tags); i++) {
+      char *tok = NULL;
+      Vector_Get(fdata->tags, i, &tok);
+      if (tok) {
+        free(tok);
+      }
+    }
+    Vector_Free(fdata->tags);
+  }
   return 0;
 }
 

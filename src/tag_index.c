@@ -70,10 +70,10 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
       if (!(opts->flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      Vector_Push(ret, tok);
+      Vector_Push(ret, strdup(tok));
     }
   }
-
+  free(p);
   return ret;
 }
 
@@ -225,6 +225,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     assert(inv != NULL);
     TrieMap_Add(idx->values, s, slen, inv, NULL);
+    rm_free(s);
   }
   return idx;
 }
