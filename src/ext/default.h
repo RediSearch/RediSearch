@@ -7,6 +7,7 @@
 #define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
 #define DISMAX_SCORER_NAME "DISMAX"
 #define BM25_SCORER_NAME "BM25"
+#define DOCSCORE_SCORER "DOCSCORE"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 

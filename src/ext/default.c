@@ -106,6 +106,16 @@ double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadat
 
 /******************************************************************************************
  *
+ * Raw document-score scorer. Just returns the document score
+ *
+ ******************************************************************************************/
+double DocScoreScorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
+                      double minScore) {
+  return dmd->score;
+}
+
+/******************************************************************************************
+ *
  * DISMAX-style scorer
  *
  ******************************************************************************************/
@@ -205,7 +215,12 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  /* Snowball Stemmer is the default expander */
+  /* Register DOCSCORE scorer */
+  if (ctx->RegisterScoringFunction(DOCSCORE_SCORER, DocScoreScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+    /* Snowball Stemmer is the default expander */
   if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
