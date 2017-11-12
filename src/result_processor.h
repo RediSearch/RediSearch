@@ -31,6 +31,9 @@ typedef enum {
   QueryState_OK,
   QueryState_Aborted,
   QueryState_Error,
+  // TimedOut state differs from aborted in that it lets the processors drain their accumulated
+  // results instead of stopping in our tracks and returning nothing.
+  QueryState_TimedOut,
 } QueryState;
 
 /* Query processing context. It is shared by all result processors */
@@ -50,6 +53,9 @@ typedef struct {
   QueryState state;
 
   IndexIterator *rootFilter;
+
+  struct timespec startTime;
+
 } QueryProcessingCtx;
 
 /*

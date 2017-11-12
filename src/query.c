@@ -846,10 +846,13 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
 /* A callback called when we regain concurrent execution context, and the index spec key is
  * reopened. We protect against the case that the spec has been deleted during query execution */
 void Query_OnReopen(RedisModuleKey *k, void *privdata) {
+
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
   QueryPlan *q = privdata;
+
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
+
     q->execCtx.state = QueryState_Aborted;
     q->ctx->spec = NULL;
     return;
@@ -858,6 +861,19 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // The spec might have changed while we were sleeping - for example a realloc of the doc table
   q->ctx->spec = sp;
 
+  if (RSGlobalConfig.queryTimeoutMS > 0) {
+    // Check the elapsed processing time
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+    long long durationNS = (long long)1000000000 * (now.tv_sec - q->execCtx.startTime.tv_sec) +
+                           (now.tv_nsec - q->execCtx.startTime.tv_nsec);
+    // printf("Elapsed: %zdms\n", durationNS / 1000000);
+    // Abort on timeout
+    if (durationNS > RSGlobalConfig.queryTimeoutMS * 1000000) {
+      q->execCtx.state = QueryState_TimedOut;
+    }
+  }
   // q->docTable = &sp->docs;
 }
 
@@ -890,7 +906,9 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
                                        .minScore = 0,
                                        .totalResults = 0,
                                        .state = QueryState_OK,
-                                       .sctx = plan->ctx};
+                                       .sctx = plan->ctx,
+                                       .conc = plan->conc};
+  clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,

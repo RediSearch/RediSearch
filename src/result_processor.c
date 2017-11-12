@@ -30,6 +30,7 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
 inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
   int rc;
   ConcurrentSearchCtx *cxc = rp->ctx.qxc->conc;
+
   do {
 
     // If we can switch - we check the concurrent context switch BEFORE calling the upstream
@@ -117,7 +118,11 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   if (q->rootFilter == NULL) {
     return RS_RESULT_EOF;
   }
-
+  // if we've timed out - abort the root processor and return EOF
+  if (q->execCtx.state == QueryState_TimedOut) {
+    q->rootFilter->Abort(q->rootFilter->ctx);
+    return RS_RESULT_EOF;
+  }
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;

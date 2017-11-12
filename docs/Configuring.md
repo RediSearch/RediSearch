@@ -25,6 +25,25 @@ RediSearch supports a few run-time configuration options that should be determin
 
 # RediSearch Configuration Options
 
+
+## TIMEOUT
+
+The maximum amount of time **in Millisecods** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
+The defalt is 500ms. 
+
+**NOTE**: This works only in concurrent mode, so enabling SAFEMODE disables ths option.
+
+### Default:
+
+500
+
+### Example:
+
+```
+$ redis-server --loadmodule ./redisearch.so TIMEOUT 100
+```
+
+
 ## SAFEMODE
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.

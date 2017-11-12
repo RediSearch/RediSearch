@@ -18,6 +18,10 @@ typedef struct {
 
   // The maximal number of expansions we allow for a prefix. Default: 200
   long long maxPrefixExpansions;
+
+  // The maximal amount of time a single query can take before timing out, in milliseconds.
+  // 0 means unlimited
+  long long queryTimeoutMS;
 } RSConfig;
 
 // global config extern reference
@@ -28,13 +32,11 @@ extern RSConfig RSGlobalConfig;
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
 // default configuration
-#define RS_DEFAULT_CONFIG         \
-  (RSConfig){                     \
-      .concurrentMode = 1,        \
-      .extLoad = NULL,            \
-      .enableGC = 1,              \
-      .minTermPrefix = 2,         \
-      .maxPrefixExpansions = 200, \
-  };
+#define RS_DEFAULT_CONFIG                                                    \
+  (RSConfig) {                                                               \
+    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2, \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500,                       \
+  }
+;
 
 #endif

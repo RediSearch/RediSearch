@@ -51,7 +51,6 @@ int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
 
   long long durationNS = (long long)1000000000 * (now.tv_sec - ctx->lastTime.tv_sec) +
                          (now.tv_nsec - ctx->lastTime.tv_nsec);
-
   // Timeout - release the thread safe context lock and let other threads run as well
   if (durationNS > CONCURRENT_TIMEOUT_NS) {
     ConcurrentSearchCtx_Unlock(ctx);

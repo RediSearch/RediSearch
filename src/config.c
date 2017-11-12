@@ -41,5 +41,14 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  /* Read the query timeout */
+  if (argc > 2 && RMUtil_ArgIndex("TIMEOUT", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("TIMEOUT", argv, argc, "l", &RSGlobalConfig.queryTimeoutMS);
+    if (RSGlobalConfig.queryTimeoutMS < 0) {
+      *err = "Invalid TIMEOUT value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
