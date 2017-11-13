@@ -53,9 +53,13 @@ LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
 LIBFRISO=dep/friso/libfriso.a
+LIBMINIZ=dep/miniz/libminiz.a
 
 # Compilation deps for the module
 LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER)
+ifdef CNSUPPORT
+	LIBS += $(LIBMINIZ)
+endif
 MODULE=$(CC_OBJECTS) $(LIBS)
 
 %.c: %.y
@@ -88,6 +92,8 @@ $(LIBNU):
 .PHONY: $(LIBNU)
 $(LIBFRISO):
 	$(MAKE) -C dep/friso -f Makefile.RediSearch
+$(LIBMINIZ):
+	$(MAKE) -C dep/miniz
 
 # Compile query parse .y and .rl files. 
 # This is not included in the usual make target!
