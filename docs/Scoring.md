@@ -6,7 +6,7 @@ If you prefer a custom scoring function, it is possible to add more functions us
 
 These are the pre-bunldled scoring functions availabe in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.
 
-# TFIDF (Default)
+## TFIDF (Default)
 
 Basic [TF-IDF scoring](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) with a few extra features thrown inside:
 
@@ -49,7 +49,7 @@ def get_score(terms, doc):
     return score
 ```
 
-# TFIDF.DOCNORM
+## TFIDF.DOCNORM
 
 Identical to the default TFIDF scorer, with one important distinction:
 
@@ -59,7 +59,7 @@ Term frequencies are normalized by the length of the document (in number of term
 FT.SEARCH myIndex "foo" SCORER TFIDF.DOCNORM
 ```
 
-# BM25
+## BM25
 
 A vraiation on the basic TF-IDF scorer, see [this Wikipedia article for more info](https://en.wikipedia.org/wiki/Okapi_BM25).
 
@@ -69,7 +69,7 @@ We also multiply the relevance score for each document by the a priory docment s
 FT.SEARCH myIndex "foo" SCORER BM25
 ```
 
-# DISMAX
+## DISMAX
 
 A simple scorer that sums up the frequencies of the matched terms; in the case of union clauses, it will give the maximum value of those matches. No other penalties or factors are applied.
 
@@ -79,7 +79,7 @@ It is not a 1 to 1 implementation of [Solr's DISMAX algorithm](https://wiki.apac
 FT.SEARCH myIndex "foo" SCORER DISMAX
 ```
 
-# DOCSCORE
+## DOCSCORE
 
 A scoring function that just returns the a priory score of the document without applying any calculations to it. Since document scores can be updates, this can be useful if you'd like to use an external score and nothing further.
 
