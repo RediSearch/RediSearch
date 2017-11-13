@@ -307,9 +307,62 @@
       
     
     
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Scoring Documents
+      </label>
+    
     <a href="./" title="Scoring Documents" class="md-nav__link md-nav__link--active">
       Scoring Documents
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tfidf-default" title="TFIDF (Default)" class="md-nav__link">
+    TFIDF (Default)
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tfidfdocnorm" title="TFIDF.DOCNORM" class="md-nav__link">
+    TFIDF.DOCNORM
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bm25" title="BM25" class="md-nav__link">
+    BM25
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dismax" title="DISMAX" class="md-nav__link">
+    DISMAX
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docscore" title="DOCSCORE" class="md-nav__link">
+    DOCSCORE
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
     
   </li>
 
@@ -463,6 +516,46 @@
     
   
   
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tfidf-default" title="TFIDF (Default)" class="md-nav__link">
+    TFIDF (Default)
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tfidfdocnorm" title="TFIDF.DOCNORM" class="md-nav__link">
+    TFIDF.DOCNORM
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bm25" title="BM25" class="md-nav__link">
+    BM25
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dismax" title="DISMAX" class="md-nav__link">
+    DISMAX
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docscore" title="DOCSCORE" class="md-nav__link">
+    DOCSCORE
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -480,7 +573,7 @@
 <p>RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use <a href="../Sorting/">sortable fields</a>. Scoring functions are specified by adding the <code>SCORER {scorer_name}</code> argument to a search query.</p>
 <p>If you prefer a custom scoring function, it is possible to add more functions using the <a href="../Extensions">Extension API</a>.</p>
 <p>These are the pre-bunldled scoring functions availabe in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.</p>
-<h1 id="tfidf-default">TFIDF (Default)<a class="headerlink" href="#tfidf-default" title="Permanent link">&para;</a></h1>
+<h2 id="tfidf-default">TFIDF (Default)<a class="headerlink" href="#tfidf-default" title="Permanent link">&para;</a></h2>
 <p>Basic <a href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF scoring</a> with a few extra features thrown inside:</p>
 <ol>
 <li>
@@ -525,28 +618,28 @@
 </pre></div>
 
 
-<h1 id="tfidfdocnorm">TFIDF.DOCNORM<a class="headerlink" href="#tfidfdocnorm" title="Permanent link">&para;</a></h1>
+<h2 id="tfidfdocnorm">TFIDF.DOCNORM<a class="headerlink" href="#tfidfdocnorm" title="Permanent link">&para;</a></h2>
 <p>Identical to the default TFIDF scorer, with one important distinction:</p>
 <p>Term frequencies are normalized by the length of the document (in number of terms). The length is weighted, so that if a document contains two terms, one in a feild that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER TFIDF.DOCNORM
 </pre></div>
 
 
-<h1 id="bm25">BM25<a class="headerlink" href="#bm25" title="Permanent link">&para;</a></h1>
+<h2 id="bm25">BM25<a class="headerlink" href="#bm25" title="Permanent link">&para;</a></h2>
 <p>A vraiation on the basic TF-IDF scorer, see <a href="https://en.wikipedia.org/wiki/Okapi_BM25">this Wikipedia article for more info</a>.</p>
 <p>We also multiply the relevance score for each document by the a priory docment score, and apply a penalty based on slop as in TFIDF.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER BM25
 </pre></div>
 
 
-<h1 id="dismax">DISMAX<a class="headerlink" href="#dismax" title="Permanent link">&para;</a></h1>
+<h2 id="dismax">DISMAX<a class="headerlink" href="#dismax" title="Permanent link">&para;</a></h2>
 <p>A simple scorer that sums up the frequencies of the matched terms; in the case of union clauses, it will give the maximum value of those matches. No other penalties or factors are applied.</p>
 <p>It is not a 1 to 1 implementation of <a href="https://wiki.apache.org/solr/DisMax">Solr's DISMAX algorithm</a>, but follows it in broad terms.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER DISMAX
 </pre></div>
 
 
-<h1 id="docscore">DOCSCORE<a class="headerlink" href="#docscore" title="Permanent link">&para;</a></h1>
+<h2 id="docscore">DOCSCORE<a class="headerlink" href="#docscore" title="Permanent link">&para;</a></h2>
 <p>A scoring function that just returns the a priory score of the document without applying any calculations to it. Since document scores can be updates, this can be useful if you'd like to use an external score and nothing further.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER DOCSCORE
 </pre></div>
