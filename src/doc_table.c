@@ -250,13 +250,16 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->docs[i].key = RedisModule_LoadStringBuffer(rdb, &len);
 
     t->docs[i].flags = RedisModule_LoadUnsigned(rdb);
-    t->docs[i].maxFreq = 0;
-    t->docs[i].len = 0;
+    t->docs[i].maxFreq = 1;
+    t->docs[i].len = 1;
     if (encver > 1) {
       t->docs[i].maxFreq = RedisModule_LoadUnsigned(rdb);
     }
     if (encver >= INDEX_MIN_DOCLEN_VERSION) {
       t->docs[i].len = RedisModule_LoadUnsigned(rdb);
+    } else {
+      // In older versions, default the len to max freq to avoid division by zero.
+      t->docs[i].len = t->docs[i].maxFreq;
     }
 
     t->docs[i].score = RedisModule_LoadFloat(rdb);
