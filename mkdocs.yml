@@ -30,7 +30,7 @@ pages:
     - 'Sortable Values': 'Sorting.md'
     - 'Tag Fields': 'Tags.md'
     - 'Highlighting Results': Highlight.md
-    
+    - 'Scoring Documents': 'Scoring.md'
     - 'Extension API': Extensions.md
     - 'Stemming Support': Stemming.md
     - 'Python API': python_client.md

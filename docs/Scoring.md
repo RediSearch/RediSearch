@@ -14,8 +14,40 @@ Basic [TF-IDF scoring](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) with a few 
 
 2. We multiply the total TF-IDF for the query term by the a priory document score given on `FT.ADD`.
 
-3. We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penlty, but matches where the search terms are distant see their score reduced significantly. 
+3. We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penlty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - `1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)`. 
 
+So for N terms in a document D, `T1...Tn`, the resulting score could be described with this python function:
+
+```py
+def get_score(terms, doc):
+    # the sum of tf-idf
+    score = 0
+
+    # the distance penalty for all terms
+    dist_penalty = 0
+
+    for i, term in enumerate(terms):
+        # tf normalized by maximum frequency
+        tf = doc.freq(term) / doc.max_freq
+
+        # idf is global for the index, and not calculated each time in real life
+        idf = log2(1 + total_docs / docs_with_term(term))
+        
+        score += tf*idf
+
+        # sum up the distance penalty
+        if i > 0:
+            dist_penalty += min_distance(term, terms[i-1])**2
+
+    # multiply the score by the document score
+    score *= doc.score
+
+    # divide the score by the root of the cumulative distance
+    if len(terms) > 1:
+        score /= sqrt(dist_penalty)
+        
+    return score
+```
 
 # TFIDF.DOCNORM
 

@@ -290,11 +290,11 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
     v1.Free(v1.ctx);
     v2.Free(v2.ctx);
 
-    dist += cd;  // * cd;
+    dist += cd * cd;
   }
 
   // we return 1 if ditance could not be calculate, to avoid division by zero
-  return dist ? dist : agg->numChildren - 1;
+  return dist ? sqrt(dist) : agg->numChildren - 1;
 }
 
 int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,

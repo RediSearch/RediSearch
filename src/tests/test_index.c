@@ -95,7 +95,7 @@ int testDistance() {
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQUAL(9, delta);
+  ASSERT_EQUAL(7, delta);
 
   // test merge iteration
   RSOffsetIterator it = RSIndexResult_IterateOffsets(res);
