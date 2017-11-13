@@ -126,7 +126,8 @@ typedef enum {
 #define INDEX_STORAGE_MASK                                                                  \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
-#define INDEX_CURRENT_VERSION 8
+
+#define INDEX_CURRENT_VERSION 9
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
@@ -136,6 +137,9 @@ typedef enum {
 
 // Versions below this didn't know tag indexes
 #define INDEX_MIN_TAGFIELD_VERSION 8
+
+// Versions below this one don't save the document len when serializing the table
+#define INDEX_MIN_DOCLEN_VERSION 9
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
@@ -179,6 +183,9 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
+
+/* Initialize some index stats that might be useful for scoring functions */
+void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.

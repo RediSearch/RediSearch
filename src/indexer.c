@@ -242,6 +242,7 @@ static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const cha
       --spec->stats.numDocuments;
     }
   }
+
   doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
@@ -275,6 +276,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     RSDocumentMetadata *md = DocTable_Get(&spec->docs, cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
+    md->len = cur->fwIdx->totalFreq;
+
     if (cur->sv) {
       DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
       cur->sv = NULL;

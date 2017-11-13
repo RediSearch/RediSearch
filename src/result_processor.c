@@ -230,6 +230,8 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
   sc->scorer = scx->sf;
   sc->scorerFree = scx->ff;
   sc->scorerCtx.payload = req->payload;
+  // Initialize scorer stats
+  IndexSpec_GetStats(req->sctx->spec, &sc->scorerCtx.indexStats);
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;

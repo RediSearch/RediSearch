@@ -62,7 +62,7 @@ typedef struct {
   /* The maximum frequency of any term in the index, used to normalize frequencies */
   uint32_t maxFreq : 24;
 
-  /* The total number of tokens in the document */
+  /* The total weighted number of tokens in the document, weighted by field weights */
   uint32_t len : 24;
 
   /* Document flags  */
@@ -271,6 +271,12 @@ int RSIndexResult_IsAggregate(RSIndexResult *r);
  * order to completely filter out results and disregard them in the totals count */
 #define RS_SCORE_FILTEROUT (-1.0 / 0.0)
 
+typedef struct {
+  size_t numDocs;
+  size_t numTerms;
+  double avgDocLen;
+} RSIndexStats;
+
 /* The context given to a scoring function. It includes the payload set by the user or expander,
  * the
  * private data set by the extensionm and callback functions */
@@ -279,6 +285,10 @@ typedef struct {
   void *privdata;
   /* Payload set by the client or by the query expander */
   RSPayload payload;
+
+  /* Index statistics to be used by scoring functions */
+  RSIndexStats indexStats;
+
   /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms, that
    * can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
