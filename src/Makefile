@@ -128,14 +128,17 @@ RAMP_COMMAND=ramp-packer -v -m ramp.yml
 
 package: redisearch.so
 	mkdir -p ../build
-	$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
+	# On release tags - package with the version, and package the latest-stable
+	if [[ $TRAVIS_TAG =~ 'v[0-9].*' ]]
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so"
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
+	fi
+	# On master builds - package the master latest
+	if [[ $TRAVIS_BRANCH == 'master' ]]
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.master.zip" "`pwd`/redisearch.so"
+	fi
+	
 .PHONY: package
-
-# Same as package but also packages an artifact with the version number
-package_release: package print_version
-	$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so"
-#.PHONY: package_release
-
 
 print_version: version.h print_version.c
 	@$(CC) -o $@ -DPRINT_VERSION_TARGET $@.c

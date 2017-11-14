@@ -1,0 +1,15 @@
+display_name: redisearch-oss
+author: RedisLabs
+email: dvir@redislabs.com
+description: High performance search index on top of redis
+homepage: http://redisearch.io
+license: AGPLv3
+command_line_args: ""
+min_redis_version: "4.0"
+min_redis_pack_version: "5.0"
+capabilities:
+    - types
+    - no_multi_key
+    - backup_restore
+    - failover_migrate
+    - persistence_aof

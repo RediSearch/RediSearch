@@ -1,45 +1,30 @@
 language: c
 compiler: gcc
 dist: trusty
+install: make clean && make -j 4
 before_script:
 - pip install --user redis ramp-packer rmtest
 - git clone -b 4.0.2 --depth 1 https://github.com/antirez/redis.git
-
+- cd redis
+- make
+- cd ..
 env:
 - REDIS_MODULE_PATH=$TRAVIS_BUILD_DIR/src/redisearch.so REDIS_PATH=$TRAVIS_BUILD_DIR/redis/src/redis-server
-jobs:
-  include:
-    - stage: build
-      script: make -j 8
-      script: 
-        - cd redis
-        - make
-        - cd ..
-    - stage: test
-      script: make test
-    - stage: package_latest
-      script: make package
-    - stage: package_release
-      script: make package_release
-    - stage: deploy
-      deploy: &s3
-        provider: s3
-        access_key_id: $AWS_ACCESS_KEY
-        secret_access_key: $AWS_SECRET
-        skip_cleanup: true
-        acl: public_read
-        bucket: redismodules
-        upload-dir: redisearch-oss
-        local_dir: "$TRAVIS_BUILD_DIR/build"
-stages:
-  - build
-  - test
-  - name: package_latest
-    if: branch = travis  
-  - name: package_release
-    if: tag =~ ^v[0-9]
-  - deploy
-
+script:
+- make test
+- make package
+deploy:
+  - provider: s3
+    access_key_id: $AWS_ACCESS_KEY
+    secret_access_key: $AWS_SECRET
+    skip_cleanup: true
+    acl: public_read
+    bucket: redismodules
+    upload-dir: redisearch-oss
+    on:
+      branch: master
+    local_dir: "$TRAVIS_BUILD_DIR/build"
+  
 notifications:
   slack:
     on_success: change
