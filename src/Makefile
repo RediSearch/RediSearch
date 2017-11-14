@@ -129,16 +129,15 @@ RAMP_COMMAND=ramp-packer -m ramp.yml
 
 ## Package the module into a RAMP package on master builds and version tag builds
 package: redisearch.so
-	mkdir -p ../build
-	set -ex;
+	@mkdir -p ../build
 	@# On release tags (v1.2.3) - package with the version, and package the latest-stable
-	@if (expr "$$TRAVIS_TAG" : "^v[0-9]"); then\
+	@set -e; if (expr "$$TRAVIS_TAG" : "^v[0-9]"); then\
 		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so";\
 		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so";\
 	fi
 	
 	@# On master builds - package the master latest
-	@if [ "$$TRAVIS_BRANCH" = "travis" ]; then\
+	@set -e; if [ "$$TRAVIS_BRANCH" = "master" ]; then\
 		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.master.zip" "`pwd`/redisearch.so";\
 	fi
 	
