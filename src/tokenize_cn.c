@@ -1,4 +1,5 @@
 #include "tokenize.h"
+#include "config.h"
 #include "dep/friso/friso.h"
 #include <assert.h>
 
@@ -18,8 +19,11 @@ static void maybeFrisoInit() {
 
   const char *dictfile = getenv("DICTFILE");
   if (!dictfile) {
-    fprintf(stderr, "No `DICTFILE` specified. Assuming friso/friso.ini\n");
-    dictfile = "friso/friso.ini";
+    dictfile = RSGlobalConfig.frisoIni;
+    if (!dictfile) {
+      fprintf(stderr, "No `DICTFILE` specified. Assuming friso/friso.ini\n");
+      dictfile = "friso/friso.ini";
+    }
   }
   friso_g = friso_new();
   config_g = friso_new_config();

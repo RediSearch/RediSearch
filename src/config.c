@@ -50,5 +50,9 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  if (RMUtil_ArgIndex("FRISOINI", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("FRISOINI", argv, argc, "c", &RSGlobalConfig.frisoIni);
+  }
+
   return REDISMODULE_OK;
 }
