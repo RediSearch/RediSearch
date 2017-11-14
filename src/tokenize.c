@@ -124,13 +124,20 @@ void simpleTokenizer_Free(RSTokenizer *self) {
   free(self);
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  simpleTokenizer *t = calloc(1, sizeof(*t));
+static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
+                    uint32_t opts) {
+  simpleTokenizer *t = (simpleTokenizer *)tokbase;
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
   t->base.ctx.options = opts;
+}
+
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+  simpleTokenizer *t = calloc(1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;
   t->base.Start = simpleTokenizer_Start;
+  t->base.Reset = doReset;
+  t->base.Reset(&t->base, stemmer, stopwords, opts);
   return &t->base;
 }

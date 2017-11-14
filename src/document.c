@@ -18,6 +18,8 @@
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
+static mempool_t *tokpoolLatin_g = NULL;
+static mempool_t *tokpoolCn_g = NULL;
 
 // For documentation, see these functions' definitions
 static void *allocDocumentContext(void) {
@@ -35,6 +37,37 @@ static void freeDocumentContext(void *p) {
   free(aCtx->fspecs);
   free(aCtx->fdatas);
   free(aCtx);
+}
+
+static void *newLatinTokenizerAlloc() {
+  return NewSimpleTokenizer(NULL, NULL, 0);
+}
+static void *newCnTokenizerAlloc() {
+  return NewChineseTokenizer(NULL, NULL, 0);
+}
+static void tokenizerFree(void *p) {
+  RSTokenizer *t = p;
+  t->Free(t);
+}
+
+static RSTokenizer *getTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords) {
+  RSTokenizer *t;
+
+  if (language && strcasecmp(language, "chinese") == 0) {
+    if (!tokpoolCn_g) {
+      tokpoolCn_g = mempool_new(16, newCnTokenizerAlloc, tokenizerFree);
+    }
+
+    t = mempool_get(tokpoolCn_g);
+  } else {
+    if (!tokpoolLatin_g) {
+      tokpoolLatin_g = mempool_new(16, newLatinTokenizerAlloc, tokenizerFree);
+    }
+    t = mempool_get(tokpoolLatin_g);
+  }
+
+  t->Reset(t, stemmer, stopwords, 0);
+  return t;
 }
 
 static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
@@ -115,12 +148,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
-  if (!strcasecmp(b->language, "CHINESE")) {
-    aCtx->tokenizer = NewChineseTokenizer(aCtx->fwIdx->stemmer, sp->stopwords, 0);
-  } else {
-    aCtx->tokenizer = NewSimpleTokenizer(aCtx->fwIdx->stemmer, sp->stopwords, 0);
-  }
-
+  aCtx->tokenizer = getTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
   StopWordList_Ref(sp->stopwords);
 
   aCtx->doc.docId = 0;
