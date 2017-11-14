@@ -124,18 +124,21 @@ clean:
 distclean:
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
-RAMP_COMMAND=ramp-packer -v -m ramp.yml
+RAMP_COMMAND=ramp-packer -m ramp.yml
 
+
+## Package the module into a RAMP package on master builds and version tag builds
 package: redisearch.so
 	mkdir -p ../build
-	# On release tags - package with the version, and package the latest-stable
-	if [[ $TRAVIS_TAG =~ 'v[0-9].*' ]]
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so"
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
+	@# On release tags (v1.2.3) - package with the version, and package the latest-stable
+	@if [[ $$TRAVIS_TAG =~ ^v[0-9] ]]; then\
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so";\
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so";\
 	fi
-	# On master builds - package the master latest
-	if [[ $TRAVIS_BRANCH == 'master' ]]
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.master.zip" "`pwd`/redisearch.so"
+	
+	@# On master builds - package the master latest
+	@if [[ $$TRAVIS_BRANCH = 'travis	' ]]; then\
+		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.master.zip" "`pwd`/redisearch.so";\
 	fi
 	
 .PHONY: package
