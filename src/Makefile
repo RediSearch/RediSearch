@@ -124,9 +124,18 @@ clean:
 distclean:
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
+RAMP_COMMAND=ramp-packer -v -m ramp.yml
+
 package: redisearch.so
 	mkdir -p ../build
-	module_packer -v -o "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
+	$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so"
+.PHONY: package
+
+# Same as package but also packages an artifact with the version number
+package_release: package print_version
+	$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so"
+#.PHONY: package_release
+
 
 print_version: version.h print_version.c
 	@$(CC) -o $@ -DPRINT_VERSION_TARGET $@.c
