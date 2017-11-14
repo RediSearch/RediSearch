@@ -4,6 +4,8 @@
 #include "../redisearch.h"
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
+#include "../tokenize.h"
+#include "../rmutil/vector.h"
 
 /******************************************************************************************
  *
@@ -159,18 +161,89 @@ double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetad
   return _dismaxRecursive(h);
 }
 
+typedef struct {
+  int isCn;
+  union {
+    struct {
+      RSTokenizer *tokenizer;
+      Vector *tokList;
+    } cn;
+    struct sb_stemmer *latin;
+  } data;
+} defaultData;
+
+static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
+  defaultData *dd = ctx->privdata;
+  RSTokenizer *tokenizer;
+  if (!dd) {
+    dd = ctx->privdata = calloc(1, sizeof(*dd));
+    dd->isCn = 1;
+  }
+  if (!dd->data.cn.tokenizer) {
+    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
+    dd->data.cn.tokList = NewVector(char *, 4);
+  }
+
+  tokenizer = dd->data.cn.tokenizer;
+  Vector *tokVec = dd->data.cn.tokList;
+
+  tokVec->top = 0;
+  tokenizer->Start(tokenizer, token->str, token->len, 0);
+
+  Token tTok;
+  while (tokenizer->Next(tokenizer, &tTok)) {
+    char *s = strndup(tTok.tok, tTok.tokLen);
+    Vector_Push(tokVec, s);
+  }
+
+  // Now expand the token with a phrase
+  if (tokVec->top > 1) {
+    // for (size_t ii = 0; ii < tokVec->top; ++ii) {
+    //   const char *s;
+    //   Vector_Get(tokVec, ii, &s);
+    //   printf("Split => %s\n", s);
+    // }
+    ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 1, 0);
+  } else {
+    for (size_t ii = 0; ii < tokVec->top; ++ii) {
+      // Note, top <= 1; but just for simplicity
+      char *s;
+      Vector_Get(tokVec, ii, &s);
+      free(s);
+    }
+  }
+}
+
 /******************************************************************************************
  *
  * Stemmer based query expander
  *
  ******************************************************************************************/
 void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+  // printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
+  defaultData *dd = ctx->privdata;
+  struct sb_stemmer *sb;
+
   if (!ctx->privdata) {
-    ctx->privdata = sb_stemmer_new(ctx->language, NULL);
+    if (!strcasecmp(ctx->language, "chinese")) {
+      expandCn(ctx, token);
+      return;
+    } else {
+      dd = ctx->privdata = calloc(1, sizeof(*dd));
+      dd->isCn = 0;
+      sb = dd->data.latin = sb_stemmer_new(ctx->language, NULL);
+    }
   }
-  struct sb_stemmer *sb = ctx->privdata;
+
+  if (dd->isCn) {
+    expandCn(ctx, token);
+    return;
+  }
+
+  sb = dd->data.latin;
+
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
@@ -191,10 +264,17 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 }
 
 void defaultExpanderFree(void *p) {
-  if (p) {
-
-    sb_stemmer_delete(p);
+  if (!p) {
+    return;
   }
+  defaultData *dd = p;
+  if (dd->isCn) {
+    dd->data.cn.tokenizer->Free(dd->data.cn.tokenizer);
+    Vector_Free(dd->data.cn.tokList);
+  } else if (dd->data.latin) {
+    sb_stemmer_delete(dd->data.latin);
+  }
+  free(dd);
 }
 
 /* Register the default extension */
