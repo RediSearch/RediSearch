@@ -230,6 +230,11 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->byteOffsets = NULL;
   }
 
+  if (aCtx->tokenizer) {
+    aCtx->tokenizer->Free(aCtx->tokenizer);
+    aCtx->tokenizer = NULL;
+  }
+
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
 
   mempool_release(actxPool_g, aCtx);
