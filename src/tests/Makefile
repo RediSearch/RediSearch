@@ -84,6 +84,7 @@ run\:%:
 
 clean:
 	-rm -f *.o
+	-rm -f *.run
 	-rm -f ext-example/*.o ext-example/*.so 
 
 .PHONY: clean
