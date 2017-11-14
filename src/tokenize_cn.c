@@ -1,6 +1,7 @@
 #include "tokenize.h"
 #include "config.h"
 #include "dep/friso/friso.h"
+#include "cndict_loader.h"
 #include <assert.h>
 
 static friso_config_t config_g;
@@ -17,19 +18,20 @@ static void maybeFrisoInit() {
     return;
   }
 
-  const char *dictfile = getenv("DICTFILE");
-  if (!dictfile) {
-    dictfile = RSGlobalConfig.frisoIni;
-    if (!dictfile) {
-      fprintf(stderr, "No `DICTFILE` specified. Assuming friso/friso.ini\n");
-      dictfile = "friso/friso.ini";
-    }
-  }
+  const char *configfile = RSGlobalConfig.frisoIni;
   friso_g = friso_new();
   config_g = friso_new_config();
-  if (!friso_init_from_ifile(friso_g, config_g, (char *)dictfile)) {
-    fprintf(stderr, "Failed to initialize friso. Abort\n");
-    abort();
+
+  if (configfile) {
+    if (!friso_init_from_ifile(friso_g, config_g, (char *)configfile)) {
+      fprintf(stderr, "Failed to initialize friso. Abort\n");
+      abort();
+    }
+  } else {
+    friso_dic_t dic = friso_dic_new();
+    ChineseDictLoad(dic);
+    ChineseDictConfigure(friso_g, config_g);
+    friso_set_dic(friso_g, dic);
   }
 
   // Overrides:

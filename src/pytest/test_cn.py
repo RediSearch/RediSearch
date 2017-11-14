@@ -7,8 +7,6 @@ import os
 
 SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'cn_sample.txt')
 GENTXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'genesis.txt')
-if 'DICTFILE' not in os.environ:
-    os.environ['DICTFILE'] = os.path.join(os.path.dirname(__file__), '..', 'tests', 'friso', 'friso.ini')
 
 class CnTestCase(ModuleTestCase('../redisearch.so')):
     def testCn(self):
@@ -29,3 +27,7 @@ class CnTestCase(ModuleTestCase('../redisearch.so')):
 
         # Add an empty document. Hope we don't crash!
         self.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt1', '')
+
+        # Check splitting. TODO - see how to actually test for matches
+        self.cmd('ft.search', 'idx', 'redis客户端', 'language', 'chinese')
+        self.cmd('ft.search', 'idx', '简介Redisson 是一个高级的分布式协调Redis客户端', 'language', 'chinese')
