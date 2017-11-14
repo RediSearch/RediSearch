@@ -22,7 +22,7 @@ deploy:
     bucket: redismodules
     upload-dir: redisearch-oss
     on:
-      branch: master
+        condition: $TRAVIS_BRANCH = 'master' || $TRAVIS_TAG =~ ^v[0-9]
     local_dir: "$TRAVIS_BUILD_DIR/build"
   
 notifications:
