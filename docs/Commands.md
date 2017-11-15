@@ -123,6 +123,20 @@ Add a documet to the index.
     > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
     > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
     > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    > "chinese"
+
+  If indexing a chinese language document, you must set the language to `chinese`
+  in order for the chinese characters to be tokenized properly.
+
+### Adding Chinese Documents
+
+When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+order for the indexer to properly tokenize the terms. If the default language
+is used then search terms will be extracted based on punctuation characters and
+whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+(via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+checks it against a predefined dictionary. See [Stemming](/Stemming) for more
+information.
 
 ### Complexity
 
@@ -320,7 +334,9 @@ Search the index with a textual query, returning either documents or just ids.
   used to merge results from multiple instances
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
-- **LANGUAGE {language}**: If set, we use a stemmer for the supplied langauge during search for query expansion. 
+- **LANGUAGE {language}**: If set, we use a stemmer for the supplied langauge during search for query expansion.
+  If querying documents in Chinese, this should be set to `chinese` in order to
+  properly tokenize the query terms. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/Extensions).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/Extensions).
