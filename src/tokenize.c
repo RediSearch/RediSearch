@@ -130,6 +130,7 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
   t->base.ctx.options = opts;
+  t->base.ctx.lastOffset = 0;
 }
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
@@ -140,4 +141,55 @@ RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint3
   t->base.Reset = doReset;
   t->base.Reset(&t->base, stemmer, stopwords, opts);
   return &t->base;
+}
+
+static mempool_t *tokpoolLatin_g = NULL;
+static mempool_t *tokpoolCn_g = NULL;
+
+static void *newLatinTokenizerAlloc() {
+  return NewSimpleTokenizer(NULL, NULL, 0);
+}
+static void *newCnTokenizerAlloc() {
+  return NewChineseTokenizer(NULL, NULL, 0);
+}
+static void tokenizerFree(void *p) {
+  RSTokenizer *t = p;
+  t->Free(t);
+}
+
+RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords) {
+  if (language && strcasecmp(language, "chinese") == 0) {
+    return GetChineseTokenizer(stemmer, stopwords);
+  } else {
+    return GetSimpleTokenizer(stemmer, stopwords);
+  }
+}
+
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+  if (!tokpoolCn_g) {
+    tokpoolCn_g = mempool_new(16, newCnTokenizerAlloc, tokenizerFree);
+  }
+
+  RSTokenizer *t = mempool_get(tokpoolCn_g);
+  t->Reset(t, stemmer, stopwords, 0);
+  return t;
+}
+
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+  if (!tokpoolLatin_g) {
+    tokpoolLatin_g = mempool_new(16, newLatinTokenizerAlloc, tokenizerFree);
+  }
+  RSTokenizer *t = mempool_get(tokpoolLatin_g);
+  t->Reset(t, stemmer, stopwords, 0);
+  return t;
+}
+
+void Tokenizer_Release(RSTokenizer *t) {
+  // In the future it would be nice to have an actual ID field or w/e, but for
+  // now we can just compare callback pointers
+  if (t->Next == simpleTokenizer_Next) {
+    mempool_release(tokpoolLatin_g, t);
+  } else {
+    mempool_release(tokpoolCn_g, t);
+  }
 }

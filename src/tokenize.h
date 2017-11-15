@@ -63,17 +63,28 @@ typedef struct RSTokenizer {
 } RSTokenizer;
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-void SimpleTokenizer_Reset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                           uint32_t opts);
-
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-void ChineseTokenizer_Reset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                            uint32_t opts);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
 #define TOKENIZE_NOMODIFY 0x01
 // don't stem a field
 #define TOKENIZE_NOSTEM 0x02
+
+/**
+ * Pooled tokenizer functions:
+ * These functions retrieve tokenizers using pools.
+ *
+ * These should all be called when the GIL is held.
+ */
+
+/**
+ * Retrieves a tokenizer based on the language string. When this tokenizer
+ * is no longer needed, return to the pool using Tokenizer_Release()
+ */
+RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+void Tokenizer_Release(RSTokenizer *t);
 
 #endif

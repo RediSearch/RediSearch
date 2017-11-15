@@ -99,6 +99,7 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
                               uint32_t opts) {
   // Nothing to do here
+  base->ctx.lastOffset = 0;
 }
 
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
