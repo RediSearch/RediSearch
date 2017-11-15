@@ -29,8 +29,8 @@ export CFLAGS
 
 
 # Sources
-SOURCEDIR=$(shell pwd -P)
-CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
+SOURCEDIR:=$(shell pwd -P)
+CC_SOURCES := $(wildcard $(SOURCEDIR)/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
@@ -43,6 +43,8 @@ CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
 # .d files for each c file. These make sure that changing a header file
 # will also change the dependent .c files of it
 CC_DEPS = $(patsubst %.c, %.d, $(CC_SOURCES) )
+
+MODULE_ARTIFACT=redisearch.so
 
 # Library dependencies
 LIBRMUTIL=rmutil/librmutil.a
@@ -62,7 +64,7 @@ MODULE=$(CC_OBJECTS) $(LIBS)
 %.o: %.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $< -o $@ -MMD -MF $(@:.o=.d)
 
-all: redisearch.so
+all: $(MODULE_ARTIFACT)
 
 # Include all dependency files for C files
 -include $(CC_DEPS)
@@ -90,7 +92,7 @@ query_parser:
 	$(MAKE) -C $@
 .PHONY: query_parser
 
-build_tests: redisearch.so libredisearch.a
+build_tests: $(MODULE_ARTIFACT) libredisearch.a
 	$(MAKE) -C tests build
 
 test: $(MODULE) build_tests
@@ -101,10 +103,10 @@ test: $(MODULE) build_tests
 	# Triemap tests
 	$(MAKE) -C dep/triemap/test test
 
-buildall: redisearch.so libredisearch.a build_tests
+buildall: $(MODULE_ARTIFACT) libredisearch.a build_tests
 
 # Build the module...
-redisearch.so: $(MODULE) version.h
+$(MODULE_ARTIFACT): $(MODULE) version.h
 	# Just to make sure old versions of the modules are deleted
 	rm -f module.so
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
@@ -124,24 +126,8 @@ clean:
 distclean:
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
-RAMP_COMMAND=ramp-packer -m ramp.yml
 
-
-## Package the module into a RAMP package on master builds and version tag builds
-package: redisearch.so
-	@mkdir -p ../build
-	@# On release tags (v1.2.3) - package with the version, and package the latest-stable
-	@set -e; if (expr "$$TRAVIS_TAG" : "^v[0-9]"); then\
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.`./print_version`.zip" "`pwd`/redisearch.so";\
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.latest.zip" "`pwd`/redisearch.so";\
-	fi
-	
-	@# On master builds - package the master latest
-	@set -e; if [ "$$TRAVIS_BRANCH" = "master" ]; then\
-		$(RAMP_COMMAND) --output "../build/redisearch-oss.{os}-{architecture}.master.zip" "`pwd`/redisearch.so";\
-	fi
-	
-.PHONY: package
+include Makefile.package
 
 print_version: version.h print_version.c
 	@$(CC) -o $@ -DPRINT_VERSION_TARGET $@.c
