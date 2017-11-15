@@ -170,10 +170,10 @@ typedef struct {
     } cn;
     struct sb_stemmer *latin;
   } data;
-} defaultData;
+} defaultExpanderCtx;
 
 static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
-  defaultData *dd = ctx->privdata;
+  defaultExpanderCtx *dd = ctx->privdata;
   RSTokenizer *tokenizer;
   if (!dd) {
     dd = ctx->privdata = calloc(1, sizeof(*dd));
@@ -223,7 +223,7 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   // printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
-  defaultData *dd = ctx->privdata;
+  defaultExpanderCtx *dd = ctx->privdata;
   struct sb_stemmer *sb;
 
   if (!ctx->privdata) {
@@ -267,7 +267,7 @@ void defaultExpanderFree(void *p) {
   if (!p) {
     return;
   }
-  defaultData *dd = p;
+  defaultExpanderCtx *dd = p;
   if (dd->isCn) {
     dd->data.cn.tokenizer->Free(dd->data.cn.tokenizer);
     Vector_Free(dd->data.cn.tokList);
