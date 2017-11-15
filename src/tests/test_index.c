@@ -813,7 +813,7 @@ void fillSchema(char **args, int N, int *sz) {
   args[1] = "SCHEMA";
   int n = 2;
   for (int i = 0; i < N; i++) {
-    asprintf(&args[n++], "field%d", i);
+    int _ = asprintf(&args[n++], "field%d", i);
     if (i % 2 == 0) {
       args[n++] = "TEXT";
     } else {
