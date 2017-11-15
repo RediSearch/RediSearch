@@ -32,7 +32,7 @@ TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
 # Library dependencies
 DEP_LIBS = ../rmutil/librmutil.a ../trie/libtrie.a ../dep/triemap/libtriemap.a \
 		   ../dep/libnu/libnu.a ../dep/snowball/libstemmer.o ../dep/friso/libfriso.a \
-		   ../../cndict/generated/libcndict_data.a ../dep/miniz/libminiz.a
+		   ../dep/miniz/libminiz.a
 DEPS = $(DEP_OBJECTS) $(DEP_LIBS)
 SRCDIR := $(shell pwd)
 LDFLAGS :=  -lc -lm -ldl -lpthread

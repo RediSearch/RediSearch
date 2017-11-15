@@ -54,12 +54,11 @@ LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
 LIBFRISO=dep/friso/libfriso.a
 LIBMINIZ=dep/miniz/libminiz.a
-LIBCNDICT_DATA=../cndict/generated/libcndict_data.a
 
 # Compilation deps for the module
 LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER)
 # TODO: make conditional on chinese support
-LIBS += $(LIBMINIZ) $(LIBCNDICT_DATA)
+LIBS += $(LIBMINIZ)
 MODULE=$(CC_OBJECTS) $(LIBS)
 
 %.c: %.y
@@ -95,14 +94,16 @@ $(LIBFRISO):
 	$(MAKE) -C dep/friso -f Makefile.RediSearch
 $(LIBMINIZ):
 	$(MAKE) -C dep/miniz
-$(LIBCNDICT_DATA):
-	$(MAKE) -C ../cndict
 
 # Compile query parse .y and .rl files. 
 # This is not included in the usual make target!
 query_parser:
 	$(MAKE) -C $@
 .PHONY: query_parser
+
+build_cndict:
+	$(MAKE) -C ../cndict
+	mv ../cndict/cndict_data.c .
 
 build_tests: $(MODULE_ARTIFACT) libredisearch.a
 	$(MAKE) -C tests build
