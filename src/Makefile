@@ -52,9 +52,14 @@ LIBTRIE=trie/libtrie.a
 LIBTRIEMAP=dep/triemap/libtriemap.a
 LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
+LIBFRISO=dep/friso/libfriso.a
+LIBMINIZ=dep/miniz/libminiz.a
+LIBCNDICT_DATA=../cndict/generated/libcndict_data.a
 
 # Compilation deps for the module
-LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBSTEMMER)
+LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER)
+# TODO: make conditional on chinese support
+LIBS += $(LIBMINIZ) $(LIBCNDICT_DATA)
 MODULE=$(CC_OBJECTS) $(LIBS)
 
 %.c: %.y
@@ -65,6 +70,7 @@ MODULE=$(CC_OBJECTS) $(LIBS)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $< -o $@ -MMD -MF $(@:.o=.d)
 
 all: $(MODULE_ARTIFACT)
+
 
 # Include all dependency files for C files
 -include $(CC_DEPS)
@@ -85,6 +91,12 @@ $(LIBSTEMMER):
 $(LIBNU):
 	$(MAKE) -C dep/libnu
 .PHONY: $(LIBNU)
+$(LIBFRISO):
+	$(MAKE) -C dep/friso -f Makefile.RediSearch
+$(LIBMINIZ):
+	$(MAKE) -C dep/miniz
+$(LIBCNDICT_DATA):
+	$(MAKE) -C ../cndict
 
 # Compile query parse .y and .rl files. 
 # This is not included in the usual make target!
@@ -122,8 +134,9 @@ staticlib: libredisearch.a
 clean:
 	rm -fv *.[oad] trie/*.[oad] query_parser/*.[oad] ext/*.[oad]
 	$(MAKE) -C tests clean
+	$(MAKE) -C ../cndict clean
 
-distclean:
+distclean: clean
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
 

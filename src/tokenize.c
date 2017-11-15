@@ -8,17 +8,19 @@
 #include <strings.h>
 #include <assert.h>
 
-int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
-             StopWordList *stopwords, uint32_t options) {
-  TokenizerCtx tctx;
-  tctx.pos = (char **)&text;
-  tctx.tokenFunc = f;
-  tctx.tokenFuncCtx = ctx;
-  tctx.stemmer = s;
-  tctx.lastOffset = offset;
-  tctx.stopwords = stopwords;
-  tctx.options = options;
-  return _tokenize(&tctx);
+typedef struct {
+  RSTokenizer base;
+  char **pos;
+  Stemmer *stemmer;
+} simpleTokenizer;
+
+static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+  simpleTokenizer *self = (simpleTokenizer *)base;
+  TokenizerCtx *ctx = &base->ctx;
+  ctx->text = text;
+  ctx->options = options;
+  ctx->len = len;
+  self->pos = &ctx->text;
 }
 
 // Shortest word which can/should actually be stemmed
@@ -61,13 +63,13 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 }
 
 // tokenize the text in the context
-int _tokenize(TokenizerCtx *ctx) {
-  u_int pos = ctx->lastOffset;
-
-  while (*ctx->pos != NULL) {
+uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
+  TokenizerCtx *ctx = &base->ctx;
+  simpleTokenizer *self = (simpleTokenizer *)base;
+  while (*self->pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(ctx->pos, &origLen);
+    char *tok = toksep(self->pos, &origLen);
 
     // normalize the token
     size_t normLen = origLen;
@@ -84,7 +86,6 @@ int _tokenize(TokenizerCtx *ctx) {
     }
 
     char *normalized = DefaultNormalize(tok, normBuf, &normLen);
-
     // ignore tokens that turn into nothing
     if (normalized == NULL || normLen == 0) {
       continue;
@@ -94,30 +95,101 @@ int _tokenize(TokenizerCtx *ctx) {
     if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
-    // create the token struct
-    ++pos;
-    Token tokInfo = {.tok = normalized,
-                     .tokLen = normLen,
-                     .raw = tok,
-                     .rawLen = origLen,
-                     .pos = pos,
-                     .stem = NULL};
+
+    *t = (Token){.tok = normalized,
+                 .tokLen = normLen,
+                 .raw = tok,
+                 .rawLen = origLen,
+                 .pos = ++ctx->lastOffset,
+                 .stem = NULL,
+                 .flags = Token_CopyStem};
 
     // if we support stemming - try to stem the word
-    if (ctx->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
+    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
-      const char *stem = ctx->stemmer->Stem(ctx->stemmer->ctx, tok, normLen, &sl);
+      const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
       if (stem && strncmp(stem, tok, normLen)) {
-        tokInfo.stem = stem;
-        tokInfo.stemLen = sl;
+        t->stem = stem;
+        t->stemLen = sl;
       }
     }
 
-    // let it be handled - and break on non zero response
-    if (ctx->tokenFunc(ctx->tokenFuncCtx, &tokInfo) != 0) {
-      break;
-    }
+    return ctx->lastOffset;
   }
 
-  return pos;
+  return 0;
+}
+
+void simpleTokenizer_Free(RSTokenizer *self) {
+  free(self);
+}
+
+static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
+                    uint32_t opts) {
+  simpleTokenizer *t = (simpleTokenizer *)tokbase;
+  t->stemmer = stemmer;
+  t->base.ctx.stopwords = stopwords;
+  t->base.ctx.options = opts;
+  t->base.ctx.lastOffset = 0;
+}
+
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+  simpleTokenizer *t = calloc(1, sizeof(*t));
+  t->base.Free = simpleTokenizer_Free;
+  t->base.Next = simpleTokenizer_Next;
+  t->base.Start = simpleTokenizer_Start;
+  t->base.Reset = doReset;
+  t->base.Reset(&t->base, stemmer, stopwords, opts);
+  return &t->base;
+}
+
+static mempool_t *tokpoolLatin_g = NULL;
+static mempool_t *tokpoolCn_g = NULL;
+
+static void *newLatinTokenizerAlloc() {
+  return NewSimpleTokenizer(NULL, NULL, 0);
+}
+static void *newCnTokenizerAlloc() {
+  return NewChineseTokenizer(NULL, NULL, 0);
+}
+static void tokenizerFree(void *p) {
+  RSTokenizer *t = p;
+  t->Free(t);
+}
+
+RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords) {
+  if (language && strcasecmp(language, "chinese") == 0) {
+    return GetChineseTokenizer(stemmer, stopwords);
+  } else {
+    return GetSimpleTokenizer(stemmer, stopwords);
+  }
+}
+
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+  if (!tokpoolCn_g) {
+    tokpoolCn_g = mempool_new(16, newCnTokenizerAlloc, tokenizerFree);
+  }
+
+  RSTokenizer *t = mempool_get(tokpoolCn_g);
+  t->Reset(t, stemmer, stopwords, 0);
+  return t;
+}
+
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+  if (!tokpoolLatin_g) {
+    tokpoolLatin_g = mempool_new(16, newLatinTokenizerAlloc, tokenizerFree);
+  }
+  RSTokenizer *t = mempool_get(tokpoolLatin_g);
+  t->Reset(t, stemmer, stopwords, 0);
+  return t;
+}
+
+void Tokenizer_Release(RSTokenizer *t) {
+  // In the future it would be nice to have an actual ID field or w/e, but for
+  // now we can just compare callback pointers
+  if (t->Next == simpleTokenizer_Next) {
+    mempool_release(tokpoolLatin_g, t);
+  } else {
+    mempool_release(tokpoolCn_g, t);
+  }
 }

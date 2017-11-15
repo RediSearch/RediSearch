@@ -1,0 +1,15 @@
+上海合作组织/null
+世卫/null
+世界卫生组织/null
+世界银行/null
+东盟/null
+亚太经合组织/null
+人权理事会/null
+六方会谈/null
+北约/null
+哈马斯/null
+安全理事会/null
+安理会/null
+欧佩克/null
+红十字会/null
+联合国/null

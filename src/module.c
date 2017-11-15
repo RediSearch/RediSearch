@@ -22,7 +22,6 @@
 #include "rmutil/util.h"
 #include "spec.h"
 #include "stopwords.h"
-#include "tokenize.h"
 #include "trie/trie_type.h"
 #include "util/logging.h"
 #include "varint.h"
@@ -137,6 +136,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   Document doc;
   Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
   if (!Document_CanAdd(&doc, sp, replace)) {
+    Document_FreeDetached(&doc, ctx);
     RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
   }
@@ -247,8 +247,8 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 }
 
 /* FT.INFO {index}
-*  Provide info and stats about an index
-*/
+ *  Provide info and stats about an index
+ */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
@@ -331,13 +331,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /* FT.MGET {index} {key} ...
-* Get document(s) by their id.
-* Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
-* replace the internal representation of the documents.
-*
-* If referred docs are missing or not HASH keys, we simply reply with Null, but the result will be
-* an array the same size of the ids list
-*/
+ * Get document(s) by their id.
+ * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
+ * replace the internal representation of the documents.
+ *
+ * If referred docs are missing or not HASH keys, we simply reply with Null, but the result will be
+ * an array the same size of the ids list
+ */
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -357,6 +357,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithNull(ctx);
     } else {
       Document_ReplyFields(ctx, &doc);
+      Document_Free(&doc);
     }
   }
 
@@ -366,12 +367,12 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 /* FT.GET {index} {key} ...
-* Get a single document by their id.
-* Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
-* replace the internal representation of the documents.
-*
-* If referred docs are missing or not HASH keys, we simply reply with Null
-*/
+ * Get a single document by their id.
+ * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
+ * replace the internal representation of the documents.
+ *
+ * If referred docs are missing or not HASH keys, we simply reply with Null
+ */
 int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
@@ -391,7 +392,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     Document_ReplyFields(ctx, &doc);
   }
   SearchCtx_Free(sctx);
-
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
@@ -475,14 +476,14 @@ end:
 }
 
 /* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
-*
-*  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
-*
-*  This command is used only for AOF rewrite and makes sure the document table is rebuilt in the
-*  same order as as in memory
-*
-*  Returns the docId on success or 0 on failure
-*/
+ *
+ *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
+ *
+ *  This command is used only for AOF rewrite and makes sure the document table is rebuilt in the
+ *  same order as as in memory
+ *
+ *  Returns the docId on success or 0 on failure
+ */
 int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
   if (argc != 7) return RedisModule_WrongArity(ctx);
@@ -549,10 +550,10 @@ int TermAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /* FT.DEL {index} {doc_id}
-*  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
-*
-*  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
-*/
+ *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
+ *
+ *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
+ */
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
@@ -865,24 +866,24 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 /* FT.OPTIMIZE <index>
-*  After the index is built (and doesn't need to be updated again withuot a
-* complete rebuild)
-*  we can optimize memory consumption by trimming all index buffers to their
-* actual size.
-*
-*  Warning 1: This will delete score indexes for small words (n < 5000), so
-* updating the index
-* after
-*  optimizing it might lead to screwed up results (TODO: rebuild score indexes
-* if needed).
-*  The simple solution to that is to call optimize again after adding
-* documents
-* to the index.
-*
-*  Warning 2: This blocks redis for a long time. Do not run it on production
-* instances
-*
-*/
+ *  After the index is built (and doesn't need to be updated again withuot a
+ * complete rebuild)
+ *  we can optimize memory consumption by trimming all index buffers to their
+ * actual size.
+ *
+ *  Warning 1: This will delete score indexes for small words (n < 5000), so
+ * updating the index
+ * after
+ *  optimizing it might lead to screwed up results (TODO: rebuild score indexes
+ * if needed).
+ *  The simple solution to that is to call optimize again after adding
+ * documents
+ * to the index.
+ *
+ *  Warning 2: This blocks redis for a long time. Do not run it on production
+ * instances
+ *
+ */
 int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 2) {
@@ -901,12 +902,12 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 /*
-* FT.DROP <index>
-* Deletes all the keys associated with the index.
-* If no other data is on the redis instance, this is equivalent to FLUSHDB,
-* apart from the fact
-* that the index specification is not deleted.
-*/
+ * FT.DROP <index>
+ * Deletes all the keys associated with the index.
+ * If no other data is on the redis instance, this is equivalent to FLUSHDB,
+ * apart from the fact
+ * that the index specification is not deleted.
+ */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 2) {

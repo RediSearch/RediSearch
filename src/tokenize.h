@@ -10,13 +10,18 @@
 #include <stdlib.h>
 #include <strings.h>
 
+typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
+
 /* Represents a token found in a document */
 typedef struct {
   // Normalized string
   const char *tok;
 
   // token string length
-  size_t tokLen;
+  uint32_t tokLen;
+
+  // Token needs to be copied. Don't rely on `raw` pointer.
+  uint32_t flags;
 
   // Stem. May be NULL
   const char *stem;
@@ -35,39 +40,51 @@ typedef struct {
   uint32_t pos;
 } Token;
 
-// A TokenFunc handles tokens in a tokenizer, for example aggregates them
-// or builds the query tree.
-// t - is the normalized token, which may be used for comparisons, processing, etc.
-// tOrig - is the original token in the input text. Used if TOKENIZE_NOMODIFY was
-// requested
-typedef int (*TokenFunc)(void *ctx, const Token *tokInfo);
-
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
 
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
-  char **pos;
-  TokenFunc tokenFunc;
-  void *tokenFuncCtx;
-  Stemmer *stemmer;
+  char *text;
+  size_t len;
   StopWordList *stopwords;
-  u_int lastOffset;
+  uint32_t lastOffset;
   uint32_t options;
 } TokenizerCtx;
 
-/* The actual tokenizing process runner */
-int _tokenize(TokenizerCtx *ctx);
+typedef struct RSTokenizer {
+  TokenizerCtx ctx;
+  // read the next token. Return its position or 0 if we can't read anymore
+  uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
+  void (*Free)(struct RSTokenizer *self);
+  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
+  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+} RSTokenizer;
 
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+
+#define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
 #define TOKENIZE_NOMODIFY 0x01
+// don't stem a field
+#define TOKENIZE_NOSTEM 0x02
 
-/** The extenral API. Tokenize text, and create tokens with the given score and fieldId.
-TokenFunc is a callback that will be called for each token found
-if doStem is 1, we will add stemming extraction for the text
-*/
-int tokenize(const char *text, void *ctx, TokenFunc f, Stemmer *s, unsigned int offset,
-             StopWordList *stopwords, uint32_t options);
+/**
+ * Pooled tokenizer functions:
+ * These functions retrieve tokenizers using pools.
+ *
+ * These should all be called when the GIL is held.
+ */
+
+/**
+ * Retrieves a tokenizer based on the language string. When this tokenizer
+ * is no longer needed, return to the pool using Tokenizer_Release()
+ */
+RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+void Tokenizer_Release(RSTokenizer *t);
 
 #endif

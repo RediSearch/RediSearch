@@ -86,21 +86,14 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
   return curFrag;
 }
 
-typedef struct {
-  FragmentList *fragList;
-  const FragmentSearchTerm *terms;
-  size_t numTerms;
-} bufTokenizerCtx;
-
-static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
-  bufTokenizerCtx *ctx = ctxPtr;
-  FragmentList *fragList = ctx->fragList;
+static void extractToken(FragmentList *fragList, const Token *tokInfo,
+                         const FragmentSearchTerm *terms, size_t numTerms) {
   const FragmentSearchTerm *term = NULL;
   uint32_t termId;
 
   // See if this token matches any of our terms.
-  for (termId = 0; termId < ctx->numTerms; ++termId) {
-    const FragmentSearchTerm *cur = ctx->terms + termId;
+  for (termId = 0; termId < numTerms; ++termId) {
+    const FragmentSearchTerm *cur = terms + termId;
     if (tokInfo->tokLen == cur->len && strncmp(tokInfo->tok, cur->tok, cur->len) == 0) {
     } else if (tokInfo->stem && tokInfo->stemLen == cur->len &&
                strncmp(tokInfo->stem, cur->tok, cur->len) == 0) {
@@ -114,13 +107,11 @@ static int tokenizerCallback(void *ctxPtr, const Token *tokInfo) {
   // Don't care about this token
   if (!term) {
     fragList->numToksSinceLastMatch++;
-    return 0;
+    return;
   }
 
-  Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw,
-                                                   tokInfo->rawLen, term->score);
-
-  return 0;
+  FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw, tokInfo->rawLen,
+                               term->score);
 }
 
 void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
@@ -128,14 +119,11 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
                                     size_t numTerms) {
   fragList->doc = doc;
   fragList->docLen = strlen(doc);
-  bufTokenizerCtx ctx = {.fragList = fragList, .terms = terms, .numTerms = numTerms};
-
-  tokenize(doc, &ctx, tokenizerCallback, stemmer, 0, stopwords, TOKENIZE_NOMODIFY);
-  const Fragment *frags = FragmentList_GetFragments(fragList);
-
-  float totalScore = 0;
-  if (fragList->numFrags) {
-    return;
+  RSTokenizer *tokenizer = NewSimpleTokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
+  tokenizer->Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
+  Token tokInfo;
+  while (tokenizer->Next(tokenizer, &tokInfo)) {
+    extractToken(fragList, &tokInfo, terms, numTerms);
   }
 }
 
@@ -437,7 +425,7 @@ void FragmentList_Free(FragmentList *fragList) {
  *    noting the terms for each.
  */
 void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
-                                  FragmentTermIterator *iter) {
+                                  FragmentTermIterator *iter, int options) {
   fragList->docLen = docLen;
   fragList->doc = doc;
   FragmentTerm *curTerm;
@@ -455,12 +443,17 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
 
     // Get the length of the current token. This is used to highlight the term
     // (if requested), and just terminates at the first non-separator character
-    size_t len = 0;
-    for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+    size_t len;
+    if (options & FRAGMENTIZE_TOKLEN_EXACT) {
+      len = curTerm->len;
+    } else {
+      len = 0;
+      for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+      }
     }
 
-    Fragment *curFrag = FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos,
-                                                     doc + curTerm->bytePos, len, curTerm->score);
+    FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos, doc + curTerm->bytePos,
+                                 len, curTerm->score);
     lastTokPos = curTerm->tokPos;
   }
 }
@@ -499,6 +492,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   // printf("Term Pointer: %p\n", term);
   iter->tmpTerm.score = term->idf;
   iter->tmpTerm.termId = term->id;
+  iter->tmpTerm.len = term->len;
   iter->tmpTerm.tokPos = iter->curTokPos;
   iter->tmpTerm.bytePos = iter->curByteOffset;
   *termInfo = &iter->tmpTerm;

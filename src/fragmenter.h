@@ -45,6 +45,7 @@ typedef struct {
   uint32_t tokPos;
   uint32_t bytePos;
   uint32_t termId;
+  uint32_t len;
   float score;
 } FragmentTerm;
 
@@ -167,8 +168,9 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
                                     size_t numTerms);
 
+#define FRAGMENTIZE_TOKLEN_EXACT 0x01
 void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
-                                  FragmentTermIterator *iter);
+                                  FragmentTermIterator *iter, int options);
 
 typedef struct {
   const char *openTag;

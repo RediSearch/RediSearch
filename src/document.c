@@ -103,8 +103,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->stopwords = sp->stopwords;
   aCtx->indexer = GetDocumentIndexer(sp->name);
+
   // Assign the document:
   AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields);
 
@@ -115,6 +115,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
+  aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
   StopWordList_Ref(sp->stopwords);
 
   aCtx->doc.docId = 0;
@@ -224,12 +225,13 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->byteOffsets = NULL;
   }
 
-  ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
-
-  if (aCtx->stopwords) {
-    StopWordList_Unref(aCtx->stopwords);
-    aCtx->stopwords = NULL;
+  if (aCtx->tokenizer) {
+    // aCtx->tokenizer->Free(aCtx->tokenizer);
+    Tokenizer_Release(aCtx->tokenizer);
+    aCtx->tokenizer = NULL;
   }
+
+  ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
 
   mempool_release(actxPool_g, aCtx);
 }
@@ -245,7 +247,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 #define FIELD_PREPROCESSOR FIELD_HANDLER
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
-  const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  size_t fl;
+  const char *c = RedisModule_StringPtrLen(field->text, &fl);
   if (FieldSpec_IsSortable(fs)) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
@@ -263,13 +266,20 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
     ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.id,
                                   fs->textOpts.weight);
-    size_t newTokPos =
-        tokenize(c, &tokCtx, forwardIndexTokenFunc, stemmer, aCtx->totalTokens, aCtx->stopwords, 0);
+    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl,
+                           FieldSpec_IsNoStem(fs) ? TOKENIZE_NOSTEM : TOKENIZE_DEFAULT_OPTIONS);
+    Token tok;
+    uint32_t lastTokPos = 0;
+    uint32_t newTokPos;
+    while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
+      forwardIndexTokenFunc(&tokCtx, &tok);
+      lastTokPos = newTokPos;
+    }
 
     if (curOffsetField) {
-      curOffsetField->lastTokPos = newTokPos;
+      curOffsetField->lastTokPos = lastTokPos;
     }
-    aCtx->totalTokens = newTokPos;
+    aCtx->totalTokens = lastTokPos;
   }
   return 0;
 }

@@ -10,6 +10,8 @@ typedef struct {
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
+  // Path to friso.ini for chinese dictionary file
+  const char *frisoIni;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
 

@@ -54,6 +54,7 @@ Official (Redis Labs) and community Clients:
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact Phrase Search.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
+* Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Limiting searches to specific document fields (up to 32 fields supported).
 * Numeric filters and ranges.
 * Geographical search utilizing redis' own GEO commands.

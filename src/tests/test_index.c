@@ -668,19 +668,19 @@ int tokenFunc(void *ctx, const Token *t) {
   return 0;
 }
 
-int testTokenize() {
-  char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
-  tokenContext ctx = {0};
-  const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
-  ctx.expected = (char **)expected;
+// int testTokenize() {
+//   char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
+//   tokenContext ctx = {0};
+//   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
+//   ctx.expected = (char **)expected;
 
-  tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
-  ASSERT(ctx.num == 5);
+//   tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
+//   ASSERT(ctx.num == 5);
 
-  free(txt);
+//   free(txt);
 
-  return 0;
-}
+//   return 0;
+// }
 
 // int testForwardIndex() {
 
@@ -1107,7 +1107,7 @@ TEST_MAIN({
   TESTFUNC(testUnion);
 
   TESTFUNC(testBuffer);
-  TESTFUNC(testTokenize);
+  // TESTFUNC(testTokenize);
   TESTFUNC(testIndexSpec);
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);

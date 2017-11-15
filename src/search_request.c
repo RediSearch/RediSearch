@@ -216,6 +216,7 @@ static void FieldList_Free(FieldList *fields) {
     ReturnedField_Free(fields->fields + ii);
   }
   ReturnedField_Free(&fields->defaultField);
+  free(fields->fields);
 }
 
 ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname) {

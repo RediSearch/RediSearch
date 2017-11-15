@@ -145,8 +145,8 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 }
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
-                                     uint32_t pos, float fieldScore, t_fieldId fieldId,
-                                     int isStem) {
+                                     uint32_t pos, float fieldScore, t_fieldId fieldId, int isStem,
+                                     int shouldCopy) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
@@ -159,12 +159,12 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
-
-    if (isStem) {
+    if (shouldCopy) {
       h->term = copyTempString(idx, tok, tokLen);
     } else {
       h->term = tok;
     }
+
     h->len = tokLen;
     h->freq = 0;
 
@@ -203,7 +203,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
-                           tokCtx->fieldScore, tokCtx->fieldId, 0);
+                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw);
 
   if (tokCtx->allOffsets) {
     VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
@@ -211,7 +211,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 
   if (tokInfo->stem) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
-                             tokCtx->fieldScore, tokCtx->fieldId, 1);
+                             tokCtx->fieldScore, tokCtx->fieldId, 1,
+                             tokInfo->flags & Token_CopyStem);
   }
   return 0;
 }

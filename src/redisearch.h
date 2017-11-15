@@ -119,10 +119,18 @@ typedef struct RSQueryExpanderCtx {
 
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its
-  length, and flags is a 32 bit flag mask that can be used by the extension to set private
-  information on the token */
+   * length, and flags is a 32 bit flag mask that can be used by the extension to set private
+   * information on the token 
+   * */
   void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                       RSTokenFlags flags);
+  
+  /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
+   * with num its len, each member of it is a null terminated string. If replace is set to 1, we replace
+   * the original token with the new phrase. If exact is 1 the expanded phrase is an exact match phrase
+   */
+  void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
+                                RSTokenFlags flags, int replace, int exact);
 
   /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
    */

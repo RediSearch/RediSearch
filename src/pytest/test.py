@@ -377,10 +377,12 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                     'num', 'numeric', 'sortable', 'noindex',
                     'extra', 'text', 'noindex', 'sortable'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
-                                                'foo', 'hello world', 'num', 1, 'extra', 'lorem ipsum'))
+                                                'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum'))
             res = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent')
             self.assertListEqual([1, 'doc1'], res)
             res = r.execute_command('ft.search', 'idx', 'lorem ipsum', 'nocontent')
+            self.assertListEqual([0], res)
+            res = r.execute_command('ft.search', 'idx', '@extra:hello', 'nocontent')
             self.assertListEqual([0], res)
             res = r.execute_command('ft.search', 'idx', '@num:[1 1]', 'nocontent')
             self.assertListEqual([0], res)
@@ -1329,6 +1331,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def aofTestCommon(self, reloadfn):
         self.spawn_server(use_aof=True)
+
+        # TODO: Change this attribute in rmtest
+        if self.server._is_external:
+            raise unittest.SkipTest('Cannot run AOF tests on external server')
+
         self.cmd('ft.create', 'idx', 'schema', 'field1', 'text', 'field2', 'numeric')
         reloadfn()
         for x in range(1, 10):
