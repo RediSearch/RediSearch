@@ -189,7 +189,7 @@ void IndexResult_Init(RSIndexResult *h) {
 int RSIndexResult_HasOffsets(RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
-      return res->offsetsSz > 0;
+      return res->term.offsets.len > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
