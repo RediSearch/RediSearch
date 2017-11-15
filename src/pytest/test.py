@@ -1331,6 +1331,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def aofTestCommon(self, reloadfn):
         self.spawn_server(use_aof=True)
+
+        # TODO: Change this attribute in rmtest
+        if self.server._is_external:
+            raise unittest.SkipTest('Cannot run AOF tests on external server')
+
         self.cmd('ft.create', 'idx', 'schema', 'field1', 'text', 'field2', 'numeric')
         reloadfn()
         for x in range(1, 10):
