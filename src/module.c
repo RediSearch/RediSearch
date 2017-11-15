@@ -136,6 +136,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   Document doc;
   Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
   if (!Document_CanAdd(&doc, sp, replace)) {
+    Document_FreeDetached(&doc, ctx);
     RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
   }
@@ -356,6 +357,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithNull(ctx);
     } else {
       Document_ReplyFields(ctx, &doc);
+      Document_Free(&doc);
     }
   }
 
@@ -390,7 +392,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     Document_ReplyFields(ctx, &doc);
   }
   SearchCtx_Free(sctx);
-
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
