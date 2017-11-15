@@ -41,7 +41,8 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
                          .isCopy = 0,
                          .freq = 0,
                          .term = (RSTermRecord){
-                             .term = term, .offsets = (RSOffsetVector){},
+                             .term = term,
+                             .offsets = (RSOffsetVector){},
                          }};
   return res;
 }
@@ -62,7 +63,11 @@ RSIndexResult *NewVirtualResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .type = RSResultType_Virtual, .docId = 0, .fieldMask = 0, .freq = 0, .isCopy = 0,
+      .type = RSResultType_Virtual,
+      .docId = 0,
+      .fieldMask = 0,
+      .freq = 0,
+      .isCopy = 0,
   };
   return res;
 }
@@ -184,7 +189,7 @@ void IndexResult_Init(RSIndexResult *h) {
 int RSIndexResult_HasOffsets(RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
-      return 1;
+      return res->offsetsSz > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
@@ -412,7 +417,7 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
  * terms. That is the total number of non matched offsets between the terms is no bigger than
  * maxSlop.
  * e.g. for an exact match, the slop allowed is 0.
-  */
+ */
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
   // check if calculation is even relevant here...
@@ -434,6 +439,11 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
       positions[n] = 0;
       n++;
     }
+  }
+
+  // No applicable offset children - just return 1
+  if (n == 0) {
+    return 1;
   }
 
   int rc;
