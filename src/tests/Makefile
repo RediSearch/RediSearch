@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -O3 -fPIC -std=gnu99 -I./ 
+CFLAGS = -g -O3 -fPIC -D_GNU_SOURCE -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
