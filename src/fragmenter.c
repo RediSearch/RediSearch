@@ -430,6 +430,7 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
   fragList->doc = doc;
   FragmentTerm *curTerm;
   size_t lastTokPos = -1;
+  size_t lastByteEnd = 0;
 
   while (FragmentTermIterator_Next(iter, &curTerm)) {
     if (curTerm == NULL) {
@@ -438,6 +439,11 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
     }
 
     if (curTerm->tokPos == lastTokPos) {
+      continue;
+    }
+
+    if (curTerm->bytePos < lastByteEnd) {
+      // If our length estimations are off, don't use already-swallowed matches
       continue;
     }
 
@@ -455,6 +461,7 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
     FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos, doc + curTerm->bytePos,
                                  len, curTerm->score);
     lastTokPos = curTerm->tokPos;
+    lastByteEnd = curTerm->bytePos + len;
   }
 }
 
