@@ -36,6 +36,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(SOURCEDIR)/dep/cndict_data.c
 
 # Convert all sources to .o files
 CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
@@ -103,7 +104,7 @@ query_parser:
 
 build_cndict:
 	$(MAKE) -C ../cndict
-	mv ../cndict/cndict_data.c .
+	mv ../cndict/cndict_data.c dep/
 
 build_tests: $(MODULE_ARTIFACT) libredisearch.a
 	$(MAKE) -C tests build

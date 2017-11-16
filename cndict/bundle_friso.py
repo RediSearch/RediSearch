@@ -17,9 +17,9 @@ import errno
 import os
 import re
 import struct
-import subprocess
 import sys
 import time
+import string
 from argparse import ArgumentParser
 
 # Load the ini file
@@ -28,7 +28,7 @@ ap.add_argument('-i', '--ini', default='friso/friso.ini',
                 help='ini file to use for initialization')
 ap.add_argument('-m', '--mode', default='c', help='output mode',
                 choices=['c', 'raw_z', 'raw_u'])
-ap.add_argument('-d', '--dir', default='',
+ap.add_argument('-d', '--dir', default='.',
                 help='Override directory of lex files')
 ap.add_argument('-o', '--out', help='Name of destination directory',
                 default='cndict_generated')
@@ -205,6 +205,40 @@ class LexBuffer(object):
         self._maybe_flush()
 
 
+def encode_pair(c):
+    if c in string.hexdigits:
+        return '\\x{0:x}'.format(ord(c))
+    elif c in ('"', '\\', '?'):
+        return '\\' + c
+    else:
+        return repr('%c' % (c,))[1:-1]
+    # return '\\x{0:x}'.format(ord(c)) if _needs_escape(c) else c
+
+
+class SourceEncoder(object):
+    LINE_LEN = 40
+
+    def __init__(self, fp):
+        self._fp = fp
+        self._curlen = 0
+
+    def write(self, blob):
+        blob = buffer(blob)
+        while len(blob):
+            chunk = buffer(blob, 0, self.LINE_LEN)
+            blob = buffer(blob, len(chunk), len(blob)-len(chunk))
+            encoded = ''.join([encode_pair(c) for c in chunk])
+            self._fp.write('"' + encoded + '"\n')
+
+        return len(blob)
+
+    def flush(self):
+        self._fp.flush()
+
+    def close(self):
+        pass
+
+
 def process_lex_entry(type, file, buf):
     print type, file
     fp = open(file, 'r')
@@ -265,15 +299,11 @@ if opts.mode == 'c':
 #include "dep/friso/friso.h"
 #include <stdlib.h>
 #include <string.h>
-const char {}[] = {{
+const char {}[] =
 '''.format(' '.join(sys.argv), time.ctime(), DICT_VARNAME))
     ofp.flush()
-    po = subprocess.Popen(('xxd', '-i'), stdin=subprocess.PIPE, stdout=ofp)
-    lexout = po.stdin
-else:
-    lexout = ofp
-    po = None
 
+lexout = SourceEncoder(ofp)
 lexbuf = LexBuffer(lexout)
 for m in matches:
     typestr, filestr = sanitize_file_entry(m[0], m[1])
@@ -285,12 +315,9 @@ for m in matches:
 
 lexbuf.flush(is_final=True)
 
-if po:
-    po.communicate()
-    po.stdin.close()
-    ofp.write('};\n')
-    ofp.write('const size_t {} = {};\n'.format(SIZE_COMP_VARNAME, lexbuf.compressed_size))
-    ofp.write('const size_t {} = {};\n'.format(SIZE_FULL_VARNME, lexbuf.full_size))
+ofp.write(';\n')
+ofp.write('const size_t {} = {};\n'.format(SIZE_COMP_VARNAME, lexbuf.compressed_size))
+ofp.write('const size_t {} = {};\n'.format(SIZE_FULL_VARNME, lexbuf.full_size))
 
 config_lines = write_config_init('frisoConfig', configs)
 config_fn = '\n'.join(config_lines)
