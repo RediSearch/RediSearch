@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Clients
+                </span>
               
             
             Python API
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link md-tabs__link--active">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -257,16 +384,35 @@
       
 
 
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -275,10 +421,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -287,10 +433,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -299,10 +445,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -311,10 +457,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -323,10 +469,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -335,10 +481,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -347,10 +493,60 @@
     </a>
   </li>
 
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
     
       
       
       
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7" checked>
+    
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
 
   
 
@@ -389,14 +585,14 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-using-the-python-client" title="Example: Using the Python Client" class="md-nav__link">
+  <a href="#example"_"using"_"the"_"python"_"client" title="Example: Using the Python Client" class="md-nav__link">
     Example: Using the Python Client
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-using-the-auto-completer-client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
+  <a href="#example"_"using"_"the"_"auto"_"completer"_"client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
     Example: Using the Auto Completer Client:
   </a>
   
@@ -415,7 +611,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-autocompleter" title="Class AutoCompleter" class="md-nav__link">
+  <a href="#class"_"autocompleter" title="Class AutoCompleter" class="md-nav__link">
     Class AutoCompleter
   </a>
   
@@ -470,7 +666,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-client" title="Class Client" class="md-nav__link">
+  <a href="#class"_"client" title="Class Client" class="md-nav__link">
     Class Client
   </a>
   
@@ -567,7 +763,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-batchindexer" title="Class BatchIndexer" class="md-nav__link">
+  <a href="#class"_"batchindexer" title="Class BatchIndexer" class="md-nav__link">
     Class BatchIndexer
   </a>
   
@@ -601,7 +797,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-document" title="Class Document" class="md-nav__link">
+  <a href="#class"_"document" title="Class Document" class="md-nav__link">
     Class Document
   </a>
   
@@ -628,7 +824,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-geofield" title="Class GeoField" class="md-nav__link">
+  <a href="#class"_"geofield" title="Class GeoField" class="md-nav__link">
     Class GeoField
   </a>
   
@@ -655,7 +851,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-geofilter" title="Class GeoFilter" class="md-nav__link">
+  <a href="#class"_"geofilter" title="Class GeoFilter" class="md-nav__link">
     Class GeoFilter
   </a>
   
@@ -675,7 +871,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-numericfield" title="Class NumericField" class="md-nav__link">
+  <a href="#class"_"numericfield" title="Class NumericField" class="md-nav__link">
     Class NumericField
   </a>
   
@@ -702,7 +898,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-numericfilter" title="Class NumericFilter" class="md-nav__link">
+  <a href="#class"_"numericfilter" title="Class NumericFilter" class="md-nav__link">
     Class NumericFilter
   </a>
   
@@ -722,7 +918,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-query" title="Class Query" class="md-nav__link">
+  <a href="#class"_"query" title="Class Query" class="md-nav__link">
     Class Query
   </a>
   
@@ -833,7 +1029,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-result" title="Class Result" class="md-nav__link">
+  <a href="#class"_"result" title="Class Result" class="md-nav__link">
     Class Result
   </a>
   
@@ -853,7 +1049,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-suggestion" title="Class Suggestion" class="md-nav__link">
+  <a href="#class"_"suggestion" title="Class Suggestion" class="md-nav__link">
     Class Suggestion
   </a>
   
@@ -873,7 +1069,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-textfield" title="Class TextField" class="md-nav__link">
+  <a href="#class"_"textfield" title="Class TextField" class="md-nav__link">
     Class TextField
   </a>
   
@@ -907,10 +1103,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -919,16 +1115,9 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -939,13 +1128,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -975,13 +1164,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1033,14 +1222,14 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-using-the-python-client" title="Example: Using the Python Client" class="md-nav__link">
+  <a href="#example"_"using"_"the"_"python"_"client" title="Example: Using the Python Client" class="md-nav__link">
     Example: Using the Python Client
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-using-the-auto-completer-client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
+  <a href="#example"_"using"_"the"_"auto"_"completer"_"client" title="Example: Using the Auto Completer Client:" class="md-nav__link">
     Example: Using the Auto Completer Client:
   </a>
   
@@ -1059,7 +1248,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-autocompleter" title="Class AutoCompleter" class="md-nav__link">
+  <a href="#class"_"autocompleter" title="Class AutoCompleter" class="md-nav__link">
     Class AutoCompleter
   </a>
   
@@ -1114,7 +1303,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-client" title="Class Client" class="md-nav__link">
+  <a href="#class"_"client" title="Class Client" class="md-nav__link">
     Class Client
   </a>
   
@@ -1211,7 +1400,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-batchindexer" title="Class BatchIndexer" class="md-nav__link">
+  <a href="#class"_"batchindexer" title="Class BatchIndexer" class="md-nav__link">
     Class BatchIndexer
   </a>
   
@@ -1245,7 +1434,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-document" title="Class Document" class="md-nav__link">
+  <a href="#class"_"document" title="Class Document" class="md-nav__link">
     Class Document
   </a>
   
@@ -1272,7 +1461,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-geofield" title="Class GeoField" class="md-nav__link">
+  <a href="#class"_"geofield" title="Class GeoField" class="md-nav__link">
     Class GeoField
   </a>
   
@@ -1299,7 +1488,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-geofilter" title="Class GeoFilter" class="md-nav__link">
+  <a href="#class"_"geofilter" title="Class GeoFilter" class="md-nav__link">
     Class GeoFilter
   </a>
   
@@ -1319,7 +1508,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-numericfield" title="Class NumericField" class="md-nav__link">
+  <a href="#class"_"numericfield" title="Class NumericField" class="md-nav__link">
     Class NumericField
   </a>
   
@@ -1346,7 +1535,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-numericfilter" title="Class NumericFilter" class="md-nav__link">
+  <a href="#class"_"numericfilter" title="Class NumericFilter" class="md-nav__link">
     Class NumericFilter
   </a>
   
@@ -1366,7 +1555,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-query" title="Class Query" class="md-nav__link">
+  <a href="#class"_"query" title="Class Query" class="md-nav__link">
     Class Query
   </a>
   
@@ -1477,7 +1666,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-result" title="Class Result" class="md-nav__link">
+  <a href="#class"_"result" title="Class Result" class="md-nav__link">
     Class Result
   </a>
   
@@ -1497,7 +1686,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-suggestion" title="Class Suggestion" class="md-nav__link">
+  <a href="#class"_"suggestion" title="Class Suggestion" class="md-nav__link">
     Class Suggestion
   </a>
   
@@ -1517,7 +1706,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#class-textfield" title="Class TextField" class="md-nav__link">
+  <a href="#class"_"textfield" title="Class TextField" class="md-nav__link">
     Class TextField
   </a>
   
@@ -1560,12 +1749,12 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/python_client.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="package-redisearch-documentation">Package redisearch Documentation<a class="headerlink" href="#package-redisearch-documentation" title="Permanent link">&para;</a></h1>
+                <h1 id="package&quot;_&quot;redisearch&quot;_&quot;documentation">Package redisearch Documentation<a class="headerlink" href="#package&quot;_&quot;redisearch&quot;_&quot;documentation" title="Permanent link">&para;</a></h1>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p><code>redisearch-py</code> is a python search engine library that utilizes the RediSearch Redis Module API.</p>
 <p>It is the "official" client of redisearch, and should be regarded as its canonical client implementation.</p>
 <p>The source code can be found at <a href="http://github.com/RedisLabs/redisearch-py">http://github.com/RedisLabs/redisearch-py</a></p>
-<h3 id="example-using-the-python-client">Example: Using the Python Client<a class="headerlink" href="#example-using-the-python-client" title="Permanent link">&para;</a></h3>
+<h3 id="example&quot;_&quot;using&quot;_&quot;the&quot;_&quot;python&quot;_&quot;client">Example: Using the Python Client<a class="headerlink" href="#example&quot;_&quot;using&quot;_&quot;the&quot;_&quot;python&quot;_&quot;client" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="kn">from</span> <span class="nn">redisearch</span> <span class="kn">import</span> <span class="n">Client</span><span class="p">,</span> <span class="n">TextField</span><span class="p">,</span> <span class="n">NumericField</span>
 
 <span class="c1"># Creating a client with a given index name</span>
@@ -1593,7 +1782,7 @@
 </pre></div>
 
 
-<h3 id="example-using-the-auto-completer-client">Example: Using the Auto Completer Client:<a class="headerlink" href="#example-using-the-auto-completer-client" title="Permanent link">&para;</a></h3>
+<h3 id="example&quot;_&quot;using&quot;_&quot;the&quot;_&quot;auto&quot;_&quot;completer&quot;_&quot;client">Example: Using the Auto Completer Client:<a class="headerlink" href="#example&quot;_&quot;using&quot;_&quot;the&quot;_&quot;auto&quot;_&quot;completer&quot;_&quot;client" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="c1"># Using the auto-completer</span>
 <span class="n">ac</span> <span class="o">=</span> <span class="n">AutoCompleter</span><span class="p">(</span><span class="s1">&#39;ac&#39;</span><span class="p">)</span>
 
@@ -1623,7 +1812,7 @@
 </pre></div>
 
 
-<h2 id="class-autocompleter">Class AutoCompleter<a class="headerlink" href="#class-autocompleter" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;autocompleter">Class AutoCompleter<a class="headerlink" href="#class&quot;_&quot;autocompleter" title="Permanent link">&para;</a></h2>
 <p>A client to RediSearch's AutoCompleter API</p>
 <p>It provides prefix searches with optionally fuzzy matching of prefixes    </p>
 <h3 id="9595init9595">__init__<a class="headerlink" href="#9595init9595" title="Permanent link">&para;</a></h3>
@@ -1670,7 +1859,7 @@ Returns 1 if the string was found and deleted, 0 otherwise</p>
 
 
 <p>Return the number of entries in the AutoCompleter index</p>
-<h2 id="class-client">Class Client<a class="headerlink" href="#class-client" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;client">Class Client<a class="headerlink" href="#class&quot;_&quot;client" title="Permanent link">&para;</a></h2>
 <p>A client for the RediSearch module. 
 It abstracts the API of the module and lets you just use the engine </p>
 <h3 id="9595init9595_1">__init__<a class="headerlink" href="#9595init9595_1" title="Permanent link">&para;</a></h3>
@@ -1753,7 +1942,7 @@ Returns 1 if the document was deleted, 0 if not</p>
              See RediSearch's documentation on query format</li>
 <li><strong>snippet_sizes</strong>: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}</li>
 </ul>
-<h2 id="class-batchindexer">Class BatchIndexer<a class="headerlink" href="#class-batchindexer" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;batchindexer">Class BatchIndexer<a class="headerlink" href="#class&quot;_&quot;batchindexer" title="Permanent link">&para;</a></h2>
 <p>A batch indexer allows you to automatically batch 
 document indexeing in pipelines, flushing it every N documents. </p>
 <h3 id="9595init9595_2">__init__<a class="headerlink" href="#9595init9595_2" title="Permanent link">&para;</a></h3>
@@ -1773,7 +1962,7 @@ document indexeing in pipelines, flushing it every N documents. </p>
 
 
 <p>Manually commit and flush the batch indexing query</p>
-<h2 id="class-document">Class Document<a class="headerlink" href="#class-document" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;document">Class Document<a class="headerlink" href="#class&quot;_&quot;document" title="Permanent link">&para;</a></h2>
 <p>Represents a single document in a result set </p>
 <h3 id="9595init9595_3">__init__<a class="headerlink" href="#9595init9595_3" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">id</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
@@ -1788,7 +1977,7 @@ document indexeing in pipelines, flushing it every N documents. </p>
 <p>Create a shortened snippet from the document's content 
 :param size: the szie of the snippet in characters. It might be a bit longer or shorter
 :param boldTokens: a list of tokens we want to make bold (basically the query terms)</p>
-<h2 id="class-geofield">Class GeoField<a class="headerlink" href="#class-geofield" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;geofield">Class GeoField<a class="headerlink" href="#class&quot;_&quot;geofield" title="Permanent link">&para;</a></h2>
 <p>GeoField is used to define a geo-indexing field in a schema defintion</p>
 <h3 id="9595init9595_4">__init__<a class="headerlink" href="#9595init9595_4" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
@@ -1800,14 +1989,14 @@ document indexeing in pipelines, flushing it every N documents. </p>
 </pre></div>
 
 
-<h2 id="class-geofilter">Class GeoFilter<a class="headerlink" href="#class-geofilter" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;geofilter">Class GeoFilter<a class="headerlink" href="#class&quot;_&quot;geofilter" title="Permanent link">&para;</a></h2>
 <p>None</p>
 <h3 id="9595init9595_5">__init__<a class="headerlink" href="#9595init9595_5" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">,</span> <span class="n">radius</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;km&#39;</span><span class="p">)</span>
 </pre></div>
 
 
-<h2 id="class-numericfield">Class NumericField<a class="headerlink" href="#class-numericfield" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;numericfield">Class NumericField<a class="headerlink" href="#class&quot;_&quot;numericfield" title="Permanent link">&para;</a></h2>
 <p>NumericField is used to define a numeric field in a schema defintion</p>
 <h3 id="9595init9595_6">__init__<a class="headerlink" href="#9595init9595_6" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sortable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
@@ -1819,14 +2008,14 @@ document indexeing in pipelines, flushing it every N documents. </p>
 </pre></div>
 
 
-<h2 id="class-numericfilter">Class NumericFilter<a class="headerlink" href="#class-numericfilter" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;numericfilter">Class NumericFilter<a class="headerlink" href="#class&quot;_&quot;numericfilter" title="Permanent link">&para;</a></h2>
 <p>None</p>
 <h3 id="9595init9595_7">__init__<a class="headerlink" href="#9595init9595_7" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">minval</span><span class="p">,</span> <span class="n">maxval</span><span class="p">,</span> <span class="n">minExclusive</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">maxExclusive</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
 
 
-<h2 id="class-query">Class Query<a class="headerlink" href="#class-query" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;query">Class Query<a class="headerlink" href="#class&quot;_&quot;query" title="Permanent link">&para;</a></h2>
 <p>Query is used to build complex queries that have more parameters than just the query string.
 The query string is set in the constructor, and other options have setter functions.</p>
 <p>The setter functions return the query object, so they can be chained, 
@@ -1929,7 +2118,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 
 
 <p>Ask the engine to return document payloads</p>
-<h2 id="class-result">Class Result<a class="headerlink" href="#class-result" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;result">Class Result<a class="headerlink" href="#class&quot;_&quot;result" title="Permanent link">&para;</a></h2>
 <p>Represents the result of a search query, and has an array of Document objects</p>
 <h3 id="9595init9595_9">__init__<a class="headerlink" href="#9595init9595_9" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">res</span><span class="p">,</span> <span class="n">hascontent</span><span class="p">,</span> <span class="n">query_text</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">snippets</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">has_payload</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
@@ -1939,14 +2128,14 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 <ul>
 <li><strong>snippets</strong>: An optional dictionary of the form {field: snippet_size} for snippet formatting</li>
 </ul>
-<h2 id="class-suggestion">Class Suggestion<a class="headerlink" href="#class-suggestion" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;suggestion">Class Suggestion<a class="headerlink" href="#class&quot;_&quot;suggestion" title="Permanent link">&para;</a></h2>
 <p>Represents a single suggestion being sent or returned from the auto complete server</p>
 <h3 id="9595init9595_10">__init__<a class="headerlink" href="#9595init9595_10" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
 </pre></div>
 
 
-<h2 id="class-textfield">Class TextField<a class="headerlink" href="#class-textfield" title="Permanent link">&para;</a></h2>
+<h2 id="class&quot;_&quot;textfield">Class TextField<a class="headerlink" href="#class&quot;_&quot;textfield" title="Permanent link">&para;</a></h2>
 <p>TextField is used to define a text field in a schema definition</p>
 <h3 id="9595init9595_11">__init__<a class="headerlink" href="#9595init9595_11" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">sortable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
@@ -1974,7 +2163,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Clients/" title="Client Libraries" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -1983,7 +2172,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Stemming Support
+                Client Libraries
               </span>
             </div>
           </a>

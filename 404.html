@@ -38,6 +38,8 @@
     
       <link rel="stylesheet" href="/assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="/assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="/assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -53,7 +55,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -73,7 +79,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="/logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -147,6 +153,97 @@
     
     <div class="md-container">
       
+        
+
+<nav class="md-tabs" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href="/" title="Home" class="md-tabs__link md-tabs__link--active">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="/Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="/Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="/Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="/design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="/Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -158,7 +255,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="/logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -218,8 +315,8 @@
 
 
   <li class="md-nav__item">
-    <a href="/Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="/Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -229,10 +326,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="/Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="/Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -253,16 +374,35 @@
       
 
 
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
   <li class="md-nav__item">
     <a href="/Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -271,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -283,10 +423,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -295,10 +435,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -307,10 +447,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -319,10 +459,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -331,10 +471,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -343,40 +483,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="/python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="/java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="/payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -387,13 +508,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="/Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="/python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="/java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -423,13 +604,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>

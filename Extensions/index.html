@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Extension API
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -256,6 +383,27 @@
       
       
 
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -263,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -275,10 +423,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -287,10 +435,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -299,10 +447,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -311,10 +459,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -323,10 +471,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
   
 
@@ -357,14 +505,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#registering-and-loading-extensions" title="Registering and Loading Extensions" class="md-nav__link">
+  <a href="#registering"_"and"_"loading"_"extensions" title="Registering and Loading Extensions" class="md-nav__link">
     Registering and Loading Extensions
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#initializing-an-extension" title="Initializing an Extension" class="md-nav__link">
+  <a href="#initializing"_"an"_"extension" title="Initializing an Extension" class="md-nav__link">
     Initializing an Extension
   </a>
   
@@ -372,7 +520,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-init-function" title="Example Init Function" class="md-nav__link">
+  <a href="#example"_"init"_"function" title="Example Init Function" class="md-nav__link">
     Example Init Function
   </a>
   
@@ -384,14 +532,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#calling-your-custom-functions" title="Calling your custom functions" class="md-nav__link">
+  <a href="#calling"_"your"_"custom"_"functions" title="Calling your custom functions" class="md-nav__link">
     Calling your custom functions
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-query-expander-api" title="The Query Expander API" class="md-nav__link">
+  <a href="#the"_"query"_"expander"_"api" title="The Query Expander API" class="md-nav__link">
     The Query Expander API
   </a>
   
@@ -418,7 +566,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-scoring-function-api" title="The Scoring Function API" class="md-nav__link">
+  <a href="#the"_"scoring"_"function"_"api" title="The Scoring Function API" class="md-nav__link">
     The Scoring Function API
   </a>
   
@@ -452,14 +600,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-query-expander" title="Example Query Expander" class="md-nav__link">
+  <a href="#example"_"query"_"expander" title="Example Query Expander" class="md-nav__link">
     Example Query Expander
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-scoring-function" title="Example Scoring Function" class="md-nav__link">
+  <a href="#example"_"scoring"_"function" title="Example Scoring Function" class="md-nav__link">
     Example Scoring Function
   </a>
   
@@ -473,10 +621,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -485,40 +633,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -529,13 +658,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -565,13 +754,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -615,14 +804,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#registering-and-loading-extensions" title="Registering and Loading Extensions" class="md-nav__link">
+  <a href="#registering"_"and"_"loading"_"extensions" title="Registering and Loading Extensions" class="md-nav__link">
     Registering and Loading Extensions
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#initializing-an-extension" title="Initializing an Extension" class="md-nav__link">
+  <a href="#initializing"_"an"_"extension" title="Initializing an Extension" class="md-nav__link">
     Initializing an Extension
   </a>
   
@@ -630,7 +819,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-init-function" title="Example Init Function" class="md-nav__link">
+  <a href="#example"_"init"_"function" title="Example Init Function" class="md-nav__link">
     Example Init Function
   </a>
   
@@ -642,14 +831,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#calling-your-custom-functions" title="Calling your custom functions" class="md-nav__link">
+  <a href="#calling"_"your"_"custom"_"functions" title="Calling your custom functions" class="md-nav__link">
     Calling your custom functions
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-query-expander-api" title="The Query Expander API" class="md-nav__link">
+  <a href="#the"_"query"_"expander"_"api" title="The Query Expander API" class="md-nav__link">
     The Query Expander API
   </a>
   
@@ -676,7 +865,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-scoring-function-api" title="The Scoring Function API" class="md-nav__link">
+  <a href="#the"_"scoring"_"function"_"api" title="The Scoring Function API" class="md-nav__link">
     The Scoring Function API
   </a>
   
@@ -710,14 +899,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-query-expander" title="Example Query Expander" class="md-nav__link">
+  <a href="#example"_"query"_"expander" title="Example Query Expander" class="md-nav__link">
     Example Query Expander
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-scoring-function" title="Example Scoring Function" class="md-nav__link">
+  <a href="#example"_"scoring"_"function" title="Example Scoring Function" class="md-nav__link">
     Example Scoring Function
   </a>
   
@@ -740,14 +929,14 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Extensions.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="extending-redisearch">Extending RediSearch<a class="headerlink" href="#extending-redisearch" title="Permanent link">&para;</a></h1>
+                <h1 id="extending&quot;_&quot;redisearch">Extending RediSearch<a class="headerlink" href="#extending&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.</p>
 <p>There are two kinds of extension APIs at the moment: </p>
 <ol>
 <li><strong>Query Expanders</strong>, whose role is to expand query tokens (i.e. stemmers).</li>
 <li><strong>Scoring Funtions</strong>, whose role is to rank search results in query time.</li>
 </ol>
-<h2 id="registering-and-loading-extensions">Registering and Loading Extensions<a class="headerlink" href="#registering-and-loading-extensions" title="Permanent link">&para;</a></h2>
+<h2 id="registering&quot;_&quot;and&quot;_&quot;loading&quot;_&quot;extensions">Registering and Loading Extensions<a class="headerlink" href="#registering&quot;_&quot;and&quot;_&quot;loading&quot;_&quot;extensions" title="Permanent link">&para;</a></h2>
 <p>Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. </p>
 <ul>
 <li>
@@ -763,7 +952,7 @@ $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so</code>
 <p>This causes RediSearch to automatically load the extension and register its expanders and scorers. </p>
 </li>
 </ul>
-<h2 id="initializing-an-extension">Initializing an Extension<a class="headerlink" href="#initializing-an-extension" title="Permanent link">&para;</a></h2>
+<h2 id="initializing&quot;_&quot;an&quot;_&quot;extension">Initializing an Extension<a class="headerlink" href="#initializing&quot;_&quot;an&quot;_&quot;extension" title="Permanent link">&para;</a></h2>
 <p>The entry point of an extension is a function with the signature:</p>
 <div class="codehilite"><pre><span></span><span class="kt">int</span> <span class="nf">RS_ExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">);</span>
 </pre></div>
@@ -771,7 +960,7 @@ $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so</code>
 
 <p>When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. </p>
 <p>It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.</p>
-<h3 id="example-init-function">Example Init Function<a class="headerlink" href="#example-init-function" title="Permanent link">&para;</a></h3>
+<h3 id="example&quot;_&quot;init&quot;_&quot;function">Example Init Function<a class="headerlink" href="#example&quot;_&quot;init&quot;_&quot;function" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
 <span class="kt">int</span> <span class="nf">RS_ExtensionInit</span><span class="p">(</span><span class="n">RSExtensionCtx</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span> <span class="p">{</span>
@@ -792,7 +981,7 @@ $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so</code>
 </pre></div>
 
 
-<h2 id="calling-your-custom-functions">Calling your custom functions<a class="headerlink" href="#calling-your-custom-functions" title="Permanent link">&para;</a></h2>
+<h2 id="calling&quot;_&quot;your&quot;_&quot;custom&quot;_&quot;functions">Calling your custom functions<a class="headerlink" href="#calling&quot;_&quot;your&quot;_&quot;custom&quot;_&quot;functions" title="Permanent link">&para;</a></h2>
 <p>When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
 e.g.:</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH my_index &quot;foo bar&quot; EXPANDER my_expander SCORER my_scorer
@@ -800,7 +989,7 @@ e.g.:</p>
 
 
 <p><strong>NOTE</strong>: Expander and scorer aliases are <strong>case sensitive</strong>.</p>
-<h2 id="the-query-expander-api">The Query Expander API<a class="headerlink" href="#the-query-expander-api" title="Permanent link">&para;</a></h2>
+<h2 id="the&quot;_&quot;query&quot;_&quot;expander&quot;_&quot;api">The Query Expander API<a class="headerlink" href="#the&quot;_&quot;query&quot;_&quot;expander&quot;_&quot;api" title="Permanent link">&para;</a></h2>
 <p>At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.</p>
 <p>The API for an expander is the following:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
@@ -861,7 +1050,7 @@ e.g.:</p>
 </pre></div>
 
 
-<h2 id="the-scoring-function-api">The Scoring Function API<a class="headerlink" href="#the-scoring-function-api" title="Permanent link">&para;</a></h2>
+<h2 id="the&quot;_&quot;scoring&quot;_&quot;function&quot;_&quot;api">The Scoring Function API<a class="headerlink" href="#the&quot;_&quot;scoring&quot;_&quot;function&quot;_&quot;api" title="Permanent link">&para;</a></h2>
 <p>A scoring function receives each document being evaluated by the query, for final ranking. 
 It has access to all the query terms that brought up the document,and to metadata about the
 document such as its a-priory score, length, etc.</p>
@@ -892,7 +1081,7 @@ To completely filter out a result and not count it in the totals, the scorer sho
 <p>See redisearch.h for details</p>
 <h3 id="rsdocumentmetadata">RSDocumentMetadata<a class="headerlink" href="#rsdocumentmetadata" title="Permanent link">&para;</a></h3>
 <p>This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. </p>
-<h2 id="example-query-expander">Example Query Expander<a class="headerlink" href="#example-query-expander" title="Permanent link">&para;</a></h2>
+<h2 id="example&quot;_&quot;query&quot;_&quot;expander">Example Query Expander<a class="headerlink" href="#example&quot;_&quot;query&quot;_&quot;expander" title="Permanent link">&para;</a></h2>
 <p>This example query expander expands each token with the the term foo:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 
@@ -902,7 +1091,7 @@ To completely filter out a result and not count it in the totals, the scorer sho
 </pre></div>
 
 
-<h2 id="example-scoring-function">Example Scoring Function<a class="headerlink" href="#example-scoring-function" title="Permanent link">&para;</a></h2>
+<h2 id="example&quot;_&quot;scoring&quot;_&quot;function">Example Scoring Function<a class="headerlink" href="#example&quot;_&quot;scoring&quot;_&quot;function" title="Permanent link">&para;</a></h2>
 <p>This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:</p>
 <div class="codehilite"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;redisearch.h&gt; //must be in the include path</span><span class="cp"></span>
 

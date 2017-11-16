@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Stop-Words
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -256,6 +383,27 @@
       
       
 
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -263,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
   
 
@@ -297,28 +445,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#default-stop-word-list" title="Default Stop-Word List" class="md-nav__link">
+  <a href="#default"_"stop-word"_"list" title="Default Stop-Word List" class="md-nav__link">
     Default Stop-Word List
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#overriding-the-default-stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
+  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
     Overriding The Default Stop-Words
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#disabling-stop-words-completely" title="Disabling Stop-Words Completely" class="md-nav__link">
+  <a href="#disabling"_"stop-words"_"completely" title="Disabling Stop-Words Completely" class="md-nav__link">
     Disabling Stop-Words Completely
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#avoiding-stop-word-detection-in-search-queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
+  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
     Avoiding Stop-Word Detection In Search Queries
   </a>
   
@@ -332,10 +480,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -344,10 +492,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -356,10 +504,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -368,10 +516,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -380,10 +528,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -392,10 +540,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -404,40 +552,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -448,13 +577,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -484,13 +673,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -534,28 +723,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#default-stop-word-list" title="Default Stop-Word List" class="md-nav__link">
+  <a href="#default"_"stop-word"_"list" title="Default Stop-Word List" class="md-nav__link">
     Default Stop-Word List
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#overriding-the-default-stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
+  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
     Overriding The Default Stop-Words
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#disabling-stop-words-completely" title="Disabling Stop-Words Completely" class="md-nav__link">
+  <a href="#disabling"_"stop-words"_"completely" title="Disabling Stop-Words Completely" class="md-nav__link">
     Disabling Stop-Words Completely
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#avoiding-stop-word-detection-in-search-queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
+  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
     Avoiding Stop-Word Detection In Search Queries
   </a>
   
@@ -582,7 +771,7 @@
 <p>RediSearch has a pre-defined default list of <a href="https://en.wikipedia.org/wiki/Stop_words">stop-words</a>. These are words that are usually so common that they do not add much information to search, but take up a lot of space and CPU time in the index. </p>
 <p>When indexing, stop-words are discarded and not indexed. When searching, they are also ignored and treated as if they were not sent to the query processor. This is done when parsing the query. </p>
 <p>At the moment, the default stop-word list applies to all full-text indexes in all languages, and can be overridden manually at index creation time. </p>
-<h2 id="default-stop-word-list">Default Stop-Word List<a class="headerlink" href="#default-stop-word-list" title="Permanent link">&para;</a></h2>
+<h2 id="default&quot;_&quot;stop-word&quot;_&quot;list">Default Stop-Word List<a class="headerlink" href="#default&quot;_&quot;stop-word&quot;_&quot;list" title="Permanent link">&para;</a></h2>
 <p>The following words are treated as stop-words by default: </p>
 <div class="codehilite"><pre><span></span> a,    is,    the,   an,   and,  are, as,  at,   be,   but,  by,   for,
  if,   in,    into,  it,   no,   not, of,  on,   or,   such, that, their,
@@ -590,16 +779,16 @@
 </pre></div>
 
 
-<h2 id="overriding-the-default-stop-words">Overriding The Default Stop-Words<a class="headerlink" href="#overriding-the-default-stop-words" title="Permanent link">&para;</a></h2>
+<h2 id="overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words">Overriding The Default Stop-Words<a class="headerlink" href="#overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words" title="Permanent link">&para;</a></h2>
 <p>Stop-words for an index can be defined (or disabled completely) on index creation using the <code>STOPWORDS</code> argument in the <a href="../Commands/#ftcreate">FT.CREATE</a> command.</p>
 <p>The format is <code>STOPWORDS {number} {stopword} ...</code> where number is the number of stopwords given. The <code>STOPWORDS</code> argument must come before the <code>SCHEMA</code> argument. For example:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE myIndex STOPWORDS 3 foo bar baz SCHEMA title TEXT body TEXT 
 </pre></div>
 
 
-<h2 id="disabling-stop-words-completely">Disabling Stop-Words Completely<a class="headerlink" href="#disabling-stop-words-completely" title="Permanent link">&para;</a></h2>
+<h2 id="disabling&quot;_&quot;stop-words&quot;_&quot;completely">Disabling Stop-Words Completely<a class="headerlink" href="#disabling&quot;_&quot;stop-words&quot;_&quot;completely" title="Permanent link">&para;</a></h2>
 <p>Disabling stopwords completely can be done by passing <code>STOPWORDS 0</code> on <code>FT.CREATE</code>.</p>
-<h2 id="avoiding-stop-word-detection-in-search-queries">Avoiding Stop-Word Detection In Search Queries<a class="headerlink" href="#avoiding-stop-word-detection-in-search-queries" title="Permanent link">&para;</a></h2>
+<h2 id="avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries">Avoiding Stop-Word Detection In Search Queries<a class="headerlink" href="#avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
 <p>In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time, and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries. </p>
                 
                   

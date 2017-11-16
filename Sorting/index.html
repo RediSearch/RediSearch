@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Sortable Values
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -256,6 +383,27 @@
       
       
 
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -263,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -275,10 +423,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
   
 
@@ -309,7 +457,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#declaring-sortable-fields" title="Declaring Sortable Fields" class="md-nav__link">
+  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
     Declaring Sortable Fields
   </a>
   
@@ -317,7 +465,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#note-on-sortable-text-fields" title="Note on sortable TEXT fields" class="md-nav__link">
+  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
     Note on sortable TEXT fields
   </a>
   
@@ -329,14 +477,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#specifying-sortby" title="Specifying SORTBY" class="md-nav__link">
+  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
     Specifying SORTBY
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick-example" title="Quick Example" class="md-nav__link">
+  <a href="#quick"_"example" title="Quick Example" class="md-nav__link">
     Quick Example
   </a>
   
@@ -350,10 +498,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -362,10 +510,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -374,10 +522,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -386,10 +534,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -398,10 +546,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -410,40 +558,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -454,13 +583,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -490,13 +679,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -540,7 +729,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#declaring-sortable-fields" title="Declaring Sortable Fields" class="md-nav__link">
+  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
     Declaring Sortable Fields
   </a>
   
@@ -548,7 +737,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#note-on-sortable-text-fields" title="Note on sortable TEXT fields" class="md-nav__link">
+  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
     Note on sortable TEXT fields
   </a>
   
@@ -560,14 +749,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#specifying-sortby" title="Specifying SORTBY" class="md-nav__link">
+  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
     Specifying SORTBY
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick-example" title="Quick Example" class="md-nav__link">
+  <a href="#quick"_"example" title="Quick Example" class="md-nav__link">
     Quick Example
   </a>
   
@@ -590,19 +779,19 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Sorting.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="sorting-by-indexed-fields">Sorting By Indexed Fields<a class="headerlink" href="#sorting-by-indexed-fields" title="Permanent link">&para;</a></h1>
+                <h1 id="sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields">Sorting By Indexed Fields<a class="headerlink" href="#sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
 <p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name. </p>
-<h2 id="declaring-sortable-fields">Declaring Sortable Fields<a class="headerlink" href="#declaring-sortable-fields" title="Permanent link">&para;</a></h2>
+<h2 id="declaring&quot;_&quot;sortable&quot;_&quot;fields">Declaring Sortable Fields<a class="headerlink" href="#declaring&quot;_&quot;sortable&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
 <p>When creating the index with FT.CREATE, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the followig schema:</p>
 <div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
 </pre></div>
 
 
 <p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age. </p>
-<h3 id="note-on-sortable-text-fields">Note on sortable TEXT fields<a class="headerlink" href="#note-on-sortable-text-fields" title="Permanent link">&para;</a></h3>
+<h3 id="note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields">Note on sortable TEXT fields<a class="headerlink" href="#note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields" title="Permanent link">&para;</a></h3>
 <p>In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.</p>
 <p>Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behavior. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
-<h2 id="specifying-sortby">Specifying SORTBY<a class="headerlink" href="#specifying-sortby" title="Permanent link">&para;</a></h2>
+<h2 id="specifying&quot;_&quot;sortby">Specifying SORTBY<a class="headerlink" href="#specifying&quot;_&quot;sortby" title="Permanent link">&para;</a></h2>
 <p>If an index includes sortable fields, you can add the <code>SORTBY</code> parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If <code>WITHSCORES</code> is specified along with <code>SORTBY</code>, the scores returned are simply the relative position of each result in the result set.</p>
 <p>The syntax for SORTBY is:</p>
 <div class="codehilite"><pre><span></span>SORTBY {field_name} [ASC|DESC]
@@ -620,7 +809,7 @@
 <p>The default ordering is ASC if not specified otherwise.</p>
 </li>
 </ul>
-<h2 id="quick-example">Quick Example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
+<h2 id="quick&quot;_&quot;example">Quick Example<a class="headerlink" href="#quick&quot;_&quot;example" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
 
 # Add some users

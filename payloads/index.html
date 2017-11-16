@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Document Payloads
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -256,6 +383,27 @@
       
       
 
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -263,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -275,10 +423,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -287,10 +435,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -299,10 +447,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -311,10 +459,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -323,10 +471,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -335,10 +483,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -347,34 +495,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
   
 
@@ -405,21 +529,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding-payloads-for-documents" title="Adding payloads for documents:" class="md-nav__link">
+  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents:" class="md-nav__link">
     Adding payloads for documents:
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#evaluating-payloads-in-query-time" title="Evaluating Payloads in Query Time" class="md-nav__link">
+  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating Payloads in Query Time" class="md-nav__link">
     Evaluating Payloads in Query Time
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#retrieving-payloads-from-documents" title="Retrieving payloads from documents" class="md-nav__link">
+  <a href="#retrieving"_"payloads"_"from"_"documents" title="Retrieving payloads from documents" class="md-nav__link">
     Retrieving payloads from documents
   </a>
   
@@ -433,6 +557,11 @@
     
   </li>
 
+        
+      </ul>
+    </nav>
+  </li>
+
     
       
       
@@ -441,13 +570,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -477,13 +666,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -527,21 +716,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding-payloads-for-documents" title="Adding payloads for documents:" class="md-nav__link">
+  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents:" class="md-nav__link">
     Adding payloads for documents:
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#evaluating-payloads-in-query-time" title="Evaluating Payloads in Query Time" class="md-nav__link">
+  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating Payloads in Query Time" class="md-nav__link">
     Evaluating Payloads in Query Time
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#retrieving-payloads-from-documents" title="Retrieving payloads from documents" class="md-nav__link">
+  <a href="#retrieving"_"payloads"_"from"_"documents" title="Retrieving payloads from documents" class="md-nav__link">
     Retrieving payloads from documents
   </a>
   
@@ -564,7 +753,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/payloads.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="document-payloads">Document Payloads<a class="headerlink" href="#document-payloads" title="Permanent link">&para;</a></h1>
+                <h1 id="document&quot;_&quot;payloads">Document Payloads<a class="headerlink" href="#document&quot;_&quot;payloads" title="Permanent link">&para;</a></h1>
 <p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
 aggregation or scoring functions, we might want to store that data as an inline payload. 
 This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
@@ -573,14 +762,14 @@ We can add custom payloads that can be evaluated in run-time.</p>
 <p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
 of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
 if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
-<h2 id="adding-payloads-for-documents">Adding payloads for documents:<a class="headerlink" href="#adding-payloads-for-documents" title="Permanent link">&para;</a></h2>
+<h2 id="adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents">Adding payloads for documents:<a class="headerlink" href="#adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents" title="Permanent link">&para;</a></h2>
 <p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
 This is done with the PAYLOAD keyword:</p>
 <div class="codehilite"><pre><span></span>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
 </pre></div>
 
 
-<h2 id="evaluating-payloads-in-query-time">Evaluating Payloads in Query Time<a class="headerlink" href="#evaluating-payloads-in-query-time" title="Permanent link">&para;</a></h2>
+<h2 id="evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time">Evaluating Payloads in Query Time<a class="headerlink" href="#evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time" title="Permanent link">&para;</a></h2>
 <p>When imlplementing a scoring function, the signature of the function exposed is:</p>
 <div class="codehilite"><pre><span></span><span class="kt">double</span> <span class="p">(</span><span class="o">*</span><span class="n">ScoringFunction</span><span class="p">)(</span><span class="n">DocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span> <span class="n">IndexResult</span> <span class="o">*</span><span class="n">h</span><span class="p">);</span>
 </pre></div>
@@ -600,7 +789,7 @@ arbitrary length:</p>
 
 <p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
 It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
-<h2 id="retrieving-payloads-from-documents">Retrieving payloads from documents<a class="headerlink" href="#retrieving-payloads-from-documents" title="Permanent link">&para;</a></h2>
+<h2 id="retrieving&quot;_&quot;payloads&quot;_&quot;from&quot;_&quot;documents">Retrieving payloads from documents<a class="headerlink" href="#retrieving&quot;_&quot;payloads&quot;_&quot;from&quot;_&quot;documents" title="Permanent link">&para;</a></h2>
 <p>When searching, it is possible to request the document payloads from the engine. </p>
 <p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>
 <p>If <code>WITHPAYLOADS</code> is set, the payloads follow the document id in the returned result. 
@@ -635,7 +824,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../java_client/" title="Java API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Stemming/" title="Stemming Support" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -644,19 +833,19 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Java API
+                Stemming Support
               </span>
             </div>
           </a>
         
         
-          <a href="../design/gc/" title="Garbage Collection" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Clients/" title="Client Libraries" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Garbage Collection
+                Client Libraries
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">

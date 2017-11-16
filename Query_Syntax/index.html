@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Query Syntax
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="./" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -255,6 +382,27 @@
       
       
       
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
 
   
 
@@ -285,21 +433,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#pure-negative-queries" title="Pure Negative Queries" class="md-nav__link">
+  <a href="#pure"_"negative"_"queries" title="Pure Negative Queries" class="md-nav__link">
     Pure Negative Queries
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
+  <a href="#field"_"modifiers" title="Field modifiers" class="md-nav__link">
     Field modifiers
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#numeric-filters-in-query" title="Numeric Filters in Query" class="md-nav__link">
+  <a href="#numeric"_"filters"_"in"_"query" title="Numeric Filters in Query" class="md-nav__link">
     Numeric Filters in Query
   </a>
   
@@ -307,7 +455,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-few-notes-on-numeric-predicates" title="A few notes on numeric predicates:" class="md-nav__link">
+  <a href="#a"_"few"_"notes"_"on"_"numeric"_"predicates" title="A few notes on numeric predicates:" class="md-nav__link">
     A few notes on numeric predicates:
   </a>
   
@@ -319,21 +467,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tag-filters" title="Tag Filters" class="md-nav__link">
+  <a href="#tag"_"filters" title="Tag Filters" class="md-nav__link">
     Tag Filters
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
+  <a href="#geo"_"filters"_"in"_"query" title="Geo Filters in Query" class="md-nav__link">
     Geo Filters in Query
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+  <a href="#prefix"_"matching" title="Prefix Matching" class="md-nav__link">
     Prefix Matching
   </a>
   
@@ -341,7 +489,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+  <a href="#a"_"few"_"notes"_"on"_"prefix"_"searches" title="A few notes on prefix searches:" class="md-nav__link">
     A few notes on prefix searches:
   </a>
   
@@ -353,21 +501,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+  <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+  <a href="#mapping"_"common"_"sql"_"predicates"_"to"_"redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
     Mapping Common SQL Predicates to RediSearch
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#technical-note" title="Technical Note" class="md-nav__link">
+  <a href="#technical"_"note" title="Technical Note" class="md-nav__link">
     Technical Note
   </a>
   
@@ -381,10 +529,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -393,10 +541,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -405,10 +553,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -417,10 +565,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -429,10 +577,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -441,10 +589,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -453,10 +601,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -465,40 +613,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -509,13 +638,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -545,13 +734,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -595,21 +784,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#pure-negative-queries" title="Pure Negative Queries" class="md-nav__link">
+  <a href="#pure"_"negative"_"queries" title="Pure Negative Queries" class="md-nav__link">
     Pure Negative Queries
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#field-modifiers" title="Field modifiers" class="md-nav__link">
+  <a href="#field"_"modifiers" title="Field modifiers" class="md-nav__link">
     Field modifiers
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#numeric-filters-in-query" title="Numeric Filters in Query" class="md-nav__link">
+  <a href="#numeric"_"filters"_"in"_"query" title="Numeric Filters in Query" class="md-nav__link">
     Numeric Filters in Query
   </a>
   
@@ -617,7 +806,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-few-notes-on-numeric-predicates" title="A few notes on numeric predicates:" class="md-nav__link">
+  <a href="#a"_"few"_"notes"_"on"_"numeric"_"predicates" title="A few notes on numeric predicates:" class="md-nav__link">
     A few notes on numeric predicates:
   </a>
   
@@ -629,21 +818,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tag-filters" title="Tag Filters" class="md-nav__link">
+  <a href="#tag"_"filters" title="Tag Filters" class="md-nav__link">
     Tag Filters
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#geo-filters-in-query" title="Geo Filters in Query" class="md-nav__link">
+  <a href="#geo"_"filters"_"in"_"query" title="Geo Filters in Query" class="md-nav__link">
     Geo Filters in Query
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#prefix-matching" title="Prefix Matching" class="md-nav__link">
+  <a href="#prefix"_"matching" title="Prefix Matching" class="md-nav__link">
     Prefix Matching
   </a>
   
@@ -651,7 +840,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-few-notes-on-prefix-searches" title="A few notes on prefix searches:" class="md-nav__link">
+  <a href="#a"_"few"_"notes"_"on"_"prefix"_"searches" title="A few notes on prefix searches:" class="md-nav__link">
     A few notes on prefix searches:
   </a>
   
@@ -663,21 +852,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-few-query-examples" title="A Few Query Examples" class="md-nav__link">
+  <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#mapping-common-sql-predicates-to-redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
+  <a href="#mapping"_"common"_"sql"_"predicates"_"to"_"redisearch" title="Mapping Common SQL Predicates to RediSearch" class="md-nav__link">
     Mapping Common SQL Predicates to RediSearch
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#technical-note" title="Technical Note" class="md-nav__link">
+  <a href="#technical"_"note" title="Technical Note" class="md-nav__link">
     Technical Note
   </a>
   
@@ -700,7 +889,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Query_Syntax.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="search-query-syntax">Search Query Syntax:<a class="headerlink" href="#search-query-syntax" title="Permanent link">&para;</a></h1>
+                <h1 id="search&quot;_&quot;query&quot;_&quot;syntax">Search Query Syntax:<a class="headerlink" href="#search&quot;_&quot;query&quot;_&quot;syntax" title="Permanent link">&para;</a></h1>
 <p>We support a simple syntax for complex queries with the following rules:</p>
 <ul>
 <li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
@@ -716,10 +905,10 @@
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
-<h2 id="pure-negative-queries">Pure Negative Queries<a class="headerlink" href="#pure-negative-queries" title="Permanent link">&para;</a></h2>
+<h2 id="pure&quot;_&quot;negative&quot;_&quot;queries">Pure Negative Queries<a class="headerlink" href="#pure&quot;_&quot;negative&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
 <p>As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. <code>-hello</code> or <code>-(@title:foo|bar)</code>. The results will be all the documents <em>NOT</em> containing the query terms.</p>
 <p><strong>Warning</strong>: Any complex expression can be negated this way, however caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.</p>
-<h2 id="field-modifiers">Field modifiers<a class="headerlink" href="#field-modifiers" title="Permanent link">&para;</a></h2>
+<h2 id="field&quot;_&quot;modifiers">Field modifiers<a class="headerlink" href="#field&quot;_&quot;modifiers" title="Permanent link">&para;</a></h2>
 <p>As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword. </p>
 <p>Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the <code>@</code> symbol, the field name and a <code>:</code> (colon) symbol. </p>
 <p>If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier. </p>
@@ -735,9 +924,9 @@
 
 
 <p>This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.</p>
-<h2 id="numeric-filters-in-query">Numeric Filters in Query<a class="headerlink" href="#numeric-filters-in-query" title="Permanent link">&para;</a></h2>
+<h2 id="numeric&quot;_&quot;filters&quot;_&quot;in&quot;_&quot;query">Numeric Filters in Query<a class="headerlink" href="#numeric&quot;_&quot;filters&quot;_&quot;in&quot;_&quot;query" title="Permanent link">&para;</a></h2>
 <p>If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is <code>@field:[{min} {max}]</code> - e.g. <code>@price:[100 200]</code>.</p>
-<h3 id="a-few-notes-on-numeric-predicates">A few notes on numeric predicates:<a class="headerlink" href="#a-few-notes-on-numeric-predicates" title="Permanent link">&para;</a></h3>
+<h3 id="a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;predicates">A few notes on numeric predicates:<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;predicates" title="Permanent link">&para;</a></h3>
 <ol>
 <li>
 <p>It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.</p>
@@ -755,7 +944,7 @@
 <p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>. </p>
 </li>
 </ol>
-<h2 id="tag-filters">Tag Filters<a class="headerlink" href="#tag-filters" title="Permanent link">&para;</a></h2>
+<h2 id="tag&quot;_&quot;filters">Tag Filters<a class="headerlink" href="#tag&quot;_&quot;filters" title="Permanent link">&para;</a></h2>
 <p>RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax: </p>
 <div class="codehilite"><pre><span></span>@field:{ tag | tag | ...}
 
@@ -776,17 +965,17 @@ e.g.
 
 
 <p>Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc.</p>
-<h2 id="geo-filters-in-query">Geo Filters in Query<a class="headerlink" href="#geo-filters-in-query" title="Permanent link">&para;</a></h2>
+<h2 id="geo&quot;_&quot;filters&quot;_&quot;in&quot;_&quot;query">Geo Filters in Query<a class="headerlink" href="#geo&quot;_&quot;filters&quot;_&quot;in&quot;_&quot;query" title="Permanent link">&para;</a></h2>
 <p>As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code>. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).</p>
 <p>Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: <code>chinese restaurant @location:[-122.41 37.77 5 km]</code>.</p>
-<h2 id="prefix-matching">Prefix Matching<a class="headerlink" href="#prefix-matching" title="Permanent link">&para;</a></h2>
+<h2 id="prefix&quot;_&quot;matching">Prefix Matching<a class="headerlink" href="#prefix&quot;_&quot;matching" title="Permanent link">&para;</a></h2>
 <p>On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending <code>*</code> to a prefix token. For example:</p>
 <div class="codehilite"><pre><span></span>hel* world
 </pre></div>
 
 
 <p>Will be expanded to cover <code>(hello|help|helm|...) world</code>. </p>
-<h3 id="a-few-notes-on-prefix-searches">A few notes on prefix searches:<a class="headerlink" href="#a-few-notes-on-prefix-searches" title="Permanent link">&para;</a></h3>
+<h3 id="a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;prefix&quot;_&quot;searches">A few notes on prefix searches:<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;prefix&quot;_&quot;searches" title="Permanent link">&para;</a></h3>
 <ol>
 <li>
 <p>As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.</p>
@@ -807,7 +996,7 @@ e.g.
 <p>Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. </p>
 </li>
 </ol>
-<h2 id="a-few-query-examples">A Few Query Examples<a class="headerlink" href="#a-few-query-examples" title="Permanent link">&para;</a></h2>
+<h2 id="a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples">A Few Query Examples<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
 <p>Simple phrase query - hello AND world</p>
@@ -905,7 +1094,7 @@ hello -worl*
 
 </li>
 </ul>
-<h2 id="mapping-common-sql-predicates-to-redisearch">Mapping Common SQL Predicates to RediSearch<a class="headerlink" href="#mapping-common-sql-predicates-to-redisearch" title="Permanent link">&para;</a></h2>
+<h2 id="mapping&quot;_&quot;common&quot;_&quot;sql&quot;_&quot;predicates&quot;_&quot;to&quot;_&quot;redisearch">Mapping Common SQL Predicates to RediSearch<a class="headerlink" href="#mapping&quot;_&quot;common&quot;_&quot;sql&quot;_&quot;predicates&quot;_&quot;to&quot;_&quot;redisearch" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -982,7 +1171,7 @@ hello -worl*
 </tr>
 </tbody>
 </table>
-<h2 id="technical-note">Technical Note<a class="headerlink" href="#technical-note" title="Permanent link">&para;</a></h2>
+<h2 id="technical&quot;_&quot;note">Technical Note<a class="headerlink" href="#technical&quot;_&quot;note" title="Permanent link">&para;</a></h2>
 <p>The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo.</a></p>
                 
                   

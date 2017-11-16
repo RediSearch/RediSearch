@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -86,6 +92,10 @@
         <span class="md-flex__ellipsis md-header-nav__title">
           
             
+              
+                <span class="md-header-nav__parent">
+                  Reference
+                </span>
               
             
             Tag Fields
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link md-tabs__link--active">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -233,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -256,6 +383,27 @@
       
       
 
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
 
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
@@ -263,10 +411,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -275,10 +423,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -287,10 +435,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
   
 
@@ -321,28 +469,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating-a-tag-field" title="Creating A Tag Field" class="md-nav__link">
+  <a href="#creating"_"a"_"tag"_"field" title="Creating A Tag Field" class="md-nav__link">
     Creating A Tag Field
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#querying-tag-fields" title="Querying Tag Fields" class="md-nav__link">
+  <a href="#querying"_"tag"_"fields" title="Querying Tag Fields" class="md-nav__link">
     Querying Tag Fields
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multiple-tags-in-a-single-filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
+  <a href="#multiple"_"tags"_"in"_"a"_"single"_"filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
     Multiple Tags In A Single Filter
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multi-word-tags-and-escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
+  <a href="#multi-word"_"tags"_"and"_"escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
     Multi-Word Tags And Escaping
   </a>
   
@@ -356,10 +504,10 @@
     
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -368,10 +516,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -380,10 +528,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -392,10 +540,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -404,40 +552,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -448,13 +577,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -484,13 +673,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -534,28 +723,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating-a-tag-field" title="Creating A Tag Field" class="md-nav__link">
+  <a href="#creating"_"a"_"tag"_"field" title="Creating A Tag Field" class="md-nav__link">
     Creating A Tag Field
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#querying-tag-fields" title="Querying Tag Fields" class="md-nav__link">
+  <a href="#querying"_"tag"_"fields" title="Querying Tag Fields" class="md-nav__link">
     Querying Tag Fields
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multiple-tags-in-a-single-filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
+  <a href="#multiple"_"tags"_"in"_"a"_"single"_"filter" title="Multiple Tags In A Single Filter" class="md-nav__link">
     Multiple Tags In A Single Filter
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multi-word-tags-and-escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
+  <a href="#multi-word"_"tags"_"and"_"escaping" title="Multi-Word Tags And Escaping" class="md-nav__link">
     Multi-Word Tags And Escaping
   </a>
   
@@ -578,7 +767,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Tags.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="tag-fields">Tag Fields<a class="headerlink" href="#tag-fields" title="Permanent link">&para;</a></h1>
+                <h1 id="tag&quot;_&quot;fields">Tag Fields<a class="headerlink" href="#tag&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
 <p>RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to full-text field, but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax.</p>
 <p>The main differences between tag fields and full-text fields are:</p>
 <ol>
@@ -608,7 +797,7 @@ is usually one or two bytes long. This makes them very memory efficient and fast
 <p>An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.</p>
 </li>
 </ol>
-<h2 id="creating-a-tag-field">Creating A Tag Field<a class="headerlink" href="#creating-a-tag-field" title="Permanent link">&para;</a></h2>
+<h2 id="creating&quot;_&quot;a&quot;_&quot;tag&quot;_&quot;field">Creating A Tag Field<a class="headerlink" href="#creating&quot;_&quot;a&quot;_&quot;tag&quot;_&quot;field" title="Permanent link">&para;</a></h2>
 <p>Tag fields can be added to the schema in FT.ADD with the following syntax:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
 </pre></div>
@@ -619,7 +808,7 @@ is usually one or two bytes long. This makes them very memory efficient and fast
 </pre></div>
 
 
-<h2 id="querying-tag-fields">Querying Tag Fields<a class="headerlink" href="#querying-tag-fields" title="Permanent link">&para;</a></h2>
+<h2 id="querying&quot;_&quot;tag&quot;_&quot;fields">Querying Tag Fields<a class="headerlink" href="#querying&quot;_&quot;tag&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
 <p>As mentioned above, just searching for a tag without any modifiers will not retrieve documents
 containing it.</p>
 <p>The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
@@ -635,7 +824,7 @@ this case):</p>
 </pre></div>
 
 
-<h2 id="multiple-tags-in-a-single-filter">Multiple Tags In A Single Filter<a class="headerlink" href="#multiple-tags-in-a-single-filter" title="Permanent link">&para;</a></h2>
+<h2 id="multiple&quot;_&quot;tags&quot;_&quot;in&quot;_&quot;a&quot;_&quot;single&quot;_&quot;filter">Multiple Tags In A Single Filter<a class="headerlink" href="#multiple&quot;_&quot;tags&quot;_&quot;in&quot;_&quot;a&quot;_&quot;single&quot;_&quot;filter" title="Permanent link">&para;</a></h2>
 <p>Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing <em>all</em> tags, you should repeat the tag filter several times.</p>
 <p>For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE myIndex SCHEMA name TEXT cities TAG
@@ -654,7 +843,7 @@ FT.ADD myIndex user1 1.0 FIELDS name &quot;John Doe&quot; cities &quot;New York,
 </pre></div>
 
 
-<h2 id="multi-word-tags-and-escaping">Multi-Word Tags And Escaping<a class="headerlink" href="#multi-word-tags-and-escaping" title="Permanent link">&para;</a></h2>
+<h2 id="multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping">Multi-Word Tags And Escaping<a class="headerlink" href="#multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h2>
 <p>Tags can be composed multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). </p>
 <p>It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
 <p>The following are identical:</p>

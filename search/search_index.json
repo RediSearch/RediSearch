@@ -6,7 +6,7 @@
             "title": "Home"
         }, 
         {
-            "location": "/#redisearch-redis-powered-search-engine", 
+            "location": "/#redisearch\"_\"-\"_\"redis\"_\"powered\"_\"search\"_\"engine", 
             "text": "RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by  Redis Labs .    Quick Links:   Source Code at GitHub .  Latest Release: 0.99.0 (RC1)  Docker Image: redislabs/redisearch  Quick Start Guide     Supported Platforms  RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.  i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.", 
             "title": "RediSearch - Redis Powered Search Engine"
         }, 
@@ -16,17 +16,17 @@
             "title": "Overview"
         }, 
         {
-            "location": "/#client-libraries", 
+            "location": "/#client\"_\"libraries", 
             "text": "Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. \nSee  Clients Page", 
             "title": "Client Libraries"
         }, 
         {
-            "location": "/#cluster-support-and-commercial-version", 
+            "location": "/#cluster\"_\"support\"_\"and\"_\"commercial\"_\"version", 
             "text": "RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial suppport for RediSearch. See the  Redis Labs Website  for more info and contact information.", 
             "title": "Cluster Support and Commercial Version"
         }, 
         {
-            "location": "/#primary-features", 
+            "location": "/#primary\"_\"features", 
             "text": "Full-Text indexing of multiple fields in documents.  Incremental indexing without performance loss.  Document ranking (provided manually by the user at index time).  Complex boolean queries with AND, OR, NOT operators between sub-queries.  Optional query clauses.  Prefix based searches.  Field weights.  Auto-complete suggestions (with fuzzy prefix suggestions)  Exact Phrase Search, Slop based search.  Stemming based query expansion in  many languages  (using  Snowball ).  Support for custom functions for query expansion and scoring (see  Extensions ).  Limiting searches to specific document fields ( up to 32 TEXT fields supported ).  Numeric filters and ranges.  Geo filtering using Redis' own Geo-commands.   Unicode support (UTF-8 input required)  Retrieve full document content or just ids  Document deletion and updating with index garbage collection.  Partial document updates.", 
             "title": "Primary Features:"
         }, 
@@ -36,67 +36,52 @@
             "title": "Quick Start"
         }, 
         {
-            "location": "/Quick_Start/#quick-start-guide-for-redisearch", 
+            "location": "/Quick_Start/#quick\"_\"start\"_\"guide\"_\"for\"_\"redisearch", 
             "text": "", 
             "title": "Quick Start Guide for RediSearch:"
         }, 
         {
-            "location": "/Quick_Start/#running-with-docker", 
+            "location": "/Quick_Start/#running\"_\"with\"_\"docker", 
             "text": "docker run -p  6379 :6379 redislabs/redisearch:latest", 
             "title": "Running with Docker"
         }, 
         {
-            "location": "/Quick_Start/#building-and-running-from-source", 
+            "location": "/Quick_Start/#building\"_\"and\"_\"running\"_\"from\"_\"source", 
             "text": "git clone https://github.com/RedisLabsModules/RediSearch.git cd  RediSearch/src\nmake all # Assuming you have a redis build from the unstable branch: \n/path/to/redis-server --loadmodule ./redisearch.so", 
             "title": "Building and running from source:"
         }, 
         {
-            "location": "/Quick_Start/#creating-an-index-with-fields-and-weights-default-weight-is-10", 
+            "location": "/Quick_Start/#creating\"_\"an\"_\"index\"_\"with\"_\"fields\"_\"and\"_\"weights\"_\"default\"_\"weight\"_\"is\"_\"10", 
             "text": "127.0.0.1:6379  FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT\nOK", 
             "title": "Creating an index with fields and weights (default weight is 1.0):"
         }, 
         {
-            "location": "/Quick_Start/#adding-documents-to-the-index", 
+            "location": "/Quick_Start/#adding\"_\"documents\"_\"to\"_\"the\"_\"index", 
             "text": "127.0.0.1:6379  FT.ADD myIdx doc1 1.0 FIELDS title  hello world  body  lorem ipsum  url  http://redis.io  \nOK", 
             "title": "Adding documents to the index:"
         }, 
         {
-            "location": "/Quick_Start/#searching-the-index", 
+            "location": "/Quick_Start/#searching\"_\"the\"_\"index", 
             "text": "127.0.0.1:6379  FT.SEARCH myIdx  hello world  LIMIT 0 10\n1) (integer) 1\n2)  doc1 \n3) 1)  title \n   2)  hello world \n   3)  body \n   4)  lorem ipsum \n   5)  url \n   6)  http://redis.io    NOTE : Input is expected to be valid utf-8 or ascii. The engine cannot handle wide character unicode at the moment.", 
             "title": "Searching the index:"
         }, 
         {
-            "location": "/Quick_Start/#dropping-the-index", 
+            "location": "/Quick_Start/#dropping\"_\"the\"_\"index", 
             "text": "127.0.0.1:6379  FT.DROP myIdx\nOK", 
             "title": "Dropping the index:"
         }, 
         {
-            "location": "/Quick_Start/#adding-and-getting-auto-complete-suggestions", 
+            "location": "/Quick_Start/#adding\"_\"and\"_\"getting\"_\"auto-complete\"_\"suggestions", 
             "text": "127.0.0.1:6379  FT.SUGADD autocomplete  hello world  100\nOK\n\n127.0.0.1:6379  FT.SUGGET autocomplete  he \n1)  hello world", 
             "title": "Adding and getting Auto-complete suggestions:"
         }, 
         {
-            "location": "/Clients/", 
-            "text": "RediSearch Client Libraries\n\n\nRediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. \n\n\nWhile it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it. \n\n\nCurrently available Libraries\n\n\n\n\n\n\n\n\nLanguage\n\n\nLibrary\n\n\nAuthor\n\n\nLicense\n\n\nComments\n\n\n\n\n\n\n\n\n\n\nPython\n\n\nredisearch-py\n\n\nRedis Labs\n\n\nBSD\n\n\nUsually the most up-to-date client library\n\n\n\n\n\n\nJava\n\n\nJRediSearch\n\n\nRedis Labs\n\n\nBSD\n\n\n\n\n\n\n\n\nGo\n\n\nredisearch-go\n\n\nRedis Labs\n\n\nBSD\n\n\nIncomplete API\n\n\n\n\n\n\nJavaScript\n\n\nRedRediSearch\n\n\nKyle J. Davis\n\n\nMIT\n\n\nPartial API, compatible with \nReds\n\n\n\n\n\n\nC#\n\n\nNRediSearch\n\n\nMarc Gravell\n\n\nMIT\n\n\nPart of StackExchange.Redis\n\n\n\n\n\n\nPHP\n\n\nredisearch-php\n\n\nEthan Hann\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby on Rails\n\n\nredi_search_rails\n\n\nDmitry Polyakovsky\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby\n\n\nredisearch-rb\n\n\nVictor Ruiz\n\n\nMIT", 
-            "title": "Client Libraries"
-        }, 
-        {
-            "location": "/Clients/#redisearch-client-libraries", 
-            "text": "RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages.   While it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it.", 
-            "title": "RediSearch Client Libraries"
-        }, 
-        {
-            "location": "/Clients/#currently-available-libraries", 
-            "text": "Language  Library  Author  License  Comments      Python  redisearch-py  Redis Labs  BSD  Usually the most up-to-date client library    Java  JRediSearch  Redis Labs  BSD     Go  redisearch-go  Redis Labs  BSD  Incomplete API    JavaScript  RedRediSearch  Kyle J. Davis  MIT  Partial API, compatible with  Reds    C#  NRediSearch  Marc Gravell  MIT  Part of StackExchange.Redis    PHP  redisearch-php  Ethan Hann  MIT     Ruby on Rails  redi_search_rails  Dmitry Polyakovsky  MIT     Ruby  redisearch-rb  Victor Ruiz  MIT", 
-            "title": "Currently available Libraries"
-        }, 
-        {
             "location": "/Commands/", 
             "text": "RediSeach Full Command Documentation\n\n\nFT.CREATE\n\n\nFormat:\n\n\n  FT.CREATE {index} \n    [NOOFFSETS] [NOFIELDS]\n    [STOPWORDS {num} {stopword} ...]\n    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...\n\n\n\n\n\nDescription:\n\n\nCreates an index with the given spec. The index name will be used in all the key names\nso keep it short!\n\n\n\n\nNote on field number limits\nRediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.\n\n\nOn 32 bit builds, at most 64 fields can be TEXT fields.\n\n\nNotice that the more fields you have, the larger your index will be, as each additional 8 fiedls require one extra byte per index record to encode.\n\n\nYou can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.\n\n\n\n\n\n\nParameters:\n\n\n\n\n\n\nindex\n: the index name to create. If it exists the old spec will be overwritten\n\n\n\n\n\n\nNOOFFSETS\n: If set, we do not store term offsets for documents (saves memory, does not allow exact searches or highlighting).\n  Implies \nNOHL\n\n\n\n\n\n\nNOHL\n: Conserves storage space and memory by disabling highlighting support. If set, we do\n  not store corresponding byte offsets for term positions. \nNOHL\n is also implied by \nNOOFFSETS\n.\n\n\n\n\n\n\nNOFIELDS\n: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.\n\n\n\n\n\n\nNOFREQS\n: If set, we avoid saving the term frequencies in the index. This saves\n  memory but does not allow sorting based on the frequencies of a given term within\n  the document.\n\n\n\n\n\n\nSTOPWORDS\n: If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}. \n\n\nIf not set, we take the default list of stopwords. \n\n\nIf \n{num}\n is set to 0, the index will not have stopwords.\n\n\n\n\n\n\nSCHEMA {field} {options...}\n: After the SCHEMA keyword we define the index fields. \nThey can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.\n\n\nField Options\n\n\n\n\n\n\nSORTABLE\n\n\nNumeric or text field can have the optional SORTABLE argument that allows the user to later \nsort the results by the value of this field\n (this adds memory overhead so do not declare it on large text fields).\n\n\n\n\n\n\nNOSTEM\n\n\nText fields can have the NOSTEM argument which will disable stemming when indexing its values. \nThis may be ideal for things like proper names.\n\n\n\n\n\n\nNOINDEX\n\n\nFields can have the \nNOINDEX\n option, which means they will not be indexed. \nThis is useful in conjunction with \nSORTABLE\n, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.\n\n\n\n\n\n\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns:\n\n\nOK or an error\n\n\n\n\nFT.ADD\n\n\nFormat:\n\n\nFT.ADD {index} {docId} {score} \n  [NOSAVE]\n  [REPLACE [PARTIAL]]\n  [LANGUAGE {language}] \n  [PAYLOAD {payload}]\n  FIELDS {field} {value} [{field} {value}...]\n\n\n\n\n\nDescription\n\n\nAdd a documet to the index.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id that will be returned from searches. \n  Note that the same docId cannot be added twice to the same index\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nNOSAVE\n: If set to true, we will not save the actual document in the index and only index it.\n\n\n\n\n\n\nREPLACE\n: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. \n\n\n\n\n\n\nPARTIAL\n (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.\n\n\n\n\n\n\nFIELDS\n: Following the FIELDS specifier, we are looking for pairs of  \n{field} {value}\n to be indexed.\n  Each field will be scored based on the index spec given in FT.CREATE. \n  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set \n\n\n\n\n\n\nPAYLOAD {payload}\n: Optionally set a binary safe payload string to the document, \n  that can be evaluated at query time by a custom scoring function, or retrieved to the client.\n\n\n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\"chinese\"\n\n\n\n\n\n\n\n\nIf indexing a chinese language document, you must set the language to \nchinese\n\n  in order for the chinese characters to be tokenized properly.\n\n\nAdding Chinese Documents\n\n\nWhen adding Chinese-language documents, \nLANGUAGE chinese\n should be set in\norder for the indexer to properly tokenize the terms. If the default language\nis used then search terms will be extracted based on punctuation characters and\nwhitespace. The Chinese language tokenizer makes use of a segmentation algorithm\n(via \nFriso\n) which segments texts and\nchecks it against a predefined dictionary. See \nStemming\n for more\ninformation.\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.ADD with  REPLACE and PARTIAL\nBy default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.\n\n\nHowever, updating the document is possible with the REPLACE and REPLACE PARTIAL options.\n\n\nREPLACE\n: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.\n\n\nREPLACE PARTIAL\n: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.\n\n\n\n\n\n\n\n\nFT.ADDHASH\n\n\nFormat\n\n\n \nFT\n.\nADDHASH\n \n{\nindex\n}\n \n{\ndocId\n}\n \n{\nscore\n}\n \n[\nLANGUAGE\n \nlanguage\n]\n \n[\nREPLACE\n]\n\n\n\n\n\n\nDescription\n\n\nAdd a documet to the index from an existing HASH key in Redis.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id. This has to be an existing HASH key in redis that will hold the fields \n    the index needs.\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nREPLACE\n: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.\n\n\n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\n\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.INFO\n\n\nFormat\n\n\nFT.INFO {index} \n\n\n\n\n\nDescription\n\n\nReturn information and statistics on the index. Returned values include:\n\n\n\n\nNumber of documents.\n\n\nNumber of distinct terms.\n\n\nAverage bytes per record.\n\n\nSize and capacity of the index buffers.\n\n\n\n\nExample:\n\n\n127.0.0.1:6379\n ft.info wik{0}\n 1) index_name\n 2) wikipedia\n 3) fields\n 4) 1) 1) title\n       2) type\n       3) FULLTEXT\n       4) weight\n       5) \n1\n\n    2) 1) body\n       2) type\n       3) FULLTEXT\n       4) weight\n       5) \n1\n\n 5) num_docs\n 6) \n502694\n\n 7) num_terms\n 8) \n439158\n\n 9) num_records\n10) \n8098583\n\n11) inverted_sz_mb\n12) \n45.58\n13) inverted_cap_mb\n14) \n56.61\n15) inverted_cap_ovh\n16) \n0.19\n17) offset_vectors_sz_mb\n18) \n9.27\n19) skip_index_size_mb\n20) \n7.35\n21) score_index_size_mb\n22) \n30.8\n23) records_per_doc_avg\n24) \n16.1\n25) bytes_per_record_avg\n26) \n5.90\n27) offsets_per_term_avg\n28) \n1.20\n29) offset_bits_per_record_avg\n30) \n8.00\n\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nArray Response. A nested array of keys and values.\n\n\n\n\nFT.SEARCH\n\n\nFormat\n\n\nFT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]\n  [FILTER {numeric_field} {min} {max}] ...\n  [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]\n  [INKEYS {num} {key} ... ]\n  [INFIELDS {num} {field} ... ]\n  [RETURN {num} {field} ... ]\n  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]\n  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]\n  [SLOP {slop}] [INORDER]\n  [LANGUAGE {language}]\n  [EXPANDER {expander}]\n  [SCORER {scorer}]\n  [PAYLOAD {payload}]\n  [SORTBY {field} [ASC|DESC]]\n  [LIMIT offset num]\n\n\n\n\n\nDescription\n\n\nSearch the index with a textual query, returning either documents or just ids.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nquery\n: the text query to search. If it's more than a single word, put it in quotes.\n  See below for documentation on query syntax. \n\n\nNOCONTENT\n: If it appears after the query, we only return the document ids and not \n  the content. This is useful if rediseach is only an index on an external document collection\n\n\nRETURN {num} {field} ...\n: Use this keyword to limit which fields from the document are returned.\n  \nnum\n is the number of fields following the keyword. If \nnum\n is 0, it acts like \nNOCONTENT\n.\n\n\nSUMMARIZE ...\n: Use this option to return only the sections of the field which contain the matched text.\n  See \nHighlighting\n for more detailts\n\n\nHIGHLIGHT ...\n: Use this option to format occurrences of matched text. See \nHighligting\n for more\n  details\n\n\nLIMIT first num\n: If the parameters appear after the query, we limit the results to \n  the offset and number of results given. The default is 0 10\n\n\nINFIELDS {num} {field} ...\n: If set, filter the results to ones appearing only in specific\n  fields of the document, like title or url. num is the number of specified field arguments\n\n\nINKEYS {num} {field} ...\n: If set, we limit the result to a given set of keys specified in the list. \n  the first argument must be the length of the list, and greater than zero.\n  Non existent keys are ignored - unless all the keys are non existent.\n\n\nSLOP {slop}\n: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)\n\n\nINORDER\n: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. \n\n\nFILTER numeric_field min max\n: If set, and numeric_field is defined as a numeric field in \n  FT.CREATE, we will limit results to those having numeric values ranging between min and max.\n  min and max follow ZRANGE syntax, and can be \n-inf\n, \n+inf\n and use \n(\n for exclusive ranges. \n  Multiple numeric filters for different fields are supported in one query.\n\n\nGEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft\n: If set, we filter the results to a given radius \n  from lon and lat. Radius is given as a number and units. See \nGEORADIUS\n for more details. \n\n\nNOSTOPWORDS\n: If set, we do not filter stopwords from the query. \n\n\nWITHSCORES\n: If set, we also return the relative internal score of each document. this can be\n  used to merge results from multiple instances\n\n\nWITHSORTKEYS\n: Only relevant in conjunction with \nSORTBY\n. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.\n\n\nVERBATIM\n: if set, we do not try to use stemming for query expansion but search the query terms verbatim.\n\n\nLANGUAGE {language}\n: If set, we use a stemmer for the supplied langauge during search for query expansion.\n  If querying documents in Chinese, this should be set to \nchinese\n in order to\n  properly tokenize the query terms. \n  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.\n\n\nEXPANDER {expander}\n: If set, we will use a custom query expander instead of the stemmer. \nSee Extensions\n.\n\n\nSCORER {scorer}\n: If set, we will use a custom scoring function defined by the user. \nSee Extensions\n.\n\n\nPAYLOAD {payload}\n: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. \nSee Extensions\n.\n\n\nWITHPAYLOADS\n: If set, we retrieve optional document payloads (see FT.ADD). \n  the payloads follow the document id, and if \nWITHSCORES\n was set, follow the scores.\n\n\nSORTBY {field} [ASC|DESC]\n: If specified, and field is a \nsortable field\n, the results are ordered by the value of this field. This applies to both text and numeric fields.\n\n\n\n\nComplexity\n\n\nO(n) for single word queries (though for popular words we save a cache of the top 50 results).\n\n\nComplexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.\n\n\nReturns\n\n\nArray reply,\n where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. \n\n\nIf \nNOCONTENT\n was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.\n\n\n\n\nFT.EXPLAIN\n\n\nFormat\n\n\nFT.EXPLAIN {index} {query}\n\n\n\n\n\nDescription\n\n\nReturn the execution plan for a complex query\n\n\nExample:\n\n\n$ redis-cli --raw\n\n\n127\n.0.0.1:6379\n FT.EXPLAIN rd \n(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]\n\nINTERSECT \n{\n\n  UNION \n{\n\n    INTERSECT \n{\n\n      foo\n      bar\n    \n}\n\n    INTERSECT \n{\n\n      hello\n      world\n    \n}\n\n  \n}\n\n  UNION \n{\n\n    NUMERIC \n{\n100\n.000000 \n=\n x \n=\n \n200\n.000000\n}\n\n    NUMERIC \n{\n500\n.000000 \n=\n x \n=\n inf\n}\n\n  \n}\n\n\n}\n\n\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nquery\n: The query string, as if sent to FT.SEARCH\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nString Response. A string representing the execution plan (see above example). \n\n\nNote\n: You should use \nredis-cli --raw\n to properly read line-breaks in the returned response.\n\n\n\n\nFT.DEL\n\n\nFormat\n\n\nFT.DEL {index} {doc_id}\n\n\n\n\n\nDescription\n\n\nDelete a document from the index. Returns 1 if the document was in the index, or 0 if not. \n\n\nAfter deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.\n\n\nNOTE\n: This does not actually delete the document from the index, just marks it as deleted. \nThus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndoc_id\n: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nInteger Reply: 1 if the document was deleted, 0 if not.\n\n\n\n\nFT.GET\n\n\nFormat\n\n\nFT.GET {index} {doc id}\n\n\n\n\n\nDescription\n\n\nReturns the full contents of a document.\n\n\nCurrently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.\n\n\nIf the document does not exist or is not a HASH object, we reutrn a NULL reply\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndocumentId\n: The id of the document as inserted to the index\n\n\n\n\nReturns\n\n\nArray Reply: Key-value pairs of field names and values of the document\n\n\n\n\nFT.MGET\n\n\nFormat\n\n\nFT.GET {index} {docId} ...\n\n\n\n\n\nDescription\n\n\nReturns the full contents of multiple documents. \nCurrently it is equivalent to calling multiple HGETALL commands, although faster. \nThis command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. \nIn addition, it allows simpler implementation of fetching documents in clustered mode.\n\n\nWe return an array with exactly the same number of elements as the number of keys sent to the command. \n\n\nEach element in turn is an array of key-value pairs representing the document. \n\n\nIf a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndocumentIds\n: The ids of the requested documents as inserted to the index\n\n\n\n\nReturns\n\n\nArray Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.\n\n\n\n\nFT.DROP\n\n\nFormat\n\n\nFT.DROP {index}\n\n\n\n\n\nDescription\n\n\nDeletes all the keys associated with the index. \n\n\nIf no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact\nthat the index specification is not deleted.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nReturns\n\n\nStatus Reply: OK on success.\n\n\n\n\nFT.TAGVALS\n\n\nFormat\n\n\nFT.TAGVALS {index} {field_name}\n\n\n\n\n\nDescription\n\n\nReturn the distinct tags indexed in a \nTag field\n. \n\n\nThis is useful if your tag field indexes things like cities, categories, etc.\n\n\n\n\nLimitations\n\n\nThere is no paging or sorting, the tags are not alphabetically sorted. \n\n\nThis command only operates on \nTag fields\n.  \n\n\nThe strings return lower-cased and stripped of whitespaces, but otherwise unchanged.\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nfiled_name\n: The name of a Tag file defined in the schema.\n\n\n\n\nReturns\n\n\nArray Reply: All the distinct tags in the tag index.\n\n\nComplexity\n\n\nO(n), n being the cardinality of the tag field.\n\n\n\n\nFT.SUGADD\n\n\nFormat\n\n\nFT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]\n\n\n\n\n\nDescription\n\n\nAdd a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the\nindex definitions, and leaves creating and updating suggestino dictionaries to the user.\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the suggestion string we index\n\n\nscore\n: a floating point number of the suggestion string's weight\n\n\nINCR\n: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time\n\n\nPAYLOAD {payload}\n: If set, we save an extra payload with the suggestion, that can be fetched by adding the \nWITHPAYLOADS\n argument to \nFT.SUGGET\n.\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.\n\n\n\n\nFT.SUGGET\n\n\nFormat\n\n\nFT\n.\nSUGGET\n \n{\nkey\n}\n \n{\nprefix\n}\n \n[\nFUZZY\n]\n \n[\nWITHPAYLOADS\n]\n \n[\nMAX\n \nnum\n]\n\n\n\n\n\n\nDescription\n\n\nGet completion suggestions for a prefix\n\n\nParameters:\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nprefix\n: the prefix to complete on\n\n\nFUZZY\n: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent\n\n\nMAX num\n: If set, we limit the results to a maximum of \nnum\n. (\nNote\n: The default is 5, and the number cannot be greater than 10).\n\n\nWITHSCORES\n: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances\n\n\nWITHPAYLOADS\n: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.\n\n\n\n\nReturns:\n\n\nArray Reply: a list of the top suggestions matching the prefix, optionally with score after each entry\n\n\n\n\nFT.SUGDEL\n\n\nFormat\n\n\nFT.SUGDEL {key} {string}\n\n\n\n\n\nDescription\n\n\nDelete a string from a suggestion index. \n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the string to delete\n\n\n\n\nReturns:\n\n\nInteger Reply: 1 if the string was found and deleted, 0 otherwise.\n\n\n\n\nFT.SUGLEN\n\n\nFormat\n\n\nFT.SUGLEN {key}\n\n\n\n\n\nDescription\n\n\nGet the size of an autoc-complete suggestion dictionary\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.\n\n\n\n\nFT.OPTIMIZE \n DEPRECATED \n\n\nFormat\n\n\nFT.OPTIMIZE {index}\n\n\n\n\n\nDescription\n\n\nThis command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already.", 
-            "title": "Commands"
+            "title": "Command Reference"
         }, 
         {
-            "location": "/Commands/#rediseach-full-command-documentation", 
+            "location": "/Commands/#rediseach\"_\"full\"_\"command\"_\"documentation", 
             "text": "", 
             "title": "RediSeach Full Command Documentation"
         }, 
@@ -121,7 +106,7 @@
             "title": "Parameters:"
         }, 
         {
-            "location": "/Commands/#field-options", 
+            "location": "/Commands/#field\"_\"options", 
             "text": "SORTABLE  Numeric or text field can have the optional SORTABLE argument that allows the user to later  sort the results by the value of this field  (this adds memory overhead so do not declare it on large text fields).    NOSTEM  Text fields can have the NOSTEM argument which will disable stemming when indexing its values. \nThis may be ideal for things like proper names.    NOINDEX  Fields can have the  NOINDEX  option, which means they will not be indexed. \nThis is useful in conjunction with  SORTABLE , to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.", 
             "title": "Field Options"
         }, 
@@ -156,7 +141,7 @@
             "title": "Parameters:"
         }, 
         {
-            "location": "/Commands/#adding-chinese-documents", 
+            "location": "/Commands/#adding\"_\"chinese\"_\"documents", 
             "text": "When adding Chinese-language documents,  LANGUAGE chinese  should be set in\norder for the indexer to properly tokenize the terms. If the default language\nis used then search terms will be extracted based on punctuation characters and\nwhitespace. The Chinese language tokenizer makes use of a segmentation algorithm\n(via  Friso ) which segments texts and\nchecks it against a predefined dictionary. See  Stemming  for more\ninformation.", 
             "title": "Adding Chinese Documents"
         }, 
@@ -521,7 +506,442 @@
             "title": "Returns:"
         }, 
         {
-            "location": "/Commands/#ftoptimize-deprecated", 
+            "location": "/Commands/#ftoptimize\"_\"deprecated", 
+            "text": "Format  FT.OPTIMIZE {index}  Description  This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already.", 
+            "title": "FT.OPTIMIZE  DEPRECATED"
+        }, 
+        {
+            "location": "/Commands/", 
+            "text": "RediSeach Full Command Documentation\n\n\nFT.CREATE\n\n\nFormat:\n\n\n  FT.CREATE {index} \n    [NOOFFSETS] [NOFIELDS]\n    [STOPWORDS {num} {stopword} ...]\n    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...\n\n\n\n\n\nDescription:\n\n\nCreates an index with the given spec. The index name will be used in all the key names\nso keep it short!\n\n\n\n\nNote on field number limits\nRediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.\n\n\nOn 32 bit builds, at most 64 fields can be TEXT fields.\n\n\nNotice that the more fields you have, the larger your index will be, as each additional 8 fiedls require one extra byte per index record to encode.\n\n\nYou can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.\n\n\n\n\n\n\nParameters:\n\n\n\n\n\n\nindex\n: the index name to create. If it exists the old spec will be overwritten\n\n\n\n\n\n\nNOOFFSETS\n: If set, we do not store term offsets for documents (saves memory, does not allow exact searches or highlighting).\n  Implies \nNOHL\n\n\n\n\n\n\nNOHL\n: Conserves storage space and memory by disabling highlighting support. If set, we do\n  not store corresponding byte offsets for term positions. \nNOHL\n is also implied by \nNOOFFSETS\n.\n\n\n\n\n\n\nNOFIELDS\n: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.\n\n\n\n\n\n\nNOFREQS\n: If set, we avoid saving the term frequencies in the index. This saves\n  memory but does not allow sorting based on the frequencies of a given term within\n  the document.\n\n\n\n\n\n\nSTOPWORDS\n: If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}. \n\n\nIf not set, we take the default list of stopwords. \n\n\nIf \n{num}\n is set to 0, the index will not have stopwords.\n\n\n\n\n\n\nSCHEMA {field} {options...}\n: After the SCHEMA keyword we define the index fields. \nThey can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.\n\n\nField Options\n\n\n\n\n\n\nSORTABLE\n\n\nNumeric or text field can have the optional SORTABLE argument that allows the user to later \nsort the results by the value of this field\n (this adds memory overhead so do not declare it on large text fields).\n\n\n\n\n\n\nNOSTEM\n\n\nText fields can have the NOSTEM argument which will disable stemming when indexing its values. \nThis may be ideal for things like proper names.\n\n\n\n\n\n\nNOINDEX\n\n\nFields can have the \nNOINDEX\n option, which means they will not be indexed. \nThis is useful in conjunction with \nSORTABLE\n, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.\n\n\n\n\n\n\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns:\n\n\nOK or an error\n\n\n\n\nFT.ADD\n\n\nFormat:\n\n\nFT.ADD {index} {docId} {score} \n  [NOSAVE]\n  [REPLACE [PARTIAL]]\n  [LANGUAGE {language}] \n  [PAYLOAD {payload}]\n  FIELDS {field} {value} [{field} {value}...]\n\n\n\n\n\nDescription\n\n\nAdd a documet to the index.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id that will be returned from searches. \n  Note that the same docId cannot be added twice to the same index\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nNOSAVE\n: If set to true, we will not save the actual document in the index and only index it.\n\n\n\n\n\n\nREPLACE\n: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. \n\n\n\n\n\n\nPARTIAL\n (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.\n\n\n\n\n\n\nFIELDS\n: Following the FIELDS specifier, we are looking for pairs of  \n{field} {value}\n to be indexed.\n  Each field will be scored based on the index spec given in FT.CREATE. \n  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set \n\n\n\n\n\n\nPAYLOAD {payload}\n: Optionally set a binary safe payload string to the document, \n  that can be evaluated at query time by a custom scoring function, or retrieved to the client.\n\n\n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\"chinese\"\n\n\n\n\n\n\n\n\nIf indexing a chinese language document, you must set the language to \nchinese\n\n  in order for the chinese characters to be tokenized properly.\n\n\nAdding Chinese Documents\n\n\nWhen adding Chinese-language documents, \nLANGUAGE chinese\n should be set in\norder for the indexer to properly tokenize the terms. If the default language\nis used then search terms will be extracted based on punctuation characters and\nwhitespace. The Chinese language tokenizer makes use of a segmentation algorithm\n(via \nFriso\n) which segments texts and\nchecks it against a predefined dictionary. See \nStemming\n for more\ninformation.\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.ADD with  REPLACE and PARTIAL\nBy default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.\n\n\nHowever, updating the document is possible with the REPLACE and REPLACE PARTIAL options.\n\n\nREPLACE\n: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.\n\n\nREPLACE PARTIAL\n: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.\n\n\n\n\n\n\n\n\nFT.ADDHASH\n\n\nFormat\n\n\n \nFT\n.\nADDHASH\n \n{\nindex\n}\n \n{\ndocId\n}\n \n{\nscore\n}\n \n[\nLANGUAGE\n \nlanguage\n]\n \n[\nREPLACE\n]\n\n\n\n\n\n\nDescription\n\n\nAdd a documet to the index from an existing HASH key in Redis.\n\n\nParameters:\n\n\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\n\n\ndocId\n: The document's id. This has to be an existing HASH key in redis that will hold the fields \n    the index needs.\n\n\n\n\n\n\nscore\n: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1\n\n\n\n\n\n\nREPLACE\n: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.\n\n\n\n\n\n\nLANGUAGE language\n: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:\n\n\n\n\n\n\n\n\n\"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\n\n\n\nComplexity\n\n\nO(n), where n is the number of tokens in the document\n\n\nReturns\n\n\nOK on success, or an error if something went wrong.\n\n\n\n\nFT.INFO\n\n\nFormat\n\n\nFT.INFO {index} \n\n\n\n\n\nDescription\n\n\nReturn information and statistics on the index. Returned values include:\n\n\n\n\nNumber of documents.\n\n\nNumber of distinct terms.\n\n\nAverage bytes per record.\n\n\nSize and capacity of the index buffers.\n\n\n\n\nExample:\n\n\n127.0.0.1:6379\n ft.info wik{0}\n 1) index_name\n 2) wikipedia\n 3) fields\n 4) 1) 1) title\n       2) type\n       3) FULLTEXT\n       4) weight\n       5) \n1\n\n    2) 1) body\n       2) type\n       3) FULLTEXT\n       4) weight\n       5) \n1\n\n 5) num_docs\n 6) \n502694\n\n 7) num_terms\n 8) \n439158\n\n 9) num_records\n10) \n8098583\n\n11) inverted_sz_mb\n12) \n45.58\n13) inverted_cap_mb\n14) \n56.61\n15) inverted_cap_ovh\n16) \n0.19\n17) offset_vectors_sz_mb\n18) \n9.27\n19) skip_index_size_mb\n20) \n7.35\n21) score_index_size_mb\n22) \n30.8\n23) records_per_doc_avg\n24) \n16.1\n25) bytes_per_record_avg\n26) \n5.90\n27) offsets_per_term_avg\n28) \n1.20\n29) offset_bits_per_record_avg\n30) \n8.00\n\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nArray Response. A nested array of keys and values.\n\n\n\n\nFT.SEARCH\n\n\nFormat\n\n\nFT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]\n  [FILTER {numeric_field} {min} {max}] ...\n  [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]\n  [INKEYS {num} {key} ... ]\n  [INFIELDS {num} {field} ... ]\n  [RETURN {num} {field} ... ]\n  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]\n  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]\n  [SLOP {slop}] [INORDER]\n  [LANGUAGE {language}]\n  [EXPANDER {expander}]\n  [SCORER {scorer}]\n  [PAYLOAD {payload}]\n  [SORTBY {field} [ASC|DESC]]\n  [LIMIT offset num]\n\n\n\n\n\nDescription\n\n\nSearch the index with a textual query, returning either documents or just ids.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nquery\n: the text query to search. If it's more than a single word, put it in quotes.\n  See below for documentation on query syntax. \n\n\nNOCONTENT\n: If it appears after the query, we only return the document ids and not \n  the content. This is useful if rediseach is only an index on an external document collection\n\n\nRETURN {num} {field} ...\n: Use this keyword to limit which fields from the document are returned.\n  \nnum\n is the number of fields following the keyword. If \nnum\n is 0, it acts like \nNOCONTENT\n.\n\n\nSUMMARIZE ...\n: Use this option to return only the sections of the field which contain the matched text.\n  See \nHighlighting\n for more detailts\n\n\nHIGHLIGHT ...\n: Use this option to format occurrences of matched text. See \nHighligting\n for more\n  details\n\n\nLIMIT first num\n: If the parameters appear after the query, we limit the results to \n  the offset and number of results given. The default is 0 10\n\n\nINFIELDS {num} {field} ...\n: If set, filter the results to ones appearing only in specific\n  fields of the document, like title or url. num is the number of specified field arguments\n\n\nINKEYS {num} {field} ...\n: If set, we limit the result to a given set of keys specified in the list. \n  the first argument must be the length of the list, and greater than zero.\n  Non existent keys are ignored - unless all the keys are non existent.\n\n\nSLOP {slop}\n: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)\n\n\nINORDER\n: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. \n\n\nFILTER numeric_field min max\n: If set, and numeric_field is defined as a numeric field in \n  FT.CREATE, we will limit results to those having numeric values ranging between min and max.\n  min and max follow ZRANGE syntax, and can be \n-inf\n, \n+inf\n and use \n(\n for exclusive ranges. \n  Multiple numeric filters for different fields are supported in one query.\n\n\nGEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft\n: If set, we filter the results to a given radius \n  from lon and lat. Radius is given as a number and units. See \nGEORADIUS\n for more details. \n\n\nNOSTOPWORDS\n: If set, we do not filter stopwords from the query. \n\n\nWITHSCORES\n: If set, we also return the relative internal score of each document. this can be\n  used to merge results from multiple instances\n\n\nWITHSORTKEYS\n: Only relevant in conjunction with \nSORTBY\n. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.\n\n\nVERBATIM\n: if set, we do not try to use stemming for query expansion but search the query terms verbatim.\n\n\nLANGUAGE {language}\n: If set, we use a stemmer for the supplied langauge during search for query expansion.\n  If querying documents in Chinese, this should be set to \nchinese\n in order to\n  properly tokenize the query terms. \n  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.\n\n\nEXPANDER {expander}\n: If set, we will use a custom query expander instead of the stemmer. \nSee Extensions\n.\n\n\nSCORER {scorer}\n: If set, we will use a custom scoring function defined by the user. \nSee Extensions\n.\n\n\nPAYLOAD {payload}\n: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. \nSee Extensions\n.\n\n\nWITHPAYLOADS\n: If set, we retrieve optional document payloads (see FT.ADD). \n  the payloads follow the document id, and if \nWITHSCORES\n was set, follow the scores.\n\n\nSORTBY {field} [ASC|DESC]\n: If specified, and field is a \nsortable field\n, the results are ordered by the value of this field. This applies to both text and numeric fields.\n\n\n\n\nComplexity\n\n\nO(n) for single word queries (though for popular words we save a cache of the top 50 results).\n\n\nComplexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.\n\n\nReturns\n\n\nArray reply,\n where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. \n\n\nIf \nNOCONTENT\n was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.\n\n\n\n\nFT.EXPLAIN\n\n\nFormat\n\n\nFT.EXPLAIN {index} {query}\n\n\n\n\n\nDescription\n\n\nReturn the execution plan for a complex query\n\n\nExample:\n\n\n$ redis-cli --raw\n\n\n127\n.0.0.1:6379\n FT.EXPLAIN rd \n(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]\n\nINTERSECT \n{\n\n  UNION \n{\n\n    INTERSECT \n{\n\n      foo\n      bar\n    \n}\n\n    INTERSECT \n{\n\n      hello\n      world\n    \n}\n\n  \n}\n\n  UNION \n{\n\n    NUMERIC \n{\n100\n.000000 \n=\n x \n=\n \n200\n.000000\n}\n\n    NUMERIC \n{\n500\n.000000 \n=\n x \n=\n inf\n}\n\n  \n}\n\n\n}\n\n\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nquery\n: The query string, as if sent to FT.SEARCH\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nString Response. A string representing the execution plan (see above example). \n\n\nNote\n: You should use \nredis-cli --raw\n to properly read line-breaks in the returned response.\n\n\n\n\nFT.DEL\n\n\nFormat\n\n\nFT.DEL {index} {doc_id}\n\n\n\n\n\nDescription\n\n\nDelete a document from the index. Returns 1 if the document was in the index, or 0 if not. \n\n\nAfter deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.\n\n\nNOTE\n: This does not actually delete the document from the index, just marks it as deleted. \nThus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndoc_id\n: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.\n\n\n\n\nComplexity\n\n\nO(1)\n\n\nReturns\n\n\nInteger Reply: 1 if the document was deleted, 0 if not.\n\n\n\n\nFT.GET\n\n\nFormat\n\n\nFT.GET {index} {doc id}\n\n\n\n\n\nDescription\n\n\nReturns the full contents of a document.\n\n\nCurrently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.\n\n\nIf the document does not exist or is not a HASH object, we reutrn a NULL reply\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndocumentId\n: The id of the document as inserted to the index\n\n\n\n\nReturns\n\n\nArray Reply: Key-value pairs of field names and values of the document\n\n\n\n\nFT.MGET\n\n\nFormat\n\n\nFT.GET {index} {docId} ...\n\n\n\n\n\nDescription\n\n\nReturns the full contents of multiple documents. \nCurrently it is equivalent to calling multiple HGETALL commands, although faster. \nThis command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. \nIn addition, it allows simpler implementation of fetching documents in clustered mode.\n\n\nWe return an array with exactly the same number of elements as the number of keys sent to the command. \n\n\nEach element in turn is an array of key-value pairs representing the document. \n\n\nIf a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\ndocumentIds\n: The ids of the requested documents as inserted to the index\n\n\n\n\nReturns\n\n\nArray Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.\n\n\n\n\nFT.DROP\n\n\nFormat\n\n\nFT.DROP {index}\n\n\n\n\n\nDescription\n\n\nDeletes all the keys associated with the index. \n\n\nIf no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact\nthat the index specification is not deleted.\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\n\n\nReturns\n\n\nStatus Reply: OK on success.\n\n\n\n\nFT.TAGVALS\n\n\nFormat\n\n\nFT.TAGVALS {index} {field_name}\n\n\n\n\n\nDescription\n\n\nReturn the distinct tags indexed in a \nTag field\n. \n\n\nThis is useful if your tag field indexes things like cities, categories, etc.\n\n\n\n\nLimitations\n\n\nThere is no paging or sorting, the tags are not alphabetically sorted. \n\n\nThis command only operates on \nTag fields\n.  \n\n\nThe strings return lower-cased and stripped of whitespaces, but otherwise unchanged.\n\n\n\n\nParameters\n\n\n\n\nindex\n: The Fulltext index name. The index must be first created with FT.CREATE\n\n\nfiled_name\n: The name of a Tag file defined in the schema.\n\n\n\n\nReturns\n\n\nArray Reply: All the distinct tags in the tag index.\n\n\nComplexity\n\n\nO(n), n being the cardinality of the tag field.\n\n\n\n\nFT.SUGADD\n\n\nFormat\n\n\nFT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]\n\n\n\n\n\nDescription\n\n\nAdd a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the\nindex definitions, and leaves creating and updating suggestino dictionaries to the user.\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the suggestion string we index\n\n\nscore\n: a floating point number of the suggestion string's weight\n\n\nINCR\n: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time\n\n\nPAYLOAD {payload}\n: If set, we save an extra payload with the suggestion, that can be fetched by adding the \nWITHPAYLOADS\n argument to \nFT.SUGGET\n.\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.\n\n\n\n\nFT.SUGGET\n\n\nFormat\n\n\nFT\n.\nSUGGET\n \n{\nkey\n}\n \n{\nprefix\n}\n \n[\nFUZZY\n]\n \n[\nWITHPAYLOADS\n]\n \n[\nMAX\n \nnum\n]\n\n\n\n\n\n\nDescription\n\n\nGet completion suggestions for a prefix\n\n\nParameters:\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nprefix\n: the prefix to complete on\n\n\nFUZZY\n: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent\n\n\nMAX num\n: If set, we limit the results to a maximum of \nnum\n. (\nNote\n: The default is 5, and the number cannot be greater than 10).\n\n\nWITHSCORES\n: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances\n\n\nWITHPAYLOADS\n: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.\n\n\n\n\nReturns:\n\n\nArray Reply: a list of the top suggestions matching the prefix, optionally with score after each entry\n\n\n\n\nFT.SUGDEL\n\n\nFormat\n\n\nFT.SUGDEL {key} {string}\n\n\n\n\n\nDescription\n\n\nDelete a string from a suggestion index. \n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\nstring\n: the string to delete\n\n\n\n\nReturns:\n\n\nInteger Reply: 1 if the string was found and deleted, 0 otherwise.\n\n\n\n\nFT.SUGLEN\n\n\nFormat\n\n\nFT.SUGLEN {key}\n\n\n\n\n\nDescription\n\n\nGet the size of an autoc-complete suggestion dictionary\n\n\nParameters\n\n\n\n\nkey\n: the suggestion dictionary key.\n\n\n\n\nReturns:\n\n\nInteger Reply: the current size of the suggestion dictionary.\n\n\n\n\nFT.OPTIMIZE \n DEPRECATED \n\n\nFormat\n\n\nFT.OPTIMIZE {index}\n\n\n\n\n\nDescription\n\n\nThis command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already.", 
+            "title": "Command Reference"
+        }, 
+        {
+            "location": "/Commands/#rediseach\"_\"full\"_\"command\"_\"documentation", 
+            "text": "", 
+            "title": "RediSeach Full Command Documentation"
+        }, 
+        {
+            "location": "/Commands/#ftcreate", 
+            "text": "", 
+            "title": "FT.CREATE"
+        }, 
+        {
+            "location": "/Commands/#format", 
+            "text": "FT.CREATE {index} \n    [NOOFFSETS] [NOFIELDS]\n    [STOPWORDS {num} {stopword} ...]\n    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...", 
+            "title": "Format:"
+        }, 
+        {
+            "location": "/Commands/#description", 
+            "text": "Creates an index with the given spec. The index name will be used in all the key names\nso keep it short!   Note on field number limits RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.  On 32 bit builds, at most 64 fields can be TEXT fields.  Notice that the more fields you have, the larger your index will be, as each additional 8 fiedls require one extra byte per index record to encode.  You can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.", 
+            "title": "Description:"
+        }, 
+        {
+            "location": "/Commands/#parameters", 
+            "text": "index : the index name to create. If it exists the old spec will be overwritten    NOOFFSETS : If set, we do not store term offsets for documents (saves memory, does not allow exact searches or highlighting).\n  Implies  NOHL    NOHL : Conserves storage space and memory by disabling highlighting support. If set, we do\n  not store corresponding byte offsets for term positions.  NOHL  is also implied by  NOOFFSETS .    NOFIELDS : If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.    NOFREQS : If set, we avoid saving the term frequencies in the index. This saves\n  memory but does not allow sorting based on the frequencies of a given term within\n  the document.    STOPWORDS : If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}.   If not set, we take the default list of stopwords.   If  {num}  is set to 0, the index will not have stopwords.    SCHEMA {field} {options...} : After the SCHEMA keyword we define the index fields. \nThey can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#field\"_\"options", 
+            "text": "SORTABLE  Numeric or text field can have the optional SORTABLE argument that allows the user to later  sort the results by the value of this field  (this adds memory overhead so do not declare it on large text fields).    NOSTEM  Text fields can have the NOSTEM argument which will disable stemming when indexing its values. \nThis may be ideal for things like proper names.    NOINDEX  Fields can have the  NOINDEX  option, which means they will not be indexed. \nThis is useful in conjunction with  SORTABLE , to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.", 
+            "title": "Field Options"
+        }, 
+        {
+            "location": "/Commands/#complexity", 
+            "text": "O(1)", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns", 
+            "text": "OK or an error", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftadd", 
+            "text": "", 
+            "title": "FT.ADD"
+        }, 
+        {
+            "location": "/Commands/#format_1", 
+            "text": "FT.ADD {index} {docId} {score} \n  [NOSAVE]\n  [REPLACE [PARTIAL]]\n  [LANGUAGE {language}] \n  [PAYLOAD {payload}]\n  FIELDS {field} {value} [{field} {value}...]", 
+            "title": "Format:"
+        }, 
+        {
+            "location": "/Commands/#description_1", 
+            "text": "Add a documet to the index.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_1", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE    docId : The document's id that will be returned from searches. \n  Note that the same docId cannot be added twice to the same index    score : The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1    NOSAVE : If set to true, we will not save the actual document in the index and only index it.    REPLACE : If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.     PARTIAL  (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.    FIELDS : Following the FIELDS specifier, we are looking for pairs of   {field} {value}  to be indexed.\n  Each field will be scored based on the index spec given in FT.CREATE. \n  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set     PAYLOAD {payload} : Optionally set a binary safe payload string to the document, \n  that can be evaluated at query time by a custom scoring function, or retrieved to the client.    LANGUAGE language : If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:   \"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"\n\"chinese\"     If indexing a chinese language document, you must set the language to  chinese \n  in order for the chinese characters to be tokenized properly.", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#adding\"_\"chinese\"_\"documents", 
+            "text": "When adding Chinese-language documents,  LANGUAGE chinese  should be set in\norder for the indexer to properly tokenize the terms. If the default language\nis used then search terms will be extracted based on punctuation characters and\nwhitespace. The Chinese language tokenizer makes use of a segmentation algorithm\n(via  Friso ) which segments texts and\nchecks it against a predefined dictionary. See  Stemming  for more\ninformation.", 
+            "title": "Adding Chinese Documents"
+        }, 
+        {
+            "location": "/Commands/#complexity_1", 
+            "text": "O(n), where n is the number of tokens in the document", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_1", 
+            "text": "OK on success, or an error if something went wrong.   FT.ADD with  REPLACE and PARTIAL By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.  However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.  REPLACE : On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.  REPLACE PARTIAL : When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftaddhash", 
+            "text": "", 
+            "title": "FT.ADDHASH"
+        }, 
+        {
+            "location": "/Commands/#format_2", 
+            "text": "FT . ADDHASH   { index }   { docId }   { score }   [ LANGUAGE   language ]   [ REPLACE ]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_2", 
+            "text": "Add a documet to the index from an existing HASH key in Redis.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_2", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE    docId : The document's id. This has to be an existing HASH key in redis that will hold the fields \n    the index needs.    score : The document's rank based on the user's ranking. This must be between 0.0 and 1.0. \n  If you don't have a score just set it to 1    REPLACE : If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.    LANGUAGE language : If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. \n  If an unsupported language is sent, the command returns an error. \n  The supported languages are:     \"arabic\",  \"danish\",    \"dutch\",   \"english\",   \"finnish\",    \"french\",\n\"german\",  \"hungarian\", \"italian\", \"norwegian\", \"portuguese\", \"romanian\",\n\"russian\", \"spanish\",   \"swedish\", \"tamil\",     \"turkish\"", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#complexity_2", 
+            "text": "O(n), where n is the number of tokens in the document", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_2", 
+            "text": "OK on success, or an error if something went wrong.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftinfo", 
+            "text": "", 
+            "title": "FT.INFO"
+        }, 
+        {
+            "location": "/Commands/#format_3", 
+            "text": "FT.INFO {index}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_3", 
+            "text": "Return information and statistics on the index. Returned values include:   Number of documents.  Number of distinct terms.  Average bytes per record.  Size and capacity of the index buffers.   Example:  127.0.0.1:6379  ft.info wik{0}\n 1) index_name\n 2) wikipedia\n 3) fields\n 4) 1) 1) title\n       2) type\n       3) FULLTEXT\n       4) weight\n       5)  1 \n    2) 1) body\n       2) type\n       3) FULLTEXT\n       4) weight\n       5)  1 \n 5) num_docs\n 6)  502694 \n 7) num_terms\n 8)  439158 \n 9) num_records\n10)  8098583 \n11) inverted_sz_mb\n12)  45.58\n13) inverted_cap_mb\n14)  56.61\n15) inverted_cap_ovh\n16)  0.19\n17) offset_vectors_sz_mb\n18)  9.27\n19) skip_index_size_mb\n20)  7.35\n21) score_index_size_mb\n22)  30.8\n23) records_per_doc_avg\n24)  16.1\n25) bytes_per_record_avg\n26)  5.90\n27) offsets_per_term_avg\n28)  1.20\n29) offset_bits_per_record_avg\n30)  8.00", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_3", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#complexity_3", 
+            "text": "O(1)", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_3", 
+            "text": "Array Response. A nested array of keys and values.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftsearch", 
+            "text": "", 
+            "title": "FT.SEARCH"
+        }, 
+        {
+            "location": "/Commands/#format_4", 
+            "text": "FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]\n  [FILTER {numeric_field} {min} {max}] ...\n  [GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft]\n  [INKEYS {num} {key} ... ]\n  [INFIELDS {num} {field} ... ]\n  [RETURN {num} {field} ... ]\n  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]\n  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]\n  [SLOP {slop}] [INORDER]\n  [LANGUAGE {language}]\n  [EXPANDER {expander}]\n  [SCORER {scorer}]\n  [PAYLOAD {payload}]\n  [SORTBY {field} [ASC|DESC]]\n  [LIMIT offset num]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_4", 
+            "text": "Search the index with a textual query, returning either documents or just ids.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_4", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  query : the text query to search. If it's more than a single word, put it in quotes.\n  See below for documentation on query syntax.   NOCONTENT : If it appears after the query, we only return the document ids and not \n  the content. This is useful if rediseach is only an index on an external document collection  RETURN {num} {field} ... : Use this keyword to limit which fields from the document are returned.\n   num  is the number of fields following the keyword. If  num  is 0, it acts like  NOCONTENT .  SUMMARIZE ... : Use this option to return only the sections of the field which contain the matched text.\n  See  Highlighting  for more detailts  HIGHLIGHT ... : Use this option to format occurrences of matched text. See  Highligting  for more\n  details  LIMIT first num : If the parameters appear after the query, we limit the results to \n  the offset and number of results given. The default is 0 10  INFIELDS {num} {field} ... : If set, filter the results to ones appearing only in specific\n  fields of the document, like title or url. num is the number of specified field arguments  INKEYS {num} {field} ... : If set, we limit the result to a given set of keys specified in the list. \n  the first argument must be the length of the list, and greater than zero.\n  Non existent keys are ignored - unless all the keys are non existent.  SLOP {slop} : If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)  INORDER : If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them.   FILTER numeric_field min max : If set, and numeric_field is defined as a numeric field in \n  FT.CREATE, we will limit results to those having numeric values ranging between min and max.\n  min and max follow ZRANGE syntax, and can be  -inf ,  +inf  and use  (  for exclusive ranges. \n  Multiple numeric filters for different fields are supported in one query.  GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft : If set, we filter the results to a given radius \n  from lon and lat. Radius is given as a number and units. See  GEORADIUS  for more details.   NOSTOPWORDS : If set, we do not filter stopwords from the query.   WITHSCORES : If set, we also return the relative internal score of each document. this can be\n  used to merge results from multiple instances  WITHSORTKEYS : Only relevant in conjunction with  SORTBY . Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.  VERBATIM : if set, we do not try to use stemming for query expansion but search the query terms verbatim.  LANGUAGE {language} : If set, we use a stemmer for the supplied langauge during search for query expansion.\n  If querying documents in Chinese, this should be set to  chinese  in order to\n  properly tokenize the query terms. \n  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.  EXPANDER {expander} : If set, we will use a custom query expander instead of the stemmer.  See Extensions .  SCORER {scorer} : If set, we will use a custom scoring function defined by the user.  See Extensions .  PAYLOAD {payload} : Add an arbitrary, binary safe payload that will be exposed to custom scoring functions.  See Extensions .  WITHPAYLOADS : If set, we retrieve optional document payloads (see FT.ADD). \n  the payloads follow the document id, and if  WITHSCORES  was set, follow the scores.  SORTBY {field} [ASC|DESC] : If specified, and field is a  sortable field , the results are ordered by the value of this field. This applies to both text and numeric fields.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#complexity_4", 
+            "text": "O(n) for single word queries (though for popular words we save a cache of the top 50 results).  Complexity for complex queries changes, but in general it's proportional to the number of words and the number of intersection points between them.", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_4", 
+            "text": "Array reply,  where the first element is the total number of results, and then pairs of document id, and a nested array of field/value.   If  NOCONTENT  was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftexplain", 
+            "text": "", 
+            "title": "FT.EXPLAIN"
+        }, 
+        {
+            "location": "/Commands/#format_5", 
+            "text": "FT.EXPLAIN {index} {query}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_5", 
+            "text": "Return the execution plan for a complex query  Example:  $ redis-cli --raw 127 .0.0.1:6379  FT.EXPLAIN rd  (foo bar)|(hello world) @date:[100 200]|@date:[500 +inf] \nINTERSECT  { \n  UNION  { \n    INTERSECT  { \n      foo\n      bar\n     } \n    INTERSECT  { \n      hello\n      world\n     } \n   } \n  UNION  { \n    NUMERIC  { 100 .000000  =  x  =   200 .000000 } \n    NUMERIC  { 500 .000000  =  x  =  inf } \n   }  }", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_5", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  query : The query string, as if sent to FT.SEARCH", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#complexity_5", 
+            "text": "O(1)", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_5", 
+            "text": "String Response. A string representing the execution plan (see above example).   Note : You should use  redis-cli --raw  to properly read line-breaks in the returned response.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftdel", 
+            "text": "", 
+            "title": "FT.DEL"
+        }, 
+        {
+            "location": "/Commands/#format_6", 
+            "text": "FT.DEL {index} {doc_id}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_6", 
+            "text": "Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.   After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.  NOTE : This does not actually delete the document from the index, just marks it as deleted. \nThus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_6", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  doc_id : the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#complexity_6", 
+            "text": "O(1)", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#returns_6", 
+            "text": "Integer Reply: 1 if the document was deleted, 0 if not.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftget", 
+            "text": "", 
+            "title": "FT.GET"
+        }, 
+        {
+            "location": "/Commands/#format_7", 
+            "text": "FT.GET {index} {doc id}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_7", 
+            "text": "Returns the full contents of a document.  Currently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.  If the document does not exist or is not a HASH object, we reutrn a NULL reply", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_7", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  documentId : The id of the document as inserted to the index", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_7", 
+            "text": "Array Reply: Key-value pairs of field names and values of the document", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftmget", 
+            "text": "", 
+            "title": "FT.MGET"
+        }, 
+        {
+            "location": "/Commands/#format_8", 
+            "text": "FT.GET {index} {docId} ...", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_8", 
+            "text": "Returns the full contents of multiple documents. \nCurrently it is equivalent to calling multiple HGETALL commands, although faster. \nThis command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. \nIn addition, it allows simpler implementation of fetching documents in clustered mode.  We return an array with exactly the same number of elements as the number of keys sent to the command.   Each element in turn is an array of key-value pairs representing the document.   If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_8", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  documentIds : The ids of the requested documents as inserted to the index", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_8", 
+            "text": "Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#ftdrop", 
+            "text": "", 
+            "title": "FT.DROP"
+        }, 
+        {
+            "location": "/Commands/#format_9", 
+            "text": "FT.DROP {index}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_9", 
+            "text": "Deletes all the keys associated with the index.   If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact\nthat the index specification is not deleted.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_9", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_9", 
+            "text": "Status Reply: OK on success.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#fttagvals", 
+            "text": "", 
+            "title": "FT.TAGVALS"
+        }, 
+        {
+            "location": "/Commands/#format_10", 
+            "text": "FT.TAGVALS {index} {field_name}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_10", 
+            "text": "Return the distinct tags indexed in a  Tag field .   This is useful if your tag field indexes things like cities, categories, etc.   Limitations  There is no paging or sorting, the tags are not alphabetically sorted.   This command only operates on  Tag fields .    The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_10", 
+            "text": "index : The Fulltext index name. The index must be first created with FT.CREATE  filed_name : The name of a Tag file defined in the schema.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_10", 
+            "text": "Array Reply: All the distinct tags in the tag index.", 
+            "title": "Returns"
+        }, 
+        {
+            "location": "/Commands/#complexity_7", 
+            "text": "O(n), n being the cardinality of the tag field.", 
+            "title": "Complexity"
+        }, 
+        {
+            "location": "/Commands/#ftsugadd", 
+            "text": "", 
+            "title": "FT.SUGADD"
+        }, 
+        {
+            "location": "/Commands/#format_11", 
+            "text": "FT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_11", 
+            "text": "Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the\nindex definitions, and leaves creating and updating suggestino dictionaries to the user.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_11", 
+            "text": "key : the suggestion dictionary key.  string : the suggestion string we index  score : a floating point number of the suggestion string's weight  INCR : if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time  PAYLOAD {payload} : If set, we save an extra payload with the suggestion, that can be fetched by adding the  WITHPAYLOADS  argument to  FT.SUGGET .", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_11", 
+            "text": "Integer Reply: the current size of the suggestion dictionary.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsugget", 
+            "text": "", 
+            "title": "FT.SUGGET"
+        }, 
+        {
+            "location": "/Commands/#format_12", 
+            "text": "FT . SUGGET   { key }   { prefix }   [ FUZZY ]   [ WITHPAYLOADS ]   [ MAX   num ]", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_12", 
+            "text": "Get completion suggestions for a prefix", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_12", 
+            "text": "key : the suggestion dictionary key.  prefix : the prefix to complete on  FUZZY : if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent  MAX num : If set, we limit the results to a maximum of  num . ( Note : The default is 5, and the number cannot be greater than 10).  WITHSCORES : If set, we also return the score of each suggestion. this can be used to merge results from multiple instances  WITHPAYLOADS : If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.", 
+            "title": "Parameters:"
+        }, 
+        {
+            "location": "/Commands/#returns_12", 
+            "text": "Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsugdel", 
+            "text": "", 
+            "title": "FT.SUGDEL"
+        }, 
+        {
+            "location": "/Commands/#format_13", 
+            "text": "FT.SUGDEL {key} {string}", 
+            "title": "Format"
+        }, 
+        {
+            "location": "/Commands/#description_13", 
+            "text": "Delete a string from a suggestion index.", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_13", 
+            "text": "key : the suggestion dictionary key.  string : the string to delete", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_13", 
+            "text": "Integer Reply: 1 if the string was found and deleted, 0 otherwise.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftsuglen", 
+            "text": "Format  FT.SUGLEN {key}", 
+            "title": "FT.SUGLEN"
+        }, 
+        {
+            "location": "/Commands/#description_14", 
+            "text": "Get the size of an autoc-complete suggestion dictionary", 
+            "title": "Description"
+        }, 
+        {
+            "location": "/Commands/#parameters_14", 
+            "text": "key : the suggestion dictionary key.", 
+            "title": "Parameters"
+        }, 
+        {
+            "location": "/Commands/#returns_14", 
+            "text": "Integer Reply: the current size of the suggestion dictionary.", 
+            "title": "Returns:"
+        }, 
+        {
+            "location": "/Commands/#ftoptimize\"_\"deprecated", 
             "text": "Format  FT.OPTIMIZE {index}  Description  This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already.", 
             "title": "FT.OPTIMIZE  DEPRECATED"
         }, 
@@ -531,12 +951,12 @@
             "title": "Configuration"
         }, 
         {
-            "location": "/Configuring/#run-time-configuration", 
+            "location": "/Configuring/#run-time\"_\"configuration", 
             "text": "RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.    Passing Configuration Options  In general, passing configuration options is done by appending arguments after the  --loadmodule  argument in command line,  loadmodule  configurtion directive in a redis config file, or  MODULE LOAD  when loading modules in command line. For example:  In redis.conf:  loadmodule redisearch.so OPT1 OPT2  In redis-cli:  127.0.0.6379  MODULE load redisearch.so OPT1 OPT2  In command-line:  $ redis-server --loadmodule ./redisearch.so OPT1 OPT2", 
             "title": "Run-Time Configuration"
         }, 
         {
-            "location": "/Configuring/#redisearch-configuration-options", 
+            "location": "/Configuring/#redisearch\"_\"configuration\"_\"options", 
             "text": "", 
             "title": "RediSearch Configuration Options"
         }, 
@@ -571,7 +991,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#extload-file_name", 
+            "location": "/Configuring/#extload\"_\"file\"_\"name", 
             "text": "If present, we try to load a redisearch extension dynamic library from the specified file path. See  Extensions  for details.", 
             "title": "EXTLOAD {file_name}"
         }, 
@@ -636,62 +1056,62 @@
             "title": "Query Syntax"
         }, 
         {
-            "location": "/Query_Syntax/#search-query-syntax", 
+            "location": "/Query_Syntax/#search\"_\"query\"_\"syntax", 
             "text": "We support a simple syntax for complex queries with the following rules:   Multi-word phrases simply a list of tokens, e.g.  foo bar baz , and imply intersection (AND) of the terms.  Exact phrases are wrapped in quotes, e.g  \"hello world\" .  OR Unions (i.e  word1 OR word2 ), are expressed with a pipe ( | ), e.g.  hello|hallo|shalom|hola .  NOT negation (i.e.  word1 NOT word2 ) of expressions or sub-queries. e.g.  hello -world . As of version 0.19.3, purely negative queries (i.e.  -foo  or  -@title:(foo|bar) ) are supported.   Prefix matches (all terms starting with a prefix) are expressed with a  *  following a 3-letter or longer prefix.  Selection of specific fields using the syntax  @field:hello world .  Numeric Range matches on numeric fields with the syntax  @field:[{min} {max}] .  Geo radius matches on geo fields with the syntax  @field:[{lon} {lat} {radius} {m|km|mi|ft}]  Tag field filters with the syntax  @field:{tag | tag | ...} . See the full documentation on tag fields.  Optional terms or clauses:  foo ~bar  means bar is optional but documents with bar in them will rank higher.   An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g.  (hello|hella) (world|werld) .  Combinations of the above can be used together, e.g  hello (world|foo) \"bar baz\" bbbb", 
             "title": "Search Query Syntax:"
         }, 
         {
-            "location": "/Query_Syntax/#pure-negative-queries", 
+            "location": "/Query_Syntax/#pure\"_\"negative\"_\"queries", 
             "text": "As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g.  -hello  or  -(@title:foo|bar) . The results will be all the documents  NOT  containing the query terms.  Warning : Any complex expression can be negated this way, however caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.", 
             "title": "Pure Negative Queries"
         }, 
         {
-            "location": "/Query_Syntax/#field-modifiers", 
+            "location": "/Query_Syntax/#field\"_\"modifiers", 
             "text": "As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword.   Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the  @  symbol, the field name and a  :  (colon) symbol.   If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier.   If a field modifier preceds an expression in parentheses, it applies only to the expression inside the parentheses.  Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:  FT.SEARCH cars  @country:korea @engine:(diesel|hybrid) @class:suv   Multiple modifiers can be applied to the same term or grouped terms. e.g.:  FT.SEARCH idx  @title|body:(hello world) @url|image:mydomain   This will search for documents that have \"hello world\" either in the body or the title, and the term \"mydomain\" in their url or image fields.", 
             "title": "Field modifiers"
         }, 
         {
-            "location": "/Query_Syntax/#numeric-filters-in-query", 
+            "location": "/Query_Syntax/#numeric\"_\"filters\"_\"in\"_\"query", 
             "text": "If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the redis request, or filter with it by specifying filtering rules in the query. The syntax is  @field:[{min} {max}]  - e.g.  @price:[100 200] .", 
             "title": "Numeric Filters in Query"
         }, 
         {
-            "location": "/Query_Syntax/#a-few-notes-on-numeric-predicates", 
+            "location": "/Query_Syntax/#a\"_\"few\"_\"notes\"_\"on\"_\"numeric\"_\"predicates", 
             "text": "It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.    It is possible to interesect or union multiple numeric filters in the same query, be it for the same field or different ones.    -inf ,  inf  and  +inf  are acceptable numbers in range. Thus greater-than 100 is expressed as  [(100 inf] .    Numeric filters are inclusive. Exclusive min or max are expressed with  (  prepended to the number, e.g.  [(100 (200] .    It is possible to negate a numeric filter by prepending a  -  sign to the filter, e.g. returnig a result where price differs from 100 is expressed as:  @title:foo -@price:[100 100] .", 
             "title": "A few notes on numeric predicates:"
         }, 
         {
-            "location": "/Query_Syntax/#tag-filters", 
+            "location": "/Query_Syntax/#tag\"_\"filters", 
             "text": "RediSearch (starting with version 0.91) allows a special field type called \"tag field\", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax:   @field:{ tag | tag | ...}\n\ne.g.\n\n@cities:{ New York | Los Angeles | Barcelona }  Tags can have multiple words, or include other punctuation marks other than the field's separator ( ,  by default). Punctuation marks in tags should be escaped with a backslash ( \\ ). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like \"to be or not to be\" should be escaped as \"to\\ be\\ or\\ not\\ to\\ be\". For good measure, you can escape all spaces within tags.  Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing  all  tags, you should repeat the tag filter several times, e.g.:  # This will return all documents containing all three cities as tags:\n@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }\n\n# This will return all documents containing either city:\n@cities:{ New York | Los Angeles | Barcelona }  Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc.", 
             "title": "Tag Filters"
         }, 
         {
-            "location": "/Query_Syntax/#geo-filters-in-query", 
+            "location": "/Query_Syntax/#geo\"_\"filters\"_\"in\"_\"query", 
             "text": "As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax  @field:[{lon} {lat} {radius} {m|km|mi|ft}] . This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own GEORADIUS command for more details (internall we use GEORADIUS for that).  Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as:  chinese restaurant @location:[-122.41 37.77 5 km] .", 
             "title": "Geo Filters in Query"
         }, 
         {
-            "location": "/Query_Syntax/#prefix-matching", 
+            "location": "/Query_Syntax/#prefix\"_\"matching", 
             "text": "On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending  *  to a prefix token. For example:  hel* world  Will be expanded to cover  (hello|help|helm|...) world .", 
             "title": "Prefix Matching"
         }, 
         {
-            "location": "/Query_Syntax/#a-few-notes-on-prefix-searches", 
+            "location": "/Query_Syntax/#a\"_\"few\"_\"notes\"_\"on\"_\"prefix\"_\"searches", 
             "text": "As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.    As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:    Prefixes are limited to 3 letters or more.     Expansion is limited to 200 terms or less.     Prefix matching fully supports unicode and is case insensitive.    Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.", 
             "title": "A few notes on prefix searches:"
         }, 
         {
-            "location": "/Query_Syntax/#a-few-query-examples", 
+            "location": "/Query_Syntax/#a\"_\"few\"_\"query\"_\"examples", 
             "text": "Simple phrase query - hello AND world  hello world    Exact phrase query -  hello  FOLLOWED BY  world  hello world     Union: documents containing either  hello  OR  world  hello|world    Not: documents containing  hello  but not  world  hello -world    Intersection of unions  (hello|halo) (world|werld)    Negation of union  hello -(world|werld)    Union inside phrase  (barack|barrack) obama    Optional terms with higher priority to ones containing more matches:  obama ~barack ~michelle    Exact phrase in one field, one word in aonther field:  @title: barack obama  @job:president    Combined AND, OR with field specifiers:  @title:hello world @body:(foo bar) @category:(articles|biographies)    Prefix Queries:  hello worl*\n\nhel* worl*\n\nhello -worl*    Numeric Filtering - products named \"tv\" with a price range of 200-500:  @name:tv @price:[200 500]    Numeric Filtering - users with age greater than 18:  @age:[(18 +inf]", 
             "title": "A Few Query Examples"
         }, 
         {
-            "location": "/Query_Syntax/#mapping-common-sql-predicates-to-redisearch", 
+            "location": "/Query_Syntax/#mapping\"_\"common\"_\"sql\"_\"predicates\"_\"to\"_\"redisearch", 
             "text": "SQL Condition  RediSearch Equivalent  Comments      WHERE x='foo' AND y='bar'  @x:foo @y:bar  for less ambiguity use (@x:foo) (@y:bar)    WHERE x='foo' AND y!='bar'  @x:foo -@y:bar     WHERE x='foo' OR y='bar'  (@x:foo)|(@y:bar)     WHERE x IN ('foo', 'bar','hello world')  @x:(foo|bar|\"hello world\")  quotes mean exact phrase    WHERE y='foo' AND x NOT IN ('foo','bar')  @y:foo (-@x:foo) (-@x:bar)     WHERE x NOT IN ('foo','bar')  -@x:(foo|bar)     WHERE num BETWEEN 10 AND 20  @num:[10 20]     WHERE num  = 10  @num:[10 +inf]     WHERE num   10  @num:[(10 +inf]     WHERE num   10  @num:[-inf (10]     WHERE num  = 10  @num:[-inf 10]     WHERE num   10 OR num   20  @num:[-inf (10] | @num:[(20 +inf]     WHERE name LIKE 'john%'  @name:john*", 
             "title": "Mapping Common SQL Predicates to RediSearch"
         }, 
         {
-            "location": "/Query_Syntax/#technical-note", 
+            "location": "/Query_Syntax/#technical\"_\"note", 
             "text": "The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition  at the git repo.", 
             "title": "Technical Note"
         }, 
@@ -706,22 +1126,22 @@
             "title": "Stop-Words"
         }, 
         {
-            "location": "/Stopwords/#default-stop-word-list", 
+            "location": "/Stopwords/#default\"_\"stop-word\"_\"list", 
             "text": "The following words are treated as stop-words by default:    a,    is,    the,   an,   and,  are, as,  at,   be,   but,  by,   for,\n if,   in,    into,  it,   no,   not, of,  on,   or,   such, that, their,\n then, there, these, they, this, to,  was, will, with", 
             "title": "Default Stop-Word List"
         }, 
         {
-            "location": "/Stopwords/#overriding-the-default-stop-words", 
+            "location": "/Stopwords/#overriding\"_\"the\"_\"default\"_\"stop-words", 
             "text": "Stop-words for an index can be defined (or disabled completely) on index creation using the  STOPWORDS  argument in the  FT.CREATE  command.  The format is  STOPWORDS {number} {stopword} ...  where number is the number of stopwords given. The  STOPWORDS  argument must come before the  SCHEMA  argument. For example:  FT.CREATE myIndex STOPWORDS 3 foo bar baz SCHEMA title TEXT body TEXT", 
             "title": "Overriding The Default Stop-Words"
         }, 
         {
-            "location": "/Stopwords/#disabling-stop-words-completely", 
+            "location": "/Stopwords/#disabling\"_\"stop-words\"_\"completely", 
             "text": "Disabling stopwords completely can be done by passing  STOPWORDS 0  on  FT.CREATE .", 
             "title": "Disabling Stop-Words Completely"
         }, 
         {
-            "location": "/Stopwords/#avoiding-stop-word-detection-in-search-queries", 
+            "location": "/Stopwords/#avoiding\"_\"stop-word\"_\"detection\"_\"in\"_\"search\"_\"queries", 
             "text": "In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time, and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries.", 
             "title": "Avoiding Stop-Word Detection In Search Queries"
         }, 
@@ -731,27 +1151,27 @@
             "title": "Sortable Values"
         }, 
         {
-            "location": "/Sorting/#sorting-by-indexed-fields", 
+            "location": "/Sorting/#sorting\"_\"by\"_\"indexed\"_\"fields", 
             "text": "As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name.", 
             "title": "Sorting By Indexed Fields"
         }, 
         {
-            "location": "/Sorting/#declaring-sortable-fields", 
+            "location": "/Sorting/#declaring\"_\"sortable\"_\"fields", 
             "text": "When creating the index with FT.CREATE, you can declare  TEXT  and  NUMERIC  properties to be  SORTABLE . When a property is sortable, we can later decide to order the results by its values. For example, in the followig schema:   FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE  The fields  last_name  and  age  are sortable, but  first_name  isn't. This means we can search by either first and/or last name, and sort by last name or age.", 
             "title": "Declaring Sortable Fields"
         }, 
         {
-            "location": "/Sorting/#note-on-sortable-text-fields", 
+            "location": "/Sorting/#note\"_\"on\"_\"sortable\"_\"text\"_\"fields", 
             "text": "In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.  Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behavior. This means that  America  and  america  are considered equal in terms of sorting.", 
             "title": "Note on sortable TEXT fields"
         }, 
         {
-            "location": "/Sorting/#specifying-sortby", 
+            "location": "/Sorting/#specifying\"_\"sortby", 
             "text": "If an index includes sortable fields, you can add the  SORTBY  parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If  WITHSCORES  is specified along with  SORTBY , the scores returned are simply the relative position of each result in the result set.  The syntax for SORTBY is:  SORTBY {field_name} [ASC|DESC]    field_name must be a sortabl field defined in the schema.    ASC means the order will be ascending, DESC that it will be descending.    The default ordering is ASC if not specified otherwise.", 
             "title": "Specifying SORTBY"
         }, 
         {
-            "location": "/Sorting/#quick-example", 
+            "location": "/Sorting/#quick\"_\"example", 
             "text": "FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE\n\n# Add some users  FT.ADD users user1 1.0 FIELDS first_name  alice  last_name  jones  age 35  FT.ADD users user2 1.0 FIELDS first_name  bob  last_name  jones  age 36\n\n# Searching while sorting\n\n# Searching by last name and sorting by first name  FT.SEARCH users  @last_name:jones  SORTBY first_name DESC\n\n# Searching by both first and last name, and sorting by age  FT.SEARCH users  alice jones  SORTBY age ASC", 
             "title": "Quick Example"
         }, 
@@ -761,27 +1181,27 @@
             "title": "Tag Fields"
         }, 
         {
-            "location": "/Tags/#tag-fields", 
+            "location": "/Tags/#tag\"_\"fields", 
             "text": "RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to full-text field, but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax.  The main differences between tag fields and full-text fields are:    An entire tag field index resides in a single redis key, and doesn't have a key per term as the full-text one.    We do not perform stemming on tag indexes.    The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags,\nand we only do whitespace trimming at the end of tags.\nThus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations\nwe perform are lower-casing (for latin languages only as of now), and whitespace trimming.    Tags cannot be found from a general full-text search. If a document has a field called\n\"tags\" with the values \"foo\" and \"bar\", searching for foo or bar without a special tag\nmodifier (see below) will not return this document.    The index is much simpler and more compressed: We do not store frequencies, offset vectors of\nfield flags. The index contains only docuent ids encoded as deltas. This means that an entry in a tag index\nis usually one or two bytes long. This makes them very memory efficient and fast.    An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.", 
             "title": "Tag Fields"
         }, 
         {
-            "location": "/Tags/#creating-a-tag-field", 
+            "location": "/Tags/#creating\"_\"a\"_\"tag\"_\"field", 
             "text": "Tag fields can be added to the schema in FT.ADD with the following syntax:  FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]  SEPARATOR defaults to a comma ( , ), and can be any printable ascii character. For example:  FT.CREATE idx SCHEMA tags TAG SEPARATOR  ;", 
             "title": "Creating A Tag Field"
         }, 
         {
-            "location": "/Tags/#querying-tag-fields", 
+            "location": "/Tags/#querying\"_\"tag\"_\"fields", 
             "text": "As mentioned above, just searching for a tag without any modifiers will not retrieve documents\ncontaining it.  The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in\nthis case):  @ field_name :{  tag  |  tag  | ...}  e.g.      @tags:{hello world | foo bar}  Tag clauses can be combined into any sub clause, used as negative expressions, optional expressions, etc. For example:  FT.SEARCH idx  @title:hello @price:[0 100] @tags:{ foo bar | hello world }", 
             "title": "Querying Tag Fields"
         }, 
         {
-            "location": "/Tags/#multiple-tags-in-a-single-filter", 
+            "location": "/Tags/#multiple\"_\"tags\"_\"in\"_\"a\"_\"single\"_\"filter", 
             "text": "Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing  all  tags, you should repeat the tag filter several times.  For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:  FT.CREATE myIndex SCHEMA name TEXT cities TAG\n\nFT.ADD myIndex user1 1.0 FIELDS name  John Doe  cities  New York, Barcelona, San Francisco   For this index, the following query will return all the people who visited  at least one  of the following cities:  FT.SEARCH myIndex  @cities:{ New York | Los Angeles | Barcelona }   But the next query will return all people who have visited  all three cities :  @cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }", 
             "title": "Multiple Tags In A Single Filter"
         }, 
         {
-            "location": "/Tags/#multi-word-tags-and-escaping", 
+            "location": "/Tags/#multi-word\"_\"tags\"_\"and\"_\"escaping", 
             "text": "Tags can be composed multiple words, or include other punctuation marks other than the field's separator ( ,  by default). Punctuation marks in tags should be escaped with a backslash ( \\ ).   It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like \"to be or not to be\" should be escaped as \"to\\ be\\ or\\ not\\ to\\ be\". For good measure, you can escape all spaces within tags.  The following are identical:  @tags:{foo\\ bar\\ baz | hello\\ world}\n\n@tags:{foo bar baz | hello world }", 
             "title": "Multi-Word Tags And Escaping"
         }, 
@@ -791,12 +1211,12 @@
             "title": "Highlighting Results"
         }, 
         {
-            "location": "/Highlight/#highlighting-api", 
+            "location": "/Highlight/#highlighting\"_\"api", 
             "text": "The highlighting API allows you to have only the relvant (matching)\nportions of document matches returned. This allows users to quickly see how a\ndocument relates to their query.", 
             "title": "Highlighting API"
         }, 
         {
-            "location": "/Highlight/#command-syntax", 
+            "location": "/Highlight/#command\"_\"syntax", 
             "text": "FT.SEARCH ...\n    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]\n    HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]  There are two sub-commands commands used for highlighting. One is  HIGHLIGHT \nwhich surrounds matching text with an open and/or close tag; and the other is SUMMARIZE  which splits a field into contextual fragments surrounding the\nfound terms. It is possible to summarize a field, highlight a field, or perform\nboth actions in the same query.", 
             "title": "Command Syntax"
         }, 
@@ -811,7 +1231,7 @@
             "title": "Highlighting"
         }, 
         {
-            "location": "/Highlight/#field-selection", 
+            "location": "/Highlight/#field\"_\"selection", 
             "text": "If no specific fields are passed to the  RETURN ,  SUMMARIZE , or  HIGHLIGHT \nkeywords, then all of a document's fields are returned. However, if any of these\nkeywords contain a  FIELD  directive, then the  SEARCH  command will only retun\nthe sum total of all fields enumerated in any of those directives.  The  RETURN  keyword is treated specially, as it overrides any fields specified\nin  SUMMARIZE  or  HIGHLIGHT .  In the command  RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz ,\nthe fields  foo  is returned as-is, while  bar  and  baz  are not returned, because RETURN  was specified, but did not include those fields.  In the command  SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz ,  bar  is returned\nsummarized and  baz  is returned highlighted.", 
             "title": "Field Selection"
         }, 
@@ -821,12 +1241,12 @@
             "title": "Scoring Documents"
         }, 
         {
-            "location": "/Scoring/#scoring-in-redisearch", 
+            "location": "/Scoring/#scoring\"_\"in\"_\"redisearch", 
             "text": "RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use  sortable fields . Scoring functions are specified by adding the  SCORER {scorer_name}  argument to a search query.  If you prefer a custom scoring function, it is possible to add more functions using the  Extension API .  These are the pre-bunldled scoring functions availabe in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.", 
             "title": "Scoring In RediSearch"
         }, 
         {
-            "location": "/Scoring/#tfidf-default", 
+            "location": "/Scoring/#tfidf\"_\"default", 
             "text": "Basic  TF-IDF scoring  with a few extra features thrown inside:    For each term in each result we calculate the TF-IDF score of that term to that document. Frequencies are weighted based on field weights that are pre-determined, and each term's frequency is  normalized by the highest term frequency in each document .    We multiply the total TF-IDF for the query term by the a priory document score given on  FT.ADD .    We give a penalty to each result based on \"slop\" or cumulative distance between the search terms: exact matches will get no penlty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared -  1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...) .     So for N terms in a document D,  T1...Tn , the resulting score could be described with this python function:  def   get_score ( terms ,   doc ): \n     # the sum of tf-idf \n     score   =   0 \n\n     # the distance penalty for all terms \n     dist_penalty   =   0 \n\n     for   i ,   term   in   enumerate ( terms ): \n         # tf normalized by maximum frequency \n         tf   =   doc . freq ( term )   /   doc . max_freq \n\n         # idf is global for the index, and not calculated each time in real life \n         idf   =   log2 ( 1   +   total_docs   /   docs_with_term ( term )) \n\n         score   +=   tf * idf \n\n         # sum up the distance penalty \n         if   i     0 : \n             dist_penalty   +=   min_distance ( term ,   terms [ i - 1 ]) ** 2 \n\n     # multiply the score by the document score \n     score   *=   doc . score \n\n     # divide the score by the root of the cumulative distance \n     if   len ( terms )     1 : \n         score   /=   sqrt ( dist_penalty ) \n\n     return   score", 
             "title": "TFIDF (Default)"
         }, 
@@ -856,32 +1276,32 @@
             "title": "Extension API"
         }, 
         {
-            "location": "/Extensions/#extending-redisearch", 
+            "location": "/Extensions/#extending\"_\"redisearch", 
             "text": "RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.  There are two kinds of extension APIs at the moment:    Query Expanders , whose role is to expand query tokens (i.e. stemmers).  Scoring Funtions , whose role is to rank search results in query time.", 
             "title": "Extending RediSearch"
         }, 
         {
-            "location": "/Extensions/#registering-and-loading-extensions", 
+            "location": "/Extensions/#registering\"_\"and\"_\"loading\"_\"extensions", 
             "text": "Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module.     Compiling   Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension  can be found here .   That folder also contains an example extension that is used for testing, and can be taken as a skeleton for implementing your own extension.    Loading   Loading an extension is done by apending  EXTLOAD {path/to/ext.so}  after the  loadmodule  configuration directive when loading RediSearch. For example:  sh\n$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so  This causes RediSearch to automatically load the extension and register its expanders and scorers.", 
             "title": "Registering and Loading Extensions"
         }, 
         {
-            "location": "/Extensions/#initializing-an-extension", 
+            "location": "/Extensions/#initializing\"_\"an\"_\"extension", 
             "text": "The entry point of an extension is a function with the signature:  int   RS_ExtensionInit ( RSExtensionCtx   * ctx );   When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers.   It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.", 
             "title": "Initializing an Extension"
         }, 
         {
-            "location": "/Extensions/#example-init-function", 
+            "location": "/Extensions/#example\"_\"init\"_\"function", 
             "text": "#include   redisearch.h  //must be in the include path  int   RS_ExtensionInit ( RSExtensionCtx   * ctx )   { \n\n   /* Register  a scoring function with an alias my_scorer and no special private data and free function */ \n   if   ( ctx - RegisterScoringFunction ( my_scorer ,   MyCustomScorer ,   NULL ,   NULL )   ==   REDISEARCH_ERR )   { \n     return   REDISEARCH_ERR ; \n   } \n\n   /* Register a query expander  */ \n   if   ( ctx - RegisterQueryExpander ( my_expander ,   MyExpander ,   NULL ,   NULL )   == \n       REDISEARCH_ERR )   { \n     return   REDISEARCH_ERR ; \n   } \n\n   return   REDISEARCH_OK ;  }", 
             "title": "Example Init Function"
         }, 
         {
-            "location": "/Extensions/#calling-your-custom-functions", 
+            "location": "/Extensions/#calling\"_\"your\"_\"custom\"_\"functions", 
             "text": "When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.\ne.g.:  FT.SEARCH my_index  foo bar  EXPANDER my_expander SCORER my_scorer  NOTE : Expander and scorer aliases are  case sensitive .", 
             "title": "Calling your custom functions"
         }, 
         {
-            "location": "/Extensions/#the-query-expander-api", 
+            "location": "/Extensions/#the\"_\"query\"_\"expander\"_\"api", 
             "text": "At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.  The API for an expander is the following:  #include   redisearch.h  //must be in the include path  void   MyQueryExpander ( RSQueryExpanderCtx   * ctx ,   RSToken   * token )   { \n     ...  }", 
             "title": "The Query Expander API"
         }, 
@@ -896,7 +1316,7 @@
             "title": "RSToken"
         }, 
         {
-            "location": "/Extensions/#the-scoring-function-api", 
+            "location": "/Extensions/#the\"_\"scoring\"_\"function\"_\"api", 
             "text": "A scoring function receives each document being evaluated by the query, for final ranking. \nIt has access to all the query terms that brought up the document,and to metadata about the\ndocument such as its a-priory score, length, etc.  Since the scoring function is evaluated per each document, potentially millions of times, and since\nredis is single threaded - it is important that it works as fast as possible and be heavily optimized.   A scoring function is applied to each potential result (per document) and is implemented with the following signature:  double   MyScoringFunction ( RSScoringFunctionCtx   * ctx ,   RSIndexResult   * res , \n                                     RSDocumentMetadata   * dmd ,   double   minScore );   RSScoringFunctionCtx is a context that implements some helper methods.   RSIndexResult is the result information - containing the document id, frequency, terms and offsets.   RSDocumentMetadata is an object holding global information about the document, such as its a-priory score.   minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.  The return value of the function is double representing the final score of the result. \nReturning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. \nTo completely filter out a result and not count it in the totals, the scorer should return the special value  RS_SCORE_FILTEROUT  (which is internally to negative infinity, or -1/0).", 
             "title": "The Scoring Function API"
         }, 
@@ -916,12 +1336,12 @@
             "title": "RSDocumentMetadata"
         }, 
         {
-            "location": "/Extensions/#example-query-expander", 
+            "location": "/Extensions/#example\"_\"query\"_\"expander", 
             "text": "This example query expander expands each token with the the term foo:  #include   redisearch.h  //must be in the include path  void   DummyExpander ( RSQueryExpanderCtx   * ctx ,   RSToken   * token )   { \n     ctx - ExpandToken ( ctx ,   strdup ( foo ),   strlen ( foo ),   0x1337 );    }", 
             "title": "Example Query Expander"
         }, 
         {
-            "location": "/Extensions/#example-scoring-function", 
+            "location": "/Extensions/#example\"_\"scoring\"_\"function", 
             "text": "This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:  #include   redisearch.h  //must be in the include path  double   TFIDFScorer ( RSScoringFunctionCtx   * ctx ,   RSIndexResult   * h ,   RSDocumentMetadata   * dmd , \n                    double   minScore )   { \n   // no need to evaluate documents with score 0  \n   if   ( dmd - score   ==   0 )   return   0 ; \n\n   // calculate sum(tf-idf) for each term in the result \n   double   tfidf   =   0 ; \n   for   ( int   i   =   0 ;   i     h - numRecords ;   i ++ )   { \n     // take the term frequency and multiply by the term IDF, add that to the total \n     tfidf   +=   ( float ) h - records [ i ]. freq   *   ( h - records [ i ]. term   ?   h - records [ i ]. term - idf   :   0 ); \n   } \n   // normalize by the maximal frequency of any term in the document    \n   tfidf   /=    ( double ) dmd - maxFreq ; \n\n   // multiply by the document score (between 0 and 1) \n   tfidf   *=   dmd - score ; \n\n   // no need to factor the slop if tfidf is already below minimal score \n   if   ( tfidf     minScore )   { \n     return   0 ; \n   } \n\n   // get the slop and divide the result by it, making sure we prefer results with closer terms \n   tfidf   /=   ( double ) ctx - GetSlop ( h ); \n\n   return   tfidf ;  }", 
             "title": "Example Scoring Function"
         }, 
@@ -931,24 +1351,64 @@
             "title": "Stemming Support"
         }, 
         {
-            "location": "/Stemming/#stemming-support", 
+            "location": "/Stemming/#stemming\"_\"support", 
             "text": "RediSearch supports stemming - that is adding the base form of a word to the index. This allows \nthe query for \"going\" to also return results for \"go\" and \"gone\", for example.   The current stemming support is based on the Snowball stemmer library, which supports most European\nlanguages, as well as Arabic and other. We hope to include more languages soon (if you need a specicif\nlangauge support, please open an issue).   For further details see the  Snowball Stemmer website .", 
             "title": "Stemming Support"
         }, 
         {
-            "location": "/Stemming/#supported-languages", 
+            "location": "/Stemming/#supported\"_\"languages", 
             "text": "The following languages are supported, and can be passed to the engine \nwhen indexing or querying, with lowercase letters:   arabic  danish  dutch  english  finnish  french  german  hungarian  italian  norwegian  portuguese  romanian  russian  spanish  swedish  tamil  turkish  chinese (see below)", 
             "title": "Supported languages:"
         }, 
         {
-            "location": "/Stemming/#chinese-support", 
+            "location": "/Stemming/#chinese\"_\"support", 
             "text": "Indexing a Chinese document is different than indexing a document in most other\nlanguages because of how tokens are extracted. While most languages can have\ntheir tokens distinguished by separation characters and whitespace, this\nis not common in Chinese.  Chinese tokenization is done by scanning the input text and checking every\ncharacter or sequence of characters against a dictionary of predefined terms\nand determining the most likely (based on the surrounding terms and characters)\nmatch.  Redis Search makes use of the  Friso \nchinese tokenization library for this purpose. This is largely transparent to\nthe user and often no additional configuration is required.", 
             "title": "Chinese support"
         }, 
         {
-            "location": "/Stemming/#using-custom-dictionaries", 
+            "location": "/Stemming/#using\"_\"custom\"_\"dictionaries", 
             "text": "If you wish to use a custom dictionary, you can do so at the module level when\nloading the module. The  FRISOINI  setting can point to the location of a friso.ini  file which contains the relevant settings and paths to the dictionary\nfiles.  Note that there is no \"default\" friso.ini file location. Redis Search comes with\nits own  friso.ini  and dictionary files which are compiled into the module\nbinary at build-time.", 
             "title": "Using custom dictionaries"
+        }, 
+        {
+            "location": "/payloads/", 
+            "text": "Document Payloads\n\n\nUsually, redisearch stores documents as HASH keys. But if you want to access some data for \naggregation or scoring functions, we might want to store that data as an inline payload. \nThis will allow us to evaluate properties of a document for scoring purposes at very low cost.\n\n\nSince the scoring functions already have access to the DocumentMetaData, which contains document flags and score,\nWe can add custom payloads that can be evaluated in run-time.\n\n\nPayloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose \nof evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, \nif you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.\n\n\nAdding payloads for documents:\n\n\nWhen inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.\nThis is done with the PAYLOAD keyword:\n\n\nFT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...\n\n\n\n\n\nEvaluating Payloads in Query Time\n\n\nWhen imlplementing a scoring function, the signature of the function exposed is:\n\n\ndouble\n \n(\n*\nScoringFunction\n)(\nDocumentMetadata\n \n*\ndmd\n,\n \nIndexResult\n \n*\nh\n);\n\n\n\n\n\n\n\n\nNOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.\n\n\n\n\nDocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with\narbitrary length:\n\n\ntypedef\n \nstruct\n  \n{\n\n    \nchar\n \n*\ndata\n,\n\n    \nuint32_t\n \nlen\n;\n\n\n}\n \nDocumentPayload\n;\n\n\n\n\n\n\nIf no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.\nIt is recommended to encode some metadata about the payload inside it, like a leading version number, etc.\n\n\nRetrieving payloads from documents\n\n\nWhen searching, it is possible to request the document payloads from the engine. \n\n\nThis is done by adding the keyword \nWITHPAYLOADS\n to \nFT.SEARCH\n. \n\n\nIf \nWITHPAYLOADS\n is set, the payloads follow the document id in the returned result. \nIf \nWITHSCORES\n is set as well, the payloads follow the scores. e.g.:\n\n\n127.0.0.1:6379\n FT.CREATE foo SCHEMA bar TEXT\nOK\n127.0.0.1:6379\n FT.ADD foo doc2 1.0 PAYLOAD \nhi there!\n FIELDS bar \nhello\n\nOK\n127.0.0.1:6379\n FT.SEARCH foo \nhello\n WITHPAYLOADS WITHSCORES\n1) (integer) 1\n2) \ndoc2\n           # id\n3) \n1\n              # score\n4) \nhi there!\n      # payload\n5) 1) \nbar\n         # fields\n   2) \nhello", 
+            "title": "Document Payloads"
+        }, 
+        {
+            "location": "/payloads/#document\"_\"payloads", 
+            "text": "Usually, redisearch stores documents as HASH keys. But if you want to access some data for \naggregation or scoring functions, we might want to store that data as an inline payload. \nThis will allow us to evaluate properties of a document for scoring purposes at very low cost.  Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,\nWe can add custom payloads that can be evaluated in run-time.  Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose \nof evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, \nif you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.", 
+            "title": "Document Payloads"
+        }, 
+        {
+            "location": "/payloads/#adding\"_\"payloads\"_\"for\"_\"documents", 
+            "text": "When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.\nThis is done with the PAYLOAD keyword:  FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...", 
+            "title": "Adding payloads for documents:"
+        }, 
+        {
+            "location": "/payloads/#evaluating\"_\"payloads\"_\"in\"_\"query\"_\"time", 
+            "text": "When imlplementing a scoring function, the signature of the function exposed is:  double   ( * ScoringFunction )( DocumentMetadata   * dmd ,   IndexResult   * h );    NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.   DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with\narbitrary length:  typedef   struct    { \n     char   * data , \n     uint32_t   len ;  }   DocumentPayload ;   If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.\nIt is recommended to encode some metadata about the payload inside it, like a leading version number, etc.", 
+            "title": "Evaluating Payloads in Query Time"
+        }, 
+        {
+            "location": "/payloads/#retrieving\"_\"payloads\"_\"from\"_\"documents", 
+            "text": "When searching, it is possible to request the document payloads from the engine.   This is done by adding the keyword  WITHPAYLOADS  to  FT.SEARCH .   If  WITHPAYLOADS  is set, the payloads follow the document id in the returned result. \nIf  WITHSCORES  is set as well, the payloads follow the scores. e.g.:  127.0.0.1:6379  FT.CREATE foo SCHEMA bar TEXT\nOK\n127.0.0.1:6379  FT.ADD foo doc2 1.0 PAYLOAD  hi there!  FIELDS bar  hello \nOK\n127.0.0.1:6379  FT.SEARCH foo  hello  WITHPAYLOADS WITHSCORES\n1) (integer) 1\n2)  doc2            # id\n3)  1               # score\n4)  hi there!       # payload\n5) 1)  bar          # fields\n   2)  hello", 
+            "title": "Retrieving payloads from documents"
+        }, 
+        {
+            "location": "/Clients/", 
+            "text": "RediSearch Client Libraries\n\n\nRediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. \n\n\nWhile it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it. \n\n\nCurrently available Libraries\n\n\n\n\n\n\n\n\nLanguage\n\n\nLibrary\n\n\nAuthor\n\n\nLicense\n\n\nComments\n\n\n\n\n\n\n\n\n\n\nPython\n\n\nredisearch-py\n\n\nRedis Labs\n\n\nBSD\n\n\nUsually the most up-to-date client library\n\n\n\n\n\n\nJava\n\n\nJRediSearch\n\n\nRedis Labs\n\n\nBSD\n\n\n\n\n\n\n\n\nGo\n\n\nredisearch-go\n\n\nRedis Labs\n\n\nBSD\n\n\nIncomplete API\n\n\n\n\n\n\nJavaScript\n\n\nRedRediSearch\n\n\nKyle J. Davis\n\n\nMIT\n\n\nPartial API, compatible with \nReds\n\n\n\n\n\n\nC#\n\n\nNRediSearch\n\n\nMarc Gravell\n\n\nMIT\n\n\nPart of StackExchange.Redis\n\n\n\n\n\n\nPHP\n\n\nredisearch-php\n\n\nEthan Hann\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby on Rails\n\n\nredi_search_rails\n\n\nDmitry Polyakovsky\n\n\nMIT\n\n\n\n\n\n\n\n\nRuby\n\n\nredisearch-rb\n\n\nVictor Ruiz\n\n\nMIT", 
+            "title": "Client Libraries"
+        }, 
+        {
+            "location": "/Clients/#redisearch\"_\"client\"_\"libraries", 
+            "text": "RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages.   While it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it.", 
+            "title": "RediSearch Client Libraries"
+        }, 
+        {
+            "location": "/Clients/#currently\"_\"available\"_\"libraries", 
+            "text": "Language  Library  Author  License  Comments      Python  redisearch-py  Redis Labs  BSD  Usually the most up-to-date client library    Java  JRediSearch  Redis Labs  BSD     Go  redisearch-go  Redis Labs  BSD  Incomplete API    JavaScript  RedRediSearch  Kyle J. Davis  MIT  Partial API, compatible with  Reds    C#  NRediSearch  Marc Gravell  MIT  Part of StackExchange.Redis    PHP  redisearch-php  Ethan Hann  MIT     Ruby on Rails  redi_search_rails  Dmitry Polyakovsky  MIT     Ruby  redisearch-rb  Victor Ruiz  MIT", 
+            "title": "Currently available Libraries"
         }, 
         {
             "location": "/python_client/", 
@@ -956,7 +1416,7 @@
             "title": "Python API"
         }, 
         {
-            "location": "/python_client/#package-redisearch-documentation", 
+            "location": "/python_client/#package\"_\"redisearch\"_\"documentation", 
             "text": "", 
             "title": "Package redisearch Documentation"
         }, 
@@ -966,12 +1426,12 @@
             "title": "Overview"
         }, 
         {
-            "location": "/python_client/#example-using-the-python-client", 
+            "location": "/python_client/#example\"_\"using\"_\"the\"_\"python\"_\"client", 
             "text": "from   redisearch   import   Client ,   TextField ,   NumericField  # Creating a client with a given index name  client   =   Client ( myIndex )  # Creating the index definition and schema  client . create_index ([ TextField ( title ,   weight = 5.0 ),   TextField ( body )])  # Indexing a document  client . add_document ( doc1 ,   title   =   RediSearch ,   body   =   Redisearch impements a search engine on top of redis )  # Simple search  res   =   client . search ( search engine )  # the result has the total number of results, and a list of documents  print   res . total   #  1  print   res . docs [ 0 ] . title   # Searching with snippets  res   =   client . search ( search engine ,   snippet_sizes   =   { body :   50 })  # Searching with complext parameters:  q   =   Query ( search engine ) . verbatim () . no_content () . paging ( 0 , 5 )  res   =   client . search ( q )", 
             "title": "Example: Using the Python Client"
         }, 
         {
-            "location": "/python_client/#example-using-the-auto-completer-client", 
+            "location": "/python_client/#example\"_\"using\"_\"the\"_\"auto\"_\"completer\"_\"client", 
             "text": "# Using the auto-completer  ac   =   AutoCompleter ( ac )  # Adding some terms  ac . add_suggestions ( Suggestion ( foo ,   5.0 ),   Suggestion ( bar ,   1.0 ))  # Getting suggestions  suggs   =   ac . get_suggestions ( goo )   # returns nothing  suggs   =   ac . get_suggestions ( goo ,   fuzzy   =   True )   # returns [ foo ]", 
             "title": "Example: Using the Auto Completer Client:"
         }, 
@@ -981,7 +1441,7 @@
             "title": "Installing"
         }, 
         {
-            "location": "/python_client/#class-autocompleter", 
+            "location": "/python_client/#class\"_\"autocompleter", 
             "text": "A client to RediSearch's AutoCompleter API  It provides prefix searches with optionally fuzzy matching of prefixes", 
             "title": "Class AutoCompleter"
         }, 
@@ -1016,7 +1476,7 @@
             "title": "len"
         }, 
         {
-            "location": "/python_client/#class-client", 
+            "location": "/python_client/#class\"_\"client", 
             "text": "A client for the RediSearch module. \nIt abstracts the API of the module and lets you just use the engine", 
             "title": "Class Client"
         }, 
@@ -1081,7 +1541,7 @@
             "title": "Parameters"
         }, 
         {
-            "location": "/python_client/#class-batchindexer", 
+            "location": "/python_client/#class\"_\"batchindexer", 
             "text": "A batch indexer allows you to automatically batch \ndocument indexeing in pipelines, flushing it every N documents.", 
             "title": "Class BatchIndexer"
         }, 
@@ -1101,7 +1561,7 @@
             "title": "commit"
         }, 
         {
-            "location": "/python_client/#class-document", 
+            "location": "/python_client/#class\"_\"document", 
             "text": "Represents a single document in a result set", 
             "title": "Class Document"
         }, 
@@ -1116,7 +1576,7 @@
             "title": "snippetize"
         }, 
         {
-            "location": "/python_client/#class-geofield", 
+            "location": "/python_client/#class\"_\"geofield", 
             "text": "GeoField is used to define a geo-indexing field in a schema defintion", 
             "title": "Class GeoField"
         }, 
@@ -1131,7 +1591,7 @@
             "title": "redis_args"
         }, 
         {
-            "location": "/python_client/#class-geofilter", 
+            "location": "/python_client/#class\"_\"geofilter", 
             "text": "None", 
             "title": "Class GeoFilter"
         }, 
@@ -1141,7 +1601,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class-numericfield", 
+            "location": "/python_client/#class\"_\"numericfield", 
             "text": "NumericField is used to define a numeric field in a schema defintion", 
             "title": "Class NumericField"
         }, 
@@ -1156,7 +1616,7 @@
             "title": "redis_args"
         }, 
         {
-            "location": "/python_client/#class-numericfilter", 
+            "location": "/python_client/#class\"_\"numericfilter", 
             "text": "None", 
             "title": "Class NumericFilter"
         }, 
@@ -1166,7 +1626,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class-query", 
+            "location": "/python_client/#class\"_\"query", 
             "text": "Query is used to build complex queries that have more parameters than just the query string.\nThe query string is set in the constructor, and other options have setter functions.  The setter functions return the query object, so they can be chained, \ni.e.  Query(\"foo\").verbatim().filter(...)  etc.", 
             "title": "Class Query"
         }, 
@@ -1241,7 +1701,7 @@
             "title": "with_payloads"
         }, 
         {
-            "location": "/python_client/#class-result", 
+            "location": "/python_client/#class\"_\"result", 
             "text": "Represents the result of a search query, and has an array of Document objects", 
             "title": "Class Result"
         }, 
@@ -1251,7 +1711,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class-suggestion", 
+            "location": "/python_client/#class\"_\"suggestion", 
             "text": "Represents a single suggestion being sent or returned from the auto complete server", 
             "title": "Class Suggestion"
         }, 
@@ -1261,7 +1721,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class-textfield", 
+            "location": "/python_client/#class\"_\"textfield", 
             "text": "TextField is used to define a text field in a schema definition", 
             "title": "Class TextField"
         }, 
@@ -1281,7 +1741,7 @@
             "title": "Java API"
         }, 
         {
-            "location": "/java_client/#jredisearch-redisearch-java-client", 
+            "location": "/java_client/#jredisearch\"_\"-\"_\"redisearch\"_\"java\"_\"client", 
             "text": "https://github.com/RedisLabs/JRediSearch", 
             "title": "JRediSearch - RediSearch Java Client"
         }, 
@@ -1291,34 +1751,9 @@
             "title": "Overview"
         }, 
         {
-            "location": "/java_client/#usage-example", 
+            "location": "/java_client/#usage\"_\"example", 
             "text": "Initializing the client:  import   io.redisearch.client.Client ;  import   io.redisearch.Document ;  import   io.redisearch.SearchResult ;  import   io.redisearch.Query ;  import   io.redisearch.Schema ;  ...  Client   client   =   new   Client ( testung ,   localhost ,   6379 );   Defining a schema for an index and creating it:  Schema   sc   =   new   Schema () \n                 . addTextField ( title ,   5.0 ) \n                 . addTextField ( body ,   1.0 ) \n                 . addNumericField ( price );  client . createIndex ( sc ,   Client . IndexOptions . Default ());   Adding documents to the index:  Map String ,   Object   fields   =   new   HashMap ();  fields . put ( title ,   hello world );  fields . put ( body ,   lorem ipsum );  fields . put ( price ,   1337 );  client . addDocument ( doc1 ,   fields );   Searching the index:  // Creating a complex query  Query   q   =   new   Query ( hello world ) \n                     . addFilter ( new   Query . NumericFilter ( price ,   0 ,   1000 )) \n                     . limit ( 0 , 5 );  // actual search  SearchResult   res   =   client . search ( q );", 
             "title": "Usage example"
-        }, 
-        {
-            "location": "/payloads/", 
-            "text": "Document Payloads\n\n\nUsually, redisearch stores documents as HASH keys. But if you want to access some data for \naggregation or scoring functions, we might want to store that data as an inline payload. \nThis will allow us to evaluate properties of a document for scoring purposes at very low cost.\n\n\nSince the scoring functions already have access to the DocumentMetaData, which contains document flags and score,\nWe can add custom payloads that can be evaluated in run-time.\n\n\nPayloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose \nof evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, \nif you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.\n\n\nAdding payloads for documents:\n\n\nWhen inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.\nThis is done with the PAYLOAD keyword:\n\n\nFT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...\n\n\n\n\n\nEvaluating Payloads in Query Time\n\n\nWhen imlplementing a scoring function, the signature of the function exposed is:\n\n\ndouble\n \n(\n*\nScoringFunction\n)(\nDocumentMetadata\n \n*\ndmd\n,\n \nIndexResult\n \n*\nh\n);\n\n\n\n\n\n\n\n\nNOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.\n\n\n\n\nDocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with\narbitrary length:\n\n\ntypedef\n \nstruct\n  \n{\n\n    \nchar\n \n*\ndata\n,\n\n    \nuint32_t\n \nlen\n;\n\n\n}\n \nDocumentPayload\n;\n\n\n\n\n\n\nIf no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.\nIt is recommended to encode some metadata about the payload inside it, like a leading version number, etc.\n\n\nRetrieving payloads from documents\n\n\nWhen searching, it is possible to request the document payloads from the engine. \n\n\nThis is done by adding the keyword \nWITHPAYLOADS\n to \nFT.SEARCH\n. \n\n\nIf \nWITHPAYLOADS\n is set, the payloads follow the document id in the returned result. \nIf \nWITHSCORES\n is set as well, the payloads follow the scores. e.g.:\n\n\n127.0.0.1:6379\n FT.CREATE foo SCHEMA bar TEXT\nOK\n127.0.0.1:6379\n FT.ADD foo doc2 1.0 PAYLOAD \nhi there!\n FIELDS bar \nhello\n\nOK\n127.0.0.1:6379\n FT.SEARCH foo \nhello\n WITHPAYLOADS WITHSCORES\n1) (integer) 1\n2) \ndoc2\n           # id\n3) \n1\n              # score\n4) \nhi there!\n      # payload\n5) 1) \nbar\n         # fields\n   2) \nhello", 
-            "title": "Document Payloads"
-        }, 
-        {
-            "location": "/payloads/#document-payloads", 
-            "text": "Usually, redisearch stores documents as HASH keys. But if you want to access some data for \naggregation or scoring functions, we might want to store that data as an inline payload. \nThis will allow us to evaluate properties of a document for scoring purposes at very low cost.  Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,\nWe can add custom payloads that can be evaluated in run-time.  Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose \nof evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, \nif you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.", 
-            "title": "Document Payloads"
-        }, 
-        {
-            "location": "/payloads/#adding-payloads-for-documents", 
-            "text": "When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.\nThis is done with the PAYLOAD keyword:  FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...", 
-            "title": "Adding payloads for documents:"
-        }, 
-        {
-            "location": "/payloads/#evaluating-payloads-in-query-time", 
-            "text": "When imlplementing a scoring function, the signature of the function exposed is:  double   ( * ScoringFunction )( DocumentMetadata   * dmd ,   IndexResult   * h );    NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.   DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with\narbitrary length:  typedef   struct    { \n     char   * data , \n     uint32_t   len ;  }   DocumentPayload ;   If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.\nIt is recommended to encode some metadata about the payload inside it, like a leading version number, etc.", 
-            "title": "Evaluating Payloads in Query Time"
-        }, 
-        {
-            "location": "/payloads/#retrieving-payloads-from-documents", 
-            "text": "When searching, it is possible to request the document payloads from the engine.   This is done by adding the keyword  WITHPAYLOADS  to  FT.SEARCH .   If  WITHPAYLOADS  is set, the payloads follow the document id in the returned result. \nIf  WITHSCORES  is set as well, the payloads follow the scores. e.g.:  127.0.0.1:6379  FT.CREATE foo SCHEMA bar TEXT\nOK\n127.0.0.1:6379  FT.ADD foo doc2 1.0 PAYLOAD  hi there!  FIELDS bar  hello \nOK\n127.0.0.1:6379  FT.SEARCH foo  hello  WITHPAYLOADS WITHSCORES\n1) (integer) 1\n2)  doc2            # id\n3)  1               # score\n4)  hi there!       # payload\n5) 1)  bar          # fields\n   2)  hello", 
-            "title": "Retrieving payloads from documents"
         }, 
         {
             "location": "/design/gc/", 
@@ -1326,32 +1761,32 @@
             "title": "Garbage Collection"
         }, 
         {
-            "location": "/design/gc/#garbage-collection-in-redisearch", 
+            "location": "/design/gc/#garbage\"_\"collection\"_\"in\"_\"redisearch", 
             "text": "", 
             "title": "Garbage Collection in RediSearch"
         }, 
         {
-            "location": "/design/gc/#1-the-need-for-gc", 
+            "location": "/design/gc/#1\"_\"the\"_\"need\"_\"for\"_\"gc", 
             "text": "Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.  This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.  Thus all inverted index entries belonging to this document id are just garbage.   We do not want to go and explicitly delete them when deleting a document because it will make this operation very long an depending on the length of the document.  On top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.   All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory.   Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.", 
             "title": "1. The Need For GC"
         }, 
         {
-            "location": "/design/gc/#2-garbage-collecting-a-single-term-index", 
+            "location": "/design/gc/#2\"_\"garbage\"_\"collecting\"_\"a\"_\"single\"_\"term\"_\"index", 
             "text": "A single term inverted index is consisted of an array of \"blocks\" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage.   The algorithm is pretty simple:    Create a reader and writer for each block  Read each block's records one by one  If no record is invalid, do nothing  Once we found a garbage record, we advance the reader but not the writer.  Once we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.   Pseudo code:  foreach index_block as block:\n\n   reader = new_reader(block)\n   writer = new_write(block)\n   garbage = 0\n   while not reader.end():\n        record = reader.decode_next()\n        if record.is_valid():\n            if garbage != 0:\n                # Write the record at the writer s tip with a newly calculated delta\n                writer.write_record(record)\n            else:\n                writer.advance(record.length)\n        else:\n            garbage += record.length  NOTE : Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.", 
             "title": "2. Garbage Collecting a Single Term Index"
         }, 
         {
-            "location": "/design/gc/#21-garbage-collection-on-numeric-indexes", 
+            "location": "/design/gc/#21\"_\"garbage\"_\"collection\"_\"on\"_\"numeric\"_\"indexes", 
             "text": "Numeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.", 
             "title": "2.1 Garbage Collection on Numeric Indexes"
         }, 
         {
-            "location": "/design/gc/#3-gc-and-concurrency", 
+            "location": "/design/gc/#3\"_\"gc\"_\"and\"_\"concurrency", 
             "text": "Since RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us).   It GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.  This means, however, that we need to consider a few things:    From the Index Iterator's POV - a GC sweep might be performed while we are sleeping during iterating the index. This means that the offset of the reader in its current block might not be correct. In that case we need to do a slow search in the index for the last id we've read. This is an operation we don't want to do unless we have to.    From the GC thread's POC - an index might be written to or deleted while we are sleeping during a sweep.    To solve 1 we need to detect this in the reader, and adapt to this situation. Detection of a GC sweep while sleeping is simple:  Each inverted index key has a \"gc marker\" variable that increments each time it has been GC'ed.   Before starting an index iterator, we copy the index's gc marker to the iterator's context.  After waking up from sleep in the iterator, we check the gc markers in both objects.  If they are the same we can simply trust the byte offset of the reader in the current block.\n* IF not, we seek the reader to the previously read docId, which is slower.   To solve 2 is simpler:   The GC will of course operate only while the GIL is locked.  The GC will never yield execution while in the middle of a block.  The GC will check whether the key has been delted while it slept.  The GC will get a new pointer to the next block on each read, assuring the pointer is safe.", 
             "title": "3. GC And Concurrency"
         }, 
         {
-            "location": "/design/gc/#4-scheduling-garbage-collection", 
+            "location": "/design/gc/#4\"_\"scheduling\"_\"garbage\"_\"collection", 
             "text": "While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. \nThe problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively.   So the GC will use sampling of random terms and collect them.   This leaves two problems:\n1. How to avoid GC when it's not needed (the user is not deleting any documents or doing it very little).\n2. How to make sure we hit terms that are more likely to contain garbage.   Solving 2 for now will be done by trying some sort of weighted random. We already have a dictionary with the frequency of terms in the index. However running a real weighted random on it is an expensive operation.  Thus, an approximation of a weighted random can be easily done by blindly selecting N terms in each round, and then applying a weighted random function to this small set of keys. This assures that even the least frequent terms will get visited.  Solving 1 can be done in the following way:  We start with a frequency F for the random sampler of the garbage collector. At first it is relatively infrequent or even 0. It can be configured.\nThen, we do the following:\n    * Each time a document is deleted or updated we increase the frequency a bit.\n    * Each time we find a key with garbage we increase the frequency a bit.\n    * Each time we sample a key with NO garbage found, we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.  The frequency is of course bounded to a maximum which we will never surpass. Thus when a lot of garbage is created, the frequency will be at its maximum, and will eventually decay to 0 or a pre-configured minimum - until more documents will be deleted.", 
             "title": "4. Scheduling Garbage Collection"
         }, 
@@ -1361,52 +1796,52 @@
             "title": "Multi-Threading in RediSearch"
         }, 
         {
-            "location": "/Threading/#multi-threading-in-redisearch", 
+            "location": "/Threading/#multi-threading\"_\"in\"_\"redisearch", 
             "text": "By Dvir Volk, July 2017", 
             "title": "Multi-Threading in RediSearch"
         }, 
         {
-            "location": "/Threading/#1-one-thread-to-rule-them-all", 
+            "location": "/Threading/#1\"_\"one\"_\"thread\"_\"to\"_\"rule\"_\"them\"_\"all", 
             "text": "Redis has been, from its inception, single threaded - and will remain so at least in 4.0. I'm not going to get into the reasons of why that is - but up until now it has been a reality that Redis apps, and more recently Redis Modules such as RediSearch - have to deal with.   While keeping things single-threaded makes Redis simple and fast - the down-side is that long running commands block the entire server for the duration of the query's execution. Most Redis commands are fast so that is not a problem, but commands like  ZUNIONSTORE ,  LRANGE ,  SINTER  and of course the infamous  KEYS , can block Redis for seconds or minutes, depending on the size of data they are handling.", 
             "title": "1. One Thread To Rule Them All"
         }, 
         {
-            "location": "/Threading/#2-redisearch-and-the-single-thread-issue", 
+            "location": "/Threading/#2\"_\"redisearch\"_\"and\"_\"the\"_\"single\"_\"thread\"_\"issue", 
             "text": "RediSearch  is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine.   While it is extremely fast and uses highly optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your data-set and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked.   Think, for example, on the a full-text query intersecting the terms \"hello\" and \"world\", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond,  which is impossible with current hardware . The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.  So taking into account that in the real world, search queries may not behave like your average Redis O(1) command, and block the entire server for long periods of time. Of course, you could and should split your search index into a cluster, and a cluster version of RediSearch will soon be available as part of Redis Labs Enterprise cluster - but even if we distribute the data across cluster nodes, some queries will be slow.", 
             "title": "2. RediSearch and the Single Thread Issue"
         }, 
         {
-            "location": "/Threading/#3-enter-the-redis-gil", 
+            "location": "/Threading/#3\"_\"enter\"_\"the\"_\"redis\"_\"gil", 
             "text": "Luckily, Redis BDFL  Salvatore Sanfilippo  has added a revolutionary change just near the finish line of Redis 4.0 and the release of the modules API -  Thread Safe Contexts  and the  Global Lock .  The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the  Global Lock  when it needs to access Redis data, operate on it, and release it.   We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning models, actual parallel processing the background is achievable and easy.", 
             "title": "3. Enter the Redis GIL"
         }, 
         {
-            "location": "/Threading/#4-making-search-concurrent", 
+            "location": "/Threading/#4\"_\"making\"_\"search\"_\"concurrent", 
             "text": "Up until now, the flow of a search query was simple - the query would arrive at a  Command Handler  callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result.   To allow concurrency, we adapted the following design:    RediSearch has a thread pool for running concurrent search queries.     When a search request arrives, it gets to the handler, gets parsed on the main thread, and a request object is passed to the thread pool via a queue.    The thread pool runs a query processing function in its own thread.    The function locks the Redis Global lock, and starts executing the query.    Since the search execution is basically an iterator running in a cycle, we simply sample the elapsed time every several iterations (sampling on each iteration would slow things down as it has a cost of its own).    If enough time has elapsed, the query processor releases the Global Lock, and immediately tries to acquire it again. When the lock is released, the kernel will schedule another thread to run - be it Redis' main thread, or another query thread.    When the lock is acquired again - we reopen all Redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been \"sleeping\"), and continue work from the previous state.     Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently.", 
             "title": "4. Making Search Concurrent"
         }, 
         {
-            "location": "/Threading/#figure-1-serial-vs-concurrent-search", 
+            "location": "/Threading/#figure\"_\"1\"_\"serial\"_\"vs\"_\"concurrent\"_\"search", 
             "text": "On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.   The same approach is applied to indexing. If a document is big and tokenizing and indexing it will block Redis for a long time - we break that into many smaller iterations and allow Redis to do other things instead of blocking for a very long time. In fact, in the case of indexing there is enough work to be done in parallel using multiple cores - namely tokenizing and normalizing the document. This is especially effective for very big documents.  As a side note - this could have been implemented with a single thread switching between all the query execution loops, but the code refactoring required for that was much larger, and the effect with reasonable load would have remained similar, so we opted to keep this for a future release.", 
             "title": "Figure 1: Serial vs. Concurrent Search"
         }, 
         {
-            "location": "/Threading/#5-the-effect-of-concurrency", 
+            "location": "/Threading/#5\"_\"the\"_\"effect\"_\"of\"_\"concurrency", 
             "text": "While this is not magic, and if all your queries are slow they will remain slow, and no real parallel processing is done here - this is revolutionary in Redis terms. Think about the old problem of running  KEYS *  in a busy Redis instance. In single threaded operation, this will cause the instance to hang for seconds if not minutes. No it is possible to implement a concurrent version of KEYS in a module, that will hardly affect performance. In fact, Salvatore has already implemented one!  There is, however, a negative effect as well: we sacrifice atomicity of reads and writes for concurrency to a degree. Consider the following situation: One thread is processing a query that should retrieve document A, then yields the execution context; At the same time, another thread deletes or changes document A. The result - the query run by the first thread will not be able to retrieve the document, as it has already been changed or deleted while the thread was \"asleep\".   This is of course only relevant to high update/delete loads, and relatively slow and complex queries. In our view, for most use cases this is a sacrifice worth making, and usually query processing is fast enough that the probability of this happening is very low. However, this can be overcome easily: if strong atomicity of the operations is important, it is possible to have RediSearch operate in \"safe mode\", making all searches and updates atomic, thus making sure that each query refers to the sate of the index at the moment of its invocation.   To enable safe mode and disable query concurrency, you can configure RediSearch at load time:  redis-server --loadmodule redisearch.so SAFEMODE  in command line, or by adding  loadmodule redisearch.so SAFEMODE  to your redis.conf - depending on how you load the module.", 
             "title": "5. The Effect of Concurrency"
         }, 
         {
-            "location": "/Threading/#6-some-numbers", 
+            "location": "/Threading/#6\"_\"some\"_\"numbers", 
             "text": "I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up.   Benchmark Setup   The data-set consists of about 1,000,000 Reddit comments.  Two clients using Redis-benchmark were running  - first separately, then in parallel:  One client doing a very intensive query - \"i\" which has 200,000 results with 5 concurrent connections.  One client is doing a very light query - \"Obama\", which has about 500 results - with 10 concurrent connections (we assume in a normal situation there will be more lightweight queries than heavy queries).  Both clients and the server running on my personal laptop - MacBook Pro with an Intel Quad Core i7 @ 2.2Ghz.", 
             "title": "6. Some Numbers!"
         }, 
         {
-            "location": "/Threading/#the-results", 
+            "location": "/Threading/#the\"_\"results", 
             "text": "Note  While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries.", 
             "title": "The Results:"
         }, 
         {
-            "location": "/Threading/#7-parting-words", 
+            "location": "/Threading/#7\"_\"parting\"_\"words", 
             "text": "This little Global Lock feature and Thread Safe Contexts, is perhaps the most powerful thing that the Modules API offers. We touched only the problem of concurrency here, but it also enables background tasks, real parallel processing of data that does not touch the Redis keyspace, and more.  For RediSearch, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.", 
             "title": "7. Parting Words"
         }

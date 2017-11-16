@@ -40,6 +40,8 @@
     
       <link rel="stylesheet" href="../../assets/stylesheets/application-709eec9410.css">
       
+        <link rel="stylesheet" href="../../assets/stylesheets/application-23f75ab9c7.palette.css">
+      
     
     
       <script src="../../assets/javascripts/modernizr-e826f8942a.js"></script>
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -155,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href="../.." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../../Commands/" title="Commands" class="md-tabs__link">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../../Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="./" title="Design Documents" class="md-tabs__link md-tabs__link--active">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -166,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -226,8 +325,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
+    <a href="../../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
   </li>
 
@@ -237,10 +336,34 @@
       
 
 
-  <li class="md-nav__item">
-    <a href="../../Commands/" title="Commands" class="md-nav__link">
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4">
+    
+    <label class="md-nav__link" for="nav-4">
       Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -261,16 +384,35 @@
       
 
 
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
   <li class="md-nav__item">
     <a href="../../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -279,10 +421,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -291,10 +433,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -303,10 +445,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -315,10 +457,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -327,10 +469,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -339,10 +481,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -351,10 +493,58 @@
     </a>
   </li>
 
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
     
       
       
       
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+    
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -363,10 +553,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -375,16 +565,9 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../../payloads/" title="Document Payloads" class="md-nav__link">
-      Document Payloads
-    </a>
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -397,13 +580,13 @@
 
   <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17" checked>
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8" checked>
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -442,14 +625,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-the-need-for-gc" title="1. The Need For GC" class="md-nav__link">
+  <a href="#1"_"the"_"need"_"for"_"gc" title="1. The Need For GC" class="md-nav__link">
     1. The Need For GC
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-garbage-collecting-a-single-term-index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+  <a href="#2"_"garbage"_"collecting"_"a"_"single"_"term"_"index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
     2. Garbage Collecting a Single Term Index
   </a>
   
@@ -457,7 +640,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#21-garbage-collection-on-numeric-indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+  <a href="#21"_"garbage"_"collection"_"on"_"numeric"_"indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
     2.1 Garbage Collection on Numeric Indexes
   </a>
   
@@ -469,14 +652,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-gc-and-concurrency" title="3. GC And Concurrency" class="md-nav__link">
+  <a href="#3"_"gc"_"and"_"concurrency" title="3. GC And Concurrency" class="md-nav__link">
     3. GC And Concurrency
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-scheduling-garbage-collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+  <a href="#4"_"scheduling"_"garbage"_"collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
     4. Scheduling Garbage Collection
   </a>
   
@@ -503,13 +686,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -553,14 +736,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-the-need-for-gc" title="1. The Need For GC" class="md-nav__link">
+  <a href="#1"_"the"_"need"_"for"_"gc" title="1. The Need For GC" class="md-nav__link">
     1. The Need For GC
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-garbage-collecting-a-single-term-index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+  <a href="#2"_"garbage"_"collecting"_"a"_"single"_"term"_"index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
     2. Garbage Collecting a Single Term Index
   </a>
   
@@ -568,7 +751,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#21-garbage-collection-on-numeric-indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+  <a href="#21"_"garbage"_"collection"_"on"_"numeric"_"indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
     2.1 Garbage Collection on Numeric Indexes
   </a>
   
@@ -580,14 +763,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-gc-and-concurrency" title="3. GC And Concurrency" class="md-nav__link">
+  <a href="#3"_"gc"_"and"_"concurrency" title="3. GC And Concurrency" class="md-nav__link">
     3. GC And Concurrency
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-scheduling-garbage-collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+  <a href="#4"_"scheduling"_"garbage"_"collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
     4. Scheduling Garbage Collection
   </a>
   
@@ -610,8 +793,8 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/design/gc.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="garbage-collection-in-redisearch">Garbage Collection in RediSearch<a class="headerlink" href="#garbage-collection-in-redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="1-the-need-for-gc">1. The Need For GC<a class="headerlink" href="#1-the-need-for-gc" title="Permanent link">&para;</a></h2>
+                <h1 id="garbage&quot;_&quot;collection&quot;_&quot;in&quot;_&quot;redisearch">Garbage Collection in RediSearch<a class="headerlink" href="#garbage&quot;_&quot;collection&quot;_&quot;in&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
+<h2 id="1&quot;_&quot;the&quot;_&quot;need&quot;_&quot;for&quot;_&quot;gc">1. The Need For GC<a class="headerlink" href="#1&quot;_&quot;the&quot;_&quot;need&quot;_&quot;for&quot;_&quot;gc" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.</li>
 <li>This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.</li>
@@ -621,7 +804,7 @@
 </ul>
 <p>All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. </p>
 <p>Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.</p>
-<h2 id="2-garbage-collecting-a-single-term-index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2-garbage-collecting-a-single-term-index" title="Permanent link">&para;</a></h2>
+<h2 id="2&quot;_&quot;garbage&quot;_&quot;collecting&quot;_&quot;a&quot;_&quot;single&quot;_&quot;term&quot;_&quot;index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2&quot;_&quot;garbage&quot;_&quot;collecting&quot;_&quot;a&quot;_&quot;single&quot;_&quot;term&quot;_&quot;index" title="Permanent link">&para;</a></h2>
 <p>A single term inverted index is consisted of an array of "blocks" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. </p>
 <p>The algorithm is pretty simple: </p>
 <ol>
@@ -651,9 +834,9 @@
 
 
 <p><strong>NOTE</strong>: Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.</p>
-<h3 id="21-garbage-collection-on-numeric-indexes">2.1 Garbage Collection on Numeric Indexes<a class="headerlink" href="#21-garbage-collection-on-numeric-indexes" title="Permanent link">&para;</a></h3>
+<h3 id="21&quot;_&quot;garbage&quot;_&quot;collection&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;indexes">2.1 Garbage Collection on Numeric Indexes<a class="headerlink" href="#21&quot;_&quot;garbage&quot;_&quot;collection&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;indexes" title="Permanent link">&para;</a></h3>
 <p>Numeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.</p>
-<h2 id="3-gc-and-concurrency">3. GC And Concurrency<a class="headerlink" href="#3-gc-and-concurrency" title="Permanent link">&para;</a></h2>
+<h2 id="3&quot;_&quot;gc&quot;_&quot;and&quot;_&quot;concurrency">3. GC And Concurrency<a class="headerlink" href="#3&quot;_&quot;gc&quot;_&quot;and&quot;_&quot;concurrency" title="Permanent link">&para;</a></h2>
 <p>Since RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us). </p>
 <p>It GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.</p>
 <p>This means, however, that we need to consider a few things:</p>
@@ -676,7 +859,7 @@
 </em> The GC will never yield execution while in the middle of a block.
 <em> The GC will check whether the key has been delted while it slept.
 </em> The GC will get a new pointer to the next block on each read, assuring the pointer is safe.</p>
-<h2 id="4-scheduling-garbage-collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4-scheduling-garbage-collection" title="Permanent link">&para;</a></h2>
+<h2 id="4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection" title="Permanent link">&para;</a></h2>
 <p>While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. 
 The problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively. </p>
 <p>So the GC will use sampling of random terms and collect them. </p>
@@ -710,7 +893,7 @@ Then, we do the following:
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../../payloads/" title="Document Payloads" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../../java_client/" title="Java API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -719,7 +902,7 @@ Then, we do the following:
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Document Payloads
+                Java API
               </span>
             </div>
           </a>

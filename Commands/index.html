@@ -34,11 +34,13 @@
     
     
       
-        <title>Commands - RediSearch Documentation</title>
+        <title>Command Reference - RediSearch Documentation</title>
       
     
     
       <link rel="stylesheet" href="../assets/stylesheets/application-709eec9410.css">
+      
+        <link rel="stylesheet" href="../assets/stylesheets/application-23f75ab9c7.palette.css">
       
     
     
@@ -55,7 +57,11 @@
     
   </head>
   
-    <body>
+    
+    
+    
+      <body data-md-color-primary="indigo" data-md-color-accent="indigo">
+    
   
     <svg class="md-svg">
       <defs>
@@ -75,7 +81,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <i class="md-icon"></i>
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -87,8 +93,12 @@
           
             
               
+                <span class="md-header-nav__parent">
+                  Commands
+                </span>
+              
             
-            Commands
+            Command Reference
           
         </span>
       </div>
@@ -151,6 +161,99 @@
     
     <div class="md-container">
       
+        
+
+  
+
+<nav class="md-tabs md-tabs--active" data-md-component="tabs">
+  <div class="md-tabs__inner md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  <li class="md-tabs__item">
+    
+      <a href=".." title="Home" class="md-tabs__link">
+        Home
+      </a>
+    
+  </li>
+
+      
+        
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="./" title="Commands" class="md-tabs__link md-tabs__link--active">
+          Commands
+        </a>
+      
+    </li>
+  
+
+      
+        
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Query_Syntax/" title="Reference" class="md-tabs__link">
+          Reference
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Clients/" title="Clients" class="md-tabs__link">
+          Clients
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../design/gc/" title="Design Documents" class="md-tabs__link">
+          Design Documents
+        </a>
+      
+    </li>
+  
+
+      
+        
+  
+  
+    <li class="md-tabs__item">
+      
+        <a href="../Threading/" title="Articles" class="md-tabs__link">
+          Articles
+        </a>
+      
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+      
       <main class="md-main">
         <div class="md-main__inner md-grid" data-md-component="container">
           
@@ -162,7 +265,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <i class="md-icon"></i>
+        <img src="../logo_small.png" width="24" height="24">
       
     </span>
     RediSearch Documentation
@@ -222,20 +325,6 @@
 
 
   <li class="md-nav__item">
-    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
-      Client Libraries
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-  
-
-
-  <li class="md-nav__item md-nav__item--active">
     
     <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
     
@@ -243,11 +332,11 @@
     
     
       <label class="md-nav__link md-nav__link--active" for="toc">
-        Commands
+        Command Reference
       </label>
     
-    <a href="./" title="Commands" class="md-nav__link md-nav__link--active">
-      Commands
+    <a href="./" title="Command Reference" class="md-nav__link md-nav__link--active">
+      Command Reference
     </a>
     
       
@@ -290,7 +379,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#field-options" title="Field Options" class="md-nav__link">
+  <a href="#field"_"options" title="Field Options" class="md-nav__link">
     Field Options
   </a>
   
@@ -345,7 +434,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#adding-chinese-documents" title="Adding Chinese Documents" class="md-nav__link">
+  <a href="#adding"_"chinese"_"documents" title="Adding Chinese Documents" class="md-nav__link">
     Adding Chinese Documents
   </a>
   
@@ -939,7 +1028,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ftoptimize-deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
+  <a href="#ftoptimize"_"deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
     FT.OPTIMIZE  DEPRECATED
   </a>
   
@@ -951,6 +1040,758 @@
   
 </nav>
     
+  </li>
+
+    
+      
+      
+      
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-4" type="checkbox" id="nav-4" checked>
+    
+    <label class="md-nav__link" for="nav-4">
+      Commands
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-4">
+        Commands
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Command Reference
+      </label>
+    
+    <a href="./" title="Command Reference" class="md-nav__link md-nav__link--active">
+      Command Reference
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ftcreate" title="FT.CREATE" class="md-nav__link">
+    FT.CREATE
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format" title="Format:" class="md-nav__link">
+    Format:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description" title="Description:" class="md-nav__link">
+    Description:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field"_"options" title="Field Options" class="md-nav__link">
+    Field Options
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns" title="Returns:" class="md-nav__link">
+    Returns:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftadd" title="FT.ADD" class="md-nav__link">
+    FT.ADD
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_1" title="Format:" class="md-nav__link">
+    Format:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_1" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_1" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adding"_"chinese"_"documents" title="Adding Chinese Documents" class="md-nav__link">
+    Adding Chinese Documents
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_1" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_1" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftaddhash" title="FT.ADDHASH" class="md-nav__link">
+    FT.ADDHASH
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_2" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_2" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_2" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_2" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_2" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftinfo" title="FT.INFO" class="md-nav__link">
+    FT.INFO
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_3" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_3" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_3" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_3" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_3" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsearch" title="FT.SEARCH" class="md-nav__link">
+    FT.SEARCH
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_4" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_4" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_4" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_4" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_4" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftexplain" title="FT.EXPLAIN" class="md-nav__link">
+    FT.EXPLAIN
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_5" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_5" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_5" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_5" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_5" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftdel" title="FT.DEL" class="md-nav__link">
+    FT.DEL
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_6" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_6" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_6" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_6" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_6" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftget" title="FT.GET" class="md-nav__link">
+    FT.GET
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_7" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_7" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_7" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_7" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftmget" title="FT.MGET" class="md-nav__link">
+    FT.MGET
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_8" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_8" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_8" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_8" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftdrop" title="FT.DROP" class="md-nav__link">
+    FT.DROP
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_9" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_9" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_9" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_9" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fttagvals" title="FT.TAGVALS" class="md-nav__link">
+    FT.TAGVALS
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_10" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_10" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_10" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_10" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complexity_7" title="Complexity" class="md-nav__link">
+    Complexity
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsugadd" title="FT.SUGADD" class="md-nav__link">
+    FT.SUGADD
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_11" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_11" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_11" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_11" title="Returns:" class="md-nav__link">
+    Returns:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsugget" title="FT.SUGGET" class="md-nav__link">
+    FT.SUGGET
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_12" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_12" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_12" title="Parameters:" class="md-nav__link">
+    Parameters:
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_12" title="Returns:" class="md-nav__link">
+    Returns:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsugdel" title="FT.SUGDEL" class="md-nav__link">
+    FT.SUGDEL
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_13" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_13" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_13" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_13" title="Returns:" class="md-nav__link">
+    Returns:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsuglen" title="FT.SUGLEN" class="md-nav__link">
+    FT.SUGLEN
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#description_14" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_14" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_14" title="Returns:" class="md-nav__link">
+    Returns:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftoptimize"_"deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
+    FT.OPTIMIZE  DEPRECATED
+  </a>
+  
+</li>
+      
+      
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -971,16 +1812,35 @@
       
 
 
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
   <li class="md-nav__item">
     <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -989,10 +1849,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1001,10 +1861,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1013,10 +1873,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1025,10 +1885,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1037,10 +1897,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1049,10 +1909,10 @@
     </a>
   </li>
 
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
@@ -1061,40 +1921,21 @@
     </a>
   </li>
 
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../python_client/" title="Python API" class="md-nav__link">
-      Python API
-    </a>
-  </li>
-
-    
-      
-      
-      
-
-
-  <li class="md-nav__item">
-    <a href="../java_client/" title="Java API" class="md-nav__link">
-      Java API
-    </a>
-  </li>
-
-    
-      
-      
-      
+        
+          
+          
+          
 
 
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
+  </li>
+
+        
+      </ul>
+    </nav>
   </li>
 
     
@@ -1105,13 +1946,73 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-17" type="checkbox" id="nav-17">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-17">
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-17">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1141,13 +2042,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-18" type="checkbox" id="nav-18">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-18">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-18">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -1220,7 +2121,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#field-options" title="Field Options" class="md-nav__link">
+  <a href="#field"_"options" title="Field Options" class="md-nav__link">
     Field Options
   </a>
   
@@ -1275,7 +2176,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#adding-chinese-documents" title="Adding Chinese Documents" class="md-nav__link">
+  <a href="#adding"_"chinese"_"documents" title="Adding Chinese Documents" class="md-nav__link">
     Adding Chinese Documents
   </a>
   
@@ -1869,7 +2770,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ftoptimize-deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
+  <a href="#ftoptimize"_"deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
     FT.OPTIMIZE  DEPRECATED
   </a>
   
@@ -1892,7 +2793,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="rediseach-full-command-documentation">RediSeach Full Command Documentation<a class="headerlink" href="#rediseach-full-command-documentation" title="Permanent link">&para;</a></h1>
+                <h1 id="rediseach&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation">RediSeach Full Command Documentation<a class="headerlink" href="#rediseach&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation" title="Permanent link">&para;</a></h1>
 <h2 id="ftcreate">FT.CREATE<a class="headerlink" href="#ftcreate" title="Permanent link">&para;</a></h2>
 <h3 id="format">Format:<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
@@ -1941,7 +2842,7 @@ so keep it short!</p>
 <li>
 <p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.</p>
-<h3 id="field-options">Field Options<a class="headerlink" href="#field-options" title="Permanent link">&para;</a></h3>
+<h3 id="field&quot;_&quot;options">Field Options<a class="headerlink" href="#field&quot;_&quot;options" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>SORTABLE</strong></p>
@@ -2023,7 +2924,7 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 </ul>
 <p>If indexing a chinese language document, you must set the language to <code>chinese</code>
   in order for the chinese characters to be tokenized properly.</p>
-<h3 id="adding-chinese-documents">Adding Chinese Documents<a class="headerlink" href="#adding-chinese-documents" title="Permanent link">&para;</a></h3>
+<h3 id="adding&quot;_&quot;chinese&quot;_&quot;documents">Adding Chinese Documents<a class="headerlink" href="#adding&quot;_&quot;chinese&quot;_&quot;documents" title="Permanent link">&para;</a></h3>
 <p>When adding Chinese-language documents, <code>LANGUAGE chinese</code> should be set in
 order for the indexer to properly tokenize the terms. If the default language
 is used then search terms will be extracted based on punctuation characters and
@@ -2439,7 +3340,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <h3 id="returns_14">Returns:<a class="headerlink" href="#returns_14" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
-<h2 id="ftoptimize-deprecated">FT.OPTIMIZE <strong> DEPRECATED </strong><a class="headerlink" href="#ftoptimize-deprecated" title="Permanent link">&para;</a></h2>
+<h2 id="ftoptimize&quot;_&quot;deprecated">FT.OPTIMIZE <strong> DEPRECATED </strong><a class="headerlink" href="#ftoptimize&quot;_&quot;deprecated" title="Permanent link">&para;</a></h2>
 <p>Format</p>
 <div class="codehilite"><pre><span></span>FT.OPTIMIZE {index}
 </pre></div>
@@ -2466,7 +3367,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Clients/" title="Client Libraries" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="./" title="Command Reference" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -2475,7 +3376,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Client Libraries
+                Command Reference
               </span>
             </div>
           </a>
