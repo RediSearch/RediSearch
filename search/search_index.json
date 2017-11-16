@@ -1321,6 +1321,456 @@
             "title": "Usage example"
         }, 
         {
+            "location": "/go_client/", 
+            "text": "redisearch\n\n\n--\n    import \"github.com/RedisLabs/redisearch-go/redisearch\"\n\n\nPackage redisearch provides a Go client for the RediSearch search engine.\n\n\nFor the full documentation of RediSearch, see\n\nhttp://redisearch.io\n\n\nExample Usage\n\n\n \nimport\n \n(\n\n        \ngithub.com/RedisLabs/redisearch-go/redisearch\n\n        \nlog\n\n        \nfmt\n\n \n)\n\n\n    \nfunc\n \nExampleClient\n()\n \n{\n\n        \n//\n \nCreate\n \na\n \nclient\n.\n \nBy\n \ndefault\n \na\n \nclient\n \nis\n \nschemaless\n\n        \n//\n \nunless\n \na\n \nschema\n \nis\n \nprovided\n \nwhen\n \ncreating\n \nthe\n \nindex\n\n        \nc\n \n:\n=\n \ncreateClient\n(\nmyIndex\n)\n\n\n        \n//\n \nCreate\n \na\n \nschema\n\n        \nsc\n \n:\n=\n \nredisearch\n.\nNewSchema\n(\nredisearch\n.\nDefaultOptions\n)\n.\n\n            \nAddField\n(\nredisearch\n.\nNewTextField\n(\nbody\n))\n.\n\n            \nAddField\n(\nredisearch\n.\nNewTextFieldOptions\n(\ntitle\n,\n \nredisearch\n.\nTextFieldOptions\n{\nWeight\n:\n \n5.0\n,\n \nSortable\n:\n \ntrue\n}))\n.\n\n            \nAddField\n(\nredisearch\n.\nNewNumericField\n(\ndate\n))\n\n\n        \n//\n \nDrop\n \nan\n \nexisting\n \nindex\n.\n \nIf\n \nthe\n \nindex\n \ndoes\n \nnot\n \nexist\n \nan\n \nerror\n \nis\n \nreturned\n\n        \nc\n.\nDrop\n()\n\n\n        \n//\n \nCreate\n \nthe\n \nindex\n \nwith\n \nthe\n \ngiven\n \nschema\n\n        \nif\n \nerr\n \n:\n=\n \nc\n.\nCreateIndex\n(\nsc\n);\n \nerr\n \n!=\n \nnil\n \n{\n\n            \nlog\n.\nFatal\n(\nerr\n)\n\n        \n}\n\n\n        \n//\n \nCreate\n \na\n \ndocument\n \nwith\n \nan\n \nid\n \nand\n \ngiven\n \nscore\n\n        \ndoc\n \n:\n=\n \nredisearch\n.\nNewDocument\n(\ndoc1\n,\n \n1.0\n)\n\n        \ndoc\n.\nSet\n(\ntitle\n,\n \nHello world\n)\n.\n\n            \nSet\n(\nbody\n,\n \nfoo bar\n)\n.\n\n            \nSet\n(\ndate\n,\n \ntime\n.\nNow\n()\n.\nUnix\n())\n\n\n        \n//\n \nIndex\n \nthe\n \ndocument\n.\n \nThe\n \nAPI\n \naccepts\n \nmultiple\n \ndocuments\n \nat\n \na\n \ntime\n\n        \nif\n \nerr\n \n:\n=\n \nc\n.\nIndexOptions\n(\nredisearch\n.\nDefaultIndexingOptions\n,\n \ndoc\n);\n \nerr\n \n!=\n \nnil\n \n{\n\n            \nlog\n.\nFatal\n(\nerr\n)\n\n        \n}\n\n\n        \n//\n \nSearching\n \nwith\n \nlimit\n \nand\n \nsorting\n\n        \ndocs\n,\n \ntotal\n,\n \nerr\n \n:\n=\n \nc\n.\nSearch\n(\nredisearch\n.\nNewQuery\n(\nhello world\n)\n.\n\n            \nLimit\n(\n0\n,\n \n2\n)\n.\n\n            \nSetReturnFields\n(\ntitle\n))\n\n\n        \nfmt\n.\nPrintln\n(\ndocs\n[\n0\n]\n.\nId\n,\n \ndocs\n[\n0\n]\n.\nProperties\n[\ntitle\n],\n \ntotal\n,\n \nerr\n)\n\n        \n//\n \nOutput\n:\n \ndoc1\n \nHello\n \nworld\n \n1\n \nnil\n\n    \n}\n\n\n\n\n\n\nUsage\n\n\nvar\n \nDefaultIndexingOptions\n \n=\n \nIndexingOptions\n{\n\n    \nLanguage\n:\n \n,\n\n    \nNoSave\n:\n   \nfalse\n,\n\n    \nReplace\n:\n  \nfalse\n,\n\n    \nPartial\n:\n  \nfalse\n,\n\n\n}\n\n\n\n\n\n\nDefaultIndexingOptions are the default options for document indexing\n\n\nvar\n \nDefaultOptions\n \n=\n \nOptions\n{\n\n    \nNoSave\n:\n          \nfalse\n,\n\n    \nNoFieldFlags\n:\n    \nfalse\n,\n\n    \nNoFrequencies\n:\n   \nfalse\n,\n\n    \nNoOffsetVectors\n:\n \nfalse\n,\n\n    \nStopwords\n:\n       \nnil\n,\n\n\n}\n\n\n\n\n\n\nDefaultOptions represents the default options\n\n\ntype Autocompleter\n\n\ntype\n \nAutocompleter\n \nstruct\n \n{\n\n\n}\n\n\n\n\n\n\nAutocompleter implements a redisearch auto-completer API\n\n\nfunc  NewAutocompleter\n\n\nfunc\n \nNewAutocompleter\n(\naddr\n,\n \nname\n \nstring\n)\n \n*\nAutocompleter\n\n\n\n\n\n\nNewAutocompleter creates a new Autocompleter with the given host and key name\n\n\nfunc (*Autocompleter) AddTerms\n\n\nfunc\n \n(\na\n \n*\nAutocompleter\n)\n \nAddTerms\n(\nterms\n \n...\nSuggestion\n)\n \nerror\n\n\n\n\n\n\nAddTerms pushes new term suggestions to the index\n\n\nfunc (*Autocompleter) Delete\n\n\nfunc\n \n(\na\n \n*\nAutocompleter\n)\n \nDelete\n()\n \nerror\n\n\n\n\n\n\nDelete deletes the Autocompleter key for this AC\n\n\nfunc (*Autocompleter) Suggest\n\n\nfunc\n \n(\na\n \n*\nAutocompleter\n)\n \nSuggest\n(\nprefix\n \nstring\n,\n \nnum\n \nint\n,\n \nfuzzy\n \nbool\n)\n \n([]\nSuggestion\n,\n \nerror\n)\n\n\n\n\n\n\nSuggest gets completion suggestions from the Autocompleter dictionary to the\ngiven prefix. If fuzzy is set, we also complete for prefixes that are in 1\nLevenshten distance from the given prefix\n\n\ntype Client\n\n\ntype\n \nClient\n \nstruct\n \n{\n\n\n}\n\n\n\n\n\n\nClient is an interface to redisearch's redis commands\n\n\nfunc  NewClient\n\n\nfunc\n \nNewClient\n(\naddr\n,\n \nname\n \nstring\n)\n \n*\nClient\n\n\n\n\n\n\nNewClient creates a new client connecting to the redis host, and using the given\nname as key prefix. Addr can be a single host:port pair, or a comma separated\nlist of host:port,host:port... In the case of multiple hosts we create a\nmulti-pool and select connections at random\n\n\nfunc (*Client) CreateIndex\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nCreateIndex\n(\ns\n \n*\nSchema\n)\n \nerror\n\n\n\n\n\n\nCreateIndex configues the index and creates it on redis\n\n\nfunc (*Client) Drop\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nDrop\n()\n \nerror\n\n\n\n\n\n\nDrop the Currentl just flushes the DB - note that this will delete EVERYTHING on\nthe redis instance\n\n\nfunc (*Client) Explain\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nExplain\n(\nq\n \n*\nQuery\n)\n \n(\nstring\n,\n \nerror\n)\n\n\n\n\n\n\nExplain Return a textual string explaining the query\n\n\nfunc (*Client) Index\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nIndex\n(\ndocs\n \n...\nDocument\n)\n \nerror\n\n\n\n\n\n\nIndex indexes a list of documents with the default options\n\n\nfunc (*Client) IndexOptions\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nIndexOptions\n(\nopts\n \nIndexingOptions\n,\n \ndocs\n \n...\nDocument\n)\n \nerror\n\n\n\n\n\n\nIndexOptions indexes multiple documents on the index, with optional Options\npassed to options\n\n\nfunc (*Client) Info\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nInfo\n()\n \n(\n*\nIndexInfo\n,\n \nerror\n)\n\n\n\n\n\n\nInfo - Get information about the index. This can also be used to check if the\nindex exists\n\n\nfunc (*Client) Search\n\n\nfunc\n \n(\ni\n \n*\nClient\n)\n \nSearch\n(\nq\n \n*\nQuery\n)\n \n(\ndocs\n \n[]\nDocument\n,\n \ntotal\n \nint\n,\n \nerr\n \nerror\n)\n\n\n\n\n\n\nSearch searches the index for the given query, and returns documents, the total\nnumber of results, or an error if something went wrong\n\n\ntype ConnPool\n\n\ntype\n \nConnPool\n \ninterface\n \n{\n\n    \nGet\n()\n \nredis\n.\nConn\n\n\n}\n\n\n\n\n\n\ntype Document\n\n\ntype\n \nDocument\n \nstruct\n \n{\n\n    \nId\n         \nstring\n\n    \nScore\n      \nfloat32\n\n    \nPayload\n    \n[]\nbyte\n\n    \nProperties\n \nmap\n[\nstring\n]\ninterface\n{}\n\n\n}\n\n\n\n\n\n\nDocument represents a single document to be indexed or returned from a query.\nBesides a score and id, the Properties are completely arbitrary\n\n\nfunc  NewDocument\n\n\nfunc\n \nNewDocument\n(\nid\n \nstring\n,\n \nscore\n \nfloat32\n)\n \nDocument\n\n\n\n\n\n\nNewDocument creates a document with the specific id and score\n\n\nfunc (*Document) EstimateSize\n\n\nfunc\n \n(\nd\n \n*\nDocument\n)\n \nEstimateSize\n()\n \n(\nsz\n \nint\n)\n\n\n\n\n\n\nfunc (Document) Set\n\n\nfunc\n \n(\nd\n \nDocument\n)\n \nSet\n(\nname\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nDocument\n\n\n\n\n\n\nSet sets a property and its value in the document\n\n\nfunc (*Document) SetPayload\n\n\nfunc\n \n(\nd\n \n*\nDocument\n)\n \nSetPayload\n(\npayload\n \n[]\nbyte\n)\n\n\n\n\n\n\nSetPayload Sets the document payload\n\n\ntype DocumentList\n\n\ntype\n \nDocumentList\n \n[]\nDocument\n\n\n\n\n\n\nDocumentList is used to sort documents by descending score\n\n\nfunc (DocumentList) Len\n\n\nfunc\n \n(\nl\n \nDocumentList\n)\n \nLen\n()\n \nint\n\n\n\n\n\n\nfunc (DocumentList) Less\n\n\nfunc\n \n(\nl\n \nDocumentList\n)\n \nLess\n(\ni\n,\n \nj\n \nint\n)\n \nbool\n\n\n\n\n\n\nfunc (DocumentList) Sort\n\n\nfunc\n \n(\nl\n \nDocumentList\n)\n \nSort\n()\n\n\n\n\n\n\nSort the DocumentList\n\n\nfunc (DocumentList) Swap\n\n\nfunc\n \n(\nl\n \nDocumentList\n)\n \nSwap\n(\ni\n,\n \nj\n \nint\n)\n\n\n\n\n\n\ntype Field\n\n\ntype\n \nField\n \nstruct\n \n{\n\n    \nName\n     \nstring\n\n    \nType\n     \nFieldType\n\n    \nSortable\n \nbool\n\n    \nOptions\n  \ninterface\n{}\n\n\n}\n\n\n\n\n\n\nField represents a single field's Schema\n\n\nfunc  NewNumericField\n\n\nfunc\n \nNewNumericField\n(\nname\n \nstring\n)\n \nField\n\n\n\n\n\n\nNewNumericField creates a new numeric field with the given name\n\n\nfunc  NewNumericFieldOptions\n\n\nfunc\n \nNewNumericFieldOptions\n(\nname\n \nstring\n,\n \noptions\n \nNumericFieldOptions\n)\n \nField\n\n\n\n\n\n\nNewNumericFieldOptions defines a numeric field with additional options\n\n\nfunc  NewSortableNumericField\n\n\nfunc\n \nNewSortableNumericField\n(\nname\n \nstring\n)\n \nField\n\n\n\n\n\n\nNewSortableNumericField creates a new numeric field with the given name and a\nsortable flag\n\n\nfunc  NewSortableTextField\n\n\nfunc\n \nNewSortableTextField\n(\nname\n \nstring\n,\n \nweight\n \nfloat32\n)\n \nField\n\n\n\n\n\n\nNewSortableTextField creates a text field with the sortable flag set\n\n\nfunc  NewTagField\n\n\nfunc\n \nNewTagField\n(\nname\n \nstring\n)\n \nField\n\n\n\n\n\n\nNewTagField creates a new text field with default options (separator: ,)\n\n\nfunc  NewTagFieldOptions\n\n\nfunc\n \nNewTagFieldOptions\n(\nname\n \nstring\n,\n \nopts\n \nTagFieldOptions\n)\n \nField\n\n\n\n\n\n\nNewTagFieldOptions creates a new tag field with the given options\n\n\nfunc  NewTextField\n\n\nfunc\n \nNewTextField\n(\nname\n \nstring\n)\n \nField\n\n\n\n\n\n\nNewTextField creates a new text field with the given weight\n\n\nfunc  NewTextFieldOptions\n\n\nfunc\n \nNewTextFieldOptions\n(\nname\n \nstring\n,\n \nopts\n \nTextFieldOptions\n)\n \nField\n\n\n\n\n\n\nNewTextFieldOptions creates a new text field with given options\n(weight/sortable)\n\n\ntype FieldType\n\n\ntype\n \nFieldType\n \nint\n\n\n\n\n\n\nFieldType is an enumeration of field/property types\n\n\nconst\n \n(\n\n    \n// TextField full-text field\n\n    \nTextField\n \nFieldType\n \n=\n \niota\n\n\n    \n// NumericField numeric range field\n\n    \nNumericField\n\n\n    \n// GeoField geo-indexed point field\n\n    \nGeoField\n\n\n    \n// TagField is a field used for compact indexing of comma separated values\n\n    \nTagField\n\n\n)\n\n\n\n\n\n\ntype Flag\n\n\ntype\n \nFlag\n \nuint64\n\n\n\n\n\n\nFlag is a type for query flags\n\n\nconst\n \n(\n\n    \n// Treat the terms verbatim and do not perform expansion\n\n    \nQueryVerbatim\n \nFlag\n \n=\n \n0x1\n\n\n    \n// Do not load any content from the documents, return just IDs\n\n    \nQueryNoContent\n \nFlag\n \n=\n \n0x2\n\n\n    \n// Fetch document scores as well as IDs and fields\n\n    \nQueryWithScores\n \nFlag\n \n=\n \n0x4\n\n\n    \n// The query terms must appear in order in the document\n\n    \nQueryInOrder\n \nFlag\n \n=\n \n0x08\n\n\n    \n// Fetch document payloads as well as fields. See documentation for payloads on redisearch.io\n\n    \nQueryWithPayloads\n \nFlag\n \n=\n \n0x10\n\n\n    \nDefaultOffset\n \n=\n \n0\n\n    \nDefaultNum\n    \n=\n \n10\n\n\n)\n\n\n\n\n\n\nQuery Flags\n\n\ntype HighlightOptions\n\n\ntype\n \nHighlightOptions\n \nstruct\n \n{\n\n    \nFields\n \n[]\nstring\n\n    \nTags\n   \n[\n2\n]\nstring\n\n\n}\n\n\n\n\n\n\nHighlightOptions represents the options to higlight specific document fields.\nSee http://redisearch.io/Highlight/\n\n\ntype IndexInfo\n\n\ntype\n \nIndexInfo\n \nstruct\n \n{\n\n    \nSchema\n               \nSchema\n\n    \nName\n                 \nstring\n  \n`redis:\nindex_name\n`\n\n    \nDocCount\n             \nuint64\n  \n`redis:\nnum_docs\n`\n\n    \nRecordCount\n          \nuint64\n  \n`redis:\nnum_records\n`\n\n    \nTermCount\n            \nuint64\n  \n`redis:\nnum_terms\n`\n\n    \nMaxDocID\n             \nuint64\n  \n`redis:\nmax_doc_id\n`\n\n    \nInvertedIndexSizeMB\n  \nfloat64\n \n`redis:\ninverted_sz_mb\n`\n\n    \nOffsetVectorSizeMB\n   \nfloat64\n \n`redis:\noffset_vector_sz_mb\n`\n\n    \nDocTableSizeMB\n       \nfloat64\n \n`redis:\ndoc_table_size_mb\n`\n\n    \nKeyTableSizeMB\n       \nfloat64\n \n`redis:\nkey_table_size_mb\n`\n\n    \nRecordsPerDocAvg\n     \nfloat64\n \n`redis:\nrecords_per_doc_avg\n`\n\n    \nBytesPerRecordAvg\n    \nfloat64\n \n`redis:\nbytes_per_record_avg\n`\n\n    \nOffsetsPerTermAvg\n    \nfloat64\n \n`redis:\noffsets_per_term_avg\n`\n\n    \nOffsetBitsPerTermAvg\n \nfloat64\n \n`redis:\noffset_bits_per_record_avg\n`\n\n\n}\n\n\n\n\n\n\nIndexInfo - Structure showing information about an existing index\n\n\ntype IndexingOptions\n\n\ntype\n \nIndexingOptions\n \nstruct\n \n{\n\n    \nLanguage\n \nstring\n\n    \nNoSave\n   \nbool\n\n    \nReplace\n  \nbool\n\n    \nPartial\n  \nbool\n\n\n}\n\n\n\n\n\n\nIndexingOptions represent the options for indexing a single document\n\n\ntype MultiError\n\n\ntype\n \nMultiError\n \n[]\nerror\n\n\n\n\n\n\nMultiError Represents one or more errors\n\n\nfunc  NewMultiError\n\n\nfunc\n \nNewMultiError\n(\nlen\n \nint\n)\n \nMultiError\n\n\n\n\n\n\nNewMultiError initializes a multierror with the given len, and all sub-errors\nset to nil\n\n\nfunc (MultiError) Error\n\n\nfunc\n \n(\ne\n \nMultiError\n)\n \nError\n()\n \nstring\n\n\n\n\n\n\nError returns a string representation of the error, in this case it just chains\nall the sub errors if they are not nil\n\n\ntype MultiHostPool\n\n\ntype\n \nMultiHostPool\n \nstruct\n \n{\n\n    \nsync\n.\nMutex\n\n\n}\n\n\n\n\n\n\nfunc  NewMultiHostPool\n\n\nfunc\n \nNewMultiHostPool\n(\nhosts\n \n[]\nstring\n)\n \n*\nMultiHostPool\n\n\n\n\n\n\nfunc (*MultiHostPool) Get\n\n\nfunc\n \n(\np\n \n*\nMultiHostPool\n)\n \nGet\n()\n \nredis\n.\nConn\n\n\n\n\n\n\ntype NumericFieldOptions\n\n\ntype\n \nNumericFieldOptions\n \nstruct\n \n{\n\n    \nSortable\n \nbool\n\n    \nNoIndex\n  \nbool\n\n\n}\n\n\n\n\n\n\nNumericFieldOptions Options for numeric fields\n\n\ntype Operator\n\n\ntype\n \nOperator\n \nstring\n\n\n\n\n\n\nconst\n \n(\n\n    \nEq\n \nOperator\n \n=\n \n=\n\n\n    \nGt\n  \nOperator\n \n=\n \n\n    \nGte\n \nOperator\n \n=\n \n=\n\n\n    \nLt\n  \nOperator\n \n=\n \n\n    \nLte\n \nOperator\n \n=\n \n=\n\n\n    \nBetween\n          \nOperator\n \n=\n \nBETWEEN\n\n    \nBetweenInclusive\n \nOperator\n \n=\n \nBETWEEEN_EXCLUSIVE\n\n\n)\n\n\n\n\n\n\ntype Options\n\n\ntype\n \nOptions\n \nstruct\n \n{\n\n\n    \n// If set, we will not save the documents contents, just index them, for fetching ids only\n\n    \nNoSave\n \nbool\n\n\n    \nNoFieldFlags\n \nbool\n\n\n    \nNoFrequencies\n \nbool\n\n\n    \nNoOffsetVectors\n \nbool\n\n\n    \nStopwords\n \n[]\nstring\n\n\n}\n\n\n\n\n\n\nOptions are flags passed to the the abstract Index call, which receives them as\ninterface{}, allowing for implementation specific options\n\n\ntype Paging\n\n\ntype\n \nPaging\n \nstruct\n \n{\n\n    \nOffset\n \nint\n\n    \nNum\n    \nint\n\n\n}\n\n\n\n\n\n\nPaging represents the offset paging of a search result\n\n\ntype Predicate\n\n\ntype\n \nPredicate\n \nstruct\n \n{\n\n    \nProperty\n \nstring\n\n    \nOperator\n \nOperator\n\n    \nValue\n    \n[]\ninterface\n{}\n\n\n}\n\n\n\n\n\n\nfunc  Equals\n\n\nfunc\n \nEquals\n(\nproperty\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nPredicate\n\n\n\n\n\n\nfunc  GreaterThan\n\n\nfunc\n \nGreaterThan\n(\nproperty\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nPredicate\n\n\n\n\n\n\nfunc  GreaterThanEquals\n\n\nfunc\n \nGreaterThanEquals\n(\nproperty\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nPredicate\n\n\n\n\n\n\nfunc  InRange\n\n\nfunc\n \nInRange\n(\nproperty\n \nstring\n,\n \nmin\n,\n \nmax\n \ninterface\n{},\n \ninclusive\n \nbool\n)\n \nPredicate\n\n\n\n\n\n\nfunc  LessThan\n\n\nfunc\n \nLessThan\n(\nproperty\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nPredicate\n\n\n\n\n\n\nfunc  LessThanEquals\n\n\nfunc\n \nLessThanEquals\n(\nproperty\n \nstring\n,\n \nvalue\n \ninterface\n{})\n \nPredicate\n\n\n\n\n\n\nfunc  NewPredicate\n\n\nfunc\n \nNewPredicate\n(\nproperty\n \nstring\n,\n \noperator\n \nOperator\n,\n \nvalues\n \n...\ninterface\n{})\n \nPredicate\n\n\n\n\n\n\ntype Query\n\n\ntype\n \nQuery\n \nstruct\n \n{\n\n    \nRaw\n \nstring\n\n\n    \nPaging\n \nPaging\n\n    \nFlags\n  \nFlag\n\n    \nSlop\n   \nint\n\n\n    \nFilters\n       \n[]\nPredicate\n\n    \nInKeys\n        \n[]\nstring\n\n    \nReturnFields\n  \n[]\nstring\n\n    \nLanguage\n      \nstring\n\n    \nExpander\n      \nstring\n\n    \nScorer\n        \nstring\n\n    \nPayload\n       \n[]\nbyte\n\n    \nSortBy\n        \n*\nSortingKey\n\n    \nHighlightOpts\n \n*\nHighlightOptions\n\n    \nSummarizeOpts\n \n*\nSummaryOptions\n\n\n}\n\n\n\n\n\n\nQuery is a single search query and all its parameters and predicates\n\n\nfunc  NewQuery\n\n\nfunc\n \nNewQuery\n(\nraw\n \nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nNewQuery creates a new query for a given index with the given search term. For\ncurrently the index parameter is ignored\n\n\nfunc (*Query) Highlight\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nHighlight\n(\nfields\n \n[]\nstring\n,\n \nopenTag\n,\n \ncloseTag\n \nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nHighlight sets highighting on given fields. Highlighting marks all the query\nterms with the given open and close tags (i.e. \n and \n for HTML)\n\n\nfunc (*Query) Limit\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nLimit\n(\noffset\n,\n \nnum\n \nint\n)\n \n*\nQuery\n\n\n\n\n\n\nLimit sets the paging offset and limit for the query\n\n\nfunc (*Query) SetExpander\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetExpander\n(\nexp\n \nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSetExpander sets a custom user query expander to be used\n\n\nfunc (*Query) SetFlags\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetFlags\n(\nflags\n \nFlag\n)\n \n*\nQuery\n\n\n\n\n\n\nSetFlags sets the query's optional flags\n\n\nfunc (*Query) SetInKeys\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetInKeys\n(\nkeys\n \n...\nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSetInKeys sets the INKEYS argument of the query - limiting the search to a given\nset of IDs\n\n\nfunc (*Query) SetLanguage\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetLanguage\n(\nlang\n \nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSetLanguage sets the query language, used by the stemmer to expand the query\n\n\nfunc (*Query) SetPayload\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetPayload\n(\npayload\n \n[]\nbyte\n)\n \n*\nQuery\n\n\n\n\n\n\nSetPayload sets a binary payload to the query, that can be used by custom\nscoring functions\n\n\nfunc (*Query) SetReturnFields\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetReturnFields\n(\nfields\n \n...\nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSetReturnFields sets the fields that should be returned from each result. By\ndefault we return everything\n\n\nfunc (*Query) SetScorer\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetScorer\n(\nscorer\n \nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSetScorer sets an alternative scoring function to be used. The only pre-compiled\nsupported one at the moment is DISMAX\n\n\nfunc (*Query) SetSortBy\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSetSortBy\n(\nfield\n \nstring\n,\n \nascending\n \nbool\n)\n \n*\nQuery\n\n\n\n\n\n\nSetSortBy sets the sorting key for the query\n\n\nfunc (*Query) Summarize\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSummarize\n(\nfields\n \n...\nstring\n)\n \n*\nQuery\n\n\n\n\n\n\nSummarize sets summarization on the given list of fields. It will instruct the\nengine to extract the most relevant snippets from the fields and return them as\nthe field content. This function works with the default values of the engine,\nand only sets the fields. There is a function that accepts all options -\nSummarizeOptions\n\n\nfunc (*Query) SummarizeOptions\n\n\nfunc\n \n(\nq\n \n*\nQuery\n)\n \nSummarizeOptions\n(\nopts\n \nSummaryOptions\n)\n \n*\nQuery\n\n\n\n\n\n\nSummarizeOptions sets summarization on the given list of fields. It will\ninstruct the engine to extract the most relevant snippets from the fields and\nreturn them as the field content.\n\n\nThis function accepts advanced settings for snippet length, separators and\nnumber of snippets\n\n\ntype Schema\n\n\ntype\n \nSchema\n \nstruct\n \n{\n\n    \nFields\n  \n[]\nField\n\n    \nOptions\n \nOptions\n\n\n}\n\n\n\n\n\n\nSchema represents an index schema Schema, or how the index would treat documents\nsent to it.\n\n\nfunc  NewSchema\n\n\nfunc\n \nNewSchema\n(\nopts\n \nOptions\n)\n \n*\nSchema\n\n\n\n\n\n\nNewSchema creates a new Schema object\n\n\nfunc (*Schema) AddField\n\n\nfunc\n \n(\nm\n \n*\nSchema\n)\n \nAddField\n(\nf\n \nField\n)\n \n*\nSchema\n\n\n\n\n\n\nAddField adds a field to the Schema object\n\n\ntype SingleHostPool\n\n\ntype\n \nSingleHostPool\n \nstruct\n \n{\n\n    \n*\nredis\n.\nPool\n\n\n}\n\n\n\n\n\n\nfunc  NewSingleHostPool\n\n\nfunc\n \nNewSingleHostPool\n(\nhost\n \nstring\n)\n \n*\nSingleHostPool\n\n\n\n\n\n\ntype SortingKey\n\n\ntype\n \nSortingKey\n \nstruct\n \n{\n\n    \nField\n     \nstring\n\n    \nAscending\n \nbool\n\n\n}\n\n\n\n\n\n\nSortingKey represents the sorting option if the query needs to be sorted based\non a sortable fields and not a ranking function. See\nhttp://redisearch.io/Sorting/\n\n\ntype Suggestion\n\n\ntype\n \nSuggestion\n \nstruct\n \n{\n\n    \nTerm\n    \nstring\n\n    \nScore\n   \nfloat64\n\n    \nPayload\n \nstring\n\n\n}\n\n\n\n\n\n\nSuggestion is a single suggestion being added or received from the Autocompleter\n\n\ntype SuggestionList\n\n\ntype\n \nSuggestionList\n \n[]\nSuggestion\n\n\n\n\n\n\nSuggestionList is a sortable list of suggestions returned from an engine\n\n\nfunc (SuggestionList) Len\n\n\nfunc\n \n(\nl\n \nSuggestionList\n)\n \nLen\n()\n \nint\n\n\n\n\n\n\nfunc (SuggestionList) Less\n\n\nfunc\n \n(\nl\n \nSuggestionList\n)\n \nLess\n(\ni\n,\n \nj\n \nint\n)\n \nbool\n\n\n\n\n\n\nfunc (SuggestionList) Sort\n\n\nfunc\n \n(\nl\n \nSuggestionList\n)\n \nSort\n()\n\n\n\n\n\n\nSort the SuggestionList\n\n\nfunc (SuggestionList) Swap\n\n\nfunc\n \n(\nl\n \nSuggestionList\n)\n \nSwap\n(\ni\n,\n \nj\n \nint\n)\n\n\n\n\n\n\ntype SummaryOptions\n\n\ntype\n \nSummaryOptions\n \nstruct\n \n{\n\n    \nFields\n       \n[]\nstring\n\n    \nFragmentLen\n  \nint\n    \n// default 20\n\n    \nNumFragments\n \nint\n    \n// default 3\n\n    \nSeparator\n    \nstring\n \n// default \n...\n\n\n}\n\n\n\n\n\n\nSummaryOptions represents the configuration used to create field summaries. See\nhttp://redisearch.io/Highlight/\n\n\ntype TagFieldOptions\n\n\ntype\n \nTagFieldOptions\n \nstruct\n \n{\n\n    \n// Separator is the custom separator between tags. defaults to comma (,)\n\n    \nSeparator\n \nbyte\n\n    \nNoIndex\n   \nbool\n\n\n}\n\n\n\n\n\n\nTagFieldOptions options for indexing tag fields\n\n\ntype TextFieldOptions\n\n\ntype\n \nTextFieldOptions\n \nstruct\n \n{\n\n    \nWeight\n   \nfloat32\n\n    \nSortable\n \nbool\n\n    \nNoStem\n   \nbool\n\n    \nNoIndex\n  \nbool\n\n\n}\n\n\n\n\n\n\nTextFieldOptions Options for text fields - weight and stemming enabled/disabled.", 
+            "title": "Go API"
+        }, 
+        {
+            "location": "/go_client/#redisearch", 
+            "text": "--\n    import \"github.com/RedisLabs/redisearch-go/redisearch\"  Package redisearch provides a Go client for the RediSearch search engine.  For the full documentation of RediSearch, see http://redisearch.io", 
+            "title": "redisearch"
+        }, 
+        {
+            "location": "/go_client/#example\"_\"usage", 
+            "text": "import   ( \n         github.com/RedisLabs/redisearch-go/redisearch \n         log \n         fmt \n  ) \n\n     func   ExampleClient ()   { \n         //   Create   a   client .   By   default   a   client   is   schemaless \n         //   unless   a   schema   is   provided   when   creating   the   index \n         c   : =   createClient ( myIndex ) \n\n         //   Create   a   schema \n         sc   : =   redisearch . NewSchema ( redisearch . DefaultOptions ) . \n             AddField ( redisearch . NewTextField ( body )) . \n             AddField ( redisearch . NewTextFieldOptions ( title ,   redisearch . TextFieldOptions { Weight :   5.0 ,   Sortable :   true })) . \n             AddField ( redisearch . NewNumericField ( date )) \n\n         //   Drop   an   existing   index .   If   the   index   does   not   exist   an   error   is   returned \n         c . Drop () \n\n         //   Create   the   index   with   the   given   schema \n         if   err   : =   c . CreateIndex ( sc );   err   !=   nil   { \n             log . Fatal ( err ) \n         } \n\n         //   Create   a   document   with   an   id   and   given   score \n         doc   : =   redisearch . NewDocument ( doc1 ,   1.0 ) \n         doc . Set ( title ,   Hello world ) . \n             Set ( body ,   foo bar ) . \n             Set ( date ,   time . Now () . Unix ()) \n\n         //   Index   the   document .   The   API   accepts   multiple   documents   at   a   time \n         if   err   : =   c . IndexOptions ( redisearch . DefaultIndexingOptions ,   doc );   err   !=   nil   { \n             log . Fatal ( err ) \n         } \n\n         //   Searching   with   limit   and   sorting \n         docs ,   total ,   err   : =   c . Search ( redisearch . NewQuery ( hello world ) . \n             Limit ( 0 ,   2 ) . \n             SetReturnFields ( title )) \n\n         fmt . Println ( docs [ 0 ] . Id ,   docs [ 0 ] . Properties [ title ],   total ,   err ) \n         //   Output :   doc1   Hello   world   1   nil \n     }", 
+            "title": "Example Usage"
+        }, 
+        {
+            "location": "/go_client/#usage", 
+            "text": "var   DefaultIndexingOptions   =   IndexingOptions { \n     Language :   , \n     NoSave :     false , \n     Replace :    false , \n     Partial :    false ,  }   DefaultIndexingOptions are the default options for document indexing  var   DefaultOptions   =   Options { \n     NoSave :            false , \n     NoFieldFlags :      false , \n     NoFrequencies :     false , \n     NoOffsetVectors :   false , \n     Stopwords :         nil ,  }   DefaultOptions represents the default options", 
+            "title": "Usage"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"autocompleter", 
+            "text": "type   Autocompleter   struct   {  }   Autocompleter implements a redisearch auto-completer API", 
+            "title": "type Autocompleter"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newautocompleter", 
+            "text": "func   NewAutocompleter ( addr ,   name   string )   * Autocompleter   NewAutocompleter creates a new Autocompleter with the given host and key name", 
+            "title": "func  NewAutocompleter"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"autocompleter\"_\"addterms", 
+            "text": "func   ( a   * Autocompleter )   AddTerms ( terms   ... Suggestion )   error   AddTerms pushes new term suggestions to the index", 
+            "title": "func (*Autocompleter) AddTerms"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"autocompleter\"_\"delete", 
+            "text": "func   ( a   * Autocompleter )   Delete ()   error   Delete deletes the Autocompleter key for this AC", 
+            "title": "func (*Autocompleter) Delete"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"autocompleter\"_\"suggest", 
+            "text": "func   ( a   * Autocompleter )   Suggest ( prefix   string ,   num   int ,   fuzzy   bool )   ([] Suggestion ,   error )   Suggest gets completion suggestions from the Autocompleter dictionary to the\ngiven prefix. If fuzzy is set, we also complete for prefixes that are in 1\nLevenshten distance from the given prefix", 
+            "title": "func (*Autocompleter) Suggest"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"client", 
+            "text": "type   Client   struct   {  }   Client is an interface to redisearch's redis commands", 
+            "title": "type Client"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newclient", 
+            "text": "func   NewClient ( addr ,   name   string )   * Client   NewClient creates a new client connecting to the redis host, and using the given\nname as key prefix. Addr can be a single host:port pair, or a comma separated\nlist of host:port,host:port... In the case of multiple hosts we create a\nmulti-pool and select connections at random", 
+            "title": "func  NewClient"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"createindex", 
+            "text": "func   ( i   * Client )   CreateIndex ( s   * Schema )   error   CreateIndex configues the index and creates it on redis", 
+            "title": "func (*Client) CreateIndex"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"drop", 
+            "text": "func   ( i   * Client )   Drop ()   error   Drop the Currentl just flushes the DB - note that this will delete EVERYTHING on\nthe redis instance", 
+            "title": "func (*Client) Drop"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"explain", 
+            "text": "func   ( i   * Client )   Explain ( q   * Query )   ( string ,   error )   Explain Return a textual string explaining the query", 
+            "title": "func (*Client) Explain"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"index", 
+            "text": "func   ( i   * Client )   Index ( docs   ... Document )   error   Index indexes a list of documents with the default options", 
+            "title": "func (*Client) Index"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"indexoptions", 
+            "text": "func   ( i   * Client )   IndexOptions ( opts   IndexingOptions ,   docs   ... Document )   error   IndexOptions indexes multiple documents on the index, with optional Options\npassed to options", 
+            "title": "func (*Client) IndexOptions"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"info", 
+            "text": "func   ( i   * Client )   Info ()   ( * IndexInfo ,   error )   Info - Get information about the index. This can also be used to check if the\nindex exists", 
+            "title": "func (*Client) Info"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"client\"_\"search", 
+            "text": "func   ( i   * Client )   Search ( q   * Query )   ( docs   [] Document ,   total   int ,   err   error )   Search searches the index for the given query, and returns documents, the total\nnumber of results, or an error if something went wrong", 
+            "title": "func (*Client) Search"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"connpool", 
+            "text": "type   ConnPool   interface   { \n     Get ()   redis . Conn  }", 
+            "title": "type ConnPool"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"document", 
+            "text": "type   Document   struct   { \n     Id           string \n     Score        float32 \n     Payload      [] byte \n     Properties   map [ string ] interface {}  }   Document represents a single document to be indexed or returned from a query.\nBesides a score and id, the Properties are completely arbitrary", 
+            "title": "type Document"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newdocument", 
+            "text": "func   NewDocument ( id   string ,   score   float32 )   Document   NewDocument creates a document with the specific id and score", 
+            "title": "func  NewDocument"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"document\"_\"estimatesize", 
+            "text": "func   ( d   * Document )   EstimateSize ()   ( sz   int )", 
+            "title": "func (*Document) EstimateSize"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"document\"_\"set", 
+            "text": "func   ( d   Document )   Set ( name   string ,   value   interface {})   Document   Set sets a property and its value in the document", 
+            "title": "func (Document) Set"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"document\"_\"setpayload", 
+            "text": "func   ( d   * Document )   SetPayload ( payload   [] byte )   SetPayload Sets the document payload", 
+            "title": "func (*Document) SetPayload"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"documentlist", 
+            "text": "type   DocumentList   [] Document   DocumentList is used to sort documents by descending score", 
+            "title": "type DocumentList"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"documentlist\"_\"len", 
+            "text": "func   ( l   DocumentList )   Len ()   int", 
+            "title": "func (DocumentList) Len"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"documentlist\"_\"less", 
+            "text": "func   ( l   DocumentList )   Less ( i ,   j   int )   bool", 
+            "title": "func (DocumentList) Less"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"documentlist\"_\"sort", 
+            "text": "func   ( l   DocumentList )   Sort ()   Sort the DocumentList", 
+            "title": "func (DocumentList) Sort"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"documentlist\"_\"swap", 
+            "text": "func   ( l   DocumentList )   Swap ( i ,   j   int )", 
+            "title": "func (DocumentList) Swap"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"field", 
+            "text": "type   Field   struct   { \n     Name       string \n     Type       FieldType \n     Sortable   bool \n     Options    interface {}  }   Field represents a single field's Schema", 
+            "title": "type Field"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newnumericfield", 
+            "text": "func   NewNumericField ( name   string )   Field   NewNumericField creates a new numeric field with the given name", 
+            "title": "func  NewNumericField"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newnumericfieldoptions", 
+            "text": "func   NewNumericFieldOptions ( name   string ,   options   NumericFieldOptions )   Field   NewNumericFieldOptions defines a numeric field with additional options", 
+            "title": "func  NewNumericFieldOptions"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newsortablenumericfield", 
+            "text": "func   NewSortableNumericField ( name   string )   Field   NewSortableNumericField creates a new numeric field with the given name and a\nsortable flag", 
+            "title": "func  NewSortableNumericField"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newsortabletextfield", 
+            "text": "func   NewSortableTextField ( name   string ,   weight   float32 )   Field   NewSortableTextField creates a text field with the sortable flag set", 
+            "title": "func  NewSortableTextField"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newtagfield", 
+            "text": "func   NewTagField ( name   string )   Field   NewTagField creates a new text field with default options (separator: ,)", 
+            "title": "func  NewTagField"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newtagfieldoptions", 
+            "text": "func   NewTagFieldOptions ( name   string ,   opts   TagFieldOptions )   Field   NewTagFieldOptions creates a new tag field with the given options", 
+            "title": "func  NewTagFieldOptions"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newtextfield", 
+            "text": "func   NewTextField ( name   string )   Field   NewTextField creates a new text field with the given weight", 
+            "title": "func  NewTextField"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newtextfieldoptions", 
+            "text": "func   NewTextFieldOptions ( name   string ,   opts   TextFieldOptions )   Field   NewTextFieldOptions creates a new text field with given options\n(weight/sortable)", 
+            "title": "func  NewTextFieldOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"fieldtype", 
+            "text": "type   FieldType   int   FieldType is an enumeration of field/property types  const   ( \n     // TextField full-text field \n     TextField   FieldType   =   iota \n\n     // NumericField numeric range field \n     NumericField \n\n     // GeoField geo-indexed point field \n     GeoField \n\n     // TagField is a field used for compact indexing of comma separated values \n     TagField  )", 
+            "title": "type FieldType"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"flag", 
+            "text": "type   Flag   uint64   Flag is a type for query flags  const   ( \n     // Treat the terms verbatim and do not perform expansion \n     QueryVerbatim   Flag   =   0x1 \n\n     // Do not load any content from the documents, return just IDs \n     QueryNoContent   Flag   =   0x2 \n\n     // Fetch document scores as well as IDs and fields \n     QueryWithScores   Flag   =   0x4 \n\n     // The query terms must appear in order in the document \n     QueryInOrder   Flag   =   0x08 \n\n     // Fetch document payloads as well as fields. See documentation for payloads on redisearch.io \n     QueryWithPayloads   Flag   =   0x10 \n\n     DefaultOffset   =   0 \n     DefaultNum      =   10  )   Query Flags", 
+            "title": "type Flag"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"highlightoptions", 
+            "text": "type   HighlightOptions   struct   { \n     Fields   [] string \n     Tags     [ 2 ] string  }   HighlightOptions represents the options to higlight specific document fields.\nSee http://redisearch.io/Highlight/", 
+            "title": "type HighlightOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"indexinfo", 
+            "text": "type   IndexInfo   struct   { \n     Schema                 Schema \n     Name                   string    `redis: index_name ` \n     DocCount               uint64    `redis: num_docs ` \n     RecordCount            uint64    `redis: num_records ` \n     TermCount              uint64    `redis: num_terms ` \n     MaxDocID               uint64    `redis: max_doc_id ` \n     InvertedIndexSizeMB    float64   `redis: inverted_sz_mb ` \n     OffsetVectorSizeMB     float64   `redis: offset_vector_sz_mb ` \n     DocTableSizeMB         float64   `redis: doc_table_size_mb ` \n     KeyTableSizeMB         float64   `redis: key_table_size_mb ` \n     RecordsPerDocAvg       float64   `redis: records_per_doc_avg ` \n     BytesPerRecordAvg      float64   `redis: bytes_per_record_avg ` \n     OffsetsPerTermAvg      float64   `redis: offsets_per_term_avg ` \n     OffsetBitsPerTermAvg   float64   `redis: offset_bits_per_record_avg `  }   IndexInfo - Structure showing information about an existing index", 
+            "title": "type IndexInfo"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"indexingoptions", 
+            "text": "type   IndexingOptions   struct   { \n     Language   string \n     NoSave     bool \n     Replace    bool \n     Partial    bool  }   IndexingOptions represent the options for indexing a single document", 
+            "title": "type IndexingOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"multierror", 
+            "text": "type   MultiError   [] error   MultiError Represents one or more errors", 
+            "title": "type MultiError"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newmultierror", 
+            "text": "func   NewMultiError ( len   int )   MultiError   NewMultiError initializes a multierror with the given len, and all sub-errors\nset to nil", 
+            "title": "func  NewMultiError"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"multierror\"_\"error", 
+            "text": "func   ( e   MultiError )   Error ()   string   Error returns a string representation of the error, in this case it just chains\nall the sub errors if they are not nil", 
+            "title": "func (MultiError) Error"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"multihostpool", 
+            "text": "type   MultiHostPool   struct   { \n     sync . Mutex  }", 
+            "title": "type MultiHostPool"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newmultihostpool", 
+            "text": "func   NewMultiHostPool ( hosts   [] string )   * MultiHostPool", 
+            "title": "func  NewMultiHostPool"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"multihostpool\"_\"get", 
+            "text": "func   ( p   * MultiHostPool )   Get ()   redis . Conn", 
+            "title": "func (*MultiHostPool) Get"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"numericfieldoptions", 
+            "text": "type   NumericFieldOptions   struct   { \n     Sortable   bool \n     NoIndex    bool  }   NumericFieldOptions Options for numeric fields", 
+            "title": "type NumericFieldOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"operator", 
+            "text": "type   Operator   string   const   ( \n     Eq   Operator   =   = \n\n     Gt    Operator   =   \n     Gte   Operator   =   = \n\n     Lt    Operator   =   \n     Lte   Operator   =   = \n\n     Between            Operator   =   BETWEEN \n     BetweenInclusive   Operator   =   BETWEEEN_EXCLUSIVE  )", 
+            "title": "type Operator"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"options", 
+            "text": "type   Options   struct   { \n\n     // If set, we will not save the documents contents, just index them, for fetching ids only \n     NoSave   bool \n\n     NoFieldFlags   bool \n\n     NoFrequencies   bool \n\n     NoOffsetVectors   bool \n\n     Stopwords   [] string  }   Options are flags passed to the the abstract Index call, which receives them as\ninterface{}, allowing for implementation specific options", 
+            "title": "type Options"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"paging", 
+            "text": "type   Paging   struct   { \n     Offset   int \n     Num      int  }   Paging represents the offset paging of a search result", 
+            "title": "type Paging"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"predicate", 
+            "text": "type   Predicate   struct   { \n     Property   string \n     Operator   Operator \n     Value      [] interface {}  }", 
+            "title": "type Predicate"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"equals", 
+            "text": "func   Equals ( property   string ,   value   interface {})   Predicate", 
+            "title": "func  Equals"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"greaterthan", 
+            "text": "func   GreaterThan ( property   string ,   value   interface {})   Predicate", 
+            "title": "func  GreaterThan"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"greaterthanequals", 
+            "text": "func   GreaterThanEquals ( property   string ,   value   interface {})   Predicate", 
+            "title": "func  GreaterThanEquals"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"inrange", 
+            "text": "func   InRange ( property   string ,   min ,   max   interface {},   inclusive   bool )   Predicate", 
+            "title": "func  InRange"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"lessthan", 
+            "text": "func   LessThan ( property   string ,   value   interface {})   Predicate", 
+            "title": "func  LessThan"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"lessthanequals", 
+            "text": "func   LessThanEquals ( property   string ,   value   interface {})   Predicate", 
+            "title": "func  LessThanEquals"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newpredicate", 
+            "text": "func   NewPredicate ( property   string ,   operator   Operator ,   values   ... interface {})   Predicate", 
+            "title": "func  NewPredicate"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"query", 
+            "text": "type   Query   struct   { \n     Raw   string \n\n     Paging   Paging \n     Flags    Flag \n     Slop     int \n\n     Filters         [] Predicate \n     InKeys          [] string \n     ReturnFields    [] string \n     Language        string \n     Expander        string \n     Scorer          string \n     Payload         [] byte \n     SortBy          * SortingKey \n     HighlightOpts   * HighlightOptions \n     SummarizeOpts   * SummaryOptions  }   Query is a single search query and all its parameters and predicates", 
+            "title": "type Query"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newquery", 
+            "text": "func   NewQuery ( raw   string )   * Query   NewQuery creates a new query for a given index with the given search term. For\ncurrently the index parameter is ignored", 
+            "title": "func  NewQuery"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"highlight", 
+            "text": "func   ( q   * Query )   Highlight ( fields   [] string ,   openTag ,   closeTag   string )   * Query   Highlight sets highighting on given fields. Highlighting marks all the query\nterms with the given open and close tags (i.e.   and   for HTML)", 
+            "title": "func (*Query) Highlight"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"limit", 
+            "text": "func   ( q   * Query )   Limit ( offset ,   num   int )   * Query   Limit sets the paging offset and limit for the query", 
+            "title": "func (*Query) Limit"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setexpander", 
+            "text": "func   ( q   * Query )   SetExpander ( exp   string )   * Query   SetExpander sets a custom user query expander to be used", 
+            "title": "func (*Query) SetExpander"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setflags", 
+            "text": "func   ( q   * Query )   SetFlags ( flags   Flag )   * Query   SetFlags sets the query's optional flags", 
+            "title": "func (*Query) SetFlags"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setinkeys", 
+            "text": "func   ( q   * Query )   SetInKeys ( keys   ... string )   * Query   SetInKeys sets the INKEYS argument of the query - limiting the search to a given\nset of IDs", 
+            "title": "func (*Query) SetInKeys"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setlanguage", 
+            "text": "func   ( q   * Query )   SetLanguage ( lang   string )   * Query   SetLanguage sets the query language, used by the stemmer to expand the query", 
+            "title": "func (*Query) SetLanguage"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setpayload", 
+            "text": "func   ( q   * Query )   SetPayload ( payload   [] byte )   * Query   SetPayload sets a binary payload to the query, that can be used by custom\nscoring functions", 
+            "title": "func (*Query) SetPayload"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setreturnfields", 
+            "text": "func   ( q   * Query )   SetReturnFields ( fields   ... string )   * Query   SetReturnFields sets the fields that should be returned from each result. By\ndefault we return everything", 
+            "title": "func (*Query) SetReturnFields"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setscorer", 
+            "text": "func   ( q   * Query )   SetScorer ( scorer   string )   * Query   SetScorer sets an alternative scoring function to be used. The only pre-compiled\nsupported one at the moment is DISMAX", 
+            "title": "func (*Query) SetScorer"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"setsortby", 
+            "text": "func   ( q   * Query )   SetSortBy ( field   string ,   ascending   bool )   * Query   SetSortBy sets the sorting key for the query", 
+            "title": "func (*Query) SetSortBy"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"summarize", 
+            "text": "func   ( q   * Query )   Summarize ( fields   ... string )   * Query   Summarize sets summarization on the given list of fields. It will instruct the\nengine to extract the most relevant snippets from the fields and return them as\nthe field content. This function works with the default values of the engine,\nand only sets the fields. There is a function that accepts all options -\nSummarizeOptions", 
+            "title": "func (*Query) Summarize"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"query\"_\"summarizeoptions", 
+            "text": "func   ( q   * Query )   SummarizeOptions ( opts   SummaryOptions )   * Query   SummarizeOptions sets summarization on the given list of fields. It will\ninstruct the engine to extract the most relevant snippets from the fields and\nreturn them as the field content.  This function accepts advanced settings for snippet length, separators and\nnumber of snippets", 
+            "title": "func (*Query) SummarizeOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"schema", 
+            "text": "type   Schema   struct   { \n     Fields    [] Field \n     Options   Options  }   Schema represents an index schema Schema, or how the index would treat documents\nsent to it.", 
+            "title": "type Schema"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newschema", 
+            "text": "func   NewSchema ( opts   Options )   * Schema   NewSchema creates a new Schema object", 
+            "title": "func  NewSchema"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"schema\"_\"addfield", 
+            "text": "func   ( m   * Schema )   AddField ( f   Field )   * Schema   AddField adds a field to the Schema object", 
+            "title": "func (*Schema) AddField"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"singlehostpool", 
+            "text": "type   SingleHostPool   struct   { \n     * redis . Pool  }", 
+            "title": "type SingleHostPool"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"newsinglehostpool", 
+            "text": "func   NewSingleHostPool ( host   string )   * SingleHostPool", 
+            "title": "func  NewSingleHostPool"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"sortingkey", 
+            "text": "type   SortingKey   struct   { \n     Field       string \n     Ascending   bool  }   SortingKey represents the sorting option if the query needs to be sorted based\non a sortable fields and not a ranking function. See\nhttp://redisearch.io/Sorting/", 
+            "title": "type SortingKey"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"suggestion", 
+            "text": "type   Suggestion   struct   { \n     Term      string \n     Score     float64 \n     Payload   string  }   Suggestion is a single suggestion being added or received from the Autocompleter", 
+            "title": "type Suggestion"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"suggestionlist", 
+            "text": "type   SuggestionList   [] Suggestion   SuggestionList is a sortable list of suggestions returned from an engine", 
+            "title": "type SuggestionList"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"suggestionlist\"_\"len", 
+            "text": "func   ( l   SuggestionList )   Len ()   int", 
+            "title": "func (SuggestionList) Len"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"suggestionlist\"_\"less", 
+            "text": "func   ( l   SuggestionList )   Less ( i ,   j   int )   bool", 
+            "title": "func (SuggestionList) Less"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"suggestionlist\"_\"sort", 
+            "text": "func   ( l   SuggestionList )   Sort ()   Sort the SuggestionList", 
+            "title": "func (SuggestionList) Sort"
+        }, 
+        {
+            "location": "/go_client/#func\"_\"suggestionlist\"_\"swap", 
+            "text": "func   ( l   SuggestionList )   Swap ( i ,   j   int )", 
+            "title": "func (SuggestionList) Swap"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"summaryoptions", 
+            "text": "type   SummaryOptions   struct   { \n     Fields         [] string \n     FragmentLen    int      // default 20 \n     NumFragments   int      // default 3 \n     Separator      string   // default  ...  }   SummaryOptions represents the configuration used to create field summaries. See\nhttp://redisearch.io/Highlight/", 
+            "title": "type SummaryOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"tagfieldoptions", 
+            "text": "type   TagFieldOptions   struct   { \n     // Separator is the custom separator between tags. defaults to comma (,) \n     Separator   byte \n     NoIndex     bool  }   TagFieldOptions options for indexing tag fields", 
+            "title": "type TagFieldOptions"
+        }, 
+        {
+            "location": "/go_client/#type\"_\"textfieldoptions", 
+            "text": "type   TextFieldOptions   struct   { \n     Weight     float32 \n     Sortable   bool \n     NoStem     bool \n     NoIndex    bool  }   TextFieldOptions Options for text fields - weight and stemming enabled/disabled.", 
+            "title": "type TextFieldOptions"
+        }, 
+        {
             "location": "/design/gc/", 
             "text": "Garbage Collection in RediSearch\n\n\n1. The Need For GC\n\n\n\n\nDeleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.\n\n\nThis means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.\n\n\nThus all inverted index entries belonging to this document id are just garbage. \n\n\nWe do not want to go and explicitly delete them when deleting a document because it will make this operation very long an depending on the length of the document.\n\n\nOn top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.\n\n\n\n\nAll of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. \n\n\nThus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.\n\n\n2. Garbage Collecting a Single Term Index\n\n\nA single term inverted index is consisted of an array of \"blocks\" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. \n\n\nThe algorithm is pretty simple: \n\n\n\n\nCreate a reader and writer for each block\n\n\nRead each block's records one by one\n\n\nIf no record is invalid, do nothing\n\n\nOnce we found a garbage record, we advance the reader but not the writer.\n\n\nOnce we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.\n\n\n\n\nPseudo code:\n\n\nforeach index_block as block:\n\n   reader = new_reader(block)\n   writer = new_write(block)\n   garbage = 0\n   while not reader.end():\n        record = reader.decode_next()\n        if record.is_valid():\n            if garbage != 0:\n                # Write the record at the writer\ns tip with a newly calculated delta\n                writer.write_record(record)\n            else:\n                writer.advance(record.length)\n        else:\n            garbage += record.length\n\n\n\n\n\nNOTE\n: Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.\n\n\n2.1 Garbage Collection on Numeric Indexes\n\n\nNumeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.\n\n\n3. GC And Concurrency\n\n\nSince RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us). \n\n\nIt GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.\n\n\nThis means, however, that we need to consider a few things:\n\n\n\n\n\n\nFrom the Index Iterator's POV - a GC sweep might be performed while we are sleeping during iterating the index. This means that the offset of the reader in its current block might not be correct. In that case we need to do a slow search in the index for the last id we've read. This is an operation we don't want to do unless we have to.\n\n\n\n\n\n\nFrom the GC thread's POC - an index might be written to or deleted while we are sleeping during a sweep.\n\n\n\n\n\n\nTo solve 1 we need to detect this in the reader, and adapt to this situation. Detection of a GC sweep while sleeping is simple:\n\n Each inverted index key has a \"gc marker\" variable that increments each time it has been GC'ed. \n\n Before starting an index iterator, we copy the index's gc marker to the iterator's context.\n\n After waking up from sleep in the iterator, we check the gc markers in both objects.\n\n If they are the same we can simply trust the byte offset of the reader in the current block.\n* IF not, we seek the reader to the previously read docId, which is slower. \n\n\nTo solve 2 is simpler: \n\n The GC will of course operate only while the GIL is locked.\n\n The GC will never yield execution while in the middle of a block.\n\n The GC will check whether the key has been delted while it slept.\n\n The GC will get a new pointer to the next block on each read, assuring the pointer is safe.\n\n\n4. Scheduling Garbage Collection\n\n\nWhile the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. \nThe problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively. \n\n\nSo the GC will use sampling of random terms and collect them. \n\n\nThis leaves two problems:\n1. How to avoid GC when it's not needed (the user is not deleting any documents or doing it very little).\n2. How to make sure we hit terms that are more likely to contain garbage. \n\n\nSolving 2 for now will be done by trying some sort of weighted random. We already have a dictionary with the frequency of terms in the index. However running a real weighted random on it is an expensive operation.\n\n\nThus, an approximation of a weighted random can be easily done by blindly selecting N terms in each round, and then applying a weighted random function to this small set of keys. This assures that even the least frequent terms will get visited.\n\n\nSolving 1 can be done in the following way:\n\n\nWe start with a frequency F for the random sampler of the garbage collector. At first it is relatively infrequent or even 0. It can be configured.\nThen, we do the following:\n    * Each time a document is deleted or updated we increase the frequency a bit.\n    * Each time we find a key with garbage we increase the frequency a bit.\n    * Each time we sample a key with NO garbage found, we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.\n\n\nThe frequency is of course bounded to a maximum which we will never surpass. Thus when a lot of garbage is created, the frequency will be at its maximum, and will eventually decay to 0 or a pre-configured minimum - until more documents will be deleted.", 
             "title": "Garbage Collection"

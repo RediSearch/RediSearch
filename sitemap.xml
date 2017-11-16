@@ -111,6 +111,12 @@
      <changefreq>daily</changefreq>
     </url>
         
+    <url>
+     <loc>http://redisearch.io/go_client/</loc>
+     <lastmod>2017-11-16</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
     
 
     
