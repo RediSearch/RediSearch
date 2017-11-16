@@ -1845,49 +1845,49 @@
 <p>For the full documentation of RediSearch, see
 <a href="http://redisearch.io">http://redisearch.io</a></p>
 <h3 id="example&quot;_&quot;usage">Example Usage<a class="headerlink" href="#example&quot;_&quot;usage" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span> <span class="kn">import</span> <span class="p">(</span>
-        <span class="s2">&quot;github.com/RedisLabs/redisearch-go/redisearch&quot;</span>
-        <span class="s2">&quot;log&quot;</span>
-        <span class="s2">&quot;fmt&quot;</span>
- <span class="p">)</span>
+<div class="codehilite"><pre><span></span>    <span class="kn">import</span> <span class="p">(</span>
+      <span class="s">&quot;github.com/RedisLabs/redisearch-go/redisearch&quot;</span>
+      <span class="s">&quot;log&quot;</span>
+      <span class="s">&quot;fmt&quot;</span>
+    <span class="p">)</span>
 
-    <span class="n">func</span> <span class="n">ExampleClient</span><span class="p">()</span> <span class="p">{</span>
-        <span class="o">//</span> <span class="n">Create</span> <span class="n">a</span> <span class="n">client</span><span class="o">.</span> <span class="n">By</span> <span class="n">default</span> <span class="n">a</span> <span class="n">client</span> <span class="ow">is</span> <span class="n">schemaless</span>
-        <span class="o">//</span> <span class="n">unless</span> <span class="n">a</span> <span class="n">schema</span> <span class="ow">is</span> <span class="n">provided</span> <span class="n">when</span> <span class="n">creating</span> <span class="n">the</span> <span class="n">index</span>
-        <span class="n">c</span> <span class="p">:</span><span class="o">=</span> <span class="n">createClient</span><span class="p">(</span><span class="s2">&quot;myIndex&quot;</span><span class="p">)</span>
+    <span class="kd">func</span> <span class="nx">ExampleClient</span><span class="p">()</span> <span class="p">{</span>
+      <span class="c1">// Create a client. By default a client is schemaless</span>
+      <span class="c1">// unless a schema is provided when creating the index</span>
+      <span class="nx">c</span> <span class="o">:=</span> <span class="nx">createClient</span><span class="p">(</span><span class="s">&quot;myIndex&quot;</span><span class="p">)</span>
 
-        <span class="o">//</span> <span class="n">Create</span> <span class="n">a</span> <span class="n">schema</span>
-        <span class="n">sc</span> <span class="p">:</span><span class="o">=</span> <span class="n">redisearch</span><span class="o">.</span><span class="n">NewSchema</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">DefaultOptions</span><span class="p">)</span><span class="o">.</span>
-            <span class="n">AddField</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">NewTextField</span><span class="p">(</span><span class="s2">&quot;body&quot;</span><span class="p">))</span><span class="o">.</span>
-            <span class="n">AddField</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">NewTextFieldOptions</span><span class="p">(</span><span class="s2">&quot;title&quot;</span><span class="p">,</span> <span class="n">redisearch</span><span class="o">.</span><span class="n">TextFieldOptions</span><span class="p">{</span><span class="n">Weight</span><span class="p">:</span> <span class="mf">5.0</span><span class="p">,</span> <span class="n">Sortable</span><span class="p">:</span> <span class="n">true</span><span class="p">}))</span><span class="o">.</span>
-            <span class="n">AddField</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">NewNumericField</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">))</span>
+      <span class="c1">// Create a schema</span>
+      <span class="nx">sc</span> <span class="o">:=</span> <span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewSchema</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">DefaultOptions</span><span class="p">).</span>
+        <span class="nx">AddField</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewTextField</span><span class="p">(</span><span class="s">&quot;body&quot;</span><span class="p">)).</span>
+        <span class="nx">AddField</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewTextFieldOptions</span><span class="p">(</span><span class="s">&quot;title&quot;</span><span class="p">,</span> <span class="nx">redisearch</span><span class="p">.</span><span class="nx">TextFieldOptions</span><span class="p">{</span><span class="nx">Weight</span><span class="p">:</span> <span class="mf">5.0</span><span class="p">,</span> <span class="nx">Sortable</span><span class="p">:</span> <span class="kc">true</span><span class="p">})).</span>
+        <span class="nx">AddField</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewNumericField</span><span class="p">(</span><span class="s">&quot;date&quot;</span><span class="p">))</span>
 
-        <span class="o">//</span> <span class="n">Drop</span> <span class="n">an</span> <span class="n">existing</span> <span class="n">index</span><span class="o">.</span> <span class="n">If</span> <span class="n">the</span> <span class="n">index</span> <span class="n">does</span> <span class="ow">not</span> <span class="n">exist</span> <span class="n">an</span> <span class="n">error</span> <span class="ow">is</span> <span class="n">returned</span>
-        <span class="n">c</span><span class="o">.</span><span class="n">Drop</span><span class="p">()</span>
+      <span class="c1">// Drop an existing index. If the index does not exist an error is returned</span>
+      <span class="nx">c</span><span class="p">.</span><span class="nx">Drop</span><span class="p">()</span>
 
-        <span class="o">//</span> <span class="n">Create</span> <span class="n">the</span> <span class="n">index</span> <span class="k">with</span> <span class="n">the</span> <span class="n">given</span> <span class="n">schema</span>
-        <span class="k">if</span> <span class="n">err</span> <span class="p">:</span><span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">CreateIndex</span><span class="p">(</span><span class="n">sc</span><span class="p">);</span> <span class="n">err</span> <span class="o">!=</span> <span class="n">nil</span> <span class="p">{</span>
-            <span class="n">log</span><span class="o">.</span><span class="n">Fatal</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
-        <span class="p">}</span>
+      <span class="c1">// Create the index with the given schema</span>
+      <span class="k">if</span> <span class="nx">err</span> <span class="o">:=</span> <span class="nx">c</span><span class="p">.</span><span class="nx">CreateIndex</span><span class="p">(</span><span class="nx">sc</span><span class="p">);</span> <span class="nx">err</span> <span class="o">!=</span> <span class="kc">nil</span> <span class="p">{</span>
+        <span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
+      <span class="p">}</span>
 
-        <span class="o">//</span> <span class="n">Create</span> <span class="n">a</span> <span class="n">document</span> <span class="k">with</span> <span class="n">an</span> <span class="nb">id</span> <span class="ow">and</span> <span class="n">given</span> <span class="n">score</span>
-        <span class="n">doc</span> <span class="p">:</span><span class="o">=</span> <span class="n">redisearch</span><span class="o">.</span><span class="n">NewDocument</span><span class="p">(</span><span class="s2">&quot;doc1&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
-        <span class="n">doc</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="s2">&quot;title&quot;</span><span class="p">,</span> <span class="s2">&quot;Hello world&quot;</span><span class="p">)</span><span class="o">.</span>
-            <span class="n">Set</span><span class="p">(</span><span class="s2">&quot;body&quot;</span><span class="p">,</span> <span class="s2">&quot;foo bar&quot;</span><span class="p">)</span><span class="o">.</span>
-            <span class="n">Set</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">Now</span><span class="p">()</span><span class="o">.</span><span class="n">Unix</span><span class="p">())</span>
+      <span class="c1">// Create a document with an id and given score</span>
+      <span class="nx">doc</span> <span class="o">:=</span> <span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewDocument</span><span class="p">(</span><span class="s">&quot;doc1&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+      <span class="nx">doc</span><span class="p">.</span><span class="nx">Set</span><span class="p">(</span><span class="s">&quot;title&quot;</span><span class="p">,</span> <span class="s">&quot;Hello world&quot;</span><span class="p">).</span>
+        <span class="nx">Set</span><span class="p">(</span><span class="s">&quot;body&quot;</span><span class="p">,</span> <span class="s">&quot;foo bar&quot;</span><span class="p">).</span>
+        <span class="nx">Set</span><span class="p">(</span><span class="s">&quot;date&quot;</span><span class="p">,</span> <span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">().</span><span class="nx">Unix</span><span class="p">())</span>
 
-        <span class="o">//</span> <span class="n">Index</span> <span class="n">the</span> <span class="n">document</span><span class="o">.</span> <span class="n">The</span> <span class="n">API</span> <span class="n">accepts</span> <span class="n">multiple</span> <span class="n">documents</span> <span class="n">at</span> <span class="n">a</span> <span class="n">time</span>
-        <span class="k">if</span> <span class="n">err</span> <span class="p">:</span><span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">IndexOptions</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">DefaultIndexingOptions</span><span class="p">,</span> <span class="n">doc</span><span class="p">);</span> <span class="n">err</span> <span class="o">!=</span> <span class="n">nil</span> <span class="p">{</span>
-            <span class="n">log</span><span class="o">.</span><span class="n">Fatal</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
-        <span class="p">}</span>
+      <span class="c1">// Index the document. The API accepts multiple documents at a time</span>
+      <span class="k">if</span> <span class="nx">err</span> <span class="o">:=</span> <span class="nx">c</span><span class="p">.</span><span class="nx">IndexOptions</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">DefaultIndexingOptions</span><span class="p">,</span> <span class="nx">doc</span><span class="p">);</span> <span class="nx">err</span> <span class="o">!=</span> <span class="kc">nil</span> <span class="p">{</span>
+        <span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
+      <span class="p">}</span>
 
-        <span class="o">//</span> <span class="n">Searching</span> <span class="k">with</span> <span class="n">limit</span> <span class="ow">and</span> <span class="n">sorting</span>
-        <span class="n">docs</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">err</span> <span class="p">:</span><span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">Search</span><span class="p">(</span><span class="n">redisearch</span><span class="o">.</span><span class="n">NewQuery</span><span class="p">(</span><span class="s2">&quot;hello world&quot;</span><span class="p">)</span><span class="o">.</span>
-            <span class="n">Limit</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span>
-            <span class="n">SetReturnFields</span><span class="p">(</span><span class="s2">&quot;title&quot;</span><span class="p">))</span>
+      <span class="c1">// Searching with limit and sorting</span>
+      <span class="nx">docs</span><span class="p">,</span> <span class="nx">total</span><span class="p">,</span> <span class="nx">err</span> <span class="o">:=</span> <span class="nx">c</span><span class="p">.</span><span class="nx">Search</span><span class="p">(</span><span class="nx">redisearch</span><span class="p">.</span><span class="nx">NewQuery</span><span class="p">(</span><span class="s">&quot;hello world&quot;</span><span class="p">).</span>
+        <span class="nx">Limit</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">).</span>
+        <span class="nx">SetReturnFields</span><span class="p">(</span><span class="s">&quot;title&quot;</span><span class="p">))</span>
 
-        <span class="n">fmt</span><span class="o">.</span><span class="n">Println</span><span class="p">(</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">Id</span><span class="p">,</span> <span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">Properties</span><span class="p">[</span><span class="s2">&quot;title&quot;</span><span class="p">],</span> <span class="n">total</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
-        <span class="o">//</span> <span class="n">Output</span><span class="p">:</span> <span class="n">doc1</span> <span class="n">Hello</span> <span class="n">world</span> <span class="mi">1</span> <span class="o">&lt;</span><span class="n">nil</span><span class="o">&gt;</span>
+      <span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="nx">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">Id</span><span class="p">,</span> <span class="nx">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">Properties</span><span class="p">[</span><span class="s">&quot;title&quot;</span><span class="p">],</span> <span class="nx">total</span><span class="p">,</span> <span class="nx">err</span><span class="p">)</span>
+      <span class="c1">// Output: doc1 Hello world 1 &lt;nil&gt;</span>
     <span class="p">}</span>
 </pre></div>
 
