@@ -1,8 +1,6 @@
 site_name: RediSearch Documentation
 site_url: http://redisearch.io
-canonical_url: http://redisearch.io
 repo_url: https://github.com/RedisLabsModules/RediSearch
-theme: material
 
 
 google_analytics:
@@ -10,32 +8,42 @@ google_analytics:
   - 'auto'
 markdown_extensions:
   - codehilite
-  - toc(permalink=true)
+  - toc(permalink=true, separator="_")
   - admonition
   
-extra:
+use_directory_urls: true
+theme:
+  name: 'material'
+  language: 'en'
+  logo: 'logo_small.png'
   palette:
     primary: 'indigo'
-    
+    accent: 'red'
+  font:
+    text: 'Roboto'
+    code: 'Roboto Mono'
   feature:
     tabs: false
 pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
-    - 'Client Libraries': 'Clients.md'
-    - 'Commands': 'Commands.md'       
+    - 'Command Reference': 'Commands.md'
     - 'Configuration': 'Configuring.md'       
-    - 'Query Syntax': 'Query_Syntax.md'
-    - 'Stop-Words': 'Stopwords.md'
-    - 'Sortable Values': 'Sorting.md'
-    - 'Tag Fields': 'Tags.md'
-    - 'Highlighting Results': Highlight.md
-    - 'Scoring Documents': 'Scoring.md'
-    - 'Extension API': Extensions.md
-    - 'Stemming Support': Stemming.md
-    - 'Python API': python_client.md
-    - 'Java API': java_client.md
-    - 'Document Payloads': payloads.md
+    - Reference:
+      - 'Query Syntax': 'Query_Syntax.md'
+      - 'Stop-Words': 'Stopwords.md'
+      - 'Sortable Values': 'Sorting.md'
+      - 'Tag Fields': 'Tags.md'
+      - 'Highlighting Results': Highlight.md
+      - 'Scoring Documents': 'Scoring.md'
+      - 'Extension API': Extensions.md
+      - 'Stemming Support': Stemming.md
+      - 'Document Payloads': payloads.md
+    - Clients:
+      - 'Client Libraries': 'Clients.md'
+      - 'Python API': python_client.md
+      - 'Java API': java_client.md
+    
     - Design Documents:
       - 'Garbage Collection': 'design/gc.md'
     - Articles:
