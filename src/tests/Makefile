@@ -18,6 +18,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
 DEP_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )

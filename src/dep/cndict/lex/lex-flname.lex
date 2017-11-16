@@ -1,0 +1,11 @@
+#西方姓氏词库
+亚历山大/null
+克林顿/null
+克里斯汀/null
+布什/null
+布莱尔/null
+科特勒/null
+约翰/null
+约翰逊/null
+蒂娜/null
+安妮/null

@@ -36,6 +36,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
 CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
@@ -102,8 +103,7 @@ query_parser:
 .PHONY: query_parser
 
 build_cndict:
-	$(MAKE) -C ../cndict
-	mv ../cndict/cndict_data.c .
+	$(MAKE) -C dep/cndict
 
 build_tests: $(MODULE_ARTIFACT) libredisearch.a
 	$(MAKE) -C tests build
@@ -135,7 +135,6 @@ staticlib: libredisearch.a
 clean:
 	rm -fv *.[oad] trie/*.[oad] query_parser/*.[oad] ext/*.[oad]
 	$(MAKE) -C tests clean
-	$(MAKE) -C ../cndict clean
 
 distclean: clean
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
