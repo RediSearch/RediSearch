@@ -43,6 +43,7 @@ pages:
       - 'Client Libraries': 'Clients.md'
       - 'Python API': python_client.md
       - 'Java API': java_client.md
+      - 'Go API': go_client.md
     
     - Design Documents:
       - 'Garbage Collection': 'design/gc.md'
