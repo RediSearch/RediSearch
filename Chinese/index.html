@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="http://redisearch.io/Sorting/">
+        <link rel="canonical" href="http://redisearch.io/Chinese/">
       
       
       
@@ -34,7 +34,7 @@
     
     
       
-        <title>Sortable Values - RediSearch Documentation</title>
+        <title>Chinese Support - RediSearch Documentation</title>
       
     
     
@@ -93,12 +93,8 @@
           
             
               
-                <span class="md-header-nav__parent">
-                  Reference
-                </span>
-              
             
-            Sortable Values
+            Chinese Support
           
         </span>
       </div>
@@ -254,12 +250,10 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+  <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-5" type="checkbox" id="nav-5" checked>
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-5" type="checkbox" id="nav-5">
     
     <label class="md-nav__link" for="nav-5">
       Reference
@@ -299,74 +293,11 @@
           
           
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Sortable Values
-      </label>
-    
-    <a href="./" title="Sortable Values" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Sorting/" title="Sortable Values" class="md-nav__link">
       Sortable Values
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
-    Declaring Sortable Fields
-  </a>
-  
-    <nav class="md-nav">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
-    Note on sortable TEXT fields
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
-    Specifying SORTBY
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quick"_"example" title="Quick Example" class="md-nav__link">
-    Quick Example
-  </a>
-  
-</li>
-      
-      
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
         
@@ -595,11 +526,54 @@
       
       
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Chinese/" title="Chinese Support" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Chinese Support
+      </label>
+    
+    <a href="./" title="Chinese Support" class="md-nav__link md-nav__link--active">
       Chinese Support
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#example"_"using"_"chinese"_"in"_"redis"_"search" title="Example: Using Chinese in Redis Search" class="md-nav__link">
+    Example: Using Chinese in Redis Search
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
+    Using custom dictionaries
+  </a>
+  
+</li>
+      
+      
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
     
@@ -624,35 +598,15 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
-    Declaring Sortable Fields
-  </a>
-  
-    <nav class="md-nav">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
-    Note on sortable TEXT fields
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
-    Specifying SORTBY
+  <a href="#example"_"using"_"chinese"_"in"_"redis"_"search" title="Example: Using Chinese in Redis Search" class="md-nav__link">
+    Example: Using Chinese in Redis Search
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick"_"example" title="Quick Example" class="md-nav__link">
-    Quick Example
+  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
+    Using custom dictionaries
   </a>
   
 </li>
@@ -671,54 +625,69 @@
             <article class="md-content__inner md-typeset">
               
                 
-                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Sorting.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Chinese.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields">Sorting By Indexed Fields<a class="headerlink" href="#sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
-<p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name. </p>
-<h2 id="declaring&quot;_&quot;sortable&quot;_&quot;fields">Declaring Sortable Fields<a class="headerlink" href="#declaring&quot;_&quot;sortable&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
-<p>When creating the index with FT.CREATE, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the followig schema:</p>
-<div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
+                <h1 id="chinese&quot;_&quot;support&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search">Chinese support in Redis Search<a class="headerlink" href="#chinese&quot;_&quot;support&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search" title="Permanent link">&para;</a></h1>
+<p>Support for adding documents in Chinese is available starting at version 0.99.0.</p>
+<p>Chinese support allows Chinese documents to be added and tokenized using segmentation
+rather than simple tokenization using whitespace and/or punctuation.</p>
+<p>Indexing a Chinese document is different than indexing a document in most other
+languages because of how tokens are extracted. While most languages can have
+their tokens distinguished by separation characters and whitespace, this
+is not common in Chinese.</p>
+<p>Chinese tokenization is done by scanning the input text and checking every
+character or sequence of characters against a dictionary of predefined terms
+and determining the most likely (based on the surrounding terms and characters)
+match.</p>
+<p>Redis Search makes use of the <a href="https://github.com/lionsoul2014/friso">Friso</a>
+chinese tokenization library for this purpose. This is largely transparent to
+the user and often no additional configuration is required.</p>
+<h2 id="example&quot;_&quot;using&quot;_&quot;chinese&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search">Example: Using Chinese in Redis Search<a class="headerlink" href="#example&quot;_&quot;using&quot;_&quot;chinese&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search" title="Permanent link">&para;</a></h2>
+<p>In pseudo-code:</p>
+<div class="codehilite"><pre><span></span>FT.CREATE idx SCHEMA txt TEXT
+FT.ADD idx docCn 1.0 LANGUAGE chinese FIELDS txt &quot;Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步，从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]&quot;
+FT.SEARCH idx &quot;数据&quot; LANGUAGE chinese HIGHLIGHT SUMMARIZE
+# Outputs:
+# <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>?... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>进行写操作。由于完全实现了发布... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>冗余很有帮助。[8...
 </pre></div>
 
 
-<p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age. </p>
-<h3 id="note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields">Note on sortable TEXT fields<a class="headerlink" href="#note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields" title="Permanent link">&para;</a></h3>
-<p>In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.</p>
-<p>Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behavior. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
-<h2 id="specifying&quot;_&quot;sortby">Specifying SORTBY<a class="headerlink" href="#specifying&quot;_&quot;sortby" title="Permanent link">&para;</a></h2>
-<p>If an index includes sortable fields, you can add the <code>SORTBY</code> parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If <code>WITHSCORES</code> is specified along with <code>SORTBY</code>, the scores returned are simply the relative position of each result in the result set.</p>
-<p>The syntax for SORTBY is:</p>
-<div class="codehilite"><pre><span></span>SORTBY {field_name} [ASC|DESC]
+<p>Using the Python Client:</p>
+<div class="codehilite"><pre><span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+
+<span class="kn">from</span> <span class="nn">redisearch.client</span> <span class="kn">import</span> <span class="n">Client</span><span class="p">,</span> <span class="n">Query</span>
+<span class="kn">from</span> <span class="nn">redisearch</span> <span class="kn">import</span> <span class="n">TextField</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="s1">&#39;idx&#39;</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">client</span><span class="o">.</span><span class="n">drop_index</span><span class="p">()</span>
+<span class="k">except</span><span class="p">:</span>
+    <span class="k">pass</span>
+
+<span class="n">client</span><span class="o">.</span><span class="n">create_index</span><span class="p">([</span><span class="n">TextField</span><span class="p">(</span><span class="s1">&#39;txt&#39;</span><span class="p">)])</span>
+
+<span class="c1"># Add a document</span>
+<span class="n">client</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="s1">&#39;docCn1&#39;</span><span class="p">,</span>
+                    <span class="n">txt</span><span class="o">=</span><span class="s1">&#39;Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]&#39;</span><span class="p">,</span>
+                    <span class="n">language</span><span class="o">=</span><span class="s1">&#39;chinese&#39;</span><span class="p">)</span>
+<span class="k">print</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">Query</span><span class="p">(</span><span class="s1">&#39;数据&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">summarize</span><span class="p">()</span><span class="o">.</span><span class="n">highlight</span><span class="p">()</span><span class="o">.</span><span class="n">language</span><span class="p">(</span><span class="s1">&#39;chinese&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">txt</span>
 </pre></div>
 
 
-<ul>
-<li>
-<p>field_name must be a sortabl field defined in the schema.</p>
-</li>
-<li>
-<p>ASC means the order will be ascending, DESC that it will be descending.</p>
-</li>
-<li>
-<p>The default ordering is ASC if not specified otherwise.</p>
-</li>
-</ul>
-<h2 id="quick&quot;_&quot;example">Quick Example<a class="headerlink" href="#quick&quot;_&quot;example" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
-
-# Add some users
-&gt; FT.ADD users user1 1.0 FIELDS first_name &quot;alice&quot; last_name &quot;jones&quot; age 35
-&gt; FT.ADD users user2 1.0 FIELDS first_name &quot;bob&quot; last_name &quot;jones&quot; age 36
-
-# Searching while sorting
-
-# Searching by last name and sorting by first name
-&gt; FT.SEARCH users &quot;@last_name:jones&quot; SORTBY first_name DESC
-
-# Searching by both first and last name, and sorting by age
-&gt; FT.SEARCH users &quot;alice jones&quot; SORTBY age ASC
+<p>Prints:</p>
+<div class="codehilite"><pre><span></span><span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>?... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>进行写操作。由于完全实现了发布... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>冗余很有帮助。[8... 
 </pre></div>
+
+
+<h2 id="using&quot;_&quot;custom&quot;_&quot;dictionaries">Using custom dictionaries<a class="headerlink" href="#using&quot;_&quot;custom&quot;_&quot;dictionaries" title="Permanent link">&para;</a></h2>
+<p>If you wish to use a custom dictionary, you can do so at the module level when
+loading the module. The <code>FRISOINI</code> setting can point to the location of a
+<code>friso.ini</code> file which contains the relevant settings and paths to the dictionary
+files.</p>
+<p>Note that there is no "default" friso.ini file location. Redis Search comes with
+its own <code>friso.ini</code> and dictionary files which are compiled into the module
+binary at build-time.</p>
                 
                   
                 
@@ -737,7 +706,7 @@
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Stopwords/" title="Stop-Words" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Threading/" title="Multi-Threading in RediSearch" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -746,25 +715,11 @@
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Stop-Words
+                Multi-Threading in RediSearch
               </span>
             </div>
           </a>
         
-        
-          <a href="../Tags/" title="Tag Fields" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
-            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
-              <span class="md-flex__ellipsis">
-                <span class="md-footer-nav__direction">
-                  Next
-                </span>
-                Tag Fields
-              </span>
-            </div>
-            <div class="md-flex__cell md-flex__cell--shrink">
-              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
-            </div>
-          </a>
         
       </nav>
     </div>
