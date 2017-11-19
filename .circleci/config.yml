@@ -13,10 +13,11 @@ jobs:
           name: Test
           command: make test
       - run: mkdir -p /tmp/workspace
+      - run: cp src/redisearch.so /tmp/workspace
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
-            - src/redisearch.so
+            - redisearch.so
   
   package:
     docker:
