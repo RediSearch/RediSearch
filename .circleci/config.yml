@@ -13,11 +13,13 @@ jobs:
           name: Test
           command: make test
       - run: mkdir -p /tmp/workspace
-      - run: cp src/redisearch.so /tmp/workspace
+      - run: cp src/redisearch.so /tmp/workspace/
+      - run: cp ramp.yml /tmp/workspace/
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
             - redisearch.so
+            - ramp.yml
   
   package:
     docker:
@@ -28,7 +30,7 @@ jobs:
           at: /tmp/workspace
       - run:
           name: Package
-          command: ramp-packer -m ramp.yml -o redisearch-oss.{os}-{architecture}.{semantic_version}.zip /tmp/workspace/redisearch.so
+          command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.{semantic_version}.zip /tmp/workspace/redisearch.so
 
 workflows:
   version: 2
