@@ -22,7 +22,7 @@ package: $(MODULE_ARTIFACT)
 	fi
 	
 	@# On master builds - package the master latest
-	@set -e; if [ "$$TRAVIS_BRANCH" = "master" ]; then\
+	@set -e; if [ "$$TRAVIS_BRANCH" != "" ]; then\
 		$(RAMP_COMMAND) -o "$(BUILD_DIR)/$(MODULE_NAME).{os}-{architecture}.master.zip" "`pwd`/$(MODULE_ARTIFACT)";\
 	fi
 .PHONY: package
