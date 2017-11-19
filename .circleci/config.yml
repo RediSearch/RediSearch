@@ -5,10 +5,10 @@ jobs:
        - image: redislabsmodules/rmbuilder:latest
 
      steps:
-       - checkout
-       - run:
+      - checkout
+      - run:
           name: Build
           command: 'make -j 8'
-       - test:
-        name: Test
-        command: make test
+      - run:
+          name: Test
+          command: make test
