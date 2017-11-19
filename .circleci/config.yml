@@ -3,6 +3,7 @@ jobs:
   build:
      docker:
        - image: redislabsmodules/rmbuilder:latest
+
      steps:
        - checkout
        - run:
