@@ -54,6 +54,8 @@ jobs:
           root: /tmp/workspace
           paths:
             - *.zip
+      - store_artifacts:
+          path: ./*.zip
   deploy_branch:
     docker:
       - image: redislabsmodules/rmbuilder:latest
@@ -86,6 +88,3 @@ workflows:
       - deploy_branch:
           requires:
             - package_branch
-      # - deploy_release:
-      #     requires:
-      #       - package_release
