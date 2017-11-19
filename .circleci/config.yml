@@ -3,6 +3,8 @@ jobs:
   build:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
+    environment:
+      - WORKSPACE: /tmp/workspace
     steps:
       - checkout
       - run:
@@ -11,65 +13,71 @@ jobs:
       - run:
           name: Test
           command: make test
-      - run: mkdir -p /tmp/workspace
-      - run: cp src/redisearch.so /tmp/workspace/
-      - run: cp ramp.yml /tmp/workspace/
+      - run: mkdir -p $WORKSPACE/build
+      - run: cp src/redisearch.so $WORKSPACE/
+      - run: cp ramp.yml $WORKSPACE/
       - persist_to_workspace:
-          root: /tmp/workspace
+          root: $WORKSPACE
           paths:
             - redisearch.so
             - ramp.yml
+            - build
   package_branch:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
+    environment:
+      - WORKSPACE: /tmp/workspace
+      - MODULE: redisearch-oss
     steps:
       - attach_workspace:
-          at: /tmp/workspace
+          at: $WORKSPACE
       - run:
           name: Package
           command: >-
-            ramp-packer -m /tmp/workspace/ramp.yml -o
-            redisearch-oss.{os}-{architecture}.$CIRCLE_BRANCH.zip
-            /tmp/workspace/redisearch.so
+            ramp-packer -m $WORKSPACE/ramp.yml -o
+            $WORKSPACE/build/$MODULE.{os}-{architecture}.$CIRCLE_BRANCH.zip
+            $WORKSPACE/redisearch.so
       - persist_to_workspace:
-          root: /tmp/workspace
+          root: $WORKSPACE
           paths:
-            - '*.zip'
+            - build
   package_release:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - attach_workspace:
-          at: /tmp/workspace
+          at: $WORKSPACE
       - run:
           name: Package
           command: >-
-            ramp-packer -m /tmp/workspace/ramp.yml -o
-            redisearch-oss.{os}-{architecture}.{semantic_version}.zip
-            /tmp/workspace/redisearch.so
+            ramp-packer -m $WORKSPACE/ramp.yml -o
+            $WORKSPACE/build/$MODULE.{os}-{architecture}.{semantic_version}.zip
+            $WORKSPACE/redisearch.so
       - run:
           name: Package
           command: >-
-            ramp-packer -m /tmp/workspace/ramp.yml -o
-            redisearch-oss.{os}-{architecture}.latest.zip
-            /tmp/workspace/redisearch.so
+            ramp-packer -m $WORKSPACE/ramp.yml -o
+            $WORKSPACE/build/$MODULE.{os}-{architecture}.latest.zip
+            $WORKSPACE/redisearch.so
       - persist_to_workspace:
-          root: /tmp/workspace
+          root: $WORKSPACE
           paths:
-            - '*.zip'
+            - 'build'
       - store_artifacts:
-          path: ./*.zip
+          path: $WORKSPACE/build
   deploy_branch:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
+    environment:
+      - WORKSPACE: /tmp/workspace
     working_directory: /tmp/my-project
     steps:
       - attach_workspace:
-          at: /tmp/workspace
+          at: $WORKSPACE
       - run:
           name: Deploy to S3
           command: >-
-            aws s3 cp /tmp/workspace s3://redismodules/redisearch-oss/
+            aws s3 cp $WORKSPACE/build/ s3://redismodules/$MODULE/
             --recursive --exclude "*" --include "*.zip"
 workflows:
   version: 2
