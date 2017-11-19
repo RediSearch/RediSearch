@@ -4,11 +4,10 @@ dist: trusty
 services:
   - docker
 install: 
-  docker build .
+- docker build -f Dockerfile.travis $TRAVIS_BUILD_DIR -t rsbuilder
 before_script:
 - docker pull redislabsmodules/rmbuilder:latest
 - mkdir $TRAVIS_BUILD_DIR/build
-- docker build - Dockerfile.travis $TRAVIS_BUILD_DIR -t rsbuilder
 script:
 - docker run -v $TRAVIS_BUILD_DIR/build:/build -e TRAVIS_BRANCH=$TRAVIS_BRANCH -e TRAVIS_TAG=$TRAVIS_TAG rsbuilder
 deploy:
