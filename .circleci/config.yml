@@ -32,6 +32,19 @@ jobs:
       - run:
           name: Package
           command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.$CIRCLE_BRANCH.zip /tmp/workspace/redisearch.so
+  package_release:
+    docker:
+      - image: redislabsmodules/rmbuilder:latest
+    steps:
+      
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Package
+          command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.{semantic_version}.zip /tmp/workspace/redisearch.so
+      - run:
+          name: Package
+          command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.latest.zip /tmp/workspace/redisearch.so
 
 workflows:
   version: 2
@@ -44,3 +57,9 @@ workflows:
           filters:
             branches:
               only: circleci
+      - package_release:
+          requires:
+            - build
+          filters:
+            tags:
+              only: /^v[0-9].*/
