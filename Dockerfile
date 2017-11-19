@@ -1,13 +1,4 @@
-FROM redis:latest as builder
-
-ENV LIBDIR /usr/lib/redis/modules
-ENV DEPS "python python-setuptools python-pip wget unzip build-essential"
-# Set up a build environment
-RUN set -ex;\
-    deps="$DEPS";\
-    apt-get update; \
-	apt-get install -y --no-install-recommends $deps;\
-    pip install rmtest; 
+FROM redislabsmodules/rmbuilder:latest as builder
 
 # Build the source
 ADD ./src /src

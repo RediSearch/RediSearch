@@ -12,6 +12,7 @@ jobs:
       - run:
           name: Test
           command: make test
+      - run: mkdir -p /tmp/workspace
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
@@ -21,11 +22,12 @@ jobs:
     docker:
       - image: redislabsmodules/rmbuilder:latest
     steps:
+      
       - attach_workspace:
           at: /tmp/workspace
       - run:
           name: Package
-          command: make package
+          command: ramp-packer -m ramp.yml -o redisearch-oss.{os}-{architecture}.{semantic_version}.zip /tmp/workspace/redisearch.so
 
 workflows:
   version: 2
