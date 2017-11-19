@@ -12,6 +12,7 @@ jobs:
       - run:
           name: Test
           command: make test
+      # Copy the stuff needed for packaging to tmp workspace
       - run: mkdir -p /tmp/workspace
       - run: cp src/redisearch.so /tmp/workspace/
       - run: cp ramp.yml /tmp/workspace/
@@ -21,7 +22,7 @@ jobs:
             - redisearch.so
             - ramp.yml
   
-  package:
+  package_branch:
     docker:
       - image: redislabsmodules/rmbuilder:latest
     steps:
@@ -30,14 +31,14 @@ jobs:
           at: /tmp/workspace
       - run:
           name: Package
-          command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.{semantic_version}.zip /tmp/workspace/redisearch.so
+          command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.$CIRCLE_BRANCH.zip /tmp/workspace/redisearch.so
 
 workflows:
   version: 2
   build_and_test:
     jobs:
       - build
-      - package:
+      - package_branch:
           requires:
             - build
           filters:
