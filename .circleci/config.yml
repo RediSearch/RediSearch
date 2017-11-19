@@ -32,6 +32,11 @@ jobs:
       - run:
           name: Package
           command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.$CIRCLE_BRANCH.zip /tmp/workspace/redisearch.so
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - *.zip
+
   package_release:
     docker:
       - image: redislabsmodules/rmbuilder:latest
@@ -45,6 +50,21 @@ jobs:
       - run:
           name: Package
           command: ramp-packer -m /tmp/workspace/ramp.yml -o redisearch-oss.{os}-{architecture}.latest.zip /tmp/workspace/redisearch.so
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - *.zip
+  deploy_branch:
+    docker:
+      - image: redislabsmodules/rmbuilder:latest
+    working_directory: /tmp/my-project  
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Deploy to S3
+          command: aws s3 cp /tmp/workspace s3://redismodules/redisearch-oss/ --recursive --exclude "*" --include "*.zip"
+
 
 workflows:
   version: 2
@@ -63,3 +83,9 @@ workflows:
           filters:
             tags:
               only: /^v[0-9].*/
+      - deploy_branch:
+          requires:
+            - package_branch
+      # - deploy_release:
+      #     requires:
+      #       - package_release
