@@ -5,7 +5,7 @@ services:
   - docker
 install: 
 - docker build -f Dockerfile.travis $TRAVIS_BUILD_DIR -t rsbuilder
-before_script:
+before_install:
 - docker pull redislabsmodules/rmbuilder:latest
 - mkdir $TRAVIS_BUILD_DIR/build
 script:
