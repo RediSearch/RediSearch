@@ -119,15 +119,19 @@ test: $(MODULE) build_tests
 buildall: $(MODULE_ARTIFACT) libredisearch.a build_tests
 
 # Build the module...
+$(MODULE_ARTIFACT): $(shell rm -f module.o)
 $(MODULE_ARTIFACT): $(MODULE) version.h
-	# Just to make sure old versions of the modules are deleted
+	@# Just to make sure old versions of the modules are deleted
 	rm -f module.so
 	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
 
 # Build a stand-alone static library without the module entry point.
 # This is used to include the module's functionality in other modules
 libredisearch.a: CFLAGS+=-DRS_CMD_PREFIX='"_FT"' -DRS_STATIC
+# remove module.o to make sure we are building it with the right defines
+libredisearch.a: $(shell rm -f module.o)
 libredisearch.a: $(CC_OBJECTS) $(LIBS) version.h
+	
 	ar rcs $@ $(CC_OBJECTS)
 
 staticlib: libredisearch.a
