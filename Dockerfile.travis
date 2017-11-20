@@ -1,7 +1,0 @@
-FROM redislabsmodules/rmbuilder:latest
-
-# Build the source
-ADD ./src /src
-WORKDIR /src
-
-CMD make distclean && make -j 4 && make package
