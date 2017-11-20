@@ -365,6 +365,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
   IndexIterator *ret;
+  
   if (node->exact) {
     ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
                               q->req->fieldMask & qn->fieldMask, 0, 1);

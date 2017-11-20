@@ -139,9 +139,6 @@ clean:
 distclean: clean
 	find . -type f \( -name '*.[oad]' -o -name '*.so' \) -delete -print
 
-
-include Makefile.package
-
 print_version: version.h print_version.c
 	@$(CC) -o $@ -DPRINT_VERSION_TARGET $@.c
 

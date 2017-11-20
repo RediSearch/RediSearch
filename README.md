@@ -1,6 +1,6 @@
-[![Build Status](https://travis-ci.org/RedisLabsModules/RediSearch.svg?branch=master)](https://travis-ci.org/RedisLabsModules/RediSearch)
+[![CircleCI](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master)
 
-# RediSearch 
+# RediSearch
 
 ### Full-Text search over redis by RedisLabs
 ![logo.png](docs/logo.png)
@@ -11,16 +11,16 @@
 
 # Overview
 
-Redisearch implements a search engine on top of redis, but unlike other redis 
+Redisearch implements a search engine on top of redis, but unlike other redis
 search libraries, it does not use internal data structures like sorted sets.
 
 Inverted indexes are stored as a special compressed data type that allows for fast
-indexing and search speed, and low memory footprint. 
+indexing and search speed, and low memory footprint.
 
-This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
-that are not possible or efficient with traditional redis search approaches. 
+This also enables more advanced features, like exact phrase matching and numeric filtering for text queries,
+that are not possible or efficient with traditional redis search approaches.
 
-# Docker Image 
+# Docker Image
 
 [https://hub.docker.com/r/redislabs/redisearch/](https://hub.docker.com/r/redislabs/redisearch/)
 
@@ -36,7 +36,7 @@ Official (Redis Labs) and community Clients:
 |---|---|---|---|---|
 |Python | [redisearch-py](https://github.com/RedisLabs/redisearch-py) | Redis Labs | BSD | Usually the most up-to-date client library |
 | Java | [JRediSearch](https://github.com/RedisLabs/JRediSearch) | Redis Labs | BSD | |
-| Go | [redisearch-go](https://github.com/RedisLabs/redisearch-go) | Redis Labs | BSD | Incomplete API | 
+| Go | [redisearch-go](https://github.com/RedisLabs/redisearch-go) | Redis Labs | BSD | Incomplete API |
 | JavaScript | [RedRediSearch](https://github.com/stockholmux/redredisearch) | Kyle J. Davis | MIT | Partial API, compatible with [Reds](https://github.com/tj/reds) |
 | C# | [NRediSearch](https://libraries.io/nuget/NRediSearch) | Marc Gravell | MIT | Part of StackExchange.Redis |
 | PHP | [redisearch-php](https://github.com/ethanhann/redisearch-php) | Ethan Hann | MIT |
@@ -78,4 +78,4 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 Which basically means you can freely use this for your own projects without "virality" to your code,
 as long as you're not modifying the module itself. See [This Blog Post](https://redislabs.com/blog/why-redis-labs-modules-are-agpl/) for more details.
 
- 
+

@@ -1,0 +1,113 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - checkout
+      - run:
+          name: Build
+          command: make -j 8
+      - run:
+          name: Test
+          command: make test
+      - run:
+          name: Persist Artifacts
+          command: >-
+            mkdir -p /workspace/build && cp src/$MODULE_ARTIFACT /workspace/ &&
+            cp ramp.yml /workspace/
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - '*.so'
+            - ramp.yml
+            - build
+  package_branch:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Package
+          command: >-
+            ramp-packer -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.$CIRCLE_BRANCH.zip
+            /workspace/$MODULE_ARTIFACT
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - build
+      - store_artifacts:
+          path: /workspace/build
+  package_release:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Package
+          command: >-
+            ramp-packer -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.{semantic_version}.zip
+            /workspace/$MODULE_ARTIFACT
+      - run:
+          name: Package
+          command: >-
+            ramp-packer -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.latest.zip
+            /workspace/$MODULE_ARTIFACT
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - build
+      - store_artifacts:
+          path: /workspace/build
+  deploy_branch:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Deploy to S3
+          command: >-
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/
+            --recursive --exclude "*" --include "*.zip"
+  deploy_release:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Deploy to S3
+          command: >-
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/
+            --recursive --exclude "*" --include "*.zip"
+workflows:
+  version: 2
+  build_and_package:
+    jobs:
+      - build
+      - package_branch:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
+      - package_release:
+          requires:
+            - build
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: '/^v[0-9].*/'
+      - deploy_branch:
+          requires:
+            - package_branch
+      - deploy_release:
+          requires:
+            - package_release

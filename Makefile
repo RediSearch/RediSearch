@@ -19,8 +19,7 @@ buildall:
 	$(MAKE) -C ./src $@
 
 deploydocs:
-	mkdocs build
-	s3cmd sync site/ s3://redisearch.io
+	mkdocs gh-deploy
 .PHONY: deploydocs
 
 staticlib:
