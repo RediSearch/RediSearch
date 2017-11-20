@@ -96,7 +96,7 @@ workflows:
             - build
           filters:
             branches:
-              only: circleci
+              only: master
       - package_release:
           requires:
             - build
