@@ -390,9 +390,10 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyFields(ctx, &doc);
+    Document_Free(&doc);
+
   }
   SearchCtx_Free(sctx);
-  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 

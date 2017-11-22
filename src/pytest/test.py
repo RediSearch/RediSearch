@@ -152,6 +152,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text'))
 
+            
             for i in range(100):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'foo', 'hello world', 'bar', 'wat wat'))
@@ -160,12 +161,18 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 res = r.execute_command('ft.get', 'idx', 'doc%d' % i)
                 self.assertIsNotNone(res)
                 self.assertListEqual(['foo', 'hello world', 'bar', 'wat wat'], res)
+                self.assertIsNone(r.execute_command('ft.get', 'idx', 'doc%dsdfsd' % i))
+
 
             rr = r.execute_command('ft.mget', 'idx', *('doc%d' % i for i in range(100)))
             self.assertEqual(len(rr), 100)
             for res in rr:
                 self.assertIsNotNone(res)
                 self.assertListEqual(['foo', 'hello world', 'bar', 'wat wat'], res)
+            rr = r.execute_command('ft.mget', 'idx', *('doc-%d' % i for i in range(100)))
+            self.assertEqual(len(rr), 100)
+            for res in rr:
+                self.assertIsNone(res)
  
     def testDelete(self):
         with self.redis() as r:

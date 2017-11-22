@@ -289,6 +289,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
   doc->numFields = 0;
+  doc->fields = NULL;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     return REDISMODULE_ERR;
