@@ -90,7 +90,10 @@ workflows:
   version: 2
   build_and_package:
     jobs:
-      - build
+      - build:
+          filters:
+            tags:
+              only: /.*/
       - package_branch:
           requires:
             - build
@@ -109,5 +112,8 @@ workflows:
           requires:
             - package_branch
       - deploy_release:
+          filters:
+            tags:
+              only: '/^v[0-9].*/'
           requires:
             - package_release
