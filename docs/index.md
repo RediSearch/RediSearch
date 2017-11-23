@@ -9,6 +9,7 @@ RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, 
     * [Latest Release: 0.99.2 (RC2)](https://github.com/RedisLabsModules/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
     * [Quick Start Guide](/Quick_Start)
+    * [Mailing list / Forum](https://groups.google.com/forum/#!forum/redisearch)
 
 !!! tip "Supported Platforms"
     RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
