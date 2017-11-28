@@ -1,8 +1,9 @@
 # Highlighting API
 
-The highlighting API allows you to have only the relvant (matching)
-portions of document matches returned. This allows users to quickly see how a
-document relates to their query.
+The highlighting API allows you to have only the  relevant portions of document matching a search query returned as a result. 
+This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.
+
+RediSearch implements high performance highlighting an summarization algorithms, with the following API: 
 
 ### Command Syntax
 
@@ -27,25 +28,25 @@ FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepStr}]
 ```
 
-Summarization or snippetization will fragment the text into smaller sized
-snippets; each snippet will contain the found term(s) and some additional
+Summarization  will fragment the text into smaller sized snippets; each snippet will contain the found term(s) and some additional
 surrounding context.
 
-Redis Search can perform summarization using the `SUMMARIZE` keyword. If no
-additional arguments are passed, all _returned fields_ are summarized using
-built-in defaults.
+RediSearch can perform summarization using the `SUMMARIZE` keyword. If no additional arguments are passed, 
+all _returned fields_ are summarized using built-in defaults.
 
 The `SUMMARIZE` keyword accepts the following arguments:
 
-* **`FIELDS`** If present, must be the first argument. This should be followed
+* **`FIELDS`**: If present, must be the first argument. This should be followed
     by the number of fields to summarize, which itself is followed by a list of
-    fields. Each field present is summarized. If no `FIELD` directive is passed,
+    fields. Each field present is summarized. If no `FIELDS` directive is passed,
     then *all* fields returned are summarized.
-* **`FRAGS`** How many fragments should be returned. If not specified, a sane
-    default is used.
+
+* **`FRAGS`**: How many fragments should be returned. If not specified, a default of 3 is used.
+
 * **`LEN`** The number of context words each fragment should contain. Context
     words surround the found term. A higher value will return a larger block of
     text.
+
 * **`SEPARATOR`** The string used to divide between individual summary snippets.
     The default is `... ` which is common among search engines; but you may
     override this with any other string if you desire to programmatically divide them
@@ -64,16 +65,16 @@ Highlighting will highlight the found term (and its variants) with a user-define
 tag. This may be used to display the matched text in a different typeface using
 a markup language, or to otherwise make the text appear differently.
 
-Redis Search can perform highlighting using the `HIGHLIGHT` keyword. If no
-additional arguments are passed, all _returned fields_ are highlighted using
-build-in defaults.
+RediSearch can perform highlighting using the `HIGHLIGHT` keyword. If no
+additional arguments are passed, all _returned fields_ are highlighted using built-in defaults.
 
 The `HIGHLIGHT` keyword accepts the following arguments:
 
 * **`FIELDS`** If present, must be the first argument. This should be followed
     by the number of fields to highlight, which itself is followed by a list of
-    fields. Each field present is highlighted. If no `FIELD` directive is passed,
+    fields. Each field present is highlighted. If no `FIELDS` directive is passed,
     then *all* fields returned are highlighted.
+    
 * **`TAGS`** If present, must be followed by two strings; the first is prepended
     to each term match, and the second is appended to it. If no `TAGS` are
     specified, a built-in tag value is appended and prepended.

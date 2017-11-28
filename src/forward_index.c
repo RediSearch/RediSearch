@@ -81,7 +81,9 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
+      .Alloc = allocBucketEntry,
+      .Compare = khtCompare,
+      .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);

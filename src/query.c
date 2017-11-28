@@ -312,7 +312,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
-        .expanded = 0, .flags = 0, .len = 0,
+        .expanded = 0,
+        .flags = 0,
+        .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
     RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
@@ -365,7 +367,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
   IndexIterator *ret;
-  
+
   if (node->exact) {
     ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
                               q->req->fieldMask & qn->fieldMask, 0, 1);
@@ -457,6 +459,12 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   if (n == 0) {
     free(iters);
     return NULL;
+  }
+
+  if (n == 1) {
+    IndexIterator *ret = iters[0];
+    free(iters);
+    return ret;
   }
 
   IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
@@ -675,7 +683,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s\n", (char *)qs->tn.str, qs->tn.expanded ? "*" : "");
+      s = sdscatprintf(s, "%s%s\n", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
       return s;
 
     case QN_PREFX:
