@@ -73,8 +73,8 @@ jobs:
       - run:
           name: Deploy to S3
           command: >-
-            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/
-            --recursive --exclude "*" --include "*.zip"
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
+            public-read --recursive --exclude "*" --include "*.zip"
   deploy_release:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -84,8 +84,8 @@ jobs:
       - run:
           name: Deploy to S3
           command: >-
-            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/
-            --recursive --exclude "*" --include "*.zip"
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
+            public-read --recursive --exclude "*" --include "*.zip"
 workflows:
   version: 2
   build_and_package:
