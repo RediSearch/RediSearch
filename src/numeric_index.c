@@ -27,7 +27,7 @@ void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
   /* If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
    * We simply abort the root iterator which is either a union of many ranges or a single range
    *
-   * If the numeric range tree has chaned (split, nodes deleted, etc) since we last closed it,
+   * If the numeric range tree has chained (split, nodes deleted, etc) since we last closed it,
    * We cannot continue iterating it, since the underlying pointers might be screwed.
    * For now we will just stop processing this query. This causes the query to return bad results,
    * so in the future we can try an reset the state here

@@ -6,6 +6,7 @@
 #include "default.h"
 #include "../tokenize.h"
 #include "../rmutil/vector.h"
+#include "../stemmer.h"
 
 /******************************************************************************************
  *
@@ -253,14 +254,16 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   const sb_symbol *b = (const sb_symbol *)token->str;
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
 
-  if (stemmed && strncasecmp((const char *)stemmed, token->str, token->len)) {
-
+  if (stemmed) {
     int sl = sb_stemmer_length(sb);
-    ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl,
+
+    // Make a copy of the stemmed buffer with the + prefix given to stems
+    char *dup = malloc(sl + 2);
+    dup[0] = STEM_PREFIX;
+    memcpy(dup + 1, stemmed, sl + 1);
+    ctx->ExpandToken(ctx, dup, sl + 1,
                      0x0);  // TODO: Set proper flags here
   }
-
-  // sb_stemmer_delete(sb);
 }
 
 void defaultExpanderFree(void *p) {

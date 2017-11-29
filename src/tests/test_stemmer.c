@@ -12,7 +12,7 @@ int testStemmer() {
   size_t sl;
   const char *stem = s->Stem(s->ctx, "arbitrary", (size_t)strlen("arbitrary"), &sl);
   ASSERT(stem != NULL)
-  ASSERT(!strcasecmp(stem, "arbitrari"));
+  ASSERT(!strcasecmp(stem, "+arbitrari"));
   ASSERT(sl == strlen(stem));
   printf("stem: %s\n", stem);
 
@@ -34,8 +34,8 @@ int testTokenize() {
   const char *expectedToks[] = {"hello", "world", "worlds", "going", "wazz", "up", "שלום"};
   const char *expectedStems[] = {NULL /*hello*/,
                                  NULL /*world/*/,
-                                 "world" /*worlds*/,
-                                 "go" /*going*/,
+                                 "+world" /*worlds*/,
+                                 "+go" /*going*/,
                                  NULL /*wazz*/,
                                  NULL /*up*/,
                                  NULL /*שלום*/};

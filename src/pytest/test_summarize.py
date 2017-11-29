@@ -2,12 +2,14 @@ from rmtest import ModuleTestCase
 import time
 
 class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
-    def testSummarization(self):
-        # Load the file
+    def setupGenesis(self):
         txt = open('../tests/genesis.txt', 'r').read()
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
         self.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
 
+    def testSummarization(self):
+        # Load the file
+        self.setupGenesis()
         res = self.cmd('FT.SEARCH', 'idx', 'abraham isaac jacob',
             'SUMMARIZE', 'FIELDS', 1, 'txt', 'LEN', 20,
             'HIGHLIGHT', 'FIELDS', 1, 'txt', 'TAGS', '<b>', '</b>')
@@ -32,12 +34,6 @@ class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
         res_list = res[2][1]
         # self.assertIsInstance(res_list, list)
 
-        # Search with prefix
-        res = self.cmd('FT.SEARCH', 'idx', 'begi*',
-            'HIGHLIGHT', 'FIELDS', 1, 'txt', 'TAGS', '<b>', '</b>',
-            'SUMMARIZE', 'FIELDS', 1, 'txt', 'LEN', 20)
-        self.assertEqual([1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
-
         # Search with custom separator
         res = self.cmd('FT.SEARCH', 'idx', 'isaac',
             'SUMMARIZE', 'FIELDS', 1, 'txt',
@@ -52,6 +48,19 @@ class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
         # Try the same, but attempting to highlight
         res = self.cmd('FT.SEARCH', 'idx', '-blah', 'HIGHLIGHT')
         self.assertEqual(214894, len(res[2][1]))
+    
+    def testPrefixExpansion(self):
+        # Search with prefix
+        self.setupGenesis()
+        res = self.cmd('FT.SEARCH', 'idx', 'begi*',
+            'HIGHLIGHT', 'FIELDS', 1, 'txt', 'TAGS', '<b>', '</b>',
+            'SUMMARIZE', 'FIELDS', 1, 'txt', 'LEN', 20)
+        
+        # Prefix expansion uses "early exit" strategy, so the term highlighted won't necessarily be the
+        # best term
+        self.assertEqual([1L, 'gen1', ['txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
+        # self.assertEqual([1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
+
 
     def testSummarizationMultiField(self):
         p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."

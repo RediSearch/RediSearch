@@ -18,7 +18,7 @@ we perform are lower-casing (for latin languages only as of now), and whitespace
 modifier (see below) will not return this document.
 
 5. The index is much simpler and more compressed: We do not store frequencies, offset vectors of
-field flags. The index contains only docuent ids encoded as deltas. This means that an entry in a tag index
+field flags. The index contains only document IDs encoded as deltas. This means that an entry in a tag index
 is usually one or two bytes long. This makes them very memory efficient and fast.
 
 6. An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.

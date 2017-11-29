@@ -356,23 +356,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
             res = r.execute_command('ft.explain', 'idx', q)
 
-            self.assertEqual(res, """INTERSECT {
-  hello
-  world
-  EXACT {
-    what
-    what
-  }
-  UNION {
-    hello
-    world
-  }
-  UNION {
-    NUMERIC {10.000000 <= @bar <= 100.000000}
-    NUMERIC {200.000000 <= @bar <= 300.000000}
-  }
-}
-""")
+            self.assertEqual(res, """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    UNION {\n      what\n      +what(expanded)\n    }\n    UNION {\n      what\n      +what(expanded)\n    }\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n""")
 
 
     def testNoIndex(self):
@@ -964,14 +948,32 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'hello kitty'))
 
             res = r.execute_command(
-                'ft.search', 'idx', 'hellos', "nocontent", "expander", "SBSTEM")
+                'ft.search', 'idx', 'kitties', "nocontent", "expander", "SBSTEM")
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
 
             res = r.execute_command(
-                'ft.search', 'idx', 'hellos', "nocontent", "expander", "noexpander")
+                'ft.search', 'idx', 'kitties', "nocontent", "expander", "noexpander")
             self.assertEqual(1, len(res))
             self.assertEqual(0, res[0])
+
+            res = r.execute_command(
+                'ft.search', 'idx', 'kitti', "nocontent")
+            self.assertEqual(2, len(res))
+            self.assertEqual(1, res[0])
+
+            res = r.execute_command(
+                'ft.search', 'idx', 'kitti', "nocontent", 'verbatim')
+            self.assertEqual(1, len(res))
+            self.assertEqual(0, res[0])
+            
+            # Calling a stem directly works even with VERBATIM.
+            # You need to use the + prefix escaped
+            res = r.execute_command(
+                'ft.search', 'idx', '\\+kitti', "nocontent", 'verbatim')
+            self.assertEqual(2, len(res))
+            self.assertEqual(1, res[0])
+
 
     def testNumericRange(self):
 
