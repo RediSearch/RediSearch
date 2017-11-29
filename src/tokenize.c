@@ -108,7 +108,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
       const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
-      if (stem && strncmp(stem, tok, normLen)) {
+      if (stem) {
         t->stem = stem;
         t->stemLen = sl;
       }
