@@ -35,8 +35,8 @@ rsqb = ']';
 lsqb = '[';
 escape = '\\';
 escaped_character = escape (punct | space | escape);
-mod = '@'.alpha.(alnum | '_')* $ 1;
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
+mod = '@'.term $ 1;
 
 main := |*
 

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from rmtest import ModuleTestCase
 import redis
 import unittest
@@ -880,11 +882,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'TiTle', 'text', 'BoDy', 'text'))
+                'ft.create', 'idx', 'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text' ))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
-                                            'title', 'hello world', 'body', 'foo bar'))
+                                            'title', 'hello world', 'body', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
             self.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 0.5, 'fields',
-                                            'body', 'hello world', 'title', 'foo bar'))
+                                            'body', 'hello world', 'title', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
 
             res = r.execute_command(
                 'ft.search', 'idx', '@title:hello world', 'nocontent')
@@ -910,6 +912,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
             res = r.execute_command(
                 'ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
+            self.assertEqual(res, [2, 'doc1', 'doc2'])
+
+            res = r.execute_command(
+                'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
+            self.assertEqual(res, [2, 'doc1', 'doc2'])
+
+            res = r.execute_command(
+                'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
             self.assertEqual(res, [2, 'doc1', 'doc2'])
 
     def testStemming(self):

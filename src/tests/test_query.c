@@ -87,6 +87,10 @@ int testQueryParser() {
   assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
   assertValidQuery("hello%world;good+bye foo.bar", ctx);
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
+  // escaping and unicode in field names
+  assertValidQuery("@Business\\:\\-\\ Name:Wells Fargo", ctx);
+  assertValidQuery("@שלום:Wells Fargo", ctx);
+
   assertValidQuery("foo -bar -(bar baz)", ctx);
   assertValidQuery("(hello world)|(goodbye moon)", ctx);
   assertInvalidQuery("@title:", ctx);

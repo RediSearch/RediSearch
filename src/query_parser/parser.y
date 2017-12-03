@@ -58,6 +58,23 @@ char *strdupcase(const char *s, size_t len) {
   
   return ret;
 }
+
+// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
+size_t unescapen(char *s, size_t sz) {
+  
+  char *dst = s;
+  char *src = dst;
+  while (src - s < sz) {
+      // unescape 
+      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+          ++src;
+          continue;
+      }
+      *dst++ = *src++;
+  }
+ 
+  return (size_t)(dst - s);
+}
    
 } // END %include  
 
@@ -271,6 +288,7 @@ expr(A) ::= term(B) STAR. {
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
+    B.len = unescapen(B.s, B.len);
     A = B;
  } 
 
