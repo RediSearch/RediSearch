@@ -99,13 +99,13 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   }
 }
 
-/******************************************************************************
- * Index Encoders Implementations.
- *
- * We have 9 distinct ways to encode the index records. Based on the index flags we select the
- * correct encoder when writing to the index
- *
- ******************************************************************************/
+  /******************************************************************************
+   * Index Encoders Implementations.
+   *
+   * We have 9 distinct ways to encode the index records. Based on the index flags we select the
+   * correct encoder when writing to the index
+   *
+   ******************************************************************************/
 
 #define ENCODER(f) static size_t f(BufferWriter *bw, t_docId delta, RSIndexResult *res)
 
@@ -184,11 +184,11 @@ ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
 }
 
-/**
- * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
- * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
- * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
- */
+  /**
+   * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
+   * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
+   * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
+   */
 
 #define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
@@ -440,7 +440,9 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value) {
 
   RSIndexResult rec = (RSIndexResult){
-      .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){.value = value},
+      .docId = docId,
+      .type = RSResultType_Numeric,
+      .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
@@ -456,16 +458,16 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
 }
 
-/******************************************************************************
- * Index Decoder Implementations.
- *
- * We have 9 distinct ways to decode the index records. Based on the index flags we select the
- * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
- * filtering, returning 1 if the record is ok or 0 if it is filtered.
- *
- * Term indexes can filter based on fieldMask, and
- *
- ******************************************************************************/
+  /******************************************************************************
+   * Index Decoder Implementations.
+   *
+   * We have 9 distinct ways to decode the index records. Based on the index flags we select the
+   * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
+   * filtering, returning 1 if the record is ok or 0 if it is filtered.
+   *
+   * Term indexes can filter based on fieldMask, and
+   *
+   ******************************************************************************/
 
 #define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
 
@@ -538,9 +540,6 @@ DECODER(readNumeric) {
       res->num.value = -res->num.value;
     }
   }
-
-  // printf("== Decoded ==\n");
-  // dumpEncoding(header, stdout);
 
   NumericFilter *f = ctx.ptr;
   if (f) {

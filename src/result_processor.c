@@ -13,7 +13,9 @@
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
-      .privdata = privdata, .upstream = upstream, .qxc = upstream ? upstream->ctx.qxc : NULL,
+      .privdata = privdata,
+      .upstream = upstream,
+      .qxc = upstream ? upstream->ctx.qxc : NULL,
   };
 
   return p;
@@ -139,6 +141,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
     dmd = DocTable_Get(&RP_SPEC(ctx)->docs, r->docId);
 
+    // printf("%d => '%s'\n", r->docId, dmd->key);
     // skip deleted documents
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;

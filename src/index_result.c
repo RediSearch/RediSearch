@@ -130,24 +130,29 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 }
 
 void IndexResult_Print(RSIndexResult *r, int depth) {
-  // for (int i = 0; i < depth; i++) printf("  ");
+  for (int i = 0; i < depth; i++) printf("  ");
+
   if (r->type == RSResultType_Term) {
-    printf("Term{%s => %u}, ", r->term.term ? r->term.term->str : "nil", r->docId);
+    printf("Term{%u: %s},\n", r->docId, r->term.term ? r->term.term->str : "nil");
     return;
   }
   if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%u}, ", r->docId);
+    printf("Virtual{%u},\n", r->docId);
     return;
   }
-  printf("%s => %u{ ", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
+  if (r->type == RSResultType_Numeric) {
+    printf("Numeric{%u:%f},\n", r->docId, r->num.value);
+    return;
+  }
+  printf("%s => %u{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
 
   for (int i = 0; i < r->agg.numChildren; i++) {
 
     IndexResult_Print(r->agg.children[i], depth + 1);
   }
-  //  for (int i = 0; i < depth; i++) printf("  ");
+  for (int i = 0; i < depth; i++) printf("  ");
 
-  printf("},");
+  printf("},\n");
 
   // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
 

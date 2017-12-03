@@ -359,8 +359,8 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     RSIndexResult *res = it->Current(it->ctx);
     rc = INDEXREAD_OK;
 
-    // only read if we're not already at the final position
-    if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
+    // only read if we are not already at the seek to position
+    if (ic->docIds[i] != docId) {
       rc = it->SkipTo(it->ctx, docId, &res);
       if (rc != INDEXREAD_EOF) {
         if (res) ic->docIds[i] = res->docId;
@@ -372,6 +372,7 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
       ic->atEnd = 1;
       return rc;
     } else if (rc == INDEXREAD_OK) {
+
       // YAY! found!
       AggregateResult_AddChild(ic->current, res);
       ic->lastDocId = docId;
@@ -387,6 +388,7 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   // if the requested id was found on all children - we return OK
   if (nfound == ic->num) {
+    // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
     if (hit) *hit = ic->current;
     return INDEXREAD_OK;
   }
