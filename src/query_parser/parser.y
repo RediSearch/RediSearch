@@ -64,9 +64,11 @@ size_t unescapen(char *s, size_t sz) {
   
   char *dst = s;
   char *src = dst;
-  while (src - s < sz) {
+  char *end = s + sz;
+  while (src < end) {
       // unescape 
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+      if (*src == '\\' && src + 1 < end &&
+         (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
           continue;
       }
