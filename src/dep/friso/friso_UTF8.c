@@ -9,6 +9,7 @@
 #include <string.h>
 #include "friso_API.h"
 #include "friso_ctype.h"
+#include "friso_simptrad.h"
 
 /* read the next utf-8 word from the specified position.
  *
@@ -21,22 +22,19 @@ FRISO_API int utf8_next_word(
 {
     if ( *idx >= task->length ) return 0;
 
-    //register uint_t t;
-    task->bytes = get_utf8_bytes( task->text[ *idx ] );
+    // Get the number of bytes the current Unicode character occupies in UTF-8
+    task->unicode = get_utf8_unicode(task->text + (*idx));
+    if (task->unicode >= Cn_T2S_MinChr && task->unicode <= Cn_T2S_MaxChr) {
+        uint16_t alt = Cn_T2S[task->unicode];
+        if (alt) {
+            task->unicode = alt;
+        }
+    }
 
-    //for ( t = 0; t < task->bytes; t++ ) {
-    //    __word[t] = task->text[ (*idx)++ ];
-    //}
-
-    //change the loop to memcpy.
-    //it is more efficient.
-    //@date 2013-09-04
-    memcpy(__word, task->text + (*idx), task->bytes);
-    (*idx) += task->bytes;
+    // Encode to UTF-8
+    task->bytes = unicode_to_utf8(task->unicode, __word);
     __word[task->bytes] = '\0';
-
-    //the unicode counter was moved here from version 1.6.0
-    task->unicode = get_utf8_unicode( __word );
+    *idx += task->bytes;
 
     return task->bytes;
 }

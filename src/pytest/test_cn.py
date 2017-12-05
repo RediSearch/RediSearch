@@ -8,6 +8,14 @@ import os
 SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'cn_sample.txt')
 GENTXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'genesis.txt')
 
+GEN_CN_S = """
+太初，上帝创造了天地。 那时，大地空虚混沌，还没有成形，黑暗笼罩着深渊，上帝的灵运行在水面上。 上帝说：“要有光！”就有了光。 上帝看光是好的，就把光和暗分开， 称光为昼，称暗为夜。晚上过去，早晨到来，这是第一天。 上帝说：“水与水之间要有穹苍，把水分开。” 果然如此。上帝开辟了穹苍，用穹苍将水上下分开。 上帝称穹苍为天空。晚上过去，早晨到来，这是第二天。
+"""
+
+GEN_CN_T = """
+太初，上帝創造了天地。 那時，大地空虛混沌，還沒有成形，黑暗籠罩著深淵，上帝的靈運行在水面上。 上帝說：「要有光！」就有了光。 上帝看光是好的，就把光和暗分開， 稱光為晝，稱暗為夜。晚上過去，早晨到來，這是第一天。 上帝說：「水與水之間要有穹蒼，把水分開。」 果然如此。上帝開闢了穹蒼，用穹蒼將水上下分開。 上帝稱穹蒼為天空。晚上過去，早晨到來，這是第二天。
+"""
+
 class CnTestCase(ModuleTestCase('../redisearch.so')):
     def testCn(self):
         text = open(SRCTEXT).read()
@@ -40,3 +48,17 @@ Redis支持主从同步。数据可以从主服务器向任意数量的从服务
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
         # Should not crash!
         self.cmd('ft.search', 'idx', 'redis', 'highlight')
+    
+    def testTradSimp(self):
+        # Ensure that traditional chinese characters get converted to their simplified variants
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+
+        self.cmd('ft.add', 'idx', 'genS', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_S)
+        self.cmd('ft.add', 'idx', 'genT', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_T)
+
+        res = self.cmd('ft.search', 'idx', '那时', 'language', 'chinese', 'highlight', 'summarize')
+        self.assertEqual([2L, 'genT', ['txt', '<b>\xe9\x82\xa3\xe6\x99\x82</b>\xef... '], 'genS', ['txt', '<b>\xe9\x82\xa3\xe6\x97\xb6</b>\xef... ']], res)
+        
+        # The variants should still show up as different, so as to not modify
+        self.assertTrue('那時' in res[2][1])
+        self.assertTrue('那时' in res[4][1])
