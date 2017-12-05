@@ -14,12 +14,13 @@
 
 // Enumeration of possible value types
 typedef enum {
-  RSValue_Number,
-  RSValue_String,
-  RSValue_Null,
-  RSValue_RedisString,
+  RSValue_Number = 0x01,
+  RSValue_String = 0x02,
+  RSValue_Null = 0x04,
+  RSValue_RedisString = 0x08,
   // An array of values, that can be of any type
-  RSValue_Array,
+  RSValue_Array = 0x10,
+
 } RSValueType;
 
 // Variant value union
@@ -43,19 +44,28 @@ typedef struct rsvalue {
     // redis string value
     struct RedisModuleString *rstrval;
   };
-  RSValueType t;
+  RSValueType t : 31;
+  int shouldFree : 1;
 } RSValue;
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if the
  * value needs to be detached */
 static inline RSValue RS_StringVal(char *str, uint32_t len) {
-  return (RSValue){.t = RSValue_String, .strval = {.str = str, .len = len}};
+  return (RSValue){.t = RSValue_String, .shouldFree = 1, .strval = {.str = str, .len = len}};
+}
+
+static inline RSValue RS_StringValStatic(char *str, uint32_t len) {
+  return (RSValue){.t = RSValue_String, .shouldFree = 0, .strval = {.str = str, .len = len}};
 }
 
 /* Wrap a string with length into a value object, assuming the string is a null terminated C string
  */
 static inline RSValue RS_CStringVal(char *str) {
   return RS_StringVal(str, strlen(str));
+}
+
+static inline RSValue RS_CStringValStatic(char *str) {
+  return RS_StringValStatic(str, strlen(str));
 }
 
 /* Wrap a redis string value */
@@ -83,14 +93,16 @@ static inline const char *RSValue_StringPtrLen(const RSValue *value, size_t *len
 /* Wrap a number into a value object */
 static inline RSValue RS_NumVal(double n) {
   return (RSValue){
-      .t = RSValue_Number, .numval = n,
+      .t = RSValue_Number,
+      .numval = n,
   };
 }
 
 /* Wrap an array of RSValue objects into an RSValue array object */
 static inline RSValue RS_ArrVal(RSValue *vals, uint32_t len) {
   return (RSValue){
-      .t = RSValue_Array, .arrval = {.vals = vals, .len = len},
+      .t = RSValue_Array,
+      .arrval = {.vals = vals, .len = len},
   };
 }
 
@@ -151,6 +163,34 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   return REDISMODULE_OK;
 }
 
+static void RSValue_Print(RSValue *v) {
+  if (!v) {
+    printf("nil");
+  }
+  switch (v->t) {
+    case RSValue_String:
+      printf("%.*s", v->strval.len, v->strval.str);
+      break;
+    case RSValue_RedisString:
+      printf("%s", RedisModule_StringPtrLen(v->rstrval, NULL));
+      break;
+    case RSValue_Number:
+      printf("%f", v->numval);
+      break;
+    case RSValue_Null:
+      printf("NULL");
+      break;
+    case RSValue_Array:
+      printf("[");
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        RSValue_Print(&v->arrval.vals[i]);
+        printf(", ");
+      }
+      printf("]");
+      break;
+  }
+}
+
 /* A result field is a key/value pair of variant type, used inside a value map */
 typedef struct {
   const char *key;
@@ -165,7 +205,7 @@ static RSField RS_NewField(const char *k, RSValue val) {
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 static void RSValue_Free(RSValue *v) {
-  if (v->t == RSValue_String) {
+  if (v->t == RSValue_String && v->shouldFree) {
     free(v->strval.str);
   } else if (v->t == RSValue_Array) {
     for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -252,5 +292,13 @@ static void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
     if (freeKeys) free((void *)m->fields[i].key);
   }
   free(m);
+}
+
+static void RSFieldMap_Print(RSFieldMap *m) {
+  for (uint16_t i = 0; i < m->len; i++) {
+    printf("%s: ", m->fields[i].key);
+    RSValue_Print(&m->fields[i].val);
+    printf("\n");
+  }
 }
 #endif
