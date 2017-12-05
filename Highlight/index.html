@@ -591,6 +591,18 @@
   </li>
 
     
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Chinese/" title="Chinese Support" class="md-nav__link">
+      Chinese Support
+    </a>
+  </li>
+
+    
   </ul>
 </nav>
                   </div>
@@ -663,9 +675,9 @@
                 
                 
                 <h1 id="highlighting&quot;_&quot;api">Highlighting API<a class="headerlink" href="#highlighting&quot;_&quot;api" title="Permanent link">&para;</a></h1>
-<p>The highlighting API allows you to have only the relvant (matching)
-portions of document matches returned. This allows users to quickly see how a
-document relates to their query.</p>
+<p>The highlighting API allows you to have only the  relevant portions of document matching a search query returned as a result. 
+This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.</p>
+<p>RediSearch implements high performance highlighting an summarization algorithms, with the following API: </p>
 <h3 id="command&quot;_&quot;syntax">Command Syntax<a class="headerlink" href="#command&quot;_&quot;syntax" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
@@ -684,29 +696,34 @@ both actions in the same query.</p>
 </pre></div>
 
 
-<p>Summarization or snippetization will fragment the text into smaller sized
-snippets; each snippet will contain the found term(s) and some additional
+<p>Summarization  will fragment the text into smaller sized snippets; each snippet will contain the found term(s) and some additional
 surrounding context.</p>
-<p>Redis Search can perform summarization using the <code>SUMMARIZE</code> keyword. If no
-additional arguments are passed, all <em>returned fields</em> are summarized using
-built-in defaults.</p>
+<p>RediSearch can perform summarization using the <code>SUMMARIZE</code> keyword. If no additional arguments are passed, 
+all <em>returned fields</em> are summarized using built-in defaults.</p>
 <p>The <code>SUMMARIZE</code> keyword accepts the following arguments:</p>
 <ul>
-<li><strong><code>FIELDS</code></strong> If present, must be the first argument. This should be followed
+<li>
+<p><strong><code>FIELDS</code></strong>: If present, must be the first argument. This should be followed
     by the number of fields to summarize, which itself is followed by a list of
-    fields. Each field present is summarized. If no <code>FIELD</code> directive is passed,
-    then <em>all</em> fields returned are summarized.</li>
-<li><strong><code>FRAGS</code></strong> How many fragments should be returned. If not specified, a sane
-    default is used.</li>
-<li><strong><code>LEN</code></strong> The number of context words each fragment should contain. Context
+    fields. Each field present is summarized. If no <code>FIELDS</code> directive is passed,
+    then <em>all</em> fields returned are summarized.</p>
+</li>
+<li>
+<p><strong><code>FRAGS</code></strong>: How many fragments should be returned. If not specified, a default of 3 is used.</p>
+</li>
+<li>
+<p><strong><code>LEN</code></strong> The number of context words each fragment should contain. Context
     words surround the found term. A higher value will return a larger block of
-    text.</li>
-<li><strong><code>SEPARATOR</code></strong> The string used to divide between individual summary snippets.
+    text.</p>
+</li>
+<li>
+<p><strong><code>SEPARATOR</code></strong> The string used to divide between individual summary snippets.
     The default is <code>...</code> which is common among search engines; but you may
     override this with any other string if you desire to programmatically divide them
     later on. You may use a newline sequence, as newlines are stripped from the
     result body anyway (thus, it will not be conflated with an embedded newline
-    in the text)</li>
+    in the text)</p>
+</li>
 </ul>
 <h4 id="highlighting">Highlighting<a class="headerlink" href="#highlighting" title="Permanent link">&para;</a></h4>
 <div class="codehilite"><pre><span></span>FT.SEARCH ... HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
@@ -716,18 +733,21 @@ built-in defaults.</p>
 <p>Highlighting will highlight the found term (and its variants) with a user-defined
 tag. This may be used to display the matched text in a different typeface using
 a markup language, or to otherwise make the text appear differently.</p>
-<p>Redis Search can perform highlighting using the <code>HIGHLIGHT</code> keyword. If no
-additional arguments are passed, all <em>returned fields</em> are highlighted using
-build-in defaults.</p>
+<p>RediSearch can perform highlighting using the <code>HIGHLIGHT</code> keyword. If no
+additional arguments are passed, all <em>returned fields</em> are highlighted using built-in defaults.</p>
 <p>The <code>HIGHLIGHT</code> keyword accepts the following arguments:</p>
 <ul>
-<li><strong><code>FIELDS</code></strong> If present, must be the first argument. This should be followed
+<li>
+<p><strong><code>FIELDS</code></strong> If present, must be the first argument. This should be followed
     by the number of fields to highlight, which itself is followed by a list of
-    fields. Each field present is highlighted. If no <code>FIELD</code> directive is passed,
-    then <em>all</em> fields returned are highlighted.</li>
-<li><strong><code>TAGS</code></strong> If present, must be followed by two strings; the first is prepended
+    fields. Each field present is highlighted. If no <code>FIELDS</code> directive is passed,
+    then <em>all</em> fields returned are highlighted.</p>
+</li>
+<li>
+<p><strong><code>TAGS</code></strong> If present, must be followed by two strings; the first is prepended
     to each term match, and the second is appended to it. If no <code>TAGS</code> are
-    specified, a built-in tag value is appended and prepended.</li>
+    specified, a built-in tag value is appended and prepended.</p>
+</li>
 </ul>
 <h4 id="field&quot;_&quot;selection">Field Selection<a class="headerlink" href="#field&quot;_&quot;selection" title="Permanent link">&para;</a></h4>
 <p>If no specific fields are passed to the <code>RETURN</code>, <code>SUMMARIZE</code>, or <code>HIGHLIGHT</code>
