@@ -38,6 +38,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 

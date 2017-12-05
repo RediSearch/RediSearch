@@ -31,12 +31,12 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
  * */
 inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
   int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc->conc;
+  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
 
   do {
 
     // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching) {
+    if (allowSwitching && cxc) {
       CONCURRENT_CTX_TICK(cxc);
       // need to abort - return EOF
       if (rp->ctx.qxc->state == QueryState_Aborted) {
