@@ -136,6 +136,42 @@ KHTableEntry *KHTable_GetEntry(KHTable *table, const void *s, size_t n, uint32_t
   return KHTable_InsertNewEntry(table, hash, bucket);
 }
 
+void KHTableIter_Init(KHTable *ht, KHTableIterator *iter) {
+  iter->ht = ht;
+  iter->curBucket = 0;
+  iter->cur = ht->buckets[iter->curBucket];
+}
+
+KHTableEntry *KHtableIter_Next(KHTableIterator *iter) {
+  KHTableEntry *ret = iter->cur;
+
+  if (!iter->cur) {
+    for (++iter->curBucket; iter->curBucket < iter->ht->numBuckets; ++iter->curBucket) {
+      iter->cur = iter->ht->buckets[iter->curBucket];
+      if (iter->cur) {
+        ret = iter->cur;
+        break;
+      }
+    }
+  }
+
+  if (iter->cur) {
+    iter->cur = iter->cur->next;
+  }
+  return ret;
+}
+
+void KHTable_FreeEx(KHTable *table, void *arg,
+                    void (*Free)(KHTableEntry *e, void *ctx, void *arg)) {
+  KHTableIterator iter;
+  KHTableIter_Init(table, &iter);
+  KHTableEntry *ent;
+  while ((ent = KHtableIter_Next(&iter))) {
+    Free(ent, table->alloc, arg);
+  }
+  KHTable_Free(table);
+}
+
 static void khTable_Dump(const KHTable *table, FILE *fp) {
   printf("Table=%p\n", table);
   printf("NumEntries: %lu\n", table->numItems);

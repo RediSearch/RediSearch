@@ -23,7 +23,9 @@
  * The entry should contain the key and the key length, or at least have a way
  * that it may be accessed (See Compare function below)
  */
-typedef struct KHTableEntry { struct KHTableEntry *next; } KHTableEntry;
+typedef struct KHTableEntry {
+  struct KHTableEntry *next;
+} KHTableEntry;
 
 typedef struct {
   // Compare two entries and see if they match
@@ -83,7 +85,7 @@ typedef struct KHTable {
  * ctx is the allocator context passed to Alloc()
  * estSize is the approximate size of the table. This is used to estimate how
  * many buckets to initially create, and can help save on the number of rehashes.
- * 
+ *
  * Note that currently there is no API to free individual elements. It is assumed
  * that the allocator is a block allocator.
  */
@@ -101,6 +103,14 @@ void KHTable_Free(KHTable *table);
 void KHTable_Clear(KHTable *table);
 
 /**
+ * Free individual items. This is passed both the `ctx` (as the context from
+ * KHTable_Init()), and the `arg` (for the current call).
+ *
+ * This function also has the effect of calling KHTable_Free()
+ */
+void KHTable_FreeEx(KHTable *table, void *arg,
+                    void (*Free)(KHTableEntry *entry, void *ctx, void *arg));
+/**
  * Get an entry from the hash table.
  * s, n are the buffer and length of the key. hash must be provided and is the
  * hashed value of the key. This should be consistent with whatever procs.Hash()
@@ -116,5 +126,14 @@ KHTableEntry *KHTable_GetEntry(KHTable *table, const void *s, size_t n, uint32_t
  * Dumps a textual representation of the hash table to the given output stream
  */
 void KHTable_Dump(const KHTable *table, FILE *fp);
+
+typedef struct {
+  KHTable *ht;
+  size_t curBucket;
+  KHTableEntry *cur;
+} KHTableIterator;
+
+void KHTableIter_Init(KHTable *ht, KHTableIterator *iter);
+KHTableEntry *KHtableIter_Next(KHTableIterator *iter);
 
 #endif

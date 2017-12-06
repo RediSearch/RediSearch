@@ -2,6 +2,7 @@
 #include "../util/khtable.h"
 #include "../util/fnv.h"
 #include <string.h>
+#include <assert.h>
 
 typedef struct {
   KHTableEntry base;
@@ -29,9 +30,18 @@ static uint32_t calcHash(const char *s) {
 
 static KHTableProcs myProcs = {.Alloc = myAlloc, .Hash = myHash, .Compare = myEntryCompare};
 
+static void *pCtx = (void *)0x01;
+static void *pArg = (void *)0x02;
+
+static void freeFn(KHTableEntry *ent, void *ctx, void *arg) {
+  free(ent);
+  assert(ctx == pCtx);
+  assert(arg == pArg);
+}
+
 int testKhTable() {
   KHTable kht;
-  KHTable_Init(&kht, &myProcs, NULL, 4);
+  KHTable_Init(&kht, &myProcs, pCtx, 4);
 
   MyEntry *ent = NULL;
   ent = (void *)KHTable_GetEntry(&kht, "key", 0, calcHash("key"), NULL);
@@ -53,6 +63,8 @@ int testKhTable() {
   ent2 = (void *)KHTable_GetEntry(&kht, "key", 0, calcHash("key"), &isNew);
   ASSERT(ent2 == ent);
   ASSERT(isNew == 0);
+
+  KHTable_FreeEx(&kht, pArg, freeFn);
   return 0;
 }
 
