@@ -26,9 +26,16 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
   //   n++;
   // }
   // printf("%p: Have %lu available blocks\n", blocks, n);
-  // if (reuse) {
-  //   assert(blocks->avail);
-  // }
+  if (reuse) {
+    // assert(blocks->avail);
+  } else if (blocks->avail) {
+    cur = blocks->avail;
+    while (cur) {
+      BlkAllocBlock *curNext = cur->next;
+      free(cur);
+      cur = curNext;
+    }
+  }
 }
 
 void BlkAlloc_FreeAll(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize) {
