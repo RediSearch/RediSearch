@@ -21,6 +21,8 @@ int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   p->res->docId = ++p->counter;
   // printf("%s\n", p->values[p->counter % p->numvals]);
   RSFieldMap_Set(&p->res->fields, "value", RS_CStringValStatic(p->values[p->counter % p->numvals]));
+  RSFieldMap_Set(&p->res->fields, "score", RS_NumVal((double)p->counter));
+
   *res = *p->res;
   return RS_RESULT_OK;
 }
@@ -40,6 +42,8 @@ int testGroupBy() {
 
   Grouper *gr = NewGrouper("value", "val", NULL);
   Grouper_AddReducer(gr, NewCounter("countie"));
+  Grouper_AddReducer(gr, NewSummer("score", NULL));
+
   ResultProcessor *gp = NewGrouperProcessor(gr, mp);
   SearchResult *res = NewSearchResult();
   TimeSample ts;
