@@ -69,6 +69,7 @@ static int testCnTokenize(void) {
     ASSERT(pos == t.pos);
   }
   cnTok->Free(cnTok);
+  free(cnTxt);
   return 0;
 }
 
