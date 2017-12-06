@@ -2,14 +2,12 @@
 
 struct counter {
   size_t count;
-  char *name;
 };
 
-void *counter_NewInstance(void *privdata, const char *name) {
-  struct counterCtx *ctx = privdata;
+void *counter_NewInstance(void *privdata) {
+
   struct counter *ctr = malloc(sizeof(*ctr));
   ctr->count = 0;
-  ctr->name = strdup(name);
   return ctr;
 }
 
@@ -19,9 +17,9 @@ int counter_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-int counter_Finalize(void *ctx, SearchResult *res) {
+int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
   struct counter *ctr = ctx;
-  RSFieldMap_Set(&res->fields, ctr->name, RS_NumVal(ctr->count));
+  RSFieldMap_Set(&res->fields, key, RS_NumVal(ctr->count));
   return 1;
 }
 
@@ -32,11 +30,10 @@ void counter_Free(Reducer *r) {
 }
 void counter_FreeInstance(void *p) {
   struct counter *c = p;
-  free(c->name);
   free(c);
 }
 
-Reducer *NewCounter() {
+Reducer *NewCounter(const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = counter_Add;
   r->Finalize = counter_Finalize;
@@ -44,5 +41,6 @@ Reducer *NewCounter() {
   r->FreeInstance = counter_FreeInstance;
   r->NewInstance = counter_NewInstance;
   r->privdata = NULL;
+  r->alias = alias ? alias : "count";
   return r;
 }

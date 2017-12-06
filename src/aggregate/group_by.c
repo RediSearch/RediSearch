@@ -4,10 +4,38 @@
 #include "reducer.h"
 
 typedef struct {
+  void *ptr;
+  void (*free)(void *);
+} GroupCtx;
+
+typedef struct {
+  size_t len;
+  GroupCtx ptrs[];
+} Group;
+
+Group *NewGroup(size_t len) {
+  Group *g = malloc(sizeof(Group) + len * sizeof(GroupCtx));
+  g->len = len;
+  return g;
+}
+
+void Group_Free(void *p) {
+  Group *g = p;
+  for (size_t i = 0; i < g->len; i++) {
+    g->ptrs[i].free(g->ptrs[i].ptr);
+  }
+  free(g);
+}
+
+#define GROUP_CTX(g, i) (g->ptrs[i].ptr)
+
+typedef struct {
   TrieMap *groups;
   TrieMapIterator *iter;
   const char *property;
-  Reducer *reducer;
+  const char *alias;
+  Reducer **reducers;
+  size_t numReducers;
   int accumulating;
   int sortKeyIdx;
 } Grouper;
@@ -32,8 +60,11 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
       return RS_RESULT_EOF;
     }
 
-    if (!g->reducer->Finalize(p, r)) {
-      continue;
+    // Add a property with the group name
+    RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
+    Group *gr = p;
+    for (size_t i = 0; i < g->numReducers; i++) {
+      g->reducers[i]->Finalize(GROUP_CTX(gr, i), g->reducers[i]->alias, r);
     }
     return RS_RESULT_OK;
 
@@ -78,13 +109,19 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   if (grouper_EncodeKey(g, res, buf, sizeof(buf))) {
 
-    void *group = TrieMap_Find(g->groups, buf, strlen(buf));
-    if (!group || group == TRIEMAP_NOTFOUND) {
-      group = g->reducer->NewInstance(g->reducer->privdata, buf);
+    Group *group = TrieMap_Find(g->groups, buf, strlen(buf));
+    if (!group || (void *)group == TRIEMAP_NOTFOUND) {
+
+      group = NewGroup(g->numReducers);
+      for (size_t i = 0; i < g->numReducers; i++) {
+        group->ptrs[i].ptr = g->reducers[i]->NewInstance(g->reducers[i]->privdata);
+        group->ptrs[i].free = g->reducers[i]->FreeInstance;
+      }
       TrieMap_Add(g->groups, buf, strlen(buf), group, NULL);
     }
-
-    g->reducer->Add(group, res);
+    for (size_t i = 0; i < g->numReducers; i++) {
+      g->reducers[i]->Add(GROUP_CTX(group, i), res);
+    }
   }
   return RS_RESULT_QUEUED;
 }
@@ -93,24 +130,40 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 void Grouper_Free(struct resultProcessor *p) {
   Grouper *g = p->ctx.privdata;
 
-  TrieMap_Free(g->groups, g->reducer->FreeInstance);
-  g->reducer->Free(g->reducer);
+  TrieMap_Free(g->groups, Group_Free);
+  for (size_t i = 0; i < g->numReducers; i++) {
+    g->reducers[i]->Free(g->reducers[i]);
+  }
+  free(g->reducers);
   free(g);
   free(p);
 }
 
-ResultProcessor *NewGrouper(ResultProcessor *upstream, const char *property, Reducer *reducer,
-                            RSSortingTable *stbl) {
+Grouper *NewGrouper(const char *property, const char *alias, RSSortingTable *tbl) {
   Grouper *g = malloc(sizeof(*g));
   g->groups = NewTrieMap();
   g->iter = NULL;
-  g->sortKeyIdx = RSSortingTable_GetFieldIdx(stbl, property);
+  g->sortKeyIdx = RSSortingTable_GetFieldIdx(tbl, property);
   g->property = property;
-  g->reducer = reducer;
+  g->alias = alias;
+  g->reducers = NULL;
+  g->numReducers = 0;
   g->accumulating = 1;
+
+  return g;
+}
+ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream) {
 
   ResultProcessor *p = NewResultProcessor(upstream, g);
   p->Next = Grouper_Next;
   p->Free = Grouper_Free;
   return p;
+}
+
+void Grouper_AddReducer(Grouper *g, Reducer *r) {
+  if (!r) return;
+
+  g->numReducers++;
+  g->reducers = realloc(g->reducers, g->numReducers * sizeof(Reducer *));
+  g->reducers[g->numReducers - 1] = r;
 }

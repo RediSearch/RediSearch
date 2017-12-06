@@ -3,7 +3,7 @@
 #include <aggregate/aggregate.h>
 #include <aggregate/reducer.h>
 #include "test_util.h"
-
+#include "time_sample.h"
 struct mockProcessorCtx {
   int counter;
   char **values;
@@ -11,7 +11,7 @@ struct mockProcessorCtx {
   SearchResult *res;
 };
 
-#define NUM_RESULTS 1000
+#define NUM_RESULTS 10000000
 
 int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
@@ -38,16 +38,22 @@ int testGroupBy() {
   mp->Next = mock_Next;
   mp->Free = NULL;
 
-  ResultProcessor *gr = NewGrouper(mp, "value", NewCounter(), NULL);
-
+  Grouper *gr = NewGrouper("value", "val", NULL);
+  Grouper_AddReducer(gr, NewCounter("countie"));
+  ResultProcessor *gp = NewGrouperProcessor(gr, mp);
   SearchResult *res = NewSearchResult();
-  while (ResultProcessor_Next(gr, res, 0) != RS_RESULT_EOF) {
+  TimeSample ts;
+  TimeSampler_Start(&ts);
+  while (ResultProcessor_Next(gp, res, 0) != RS_RESULT_EOF) {
     RSFieldMap_Print(res->fields);
     printf("\n");
     SearchResult_Free(res);
     res = NewSearchResult();
   }
-  gr->Free(gr);
+  TimeSampler_End(&ts);
+  printf("%d iterations in %fms, %fns/iter", NUM_RESULTS, TimeSampler_DurationSec(&ts) * 1000,
+         (double)(TimeSampler_DurationNS(&ts)) / (double)NUM_RESULTS);
+  gp->Free(gp);
   RETURN_TEST_SUCCESS;
 }
 

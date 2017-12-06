@@ -220,45 +220,40 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-      // if (!(n->flags & TM_NODE_SORTED) && n->numChildren > 10) {
-      //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode
-      //   *),
-      //         __cmp_nodes);
-      //   // printf("%.*s ... ", n->numChildren, __trieMapNode_childKey(n,
-      //   0));
-      //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1,
-      //   __cmp_chars);
-      //   //  printf("%.*s\n", n->numChildren, __trieMapNode_childKey(n, 0));
+      // if (!(n->flags & TM_NODE_SORTED) && n->numChildren > 2) {
+      //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
+      //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
       //   n->flags |= TM_NODE_SORTED;
       // }
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
-      if (n->flags & TM_NODE_SORTED) {
-        int bottom = 0, top = n->numChildren - 1;
+      // if (n->flags & TM_NODE_SORTED) {
+      //   int bottom = 0, top = n->numChildren - 1;
 
-        while (bottom <= top) {
-          int mid = (bottom + top) / 2;
+      //   while (bottom <= top) {
+      //     int mid = (bottom + top) / 2;
 
-          char cc = *__trieMapNode_childKey(n, mid);
-          if (c < cc) {
-            top = mid - 1;
-          } else if (c > cc) {
-            bottom = mid + 1;
-          } else {
-            nextChild = __trieMapNode_children(n)[mid];
-            break;
-          }
+      //     char cc = *__trieMapNode_childKey(n, mid);
+      //     if (c == cc) {
+      //       nextChild = __trieMapNode_children(n)[mid];
+      //       break;
+      //     } else if (c < cc) {
+      //       top = mid - 1;
+      //     } else {
+      //       bottom = mid + 1;
+      //     }
+      //   }
+
+      // } else {
+      tm_len_t nc = n->numChildren;
+      while (i < nc) {
+        if (str[offset] == childKeys[i]) {
+          nextChild = __trieMapNode_children(n)[i];
+          break;
         }
-
-      } else {
-        while (i < n->numChildren) {
-          if (str[offset] == childKeys[i]) {
-            nextChild = __trieMapNode_children(n)[i];
-            break;
-          }
-          ++i;
-        }
+        ++i;
       }
+      //}
 
       // we couldn't find a matching child
       n = nextChild;
@@ -358,9 +353,9 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
 }
 
 /* Optimize the node and its children:
-*   1. If a child should be deleted - delete it and reduce the child count
-*   2. If a child has a single child - merge them
-*/
+ *   1. If a child should be deleted - delete it and reduce the child count
+ *   2. If a child has a single child - merge them
+ */
 void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
   int i = 0;
   TrieMapNode **nodes = __trieMapNode_children(n);
@@ -502,7 +497,7 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 /* the current top of the iterator stack */
 #define __tmi_current(it) &it->stack[it->stackOffset - 1]
 
-/* Step itearator return codes below: */
+  /* Step itearator return codes below: */
 
 #define TM_ITERSTATE_SELF 0
 #define TM_ITERSTATE_CHILDREN 1
@@ -514,7 +509,10 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node) {
     it->stack = realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
   it->stack[it->stackOffset++] = (__tmi_stackNode){
-      .childOffset = 0, .stringOffset = 0, .n = node, .state = TM_ITERSTATE_SELF,
+      .childOffset = 0,
+      .stringOffset = 0,
+      .n = node,
+      .state = TM_ITERSTATE_SELF,
   };
 }
 

@@ -3,7 +3,10 @@
 #include <result_processor.h>
 #include "reducer.h"
 
-ResultProcessor *NewGrouper(ResultProcessor *upstream, const char *property, Reducer *reducer,
-                            RSSortingTable *stbl);
+typedef struct Groper Grouper;
+
+Grouper *NewGrouper(const char *property, const char *alias, RSSortingTable *tbl);
+ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream);
+void Grouper_AddReducer(Grouper *g, Reducer *r);
 
 #endif
