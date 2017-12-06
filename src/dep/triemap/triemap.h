@@ -49,16 +49,16 @@ TrieMap *NewTrieMap();
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 
 /* Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
-* it already existed.
-*
-* If value is given, it is saved as a pyaload inside the trie node.
-* If the key already exists, we replace the old value with the new value, using
-* free() to free the old value.
-*
-* If cb is given, instead of replacing and freeing, we call the callback with
-* the old and new value, and the function should return the value to set in the
-* node, and take care of freeing any unwanted pointers. The returned value
-* can be NULL and doesn't have to be either the old or new value.
+ * it already existed.
+ *
+ * If value is given, it is saved as a pyaload inside the trie node.
+ * If the key already exists, we replace the old value with the new value, using
+ * free() to free the old value.
+ *
+ * If cb is given, instead of replacing and freeing, we call the callback with
+ * the old and new value, and the function should return the value to set in the
+ * node, and take care of freeing any unwanted pointers. The returned value
+ * can be NULL and doesn't have to be either the old or new value.
  */
 int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
 
@@ -68,7 +68,7 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  * NOTE: If the key does not exist in the trie, we return the special
  * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
  * comparing to it, becase NULL can be a valid result.
-*/
+ */
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
 
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -85,7 +85,7 @@ void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
  * find a random node.
  * Assign's the key to str and saves its len (the key is NOT null terminated).
  * NOTE: It is the caller's responsibility to free the key string
-  */
+ */
 int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr);
 
 /* Get the value of a random element under a specific prefix. NULL if the prefix was not found */

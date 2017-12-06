@@ -8,11 +8,13 @@
 typedef struct reducer {
   void *privdata;
 
-  void *(*NewInstance)(void *privdata, const char *name);
+  const char *alias;
+
+  void *(*NewInstance)(void *privdata);
 
   int (*Add)(void *ctx, SearchResult *res);
 
-  int (*Finalize)(void *ctx, SearchResult *res);
+  int (*Finalize)(void *ctx, const char *key, SearchResult *res);
 
   // Free just frees up the processor. If left as NULL we simply use free()
   void (*Free)(struct reducer *r);
@@ -20,6 +22,6 @@ typedef struct reducer {
   void (*FreeInstance)(void *ctx);
 } Reducer;
 
-Reducer *NewCounter();
+Reducer *NewCounter(const char *alias);
 
 #endif
