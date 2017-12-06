@@ -24,4 +24,6 @@ typedef struct reducer {
 
 Reducer *NewCounter(const char *alias);
 
+Reducer *NewSummer(const char *property, const char *alias);
+
 #endif
