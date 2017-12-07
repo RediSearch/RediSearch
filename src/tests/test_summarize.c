@@ -76,6 +76,9 @@ int testFragmentize() {
   static const size_t numFrags = 3;
   Array contexts[numFrags];
   memset(&contexts, 0, sizeof contexts[0] * numFrags);
+  for (size_t ii = 0; ii < numFrags; ++ii) {
+    Array_Init(&contexts[ii]);
+  }
 
   FragmentList_HighlightFragments(&fragList, &tags, 15, contexts, numFrags,
                                   HIGHLIGHT_ORDER_SCOREPOS);

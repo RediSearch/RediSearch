@@ -128,7 +128,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
                            RSValue *returnedField, SearchResult *r, RSIndexResult *indexResult,
-                           int options) {
+                           int options, Array *iovsArr) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -141,9 +141,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   size_t docLen;
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
-  if (byteOffsets == NULL ||
-      !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, &frags,
-                          options)) {
+  if (byteOffsets == NULL || !fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult,
+                                                 byteOffsets, &frags, options)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
@@ -166,11 +165,11 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     return;
   }
 
-  Array *iovsArr;
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
+  for (size_t ii = 0; ii < numIovArr; ++ii) {
+    Array_Resize(&iovsArr[ii], 0);
+  }
 
-  // Storage for the list of fragments
-  iovsArr = calloc(numIovArr, sizeof(*iovsArr));
   FragmentList_HighlightFragments(&frags, &tags, fieldInfo->summarizeSettings.contextLen, iovsArr,
                                   numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
 
@@ -204,15 +203,24 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(hlText, hlLen));
 
   Array_Free(&bufTmp);
-  for (size_t ii = 0; ii < numIovArr; ++ii) {
-    Array_Free(iovsArr + ii);
-  }
-  free(iovsArr);
   FragmentList_Free(&frags);
 }
 
+static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
+  if (*curSize < newSize) {
+    *iovsArrp = realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
+  }
+  for (size_t ii = 0; ii < *curSize; ++ii) {
+    Array_Resize((*iovsArrp) + ii, 0);
+  }
+  for (size_t ii = *curSize; ii < newSize; ++ii) {
+    Array_Init((*iovsArrp) + ii);
+  }
+  *curSize = newSize;
+}
+
 static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField *spec,
-                         RSIndexResult *indexResult) {
+                         RSIndexResult *indexResult, Array *iovsArr) {
   const char *fName = spec->name;
   RSValue *fieldValue = RSFieldMap_Get(r->fields, fName);
 
@@ -223,7 +231,8 @@ static void processField(ResultProcessorCtx *ctx, SearchResult *r, ReturnedField
     return;
   }
   hlpContext *hlpCtx = ctx->privdata;
-  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult, hlpCtx->fragmentizeOptions);
+  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, r, indexResult, hlpCtx->fragmentizeOptions,
+                 iovsArr);
 }
 
 static RSIndexResult *getIndexResult(QueryProcessingCtx *ctx, t_docId docId) {
@@ -251,9 +260,14 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (!ir) {
     return RS_RESULT_QUEUED;
   }
+
+  Array *iovsArr = NULL;
+  size_t numIovsArr = 0;
+
   const hlpContext *hlpCtx = ctx->privdata;
   const FieldList *fields = hlpCtx->fields;
   RSByteOffsets *byteOffsets = r->md->byteOffsets;
+
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
       if (fields->fields[ii].mode == SummarizeMode_None &&
@@ -264,16 +278,22 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
         ReturnedField combinedSpec = {0};
         normalizeSettings(fields->fields[ii].name, fields->fields + ii, &fields->defaultField,
                           &combinedSpec);
-        processField(ctx, r, &combinedSpec, ir);
+        resetIovsArr(&iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
+        processField(ctx, r, &combinedSpec, ir, iovsArr);
       }
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
     for (size_t ii = 0; ii < r->fields->len; ++ii) {
       ReturnedField spec = {0};
       normalizeSettings(r->fields->fields[ii].key, NULL, &fields->defaultField, &spec);
-      processField(ctx, r, &spec, ir);
+      resetIovsArr(&iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
+      processField(ctx, r, &spec, ir, iovsArr);
     }
   }
+  for (size_t ii = 0; ii < numIovsArr; ++ii) {
+    Array_Free(&iovsArr[ii]);
+  }
+  free(iovsArr);
   return RS_RESULT_OK;
 }
 

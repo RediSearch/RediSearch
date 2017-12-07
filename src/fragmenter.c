@@ -381,7 +381,6 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
 
   for (size_t ii = 0; ii < niovs; ++ii) {
     Array *curArr = iovArrList + ii;
-    Array_Init(curArr);
 
     const char *beforeLimit = NULL, *afterLimit = NULL;
     const Fragment *curFrag = frags + indexes[ii];
