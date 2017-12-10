@@ -119,8 +119,7 @@ typedef struct {
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId);
 
 /* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only
- * -
- * purely negative queries. If the root of the query is a negative expression, we cannot process it
+ * - purely negative queries. If the root of the query is a negative expression, we cannot process it
  * without a positive expression. So we create a wildcard iterator that basically just iterates all
  * the incremental document ids, and matches every skip within its range. */
 IndexIterator *NewWildcardIterator(t_docId maxId);
