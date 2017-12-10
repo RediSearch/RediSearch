@@ -106,28 +106,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   return ret;
 }
 
-void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
-  // printf("adding child %d to ", child->docId);
-  // IndexResult_Print(parent, 0);
-
-  RSAggregateResult *agg = &parent->agg;
-
-  /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
-    agg->children = rm_realloc(agg->children, agg->childrenCap * sizeof(RSIndexResult *));
-  }
-  agg->children[agg->numChildren++] = child;
-  // update the parent's type mask
-  agg->typeMask |= child->type;
-  parent->freq += child->freq;
-  parent->docId = child->docId;
-  parent->fieldMask |= child->fieldMask;
-  // printf("\nAfter: ");
-  // IndexResult_Print(parent, 0);
-  // printf("\n");
-}
 
 void IndexResult_Print(RSIndexResult *r, int depth) {
   for (int i = 0; i < depth; i++) printf("  ");
@@ -209,13 +188,7 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
   }
 }
 
-/* Reset the aggregate result's child vector */
-inline void AggregateResult_Reset(RSIndexResult *r) {
 
-  r->docId = 0;
-  r->agg.numChildren = 0;
-  r->agg.typeMask = 0;
-}
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;

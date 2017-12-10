@@ -3,7 +3,7 @@
 
 #include "varint.h"
 #include "redisearch.h"
-
+#include "rmalloc.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
@@ -13,8 +13,13 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
-void AggregateResult_Reset(RSIndexResult *r);
+/* Reset the aggregate result's child vector */
+static inline void AggregateResult_Reset(RSIndexResult *r) {
 
+  r->docId = 0;
+  r->agg.numChildren = 0;
+  r->agg.typeMask = 0;
+}
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap);
 
@@ -29,8 +34,23 @@ RSIndexResult *NewNumericResult();
 RSIndexResult *NewTokenRecord(RSQueryTerm *term);
 
 /* Append a child to an aggregate result */
-void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
+static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
+  RSAggregateResult *agg = &parent->agg;
+
+  /* Increase capacity if needed */
+  if (agg->numChildren >= agg->childrenCap) {
+    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
+    agg->children = rm_realloc(agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+  }
+  agg->children[agg->numChildren++] = child;
+  // update the parent's type mask
+  agg->typeMask |= child->type;
+  parent->freq += child->freq;
+  parent->docId = child->docId;
+  parent->fieldMask |= child->fieldMask;
+ 
+}
 /* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);

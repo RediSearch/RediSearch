@@ -158,7 +158,7 @@ at EOF
 int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   UnionContext *ui = ctx;
 
-  // printf("UI %p skipto %d\n", ui, docId);
+  //printf("UI %p skipto %d\n", ui, docId);
 
   if (docId == 0) {
     return UI_Read(ctx, hit);
@@ -177,6 +177,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   t_docId minDocId = UINT32_MAX;
   IndexIterator *it;
   RSIndexResult *res;
+  RSIndexResult *minResult = NULL;
   // skip all iterators to docId
   for (int i = 0; i < num; i++) {
     // this happens for non existent words
@@ -184,24 +185,29 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     if (!it->HasNext(it->ctx)) continue;
 
     res = NULL;
-
     // If the requested docId is larger than the last read id from the iterator,
     // we need to read an entry from the iterator, seeking to this docId
     if (ui->docIds[i] < docId) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
       }
-      if (res) ui->docIds[i] = res->docId;
+      if (res) 
+        ui->docIds[i] = res->docId;
 
     } else {
-      // if the iterator is at an end - we avoid reading the entry
+      // if the iterator is ahead of docId - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
       rc = (ui->docIds[i] == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+      res = it->Current(it->ctx);
     }
 
     // if we've read successfully, update the minimal docId we've found
     if (ui->docIds[i] && rc != INDEXREAD_EOF) {
-      minDocId = MIN(ui->docIds[i], minDocId);
+      if (ui->docIds[i] < minDocId || ! minResult) {
+        minResult = res;
+        minDocId = ui->docIds[i];
+      }
+      //sminDocId = MIN(ui->docIds[i], minDocId);
     }
 
     // we found a hit - continue to all results matching the same docId
@@ -237,7 +243,10 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   if (found > 0) {
     return INDEXREAD_OK;
   }
-
+  if (minResult) {
+    *hit = minResult;
+    AggregateResult_AddChild(ui->current, minResult);
+  }
   // not found...
   ui->minDocId = minDocId;
   return INDEXREAD_NOTFOUND;
@@ -441,8 +450,8 @@ int II_Read(void *ctx, RSIndexResult **hit) {
         if (rc == INDEXREAD_EOF) goto eof;
         ic->docIds[i] = h->docId;
       }
-
-      if (ic->docIds[i] > ic->lastDocId) {
+      
+       if (ic->docIds[i] > ic->lastDocId) {
         ic->lastDocId = ic->docIds[i];
         break;
       }
@@ -452,7 +461,7 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       } else {
         ic->lastDocId++;
       }
-    }
+    } 
 
     if (nh == ic->num) {
       // printf("II %p HIT @ %d\n", ic, ic->current->docId);
