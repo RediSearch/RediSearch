@@ -1412,7 +1412,7 @@ static void yy_syntax_error(
 
     int len = TOKEN.len + 100;
     char buf[len];
-    snprintf(buf, len, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos, TOKEN.len, TOKEN.s);
+    snprintf(buf, len, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     
     ctx->ok = 0;
     ctx->errorMsg = strdup(buf);
