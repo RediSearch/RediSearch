@@ -261,8 +261,10 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     char *dup = malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
-    ctx->ExpandToken(ctx, dup, sl + 1,
-                     0x0);  // TODO: Set proper flags here
+    ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
+    if (sl != token->len || strncmp(stemmed, token->str, token->len)) {
+      ctx->ExpandToken(ctx, strndup(stemmed, sl), sl, 0x0);
+    }
   }
 }
 
