@@ -44,7 +44,7 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
     }
     if (*x) end = x + 1;
     // consume an all space string
-    if (x == orig) end = x;
+    if (x == orig && isspace(*x)) end = x;
   }
   *toklen = end - orig;
   return orig;
