@@ -43,6 +43,15 @@ typedef enum {
   Document_HasOffsetVector = 0x08
 } RSDocumentFlags;
 
+typedef struct {
+  const char *keyStr;
+  size_t keyLen;
+} RSDocumentKey;
+
+static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
+  return (RSDocumentKey){.keyStr = key, .keyLen = len};
+}
+
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *

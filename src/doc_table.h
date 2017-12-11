@@ -15,12 +15,12 @@ typedef struct {
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(DocIdMap *m, const char *key, size_t keyLen);
+t_docId DocIdMap_Get(DocIdMap *m, RSDocumentKey key);
 
 /* Put a new doc id in the map if it does not already exist */
-void DocIdMap_Put(DocIdMap *m, const char *key, size_t keyLen, t_docId docId);
+void DocIdMap_Put(DocIdMap *m, RSDocumentKey key, t_docId docId);
 
-int DocIdMap_Delete(DocIdMap *m, const char *key, size_t keyLen);
+int DocIdMap_Delete(DocIdMap *m, RSDocumentKey key);
 /* Free the doc id map */
 void DocIdMap_Free(DocIdMap *m);
 
@@ -54,11 +54,11 @@ RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
  * same key. This may result in document duplication in results  */
-t_docId DocTable_Put(DocTable *t, const char *key, size_t keyLen, double score, u_char flags,
+t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
                      const char *payload, size_t payloadSize);
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
-const char *DocTable_GetKey(DocTable *t, t_docId docId);
+RSDocumentKey DocTable_GetKey(DocTable *t, t_docId docId);
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 float DocTable_GetScore(DocTable *t, t_docId docId);
@@ -81,21 +81,21 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
-t_docId DocTable_GetId(DocTable *dt, const char *key, size_t keyLen);
+t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key);
 static inline t_docId DocTable_GetIdR(DocTable *dt, RedisModuleString *key) {
   size_t keyLen;
   const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
-  return DocTable_GetId(dt, keyStr, keyLen);
+  return DocTable_GetId(dt, MakeDocKey(keyStr, keyLen));
 }
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-int DocTable_Delete(DocTable *t, const char *key, size_t keyLen);
+int DocTable_Delete(DocTable *t, RSDocumentKey key);
 static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *key) {
   size_t keyLen;
   const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
-  return DocTable_Delete(t, keyStr, keyLen);
+  return DocTable_Delete(t, MakeDocKey(keyStr, keyLen));
 }
 
 /* Save the table to RDB. Called from the owning index */

@@ -503,9 +503,8 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *keyStr = RedisModule_StringPtrLen(argv[2], &keyLen);
   const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
   const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
-
-  t_docId d =
-      DocTable_Put(&sp->docs, keyStr, keyLen, (float)score, (u_char)flags, payload, payloadSize);
+  RSDocumentKey docKey = MakeDocKey(keyStr, keyLen);
+  t_docId d = DocTable_Put(&sp->docs, docKey, (float)score, (u_char)flags, payload, payloadSize);
 
   if (offsetsSize) {
     Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);

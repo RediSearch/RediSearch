@@ -29,8 +29,8 @@ inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
 }
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
-t_docId DocTable_GetId(DocTable *dt, const char *key, size_t keyLen) {
-  return DocIdMap_Get(&dt->dim, key, keyLen);
+t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key) {
+  return DocIdMap_Get(&dt->dim, key);
 }
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
@@ -101,10 +101,10 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
  * table.
  *
  * Return 0 if the document is already in the index  */
-t_docId DocTable_Put(DocTable *t, const char *key, size_t keyLen, double score, u_char flags,
+t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
                      const char *payload, size_t payloadSize) {
 
-  t_docId xid = DocIdMap_Get(&t->dim, key, keyLen);
+  t_docId xid = DocIdMap_Get(&t->dim, key);
   // if the document is already in the index, return 0
   if (xid) {
     return 0;
@@ -129,13 +129,13 @@ t_docId DocTable_Put(DocTable *t, const char *key, size_t keyLen, double score, 
     t->memsize += payloadSize + sizeof(RSPayload);
   }
 
-  sds keyPtr = sdsnewlen(key, keyLen);
+  sds keyPtr = sdsnewlen(key.keyStr, key.keyLen);
 
   t->docs[docId] = (RSDocumentMetadata){
       .keyPtr = keyPtr, .score = score, .flags = flags, .payload = dpl, .maxFreq = 1};
   ++t->size;
   t->memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
-  DocIdMap_Put(&t->dim, key, keyLen, docId);
+  DocIdMap_Put(&t->dim, key, docId);
   return docId;
 }
 
@@ -147,11 +147,11 @@ RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
 }
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
-inline const char *DocTable_GetKey(DocTable *t, t_docId docId) {
+inline RSDocumentKey DocTable_GetKey(DocTable *t, t_docId docId) {
   if (docId == 0 || docId > t->maxDocId) {
-    return NULL;
+    return MakeDocKey(NULL, 0);
   }
-  return t->docs[docId].keyPtr;
+  return MakeDocKey(t->docs[docId].keyPtr, sdslen(t->docs[docId].keyPtr));
 }
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
@@ -192,8 +192,8 @@ void DocTable_Free(DocTable *t) {
   DocIdMap_Free(&t->dim);
 }
 
-int DocTable_Delete(DocTable *t, const char *key, size_t keyLen) {
-  t_docId docId = DocIdMap_Get(&t->dim, key, keyLen);
+int DocTable_Delete(DocTable *t, RSDocumentKey key) {
+  t_docId docId = DocIdMap_Get(&t->dim, key);
   if (docId && docId <= t->maxDocId) {
 
     RSDocumentMetadata *md = &t->docs[docId];
@@ -204,7 +204,7 @@ int DocTable_Delete(DocTable *t, const char *key, size_t keyLen) {
     }
 
     md->flags |= Document_Deleted;
-    return DocIdMap_Delete(&t->dim, key, keyLen);
+    return DocIdMap_Delete(&t->dim, key);
   }
   return 0;
 }
@@ -295,7 +295,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
     // We always save deleted docs to rdb, but we don't want to load them back to the id map
     if (!(t->docs[i].flags & Document_Deleted)) {
-      DocIdMap_Put(&t->dim, t->docs[i].keyPtr, sdslen(t->docs[i].keyPtr), i);
+      DocIdMap_Put(&t->dim, MakeDocKey(t->docs[i].keyPtr, sdslen(t->docs[i].keyPtr)), i);
     }
     t->memsize += sizeof(RSDocumentMetadata) + len;
   }
@@ -339,9 +339,9 @@ DocIdMap NewDocIdMap() {
   return (DocIdMap){m};
 }
 
-t_docId DocIdMap_Get(DocIdMap *m, const char *key, size_t keyLen) {
+t_docId DocIdMap_Get(DocIdMap *m, RSDocumentKey key) {
 
-  void *val = TrieMap_Find(m->tm, (char *)key, keyLen);
+  void *val = TrieMap_Find(m->tm, (char *)key.keyStr, key.keyLen);
   if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
@@ -355,17 +355,17 @@ void *_docIdMap_replace(void *oldval, void *newval) {
   return newval;
 }
 
-void DocIdMap_Put(DocIdMap *m, const char *key, size_t keyLen, t_docId docId) {
+void DocIdMap_Put(DocIdMap *m, RSDocumentKey key, t_docId docId) {
 
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(m->tm, (char *)key, keyLen, pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, (char *)key.keyStr, key.keyLen, pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
   TrieMap_Free(m->tm, RedisModule_Free);
 }
 
-int DocIdMap_Delete(DocIdMap *m, const char *key, size_t keyLen) {
-  return TrieMap_Delete(m->tm, (char *)key, strlen(key), RedisModule_Free);
+int DocIdMap_Delete(DocIdMap *m, RSDocumentKey key) {
+  return TrieMap_Delete(m->tm, (char *)key.keyStr, key.keyLen, RedisModule_Free);
 }

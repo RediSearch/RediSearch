@@ -237,14 +237,15 @@ static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const cha
   size_t keyLen;
   const char *keyStr = RedisModule_StringPtrLen(doc->docKey, &keyLen);
   DocTable *table = &spec->docs;
+  RSDocumentKey docKey = MakeDocKey(keyStr, keyLen);
   if (replace) {
-    if (DocTable_Delete(table, keyStr, keyLen)) {
+    if (DocTable_Delete(table, docKey)) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
     }
   }
 
-  doc->docId = DocTable_Put(table, keyStr, keyLen, doc->score, 0, doc->payload, doc->payloadSize);
+  doc->docId = DocTable_Put(table, docKey, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;
