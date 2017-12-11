@@ -24,7 +24,7 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   }
 
   /* Read the minum query prefix allowed */
-  if (argc > 2 && RMUtil_ArgIndex("MINPREFIX", argv, argc) >= 0) {
+  if (argc >= 2 && RMUtil_ArgIndex("MINPREFIX", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("MINPREFIX", argv, argc, "l", &RSGlobalConfig.minTermPrefix);
     if (RSGlobalConfig.minTermPrefix <= 0) {
       *err = "Invalid MINPREFIX value";
@@ -33,7 +33,7 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   }
 
   /* Read the maximum prefix expansions */
-  if (argc > 2 && RMUtil_ArgIndex("MAXEXPANSIONS", argv, argc) >= 0) {
+  if (argc >= 2 && RMUtil_ArgIndex("MAXEXPANSIONS", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("MAXEXPANSIONS", argv, argc, "l", &RSGlobalConfig.maxPrefixExpansions);
     if (RSGlobalConfig.maxPrefixExpansions <= 0) {
       *err = "Invalid MAXEXPANSIONS value";
@@ -42,7 +42,7 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   }
 
   /* Read the query timeout */
-  if (argc > 2 && RMUtil_ArgIndex("TIMEOUT", argv, argc) >= 0) {
+  if (argc >= 2 && RMUtil_ArgIndex("TIMEOUT", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("TIMEOUT", argv, argc, "l", &RSGlobalConfig.queryTimeoutMS);
     if (RSGlobalConfig.queryTimeoutMS < 0) {
       *err = "Invalid TIMEOUT value";
