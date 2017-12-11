@@ -15,7 +15,7 @@ IdFilter *NewIdFilter(RedisModuleString **args, int count, DocTable *dt) {
   ret->ids = calloc(count, sizeof(t_docId));
   for (int i = 0; i < count; i++) {
 
-    t_docId did = DocTable_GetId(dt, RedisModule_StringPtrLen(args[i], NULL));
+    t_docId did = DocTable_GetIdR(dt, args[i]);
     if (did) {
       ret->ids[ret->size++] = did;
     }

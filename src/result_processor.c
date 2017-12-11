@@ -508,7 +508,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
   RedisModuleString *idstr =
-      RedisModule_CreateString(lc->ctx->redisCtx, r->md->key, strlen(r->md->key));
+      RedisModule_CreateString(lc->ctx->redisCtx, DMD_KeyPtr(r->md), DMD_KeyLen(r->md));
   if (!lc->fields->explicitReturn) {
     Redis_LoadDocument(lc->ctx, idstr, &doc);
   } else {

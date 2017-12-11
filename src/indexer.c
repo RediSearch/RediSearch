@@ -196,11 +196,11 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 }
 
 /**
-* Simple implementation, writes all the entries for a single document. This
-* function is used when there is only one item in the queue. In this case
-* it's simpler to forego building the merged dictionary because there is
-* nothing to merge.
-*/
+ * Simple implementation, writes all the entries for a single document. This
+ * function is used when there is only one item in the queue. In this case
+ * it's simpler to forego building the merged dictionary because there is
+ * nothing to merge.
+ */
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -234,16 +234,17 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
 /** Assigns a document ID to a single document. */
 static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const char **errorString) {
-  const char *keystr = RedisModule_StringPtrLen(doc->docKey, NULL);
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(doc->docKey, &keyLen);
   DocTable *table = &spec->docs;
   if (replace) {
-    if (DocTable_Delete(table, keystr)) {
+    if (DocTable_Delete(table, keyStr, keyLen)) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
     }
   }
 
-  doc->docId = DocTable_Put(table, keystr, doc->score, 0, doc->payload, doc->payloadSize);
+  doc->docId = DocTable_Put(table, keyStr, keyLen, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;
@@ -254,11 +255,11 @@ static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const cha
 }
 
 /**
-* Performs bulk document ID assignment to all items in the queue.
-* If one item cannot be assigned an ID, it is marked as being errored.
-*
-* This function also sets the document's sorting vector, if present.
-*/
+ * Performs bulk document ID assignment to all items in the queue.
+ * If one item cannot be assigned an ID, it is marked as being errored.
+ *
+ * This function also sets the document's sorting vector, if present.
+ */
 static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {

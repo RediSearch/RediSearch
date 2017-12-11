@@ -955,7 +955,8 @@ int testDocTable() {
   int N = 100;
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    t_docId nd = DocTable_Put(&dt, buf, (double)i, Document_DefaultFlags, buf, strlen(buf));
+    t_docId nd =
+        DocTable_Put(&dt, buf, strlen(buf), (double)i, Document_DefaultFlags, buf, strlen(buf));
     ASSERT_EQUAL(did + 1, nd);
     did = nd;
   }
@@ -964,7 +965,7 @@ int testDocTable() {
   ASSERT_EQUAL(N, dt.maxDocId);
   ASSERT(dt.cap > dt.size);
 #ifdef __x86_64__
-  ASSERT_EQUAL(7580, (int)dt.memsize);
+  ASSERT_EQUAL(7780, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -978,25 +979,41 @@ int testDocTable() {
     RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT(dmd != NULL);
     ASSERT(dmd->flags & Document_HasPayload);
-    ASSERT_STRING_EQ((char *)dmd->key, (char *)buf);
+    ASSERT_STRING_EQ(DMD_KeyPtr(dmd), (char *)buf);
     char *pl = dmd->payload->data;
     ASSERT(!(strncmp(pl, (char *)buf, dmd->payload->len)));
 
     ASSERT_EQUAL((int)dmd->score, i);
     ASSERT_EQUAL((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
-    t_docId xid = DocIdMap_Get(&dt.dim, buf);
+    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
 
     ASSERT_EQUAL((int)xid, i + 1);
 
-    int rc = DocTable_Delete(&dt, dmd->key);
+    int rc = DocTable_Delete(&dt, DMD_KeyPtr(dmd), DMD_KeyLen(dmd));
     ASSERT_EQUAL(1, rc);
     ASSERT((int)(dmd->flags & Document_Deleted));
   }
 
-  ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar"));
+  ASSERT(0 == DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
 
   ASSERT(NULL == DocTable_Get(&dt, N + 2));
+
+  t_docId strDocId = DocTable_Put(&dt, "Hello", 5, 1.0, 0, NULL, 0);
+  ASSERT(0 != strDocId);
+
+  // Test that binary keys also work here
+  static const char binBuf[] = {"Hello\x00World"};
+  const size_t binBufLen = 11;
+  ASSERT(0 == DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+
+  t_docId binDocId = DocTable_Put(&dt, binBuf, binBufLen, 1.0, 0, NULL, 0);
+  ASSERT(0 != binDocId);
+  ASSERT(binDocId != strDocId);
+
+  ASSERT_EQUAL(binDocId, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  ASSERT(strDocId == DocIdMap_Get(&dt.dim, "Hello", 5));
+
   DocTable_Free(&dt);
   return 0;
 }

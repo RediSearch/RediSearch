@@ -442,7 +442,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   } while (0);
 
   Document *doc = &aCtx->doc;
-  t_docId docId = DocTable_GetId(&sctx->spec->docs, RedisModule_StringPtrLen(doc->docKey, NULL));
+  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
@@ -502,7 +502,7 @@ done:
 }
 
 int Document_CanAdd(Document *doc, IndexSpec *sp, int replace) {
-  if (!replace && DocTable_GetId(&sp->docs, RedisModule_StringPtrLen(doc->docKey, NULL)) != 0) {
+  if (!replace && DocTable_GetIdR(&sp->docs, doc->docKey) != 0) {
     return 0;
   }
   return 1;
