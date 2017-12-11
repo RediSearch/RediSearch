@@ -10,7 +10,7 @@ typedef uint32_t t_offset;
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
 #define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
