@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include "rmutil/sds.h"
 
 typedef uint32_t t_docId;
 typedef uint32_t t_offset;
@@ -60,7 +59,7 @@ typedef struct {
  */
 typedef struct {
   /* The actual key of the document, not the internal incremental id */
-  sds keyPtr;
+  char *keyPtr;
 
   /* The a-priory document score as given by the user on insertion */
   float score;
@@ -81,13 +80,6 @@ typedef struct {
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
 } RSDocumentMetadata;
-
-static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
-  if (len) {
-    *len = sdslen(dmd->keyPtr);
-  }
-  return dmd->keyPtr;
-}
 
 /* Forward declaration of the opaque query object */
 struct RSQuery;

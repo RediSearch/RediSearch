@@ -7,6 +7,7 @@
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
+#include "rmutil/sds.h"
 
 static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
   return (RSDocumentKey){.str = key, .len = len};
@@ -15,6 +16,12 @@ static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
   size_t len;
   const char *p = RedisModule_StringPtrLen(s, &len);
   return MakeDocKey(p, len);
+}
+static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
+  if (len) {
+    *len = sdslen(dmd->keyPtr);
+  }
+  return dmd->keyPtr;
 }
 
 // Note, this should be in redisearch.h, but it doesn't have RM_ headers and I'm not
