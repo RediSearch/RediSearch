@@ -499,12 +499,11 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
   }
 
-  size_t payloadSize = 0, offsetsSize = 0, keyLen = 0;
-  const char *keyStr = RedisModule_StringPtrLen(argv[2], &keyLen);
+  size_t payloadSize = 0, offsetsSize = 0;
   const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
   const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
-  RSDocumentKey docKey = MakeDocKey(keyStr, keyLen);
-  t_docId d = DocTable_Put(&sp->docs, docKey, (float)score, (u_char)flags, payload, payloadSize);
+  t_docId d = DocTable_Put(&sp->docs, MakeDocKeyR(argv[2]), (float)score, (u_char)flags, payload,
+                           payloadSize);
 
   if (offsetsSize) {
     Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);

@@ -42,11 +42,6 @@ typedef enum {
   Document_HasOffsetVector = 0x08
 } RSDocumentFlags;
 
-typedef struct {
-  const char *str;
-  size_t len;
-} RSDocumentKey;
-
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *

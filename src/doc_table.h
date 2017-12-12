@@ -9,14 +9,26 @@
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
 
+// Simple pointer/size wrapper for a document key.
+typedef struct {
+  const char *str;
+  size_t len;
+} RSDocumentKey;
+
+// Returns a "DocumentKey" object suitable for use with the various DocTable
+// functions below. This returns a DocKey from a simple pointer/length pair
 static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
   return (RSDocumentKey){.str = key, .len = len};
 }
+
+// This returns a DocumentKey from a RedisModuleString, curring out some boilerplate
 static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
   size_t len;
   const char *p = RedisModule_StringPtrLen(s, &len);
   return MakeDocKey(p, len);
 }
+
+// Retrieves the pointer and length for the document's key.
 static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
   if (len) {
     *len = sdslen(dmd->keyPtr);
@@ -24,8 +36,7 @@ static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *l
   return dmd->keyPtr;
 }
 
-// Note, this should be in redisearch.h, but it doesn't have RM_ headers and I'm not
-// sure if we want to introduce it for the sake of a utility function.
+// Convenience function to create a RedisModuleString from the document's key
 static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *dmd,
                                                      RedisModuleCtx *ctx) {
   return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
@@ -80,7 +91,10 @@ RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
 t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
                      const char *payload, size_t payloadSize);
 
-/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
+/* Get the "real" external key for an incremental i
+ * If the document ID is not in the table, the returned key's `str` member will
+ * be NULL
+ */
 RSDocumentKey DocTable_GetKey(DocTable *t, t_docId docId);
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */

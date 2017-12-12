@@ -234,10 +234,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
 /** Assigns a document ID to a single document. */
 static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const char **errorString) {
-  size_t keyLen;
-  const char *keyStr = RedisModule_StringPtrLen(doc->docKey, &keyLen);
   DocTable *table = &spec->docs;
-  RSDocumentKey docKey = MakeDocKey(keyStr, keyLen);
+  RSDocumentKey docKey = MakeDocKeyR(doc->docKey);
   if (replace) {
     if (DocTable_Delete(table, docKey)) {
       // decrease the number of documents in the index stats only if the document was there
