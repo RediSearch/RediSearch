@@ -82,8 +82,12 @@ typedef struct {
   struct RSByteOffsets *byteOffsets;
 } RSDocumentMetadata;
 
-#define DMD_KeyPtr(dmd) (dmd)->keyPtr
-#define DMD_KeyLen(dmd) sdslen(DMD_KeyPtr(dmd))
+static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
+  if (len) {
+    *len = sdslen(dmd->keyPtr);
+  }
+  return dmd->keyPtr;
+}
 
 /* Forward declaration of the opaque query object */
 struct RSQuery;

@@ -17,6 +17,13 @@ static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
   return MakeDocKey(p, len);
 }
 
+// Note, this should be in redisearch.h, but it doesn't have RM_ headers and I'm not
+// sure if we want to introduce it for the sake of a utility function.
+static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *dmd,
+                                                     RedisModuleCtx *ctx) {
+  return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
+}
+
 /* Map between external id an incremental id */
 typedef struct {
   TrieMap *tm;

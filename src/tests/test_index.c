@@ -979,7 +979,7 @@ int testDocTable() {
     RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT(dmd != NULL);
     ASSERT(dmd->flags & Document_HasPayload);
-    ASSERT_STRING_EQ(DMD_KeyPtr(dmd), (char *)buf);
+    ASSERT_STRING_EQ(dmd->keyPtr, (char *)buf);
     char *pl = dmd->payload->data;
     ASSERT(!(strncmp(pl, (char *)buf, dmd->payload->len)));
 
@@ -990,7 +990,7 @@ int testDocTable() {
 
     ASSERT_EQUAL((int)xid, i + 1);
 
-    int rc = DocTable_Delete(&dt, MakeDocKey(DMD_KeyPtr(dmd), DMD_KeyLen(dmd)));
+    int rc = DocTable_Delete(&dt, MakeDocKey(dmd->keyPtr, sdslen(dmd->keyPtr)));
     ASSERT_EQUAL(1, rc);
     ASSERT((int)(dmd->flags & Document_Deleted));
   }

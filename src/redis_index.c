@@ -457,8 +457,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
     for (size_t i = 1; i < dt->size; i++) {
       const RSDocumentMetadata *dmd = dt->docs + i;
-      Redis_DeleteKey(ctx->redisCtx,
-                      RedisModule_CreateString(ctx->redisCtx, DMD_KeyPtr(dmd), DMD_KeyLen(dmd)));
+      Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
     }
   }
 
