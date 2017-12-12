@@ -44,8 +44,8 @@ typedef enum {
 } RSDocumentFlags;
 
 typedef struct {
-  const char *keyStr;
-  size_t keyLen;
+  const char *str;
+  size_t len;
 } RSDocumentKey;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document

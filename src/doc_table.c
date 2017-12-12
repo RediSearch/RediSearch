@@ -129,7 +129,7 @@ t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
     t->memsize += payloadSize + sizeof(RSPayload);
   }
 
-  sds keyPtr = sdsnewlen(key.keyStr, key.keyLen);
+  sds keyPtr = sdsnewlen(key.str, key.len);
 
   t->docs[docId] = (RSDocumentMetadata){
       .keyPtr = keyPtr, .score = score, .flags = flags, .payload = dpl, .maxFreq = 1};
@@ -341,7 +341,7 @@ DocIdMap NewDocIdMap() {
 
 t_docId DocIdMap_Get(DocIdMap *m, RSDocumentKey key) {
 
-  void *val = TrieMap_Find(m->tm, (char *)key.keyStr, key.keyLen);
+  void *val = TrieMap_Find(m->tm, (char *)key.str, key.len);
   if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
@@ -359,7 +359,7 @@ void DocIdMap_Put(DocIdMap *m, RSDocumentKey key, t_docId docId) {
 
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(m->tm, (char *)key.keyStr, key.keyLen, pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, (char *)key.str, key.len, pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
@@ -367,5 +367,5 @@ void DocIdMap_Free(DocIdMap *m) {
 }
 
 int DocIdMap_Delete(DocIdMap *m, RSDocumentKey key) {
-  return TrieMap_Delete(m->tm, (char *)key.keyStr, key.keyLen, RedisModule_Free);
+  return TrieMap_Delete(m->tm, (char *)key.str, key.len, RedisModule_Free);
 }

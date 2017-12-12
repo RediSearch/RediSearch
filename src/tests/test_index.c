@@ -971,7 +971,7 @@ int testDocTable() {
     sprintf(buf, "doc_%d", i);
 
     RSDocumentKey docKey = DocTable_GetKey(&dt, i + 1);
-    ASSERT_STRING_EQ(docKey.keyStr, buf);
+    ASSERT_STRING_EQ(docKey.str, buf);
 
     float score = DocTable_GetScore(&dt, i + 1);
     ASSERT_EQUAL((int)score, i);

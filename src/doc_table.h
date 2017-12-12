@@ -9,7 +9,7 @@
 #include "byte_offsets.h"
 
 static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
-  return (RSDocumentKey){.keyStr = key, .keyLen = len};
+  return (RSDocumentKey){.str = key, .len = len};
 }
 static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
   size_t len;
