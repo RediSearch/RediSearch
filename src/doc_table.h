@@ -8,6 +8,15 @@
 #include "sortable.h"
 #include "byte_offsets.h"
 
+static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
+  return (RSDocumentKey){.keyStr = key, .keyLen = len};
+}
+static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
+  size_t len;
+  const char *p = RedisModule_StringPtrLen(s, &len);
+  return MakeDocKey(p, len);
+}
+
 /* Map between external id an incremental id */
 typedef struct {
   TrieMap *tm;
@@ -82,21 +91,11 @@ RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key);
-static inline t_docId DocTable_GetIdR(DocTable *dt, RedisModuleString *key) {
-  size_t keyLen;
-  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
-  return DocTable_GetId(dt, MakeDocKey(keyStr, keyLen));
-}
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
-static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *key) {
-  size_t keyLen;
-  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
-  return DocTable_Delete(t, MakeDocKey(keyStr, keyLen));
-}
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);

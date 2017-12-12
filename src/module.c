@@ -199,7 +199,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Find the document by its key */
-  t_docId docId = DocTable_GetIdR(&sp->docs, argv[2]);
+  t_docId docId = DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
@@ -565,7 +565,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int rc = DocTable_DeleteR(&sp->docs, argv[2]);
+  int rc = DocTable_Delete(&sp->docs, MakeDocKeyR(argv[2]));
   if (rc == 1) {
     sp->stats.numDocuments--;
     // Increment the index's garbage collector's scanning frequency after document deletions

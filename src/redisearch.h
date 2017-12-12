@@ -48,10 +48,6 @@ typedef struct {
   size_t keyLen;
 } RSDocumentKey;
 
-static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
-  return (RSDocumentKey){.keyStr = key, .keyLen = len};
-}
-
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
