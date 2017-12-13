@@ -8,20 +8,27 @@
   PROJECT floor 1 age
 
 */
+
+
+#define CMDPARSE_OK 0
+#define CMDPARSE_ERR 1
+
 typedef enum {
   CmdArg_Integer,
   CmdArg_Double,
   CmdArg_String,
   CmdArg_Tuple,
   CmdArg_Vector,
-} CmdArgType;
+  CmdArg_Object,
+  CmdArg_Flag,
+} CmdNodeType;
 
 
-struct cmdarg;
+struct cmdnode;
 
 typedef struct {
     const char *k;
-    struct cmdarg *v;
+    struct cmdnode *v;
 } CmdKeyValue;
 
 typedef struct {
@@ -32,7 +39,8 @@ typedef struct {
 
 typedef struct {
     size_t len;
-    struct cmdarg *args;
+    size_t cap;
+    struct cmdnode **args;
 } CmdArray;
 
 typedef struct {
@@ -41,7 +49,7 @@ typedef struct {
 } CmdString;
 
 // Variant value union
-typedef struct cmdarg {
+typedef struct cmdnode {
   union {
     // numeric value
     double d;
@@ -55,14 +63,81 @@ typedef struct cmdarg {
     CmdObject obj;
 
   };
-  CmdArgType type;
+  CmdNodeType type;
 } CmdNode;
 
 
-typedef struct CmdSchema {}CmdSchema;
+static inline CmdNode *NewCommandNode(CmdNodeType t) {
+    CmdNode *ret = calloc(1, sizeof(*ret));
+
+    ret->type = t;
+    return ret;
+}
+
+CmdNode *NewCmdString(const char *s) {
+    CmdNode *ret = NewCommandNode(CmdArg_String);
+    ret->s = (CmdString){.str = strdup(s), .len = strlen(s) };
+    return ret;
+}
+
+CmdNode *NewCmdObject(size_t cap) {
+    CmdNode *ret = NewCommandNode(CmdArg_Object);
+    ret->obj = (CmdObject){
+        .entries = calloc(cap, sizeof(CmdKeyValue)),
+        .cap = cap,
+        .len = 0,
+    };
+   
+    return ret;
+}
+
+CmdNode *NewCmdVector(size_t cap) {
+    CmdNode *ret = NewCommandNode(CmdArg_Vector);
+    ret->a = (CmdArray){
+        .args = calloc(cap, sizeof(CmdNode*)),
+        .cap = cap,
+        .len = 0,
+    };
+   
+    return ret;
+}
+
+
+int CmdObj_Set(CmdObject *obj, const char *key, CmdNode *val){ 
+
+    for (size_t i = 0; i < obj->len; i++) {
+        if (!strcmp(key, obj->entries[i].k)) {
+            // TODO: free memory
+            obj->entries[i].v = val;
+            return CMDPARSE_OK;
+        }
+    }
+    if (obj->len + 1 >= obj->cap) {
+        obj->cap *= 2;
+        obj->entries = realloc(obj->entries, obj->cap*sizeof(*obj->entries));
+    }
+    obj->entries[obj->len++] = (CmdKeyValue){.k = key, .v = val}
+    return CMDPARSE_OK;
+
+}
+int CmdVector_Append(CmdArray *arr, CmdNode *val) {
+
+    if (arr->len== arr->cap) {
+        return CMDPARSE_ERR;
+    }
+    arr->args[arr->len++] = val;
+    return CMDPARSE_OK;
+}
+
+
+typedef struct CmdSchema {
+    
+}CmdSchema;
 typedef struct CmdCommand {} CmdCommand;
 typedef struct CmdSubCommand ;
-typedef struct CmdSchemaArg{} CmdSchemaArg;
+typedef struct CmdSchemaArg{
+    char type;
+} CmdSchemaArg;
 typedef struct CmdSchemaFlag{} CmdSchemaFlag;
 typedef struct CmdSchemaOption{} CmdSchemaOption;
 typedef struct CmdSchemaUnion{} CmdSchemaUnion;
@@ -70,6 +145,15 @@ typedef struct CmdSchemaUnion{} CmdSchemaUnion;
 typedef struct CmdSchemaTuple {}CmdSchemaTuple;
 typedef struct CmdSchemaVector{} CmdSchemaVector;
 CmdSchema *NewCommand(const char *name);
+
+typedef enum {
+    CmdSchemaElement_Arg,
+    CmdSchemaElement_Tuple,
+    CmdSchemaElement_Vector,
+    CmdSchemaElement_Flag,
+    CmdSchemaElement_Option,
+    CmdSchemaElement_Union,
+} CmdSchemaElementType;
 
 typedef struct {
     union {
@@ -80,7 +164,7 @@ typedef struct {
         CmdSchemaOption opt;
         CmdSchemaUnion uni;
     };
-    int type;
+    CmdSchemaElementType type;
     int flags;
 } CmdSchemaElement;
 
@@ -115,29 +199,68 @@ typedef enum {
     CmdParser_Blocked = 0x02,
 }CmdParserStateFlags;
 
-#define CMDPARSE_OK 0
-#define CMDPARSE_ERR 1
-
 typedef struct {
     CmdSchemaNode *node;
     CmdParserStateFlags *edgeFlags;
 } CmdParserCtx;
 
-int CmdParser_ProcessNode(CmdSchemaNode *node, CmdNode **current, const char **argv, int  argc, int *pos, char **err) {
-    switch(node->type)
+
+int parseArg(CmdSchemaArg *arg, CmdNode **current, const char **argv, int  argc, int *pos, char **err) {
+
+    if (*pos + 2 >= argc) {
+        *err = strdup("Arguments out of range");
+        return CMDPARSE_ERR;
+    }
+    (*pos)++;
+    switch (arg->type) {
+        case 's':
+            *current = NewCmdString(argv[(*pos)++]);
+        break;
+        case 'l':
+        case 'd':
+        default:
+        return CMDPARSE_ERR;
+    }
+}
+int CmdParser_ProcessElement(CmdSchemaElement *elem, CmdNode **out, const char **argv, int  argc, int *pos, char **err) {
+    switch(elem->type) {
+        case CmdSchemaElement_Arg:
+        return parseArg(&elem->arg, out, argv, argc, pos, err);
+        default:
+        printf("Not supported yet...\n");
+        return CMDPARSE_ERR;
+    }
 }
 
+int CmdNode_AddChild(CmdNode *parent, const char *name, CmdNode *child, char **err) {
+
+    switch (parent->type) {
+        case CmdArg_Object:
+            return CmdObj_Set(&parent->obj, name, child);
+        
+        case CmdArg_Vector:
+            return CmdVector_Append(&parent->a, child);
+        
+        default: {
+            asprintf(err, "Cannot add child to node of type %d", parent->type);
+            return CMDPARSE_ERR;
+        }
+    }
+}
 int CmdParser_Parse(CmdSchemaNode *node, CmdNode *parent, const char **argv, int  argc, int *pos, char **err) {
 
-
-    CmdNode *current;
+    
+    CmdNode *current = NULL;
     // Parse the node value. This should consume tokens from the input array
-    if (CMDPARSE_ERR == CmdParser_ProcessNode(node, &current, argv, argc, pos, err)) {
+    if (CMDPARSE_ERR == CmdParser_ProcessElement(&node->val, &current, argv, argc, pos, err)) {
         return CMDPARSE_ERR;
     }
     // Add the current node to the parent
-    if (current)
-        CmdNode_AddChild(parent, current);
+    if (current) {
+        if (CMDPARSE_ERR == CmdNode_AddChild(parent, node->name, current, err)) {
+            return CMDPARSE_ERR;
+        }   
+    }
 
     // advance the position
     (*pos)++;
@@ -166,6 +289,7 @@ int CmdParser_Parse(CmdSchemaNode *node, CmdNode *parent, const char **argv, int
                 if (!(edge->flags & CmdSchema_Repeating)) {
                     sf[i] |= CmdParser_Blocked;
                 }
+                // If we just consumed a positional arg, we can't look for the next state behind it
                 if (edge->type == CmdSchemaNode_PositionalArg) {
                     minEdge = i;
                 }
@@ -192,6 +316,8 @@ end:
     return CMDPARSE_OK;
     
 }
+
+
 
 int CmdSchema_AddNamed(CmdSchema *s, const char *param, CmdSchemaElement *elem, CmdSchemaFlags flags);
 int CmdSchema_AddPositional(CmdSchema *s, const char *param, CmdSchemaElement *elem, CmdSchemaFlags flags);
