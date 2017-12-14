@@ -300,15 +300,19 @@ CmdSchemaNode *NewSchemaNode(CmdSchemaNodeType type, const char *name, CmdSchema
   return ret;
 }
 
+static inline void cmdSchema_addChild(CmdSchemaNode *parent, CmdSchemaNode *child) {
+  parent->size++;
+  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
+  parent->edges[parent->size - 1] = child;
+}
+
 int cmdSchema_genericAdd(CmdSchemaNode *s, CmdSchemaNodeType type, const char *param,
                          CmdSchemaElement *elem, CmdSchemaFlags flags) {
-  if (s->type != CmdSchemaNode_Schema) {
+  if (s->type != CmdSchemaNode_Schema && s->type != CmdSchemaNode_Union) {
     return CMDPARSE_ERR;
   }
 
-  s->size++;
-  s->edges = realloc(s->edges, s->size * sizeof(CmdSchemaNode *));
-  s->edges[s->size - 1] = NewSchemaNode(type, param, elem, flags);
+  cmdSchema_addChild(s, NewSchemaNode(type, param, elem, flags));
   return CMDPARSE_OK;
 }
 
@@ -353,9 +357,15 @@ CmdSchemaNode *NewSchema(const char *name) {
 CmdSchemaNode *CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name) {
   CmdSchemaNode *ret = NewSchemaNode(CmdSchemaNode_Flag, name,
                                      newSchemaElement(CmdSchemaElement_Flag), CmdSchema_Optional);
-  parent->size++;
-  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
-  parent->edges[parent->size - 1] = ret;
+  cmdSchema_addChild(parent, ret);
+  return ret;
+}
+
+CmdSchemaNode *CmdSchema_AddUnion(CmdSchemaNode *parent, const char *name) {
+
+  CmdSchemaNode *ret = NewSchemaNode(CmdSchemaNode_Union, name,
+                                     newSchemaElement(CmdSchemaElement_Union), CmdSchema_Optional);
+  cmdSchema_addChild(parent, ret);
   return ret;
 }
 
@@ -420,21 +430,14 @@ void CmdSchemaNode_Print(CmdSchemaNode *n, int depth) {
 
       break;
     case CmdSchemaNode_Schema:
+    case CmdSchemaNode_Union:
+
       printf("%s \n", n->name);
 
       for (int i = 0; i < n->size; i++) {
         CmdSchemaNode_Print(n->edges[i], depth + 1);
       }
 
-      break;
-
-    case CmdSchemaNode_Union:
-
-      for (int i = 0; i < n->size; i++) {
-        CmdSchemaNode_Print(n->edges[i], depth + 1);
-      }
-      pad(depth);
-      // printf("}\n");
       break;
 
     case CmdSchemaNode_Flag:
@@ -670,6 +673,14 @@ int CmdParser_Parse(CmdSchemaNode *node, CmdNode **parent, const char **argv, in
       return CMDPARSE_ERR;
     }
   }
+  if (node->type == CmdSchemaNode_Union) {
+    current = NewCmdVector(2);
+
+    // for sub-schemas - we append the schema to
+    if (CMDPARSE_ERR == CmdNode_AddChild(*parent, node->name, current, err)) {
+      return CMDPARSE_ERR;
+    }
+  }
 
   // continue to parse any remaining transitional states until we consume the entire input array
   CmdParserStateFlags sf[node->size];
@@ -751,10 +762,10 @@ int main() {
   CmdSchema_AddFlag(root, "XX");
   CmdSchema_AddNamed(root, "BAR", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddNamed(root, "XXX", CmdSchema_NewArg('s'), CmdSchema_Required);
-
-  CmdSchema_AddNamed(root, "LIMIT", CmdSchema_NewTuple("ll", (const char *[]){"FIRST", "LIMIT"}),
+  CmdSchemaNode *u = CmdSchema_AddUnion(root, "LimitOrArgs");
+  CmdSchema_AddNamed(u, "LIMIT", CmdSchema_NewTuple("ll", (const char *[]){"FIRST", "LIMIT"}),
                      CmdSchema_Optional);
-  CmdSchema_AddNamed(root, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Optional);
+  CmdSchema_AddNamed(u, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Optional);
 
   CmdSchemaNode *sub = CmdSchema_NewSubSchema(root, "SUB", CmdSchema_Optional);
   CmdSchema_AddNamed(sub, "MARINE", CmdSchema_NewArg('s'), CmdSchema_Required);
