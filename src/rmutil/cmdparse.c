@@ -690,7 +690,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
   }
   return CMDPARSE_OK;
 }
-
+/*
 int main() {
 
   CmdSchemaNode *root = NewSchema("FOO", "Just a test command");
@@ -731,3 +731,4 @@ int main() {
   }
   return 0;
 }
+*/

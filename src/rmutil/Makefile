@@ -26,6 +26,11 @@ test_periodic: test_periodic.o periodic.o
 	$(CC) -Wall -o $@ $^ -lc -lpthread -O0
 	@(sh -c ./$@)
 .PHONY: test_periodic
-	
+
+test_cmdparse: test_cmdparse.o cmdparse.o
+	$(CC) -Wall -o $@ $^ -lc -lpthread -O0
+	@(sh -c ./$@)
+
+.PHONY: test_cmdparse
 test: test_periodic test_vector
 .PHONY: test
