@@ -20,7 +20,7 @@ so keep it short!
 
         On 32 bit builds, at most 64 fields can be TEXT fields.
 
-        Notice that the more fields you have, the larger your index will be, as each additional 8 fiedls require one extra byte per index record to encode.
+        Notice that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
 
         You can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
         
