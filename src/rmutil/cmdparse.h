@@ -106,6 +106,10 @@ typedef struct {
   char type;
 } CmdSchemaVector;
 
+typedef struct {
+  const char *fmt;
+} CmdSchemaVariadic;
+
 /* Command schema element types */
 typedef enum {
   CmdSchemaElement_Arg,
@@ -113,6 +117,7 @@ typedef enum {
   CmdSchemaElement_Vector,
   CmdSchemaElement_Flag,
   CmdSchemaElement_Option,
+  CmdSchemaElement_Variadic,
 } CmdSchemaElementType;
 
 /* A single element in a command schema. */
@@ -123,6 +128,7 @@ typedef struct {
     CmdSchemaVector vec;
     CmdSchemaFlag flag;
     CmdSchemaOption opt;
+    CmdSchemaVariadic var;
   };
   CmdSchemaElementType type;
 } CmdSchemaElement;
@@ -204,6 +210,9 @@ CmdSchemaElement *CmdSchema_NewArg(const char type);
 /* Create a new vector to be added as a named or positional argument. A vector is a list of values
  * of the same type that starts with a length specifier (i.e. 3 foo bar baz) */
 CmdSchemaElement *CmdSchema_NewVector(const char type);
+
+/* Add a variadic vector. This can only be added at the end of the command */
+CmdSchemaElement *CmdSchema_NewVariadicVector(const char *fmt);
 
 /* Create a new option between mutually exclusive string values, to be added as a named/positional
  */
