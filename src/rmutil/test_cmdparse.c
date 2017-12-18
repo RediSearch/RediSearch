@@ -48,6 +48,7 @@ int testSchema() {
   ASSERT_STRING_EQ("BAZ", opt.opts[2]);
 
   printf("\n\n");
+  CmdSchemaNode_Free(root);
   CmdSchemaNode_Print(root, 0);
   return 0;
 }
@@ -105,6 +106,7 @@ int testTuple() {
   ASSERT(cmd == NULL);
   ASSERT(err != NULL);
   free(args);
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 
@@ -150,7 +152,7 @@ int testVector() {
   if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_ERR, rc);
   ASSERT(cmd == NULL);
-
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 
@@ -171,7 +173,7 @@ int testNamed() {
   ASSERT(bar);
   ASSERT(bar->type == CmdArg_String);
   ASSERT_STRING_EQ(bar->s.str, "baz");
-
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 
@@ -197,6 +199,7 @@ int testPositional() {
   ASSERT_EQUAL(baz->i, 123);
   CmdArg_Print(cmd, 0);
   CmdArg_Free(cmd);
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 
@@ -223,6 +226,7 @@ int testFlag() {
   ASSERT_EQUAL(baz->type, CmdArg_Flag);
   ASSERT(baz->b == 0);
   free(args);
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS
 }
 
@@ -263,7 +267,7 @@ int testOption() {
   ASSERT(cmd == NULL);
   ASSERT(err);
   free(args);
-
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS
 }
 
@@ -296,6 +300,7 @@ int testSubSchema() {
   ASSERT_EQUAL(CmdArg_String, bar->type);
   ASSERT_STRING_EQ("gaz", bar->s.str);
   CmdArg_Free(cmd);
+  CmdSchemaNode_Free(sc);
   free(args);
   RETURN_TEST_SUCCESS
 }
@@ -323,6 +328,7 @@ int testRequired() {
   ASSERT(err);
   free(args);
   free(err);
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS
 }
 
@@ -356,6 +362,7 @@ int testRepeating() {
   ASSERT_STRING_EQ("abc", c->s.str);
   CmdArg_Free(cmd);
   free(args);
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 
@@ -380,7 +387,7 @@ int testStrict() {
   ASSERT(cmd);
   CmdArg_Free(cmd);
   free(args);
-
+  CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
 TEST_MAIN({

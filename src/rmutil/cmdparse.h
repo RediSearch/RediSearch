@@ -172,6 +172,8 @@ typedef struct CmdSchemaNode {
 /* Create a new named schema with a given help message (can be left NULL) */
 CmdSchemaNode *NewSchema(const char *name, const char *help);
 
+void CmdSchemaNode_Free(CmdSchemaNode *n);
+
 /* Add a named parameter to a schema or sub-schema, with a given name, and an element which can be a
  * value, tuple, vector or option. Flags can indicate unique/repeating, or optional arg */
 int CmdSchema_AddNamed(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,

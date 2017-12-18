@@ -385,6 +385,16 @@ static int CmdSchemaNode_Match(CmdSchemaNode *n, CmdString *token) {
   }
 }
 
+void CmdSchemaNode_Free(CmdSchemaNode *n) {
+  if (n->type == CmdSchemaNode_Schema) {
+    for (int i = 0; i < n->size; i++) {
+      CmdSchemaNode_Free(n->edges[i]);
+    }
+    free(n->edges);
+  }
+  free(n->val);
+  free(n);
+}
 typedef enum {
   CmdParser_New = 0x00,
   CmdParser_Visited = 0x01,
