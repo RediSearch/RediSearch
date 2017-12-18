@@ -390,6 +390,62 @@ int testStrict() {
   CmdSchemaNode_Free(sc);
   RETURN_TEST_SUCCESS;
 }
+
+int testVariadic() {
+
+  CmdSchemaNode *sc = NewSchema("FOO", "Test command");
+  CmdSchema_AddNamed(sc, "BAR", CmdSchema_NewArg('l'), CmdSchema_Optional | CmdSchema_Repeating);
+  ASSERT_EQUAL(CMDPARSE_OK, CmdSchema_AddPostional(sc, "BAZ", CmdSchema_NewVariadicVector("sd"),
+                                                   CmdSchema_Required));
+  // can't add anything after a variadic vector
+  ASSERT_EQUAL(CMDPARSE_ERR,
+               CmdSchema_AddPostional(sc, "BAG", CmdSchema_NewArg('s'), CmdSchema_Required));
+
+  CmdSchemaNode_Print(sc, 0);
+  CmdString *args =
+      CmdParser_NewArgListV(10, "FOO", "BAR", "0", "one", "1", "two", "2", "three", "3", "four");
+  CmdArg *cmd = NULL;
+  char *err = NULL;
+  int rc = CmdParser_ParseCmd(sc, &cmd, args, 10, &err, 0);
+  printf("%s\n", err);
+  ASSERT_EQUAL(CMDPARSE_OK, rc);
+  ASSERT(cmd != NULL);
+
+  CmdArg *vec = CmdArg_FirstOf(cmd, "baz");
+  ASSERT(vec);
+  ASSERT_EQUAL(CmdArg_Array, vec->type);
+  ASSERT_EQUAL(3, vec->a.len);
+  CmdArgIterator it = CmdArg_Children(vec);
+  CmdArg *c;
+  int i = 0;
+  const char *expected[] = {"one", "two", "three"};
+  while (NULL != (c = CmdArgIterator_Next(&it))) {
+    ASSERT_EQUAL(CmdArg_Array, c->type);
+    ASSERT_EQUAL(2, c->a.len);
+
+    ASSERT_EQUAL(CmdArg_String, c->a.args[0]->type);
+    ASSERT_STRING_EQ(expected[i], c->a.args[0]->s.str);
+    i++;
+
+    ASSERT_EQUAL(i, c->a.args[1]->d);
+  }
+  ASSERT_EQUAL(3, i);
+
+  CmdArg_Print(cmd, 0);
+  CmdArg_Free(cmd);
+
+  // test strict parsing - we have an extra arg here...
+  rc = CmdParser_ParseCmd(sc, &cmd, args, 10, &err, 1);
+  printf("%s\n", err);
+  ASSERT_EQUAL(CMDPARSE_ERR, rc);
+  ASSERT(cmd == NULL);
+  ASSERT(err);
+
+  free(args);
+  CmdSchemaNode_Free(sc);
+  RETURN_TEST_SUCCESS;
+}
+
 TEST_MAIN({
   TESTFUNC(testSchema);
   TESTFUNC(testTuple);
@@ -402,5 +458,6 @@ TEST_MAIN({
   TESTFUNC(testRequired);
   TESTFUNC(testRepeating);
   TESTFUNC(testStrict);
+  TESTFUNC(testVariadic);
 
 })

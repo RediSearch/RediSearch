@@ -186,10 +186,16 @@ static CmdSchemaNode *NewSchemaNode(CmdSchemaNodeType type, const char *name,
   return ret;
 }
 
-static inline void cmdSchema_addChild(CmdSchemaNode *parent, CmdSchemaNode *child) {
+static int cmdSchema_addChild(CmdSchemaNode *parent, CmdSchemaNode *child) {
+  // make sure we are not adding anything after a variadic vector
+  if (parent->size > 0 && parent->edges[parent->size - 1]->val &&
+      parent->edges[parent->size - 1]->val->type == CmdSchemaElement_Variadic) {
+    return CMDPARSE_ERR;
+  }
   parent->size++;
   parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
   parent->edges[parent->size - 1] = child;
+  return CMDPARSE_OK;
 }
 
 int cmdSchema_genericAdd(CmdSchemaNode *s, CmdSchemaNodeType type, const char *param,
@@ -198,8 +204,7 @@ int cmdSchema_genericAdd(CmdSchemaNode *s, CmdSchemaNodeType type, const char *p
     return CMDPARSE_ERR;
   }
 
-  cmdSchema_addChild(s, NewSchemaNode(type, param, elem, flags, help));
-  return CMDPARSE_OK;
+  return cmdSchema_addChild(s, NewSchemaNode(type, param, elem, flags, help));
 }
 
 int CmdSchema_AddNamed(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,
@@ -242,6 +247,12 @@ CmdSchemaElement *CmdSchema_NewArg(const char type) {
 CmdSchemaElement *CmdSchema_NewVector(const char type) {
   CmdSchemaElement *ret = newSchemaElement(CmdSchemaElement_Vector);
   ret->vec.type = type;
+  return ret;
+}
+
+CmdSchemaElement *CmdSchema_NewVariadicVector(const char *fmt) {
+  CmdSchemaElement *ret = newSchemaElement(CmdSchemaElement_Variadic);
+  ret->var.fmt = fmt;
   return ret;
 }
 
@@ -306,6 +317,13 @@ void CmdSchemaElement_Print(const char *name, CmdSchemaElement *e) {
       for (int i = 0; i < strlen(e->tup.fmt); i++) {
         printf("{%s:%s} ", e->tup.names ? e->tup.names[i] : "arg", typeString(e->tup.fmt[i]));
       }
+      break;
+    }
+    case CmdSchemaElement_Variadic: {
+      for (int i = 0; i < strlen(e->var.fmt); i++) {
+        printf("{%s} ", typeString(e->var.fmt[i]));
+      }
+      printf("...");
       break;
     }
     case CmdSchemaElement_Vector:
@@ -534,6 +552,33 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
 
   return CMDPARSE_OK;
 }
+static int parseVariadicVector(CmdSchemaVariadic *var, CmdArg **current, CmdString *argv, int argc,
+                               int *pos, char **err) {
+
+  CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
+
+  int len = strlen(var->fmt);
+  CmdArg *t = NewCmdArray((1 + argc - *pos) / len);
+  while (*pos + len <= argc) {
+
+    CmdArg *elem = len > 1 ? NewCmdArray(len) : NULL;
+    for (int i = 0; i < len && *pos < argc; i++) {
+      CmdArg *n;
+      if (CMDPARSE_ERR == typedParse(&n, &argv[*pos], var->fmt[i], err)) {
+        return CMDPARSE_ERR;
+      }
+      CmdArray_Append(elem ? &elem->a : &t->a, n);
+
+      (*pos)++;
+    }
+    if (elem) {
+      CmdArray_Append(&t->a, elem);
+    }
+  }
+  *current = t;
+
+  return CMDPARSE_OK;
+}
 
 static int processFlag(int flagVal, CmdArg **current, CmdString *argv, int argc, int *pos,
                        char **err) {
@@ -567,6 +612,8 @@ static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdStr
       return processFlag(1, out, argv, argc, pos, err);
     case CmdSchemaElement_Option:
       return processOption(&elem->opt, out, argv, argc, pos, err);
+    case CmdSchemaElement_Variadic:
+      return parseVariadicVector(&elem->var, out, argv, argc, pos, err);
   }
 }
 
