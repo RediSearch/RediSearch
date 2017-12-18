@@ -2,7 +2,7 @@
 #define RMUTIL_CMDPARSE_
 
 #include <stdlib.h>
-
+#include <redismodule.h>
 #define CMDPARSE_OK 0
 #define CMDPARSE_ERR 1
 
@@ -229,7 +229,7 @@ int CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name, const cha
  */
 CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, int flags,
                                       const char *help);
-void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
+void CmdSchema_Print(CmdSchemaNode *n);
 void CmdArg_Print(CmdArg *n, int depth);
 
 /* Parse a list of arguments using a command schema. If a parsing error occurs, CMDPARSE_ERR is
@@ -238,6 +238,9 @@ void CmdArg_Print(CmdArg *n, int depth);
  * means we can do partial parsing */
 int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int argc, char **err,
                        int strict);
+
+int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **arg, RedisModuleString **argv,
+                                  int argc, char **err, int strict);
 
 /* Convert a variadic list of strings to an array of command strings. Does not do extra
  * reallocations, so only the array itself needs to be freed */
@@ -259,6 +262,8 @@ CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 
 /* Create an iterator of all the children of an objet or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
+
+#define CMDARRAY_ELEMENT(arr, i) (arr->a.args[i])
 
 /* Advane an iterator. Return NULL if the no objects can be read from the iterator */
 CmdArg *CmdArgIterator_Next(CmdArgIterator *it);
