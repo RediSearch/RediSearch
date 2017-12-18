@@ -765,7 +765,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
   return CMDPARSE_OK;
 }
 
-int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **arg, RedisModuleString **argv,
+int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModuleString **argv,
                                   int argc, char **err, int strict) {
   CmdString *args = calloc(argc, sizeof(CmdString));
   for (int i = 0; i < argc; i++) {
@@ -774,7 +774,7 @@ int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **arg, RedisModu
     args[i] = (CmdString){.str = (char *)arg, .len = len};
   }
 
-  int rc = CmdParser_ParseCmd(schema, arg, args, argc, err, strict);
+  int rc = CmdParser_ParseCmd(schema, cmd, args, argc, err, strict);
   free(args);
   return rc;
 }
