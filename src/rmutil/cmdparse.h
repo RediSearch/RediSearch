@@ -195,7 +195,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
 
 /* Convert a variadic list of strings to an array of command strings. Does not do extra
  * reallocations, so only the array itself needs to be freed */
-CmdString *CmdParser_NewArgListV(int size, ...);
+CmdString *CmdParser_NewArgListV(size_t size, ...);
 
 /* Convert an array of C NULL terminated strings to an arg list. Does not do extra
  * reallocations, so only the array itself needs to be freed */
