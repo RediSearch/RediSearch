@@ -400,6 +400,7 @@ static int parseInt(const char *arg, long long *val) {
 
   char *e = NULL;
   *val = strtoll(arg, &e, 10);
+  errno = 0;
   if ((errno == ERANGE && (*val == LONG_MAX || *val == LONG_MIN)) || (errno != 0 && *val == 0) ||
       *e != '\0') {
     *val = -1;
@@ -412,6 +413,7 @@ static int parseInt(const char *arg, long long *val) {
 static int parseDouble(const char *arg, double *d) {
   char *e;
   *d = strtod(arg, &e);
+  errno = 0;
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
       *e != '\0') {
@@ -446,6 +448,7 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
       break;
     }
     default:
+      asprintf(err, "Invalid type specifier '%c'", type);
       return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
@@ -554,7 +557,6 @@ static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdStr
       return processFlag(1, out, argv, argc, pos, err);
     case CmdSchemaElement_Option:
       return processOption(&elem->opt, out, argv, argc, pos, err);
-      return CMDPARSE_ERR;
   }
 }
 
@@ -687,6 +689,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
                        int strict) {
   int pos = 0;
   *arg = NULL;
+  *err = NULL;
   if (CMDPARSE_ERR == cmdParser_Parse(schema, arg, argv, argc, &pos, err, 0)) {
     if (*arg) CmdArg_Free(*arg);
     *arg = NULL;
@@ -701,13 +704,13 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
   return CMDPARSE_OK;
 }
 
-CmdString *CmdParser_NewArgListV(int size, ...) {
+CmdString *CmdParser_NewArgListV(size_t size, ...) {
 
   va_list ap;
 
   va_start(ap, size);
   CmdString *ret = calloc(size, sizeof(CmdString));
-  for (int i = 0; i < size; i++) {
+  for (size_t i = 0; i < size; i++) {
     const char *arg = va_arg(ap, const char *);
     ret[i] = CMD_STRING((char *)arg);
   }
