@@ -3,6 +3,8 @@
 #include "test.h"
 #include "cmdparse.h"
 
+void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
+
 int testSchema() {
   CmdSchemaNode *root = NewSchema("FOO", "Test command");
   ASSERT(root);
@@ -446,7 +448,58 @@ int testVariadic() {
   RETURN_TEST_SUCCESS;
 }
 
+void exampleZadd() {
+  // Creating the command
+  CmdSchemaNode *sc = NewSchema("ZADD", "ZAdd command");
+
+  // Adding the key argument - string typed.
+  // Note that even positional args need a name to be referenced by
+  CmdSchema_AddPostional(sc, "key", CmdSchema_NewArg('s'), CmdSchema_Required);
+
+  // Adding [NX|XX]
+  CmdSchema_AddPostional(sc, "nx_xx", CmdSchema_NewOption(2, (const char *[]){"NX", "XX"}),
+                         CmdSchema_Optional);
+  // Add the CH and INCR flags
+  CmdSchema_AddFlag(sc, "CH");
+  CmdSchema_AddFlag(sc, "INCR");
+
+  // Add the score/member variadic vector. "ds" means pairs will be consumed as double and string
+  // and grouped into arrays
+  CmdSchema_AddPostional(sc, "pairs", CmdSchema_NewVariadicVector("ds"), CmdSchema_Required);
+
+  // Let's create the argument list
+  CmdString *args =
+      CmdParser_NewArgListV(9, "ZADD", "foo", "NX", "0", "bar", "1.3", "baz", "5", "froo");
+
+  // Parsing the arguments
+
+  char *err;
+  CmdArg *cmd;
+  if (CmdParser_ParseCmd(sc, &cmd, args, 9, &err, 1) == CMDPARSE_ERR) {
+    printf("%s\n", err);
+    exit(-1);
+  }
+  CmdArg_Print(cmd, 0);
+
+  // Get the score/member vector
+  CmdArg *pairs = CmdArg_FirstOf(cmd, "pairs");
+  // Create an iterator for the score/member pairs
+  CmdArgIterator it = CmdArg_Children(pairs);
+  CmdArg *pair;
+  // Walk the iterator
+  while (NULL != (pair = CmdArgIterator_Next(&it))) {
+
+    // Accessing the sub elements is done in a similar way. Each element is an array in turn. Since
+    // we know its size and it is typed, we can access the values directly
+    printf("Score: %f, element %s\n", CMDARRAY_ELEMENT(pair, 0)->d,
+           CMDARRAY_ELEMENT(pair, 1)->s.str);
+  }
+}
+
 TEST_MAIN({
+
+  exampleZadd();
+
   TESTFUNC(testSchema);
   TESTFUNC(testTuple);
   TESTFUNC(testVector);

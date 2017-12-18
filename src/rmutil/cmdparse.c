@@ -382,6 +382,10 @@ void CmdSchemaNode_Print(CmdSchemaNode *n, int depth) {
   putchar('\n');
 }
 
+void CmdSchema_Print(CmdSchemaNode *n) {
+  CmdSchemaNode_Print(n, 0);
+}
+
 static int CmdSchemaNode_Match(CmdSchemaNode *n, CmdString *token) {
   switch (n->type) {
     case CmdSchemaNode_NamedArg:
@@ -759,6 +763,20 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
     return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
+}
+
+int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **arg, RedisModuleString **argv,
+                                  int argc, char **err, int strict) {
+  CmdString *args = calloc(argc, sizeof(CmdString));
+  for (int i = 0; i < argc; i++) {
+    size_t len;
+    const char *arg = RedisModule_StringPtrLen(argv[i], &len);
+    args[i] = (CmdString){.str = (char *)arg, .len = len};
+  }
+
+  int rc = CmdParser_ParseCmd(schema, arg, args, argc, err, strict);
+  free(args);
+  return rc;
 }
 
 CmdString *CmdParser_NewArgListV(size_t size, ...) {
