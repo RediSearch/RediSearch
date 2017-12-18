@@ -183,13 +183,35 @@ CmdSchemaElement *CmdSchema_NewTuple(const char *fmt, const char **names);
 CmdSchemaElement *CmdSchema_NewArg(const char type);
 CmdSchemaElement *CmdSchema_NewVector(const char type);
 CmdSchemaElement *CmdSchema_NewOption(int num, const char **opts);
-CmdSchemaNode *CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name);
-CmdSchemaNode *CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name, const char *help);
-CmdSchemaNode *CmdSchema_NewSubSchema(CmdSchemaNode *parent, const char *param, int flags,
+int CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name);
+int CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name, const char *help);
+CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, int flags,
                                       const char *help);
 void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
+void CmdArg_Print(CmdArg *n, int depth);
 
 int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int argc, char **err,
                        int strict);
+
+/* Convert a variadic list of strings to an array of command strings. Does not do extra
+ * reallocations, so only the array itself needs to be freed */
+CmdString *CmdParser_NewArgListV(int size, ...);
+
+/* Convert an array of C NULL terminated strings to an arg list. Does not do extra
+ * reallocations, so only the array itself needs to be freed */
+CmdString *CmdParser_NewArgListC(const char **args, int size);
+
+typedef struct {
+  CmdArg *arg;
+  const char *key;
+  size_t pos;
+} CmdArgIterator;
+
+CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
+CmdArgIterator CmdArg_Children(CmdArg *arg);
+
+CmdArg *CmdArgIterator_Next(CmdArgIterator *it);
+
+CmdArg *CmdArg_FirstOf(CmdArg *, const char *key);
 
 #endif

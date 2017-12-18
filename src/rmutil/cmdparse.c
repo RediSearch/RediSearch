@@ -5,6 +5,7 @@
 #include <sys/errno.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdarg.h>
 
 #include "cmdparse.h"
 
@@ -259,22 +260,21 @@ CmdSchemaNode *NewSchema(const char *name, const char *help) {
   return ret;
 }
 
-CmdSchemaNode *CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name) {
+int CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name) {
   CmdSchemaNode *ret = NewSchemaNode(
       CmdSchemaNode_Flag, name, newSchemaElement(CmdSchemaElement_Flag), CmdSchema_Optional, NULL);
   cmdSchema_addChild(parent, ret);
-  return ret;
+  return CMDPARSE_OK;
 }
 
-CmdSchemaNode *CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name,
-                                         const char *help) {
+int CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name, const char *help) {
   CmdSchemaNode *ret = NewSchemaNode(
       CmdSchemaNode_Flag, name, newSchemaElement(CmdSchemaElement_Flag), CmdSchema_Optional, help);
   cmdSchema_addChild(parent, ret);
-  return ret;
+  return CMDPARSE_OK;
 }
 
-CmdSchemaNode *CmdSchema_NewSubSchema(CmdSchemaNode *parent, const char *param, int flags,
+CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, int flags,
                                       const char *help) {
   CmdSchemaNode *ret = NewSchemaNode(CmdSchemaNode_Schema, param, NULL, flags, help);
 
@@ -397,8 +397,11 @@ typedef struct CmdParserCtx {
 } CmdParserCtx;
 
 static int parseInt(const char *arg, long long *val) {
-  *val = strtoll(arg, NULL, 10);
-  if ((errno == ERANGE && (*val == LONG_MAX || *val == LONG_MIN)) || (errno != 0 && *val == 0)) {
+
+  char *e = NULL;
+  *val = strtoll(arg, &e, 10);
+  if ((errno == ERANGE && (*val == LONG_MAX || *val == LONG_MIN)) || (errno != 0 && *val == 0) ||
+      *e != '\0') {
     *val = -1;
     return 0;
   }
@@ -407,10 +410,11 @@ static int parseInt(const char *arg, long long *val) {
 }
 
 static int parseDouble(const char *arg, double *d) {
-  const char *p = NULL;
+  char *e;
+  *d = strtod(arg, &e);
 
-  *d = strtod(arg, NULL);
-  if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0)) {
+  if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
+      *e != '\0') {
     return 0;
   }
 
@@ -447,18 +451,18 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
   return CMDPARSE_OK;
 }
 
-#define CMDPARSE_CHECK_POS(pos, argc, err)     \
-  {                                            \
-    if (pos >= argc) {                         \
-      *err = strdup("Arguments out of range"); \
-      return CMDPARSE_ERR;                     \
-    }                                          \
+#define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \
+  {                                                        \
+    if (pos >= argc) {                                     \
+      *err = strdup(msg ? msg : "Insufficient Arguments"); \
+      return CMDPARSE_ERR;                                 \
+    }                                                      \
   }
 
 static int parseArg(CmdSchemaArg *arg, CmdArg **current, CmdString *argv, int argc, int *pos,
                     char **err) {
 
-  CMDPARSE_CHECK_POS(*pos, argc, err);
+  CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
   int rc = typedParse(current, &argv[*pos], arg->type, err);
   if (rc == CMDPARSE_OK) (*pos)++;
   return rc;
@@ -467,8 +471,7 @@ static int parseArg(CmdSchemaArg *arg, CmdArg **current, CmdString *argv, int ar
 static int parseTuple(CmdSchemaTuple *tup, CmdArg **current, CmdString *argv, int argc, int *pos,
                       char **err) {
   size_t len = strlen(tup->fmt);
-
-  CMDPARSE_CHECK_POS(*pos + len, argc, err);
+  CMDPARSE_CHECK_POS(*pos + len - 1, argc, err, "Tuple length out of range");
   CmdArg *t = NewCmdArray(len);
 
   for (size_t i = 0; i < len; i++) {
@@ -488,7 +491,7 @@ static int parseTuple(CmdSchemaTuple *tup, CmdArg **current, CmdString *argv, in
 static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, int argc, int *pos,
                        char **err) {
 
-  CMDPARSE_CHECK_POS(*pos, argc, err);
+  CMDPARSE_CHECK_POS(*pos, argc, err, "Vector length out of range");
   long long vlen = 0;
   if (!parseInt(argv[*pos].str, &vlen)) {
     asprintf(err, "Invalid vector length token '%s'", argv[*pos].str);
@@ -521,7 +524,7 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
 
 static int processFlag(int flagVal, CmdArg **current, CmdString *argv, int argc, int *pos,
                        char **err) {
-  CMDPARSE_CHECK_POS(*pos, argc, err);
+  CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
   (*pos)++;
   *current = NewCmdFlag(flagVal);
 
@@ -530,7 +533,7 @@ static int processFlag(int flagVal, CmdArg **current, CmdString *argv, int argc,
 
 static int processOption(CmdSchemaOption *opt, CmdArg **current, CmdString *argv, int argc,
                          int *pos, char **err) {
-  CMDPARSE_CHECK_POS(*pos, argc, err);
+  CMDPARSE_CHECK_POS(*pos, argc, err, NULL);
 
   *current = NewCmdString(argv[*pos].str, argv[*pos].len);
   (*pos)++;
@@ -576,9 +579,7 @@ static int cmdParser_Parse(CmdSchemaNode *node, CmdArg **parent, CmdString *argv
                            int *pos, char **err, int depth) {
 
   // this is the root schema
-  if (!*parent && node->type == CmdSchemaNode_Schema) {
-    *parent = NewCmdObject(1);
-  }
+
   // skipe the node name if it's named
   if (node->type == CmdSchemaNode_NamedArg || node->type == CmdSchemaNode_Schema) {
     (*pos)++;
@@ -600,11 +601,18 @@ static int cmdParser_Parse(CmdSchemaNode *node, CmdArg **parent, CmdString *argv
   }
 
   if (node->type == CmdSchemaNode_Schema) {
-    current = NewCmdObject(1);
+    if (*parent) {
+      current = NewCmdObject(1);
 
-    // for sub-schemas - we append the schema to
-    if (CMDPARSE_ERR == cmdArg_AddChild(*parent, node->name, current, err)) {
-      return CMDPARSE_ERR;
+      // for sub-schemas - we append the schema to
+      if (CMDPARSE_ERR == cmdArg_AddChild(*parent, node->name, current, err)) {
+        return CMDPARSE_ERR;
+      }
+
+    } else {
+      // if this is the first layer of parsing - start from current and set parent to it
+      *parent = NewCmdObject(1);
+      current = *parent;
     }
   }
 
@@ -677,58 +685,86 @@ end:
 
 int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int argc, char **err,
                        int strict) {
-  CmdArg *cmd = NULL;
   int pos = 0;
   *arg = NULL;
   if (CMDPARSE_ERR == cmdParser_Parse(schema, arg, argv, argc, &pos, err, 0)) {
+    if (*arg) CmdArg_Free(*arg);
+    *arg = NULL;
     return CMDPARSE_ERR;
   }
   if (strict && pos < argc) {
     asprintf(err, "Extra arguments not parsed. Only %d of %d args parsed", pos, argc);
     if (*arg) CmdArg_Free(*arg);
+    *arg = NULL;
     return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
 }
-/*
-int main() {
 
-  CmdSchemaNode *root = NewSchema("FOO", "Just a test command");
-  CmdSchema_AddPostional(root, "term", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddFlag(root, "NX");
-  CmdSchema_AddFlag(root, "XX");
-  CmdSchema_AddNamedWithHelp(root, "BAR", CmdSchema_NewArg('s'), CmdSchema_Required,
-                             "The Command's BAR");
-  CmdSchema_AddNamed(root, "XXX", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(root, "LIMIT", CmdSchema_NewTuple("ll", (const char *[]){"FIRST", "LIMIT"}),
-                     CmdSchema_Optional);
-  CmdSchema_AddNamed(root, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Optional);
+CmdString *CmdParser_NewArgListV(int size, ...) {
 
-  CmdSchemaNode *sub = CmdSchema_NewSubSchema(root, "SUB", CmdSchema_Optional, "Sub Command");
-  CmdSchema_AddNamed(sub, "MARINE", CmdSchema_NewArg('s'),
-                     CmdSchema_Required | CmdSchema_Repeating);
-  CmdSchema_AddFlag(sub, "YELLO");
-  CmdSchema_AddPostional(root, "xmode", CmdSchema_NewOption(3, (const char *[]){"FX", "YX", "JX"}),
-                         CmdSchema_Optional);
-  CmdSchemaNode_Print(root, 0);
+  va_list ap;
 
-  CmdString args[] = {
-      CMD_STRING("FOO"),   CMD_STRING("wat wat"), CMD_STRING("NX"),    CMD_STRING("XX"),
-      CMD_STRING("BAR"),   CMD_STRING("hello"),   CMD_STRING("XXX"),   CMD_STRING("world"),
-      CMD_STRING("LIMIT"), CMD_STRING("0"),       CMD_STRING("10"),    CMD_STRING("ARGS"),
-      CMD_STRING("3"),     CMD_STRING("foo"),     CMD_STRING("bar"),   CMD_STRING("baz"),
-      CMD_STRING("SUB"),   CMD_STRING("MARINE"),  CMD_STRING("yello"), CMD_STRING("MARINE"),
-      CMD_STRING("blue"),  CMD_STRING("YELLO"),   CMD_STRING("JX"),    CMD_STRING("dfgsdfgsd")};
-  char *err = NULL;
-
-  CmdArg *cmd;
-
-  int rc = CmdParser_ParseCmd(root, &cmd, args, sizeof(args) / sizeof(*args), &err, 0);
-  if (rc == CMDPARSE_ERR) {
-    printf("Failed parsing: %s\n", err);
-  } else {
-    CmdArg_Print(cmd, 0);
+  va_start(ap, size);
+  CmdString *ret = calloc(size, sizeof(CmdString));
+  for (int i = 0; i < size; i++) {
+    const char *arg = va_arg(ap, const char *);
+    ret[i] = CMD_STRING((char *)arg);
   }
-  return 0;
+
+  va_end(ap);
+  return ret;
 }
-*/
+
+CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key) {
+  return (CmdArgIterator){
+      .arg = arg,
+      .key = key,
+      .pos = 0,
+  };
+}
+
+CmdArgIterator CmdArg_Children(CmdArg *arg) {
+  return (CmdArgIterator){
+      .arg = arg,
+      .key = NULL,
+      .pos = 0,
+  };
+}
+
+CmdArg *CmdArgIterator_Next(CmdArgIterator *it) {
+
+  switch (it->arg->type) {
+    case CmdArg_Object: {
+      CmdObject *obj = &it->arg->obj;
+      while (it->pos < obj->len) {
+        if (it->key == NULL || !strcasecmp(it->key, obj->entries[it->pos].k)) {
+          return obj->entries[it->pos++].v;
+        }
+        it->pos++;
+      }
+      break;
+    }
+    case CmdArg_Array: {
+      CmdArray *arr = &it->arg->a;
+      if (it->pos < arr->len) {
+        return arr->args[it->pos++];
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return NULL;
+}
+
+CmdArg *CmdArg_FirstOf(CmdArg *arg, const char *key) {
+  if (arg->type != CmdArg_Object) return NULL;
+  for (size_t i = 0; i < arg->obj.len; i++) {
+    if (!strcasecmp(key, arg->obj.entries[i].k)) {
+      return arg->obj.entries[i].v;
+    }
+  }
+  return NULL;
+}
