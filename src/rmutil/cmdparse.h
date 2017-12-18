@@ -169,27 +169,62 @@ typedef struct CmdSchemaNode {
   int size;
 } CmdSchemaNode;
 
+/* Create a new named schema with a given help message (can be left NULL) */
 CmdSchemaNode *NewSchema(const char *name, const char *help);
 
+/* Add a named parameter to a schema or sub-schema, with a given name, and an element which can be a
+ * value, tuple, vector or option. Flags can indicate unique/repeating, or optional arg */
 int CmdSchema_AddNamed(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,
                        CmdSchemaFlags flags);
+
+/* Add a positional parameter to a schema or sub-schema, with a given name, and an element which can
+ * be a value, tuple, vector or option. Flags can indicate unique/repeating, or optional arg. A
+ * positional argument has a name so it can referenced when accessing the parsed document */
 int CmdSchema_AddPostional(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,
                            CmdSchemaFlags flags);
+
+/* Add named with a help message */
 int CmdSchema_AddNamedWithHelp(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,
                                CmdSchemaFlags flags, const char *help);
+/* Add a positional with a help message */
 int CmdSchema_AddPostionalWithHelp(CmdSchemaNode *s, const char *param, CmdSchemaElement *elem,
                                    CmdSchemaFlags flags, const char *help);
+
+/* Create a new tuple schema element to be added as a named/positional. The format string can be
+ * composed of the letters d (double), l (long) or s (string). The expected length of the tuple is
+ * the length of the format string */
 CmdSchemaElement *CmdSchema_NewTuple(const char *fmt, const char **names);
+
+/* Create a new single argument (string, long or double) to be added as a named or positional. The
+ * type char can be d (double), l (long) or s (string) */
 CmdSchemaElement *CmdSchema_NewArg(const char type);
+
+/* Create a new vector to be added as a named or positional argument. A vector is a list of values
+ * of the same type that starts with a length specifier (i.e. 3 foo bar baz) */
 CmdSchemaElement *CmdSchema_NewVector(const char type);
+
+/* Create a new option between mutually exclusive string values, to be added as a named/positional
+ */
 CmdSchemaElement *CmdSchema_NewOption(int num, const char **opts);
+
+/* Add a flag - which is a boolean optional value. If the flag exists in the arguments, the value is
+ * set to 1, else to 0 */
 int CmdSchema_AddFlag(CmdSchemaNode *parent, const char *name);
+
+/* Add a flag with a help message */
 int CmdSchema_AddFlagWithHelp(CmdSchemaNode *parent, const char *name, const char *help);
+
+/* Add a sub schema - that is a complex schema with arguments that can reside under another command
+ */
 CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, int flags,
                                       const char *help);
 void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
 void CmdArg_Print(CmdArg *n, int depth);
 
+/* Parse a list of arguments using a command schema. If a parsing error occurs, CMDPARSE_ERR is
+ * returned and an error string is put into err. Note that it is a newly allocated string that needs
+ * to be freed. If strict is 1, we make sure that all arguments have been consumed. Strict set to 0
+ * means we can do partial parsing */
 int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int argc, char **err,
                        int strict);
 
@@ -207,11 +242,18 @@ typedef struct {
   size_t pos;
 } CmdArgIterator;
 
+/* Create an iterator of all children of an object node, named as key. If none exist, the first call
+ * to Next() will return NULL */
 CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
+
+/* Create an iterator of all the children of an objet or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
 
+/* Advane an iterator. Return NULL if the no objects can be read from the iterator */
 CmdArg *CmdArgIterator_Next(CmdArgIterator *it);
 
+/* Return the fist child of an object node that is named as key, NULL if this is not an object or no
+ * such child exists */
 CmdArg *CmdArg_FirstOf(CmdArg *, const char *key);
 
 #endif
