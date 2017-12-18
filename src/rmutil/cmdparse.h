@@ -239,7 +239,11 @@ void CmdArg_Print(CmdArg *n, int depth);
 int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int argc, char **err,
                        int strict);
 
-int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **arg, RedisModuleString **argv,
+/* Parse a list of redis module arguments using a command schema. If a parsing error occurs,
+ * CMDPARSE_ERR is returned and an error string is put into err. Note that err is a newly allocated
+ * string that needs to be freed. If strict is 1, we make sure that all arguments have been
+ * consumed. Strict set to 0 means we can do partial parsing */
+int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModuleString **argv,
                                   int argc, char **err, int strict);
 
 /* Convert a variadic list of strings to an array of command strings. Does not do extra
