@@ -18,10 +18,12 @@ CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fP
 	-DREDISMODULE_EXPERIMENTAL_API 
 CFLAGS += $(DEBUGFLAGS)
 
+LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
 else
+	LINKER = $(LD)
 	CFLAGS += -mmacosx-version-min=10.6
 	SHOBJ_LDFLAGS ?= -macosx_version_min 10.6 -exported_symbol _RedisModule_OnLoad -bundle -undefined dynamic_lookup -ldl -lpthread
 endif
@@ -124,7 +126,7 @@ $(MODULE_ARTIFACT): $(shell rm -f module.o)
 $(MODULE_ARTIFACT): $(MODULE) version.h
 	@# Just to make sure old versions of the modules are deleted
 	rm -f module.so
-	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm $(LDFLAGS)
+	$(LINKER) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm $(LDFLAGS)
 
 # Build a stand-alone static library without the module entry point.
 # This is used to include the module's functionality in other modules
