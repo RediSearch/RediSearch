@@ -12,7 +12,7 @@ ifeq ($(DEBUG), 1)
 endif
 
 # Default CFLAGS
-CFLAGS= -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC \
+CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC \
 	-Werror=implicit-function-declaration \
  	-D_GNU_SOURCE -std=gnu99 -I"$(shell pwd)" -DREDIS_MODULE_TARGET \
 	-DREDISMODULE_EXPERIMENTAL_API 
@@ -124,7 +124,7 @@ $(MODULE_ARTIFACT): $(shell rm -f module.o)
 $(MODULE_ARTIFACT): $(MODULE) version.h
 	@# Just to make sure old versions of the modules are deleted
 	rm -f module.so
-	$(LD) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm
+	$(CC) -o $@ $(MODULE) $(SHOBJ_LDFLAGS) -lc -lm $(LDFLAGS)
 
 # Build a stand-alone static library without the module entry point.
 # This is used to include the module's functionality in other modules
