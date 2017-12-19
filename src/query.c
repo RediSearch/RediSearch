@@ -781,7 +781,9 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   size_t count = 1;
 
   RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
+  size_t keyLen;
+  const char *keyStr = DMD_KeyPtrLen(r->md, &keyLen);
+  RedisModule_ReplyWithStringBuffer(ctx, keyStr, keyLen);
 
   if (flags & Search_WithScores) {
     RedisModule_ReplyWithDouble(ctx, r->score);

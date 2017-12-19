@@ -30,7 +30,8 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 
 static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
-                                      [FIELD_NUMERIC] = NUMERIC_STR, [FIELD_GEO] = GEO_STR,
+                                      [FIELD_NUMERIC] = NUMERIC_STR,
+                                      [FIELD_GEO] = GEO_STR,
                                       [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
@@ -127,7 +128,7 @@ typedef enum {
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 9
+#define INDEX_CURRENT_VERSION 10
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
@@ -140,6 +141,8 @@ typedef enum {
 
 // Versions below this one don't save the document len when serializing the table
 #define INDEX_MIN_DOCLEN_VERSION 9
+
+#define INDEX_MIN_BINKEYS_VERSION 10
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
@@ -169,9 +172,9 @@ typedef struct {
 extern RedisModuleType *IndexSpecType;
 
 /*
-* Get a field spec by field name. Case insensitive!
-* Return the field spec if found, NULL if not
-*/
+ * Get a field spec by field name. Case insensitive!
+ * Return the field spec if found, NULL if not
+ */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
 char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
@@ -187,18 +190,18 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /*
-* Parse an index spec from redis command arguments.
-* Returns REDISMODULE_ERR if there's a parsing error.
-* The command only receives the relvant part of argv.
-*
-* The format currently is <field> <weight>, <field> <weight> ...
-*/
+ * Parse an index spec from redis command arguments.
+ * Returns REDISMODULE_ERR if there's a parsing error.
+ * The command only receives the relvant part of argv.
+ *
+ * The format currently is <field> <weight>, <field> <weight> ...
+ */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, char **err);
 
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.
  * If an error occurred - we set an error string in err and return NULL.
-*/
+ */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char **err);
 
 /* Start the garbage collection loop on the index spec */
@@ -224,9 +227,9 @@ void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double s
  * enough */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
 /*
-* Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
-* and should be on the request's stack
-*/
+ * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
+ * and should be on the request's stack
+ */
 void IndexSpec_Free(void *spec);
 
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
@@ -245,9 +248,9 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // void IndexSpec_Free(void *value);
 
 /*
-* Parse the field mask passed to a query, map field names to a bit mask passed down to the
-* execution engine, detailing which fields the query works on. See FT.SEARCH for API details
-*/
+ * Parse the field mask passed to a query, map field names to a bit mask passed down to the
+ * execution engine, detailing which fields the query works on. See FT.SEARCH for API details
+ */
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 #endif

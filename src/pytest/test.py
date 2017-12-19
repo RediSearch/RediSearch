@@ -1466,14 +1466,22 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 except Exception as e:
                     pass
                     # print e
-        
+
         thrs = [Process(target=thrfn) for x in range(num_threads)]
         [th.start() for th in thrs]
         [th.join() for th in thrs]
         res = self.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         self.assertEqual(100, int(d['num_docs']))
-        
+
+    def testBinaryKeys(self):
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        # Insert a document
+        self.cmd('ft.add', 'idx', 'Hello', 1.0, 'fields', 'txt', 'NoBin match')
+        self.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
+        for _ in self.client.retry_with_rdb_reload():
+            res = self.cmd('ft.search', 'idx', 'match')
+            self.assertEqual(res, [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -10,7 +10,7 @@ typedef uint32_t t_offset;
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
 #define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
@@ -43,18 +43,18 @@ typedef enum {
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
-* itself).
-*
-* The key is the actual user defined key of the document, not the incremental id. It is used to
-* convert incremental internal ids to external string keys.
-*
-* Score is the original user score as inserted to the index
-*
-* Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
-*/
+ * itself).
+ *
+ * The key is the actual user defined key of the document, not the incremental id. It is used to
+ * convert incremental internal ids to external string keys.
+ *
+ * Score is the original user score as inserted to the index
+ *
+ * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
+ */
 typedef struct {
   /* The actual key of the document, not the internal incremental id */
-  char *key;
+  char *keyPtr;
 
   /* The a-priory document score as given by the user on insertion */
   float score;
@@ -120,14 +120,15 @@ typedef struct RSQueryExpanderCtx {
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its
    * length, and flags is a 32 bit flag mask that can be used by the extension to set private
-   * information on the token 
+   * information on the token
    * */
   void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                       RSTokenFlags flags);
-  
+
   /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
-   * with num its len, each member of it is a null terminated string. If replace is set to 1, we replace
-   * the original token with the new phrase. If exact is 1 the expanded phrase is an exact match phrase
+   * with num its len, each member of it is a null terminated string. If replace is set to 1, we
+   * replace the original token with the new phrase. If exact is 1 the expanded phrase is an exact
+   * match phrase
    */
   void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
                                 RSTokenFlags flags, int replace, int exact);
@@ -199,7 +200,9 @@ typedef struct {
 
 } RSVirtualRecord;
 
-typedef struct { double value; } RSNumericRecord;
+typedef struct {
+  double value;
+} RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,

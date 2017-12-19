@@ -199,7 +199,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Find the document by its key */
-  t_docId docId = DocTable_GetId(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
+  t_docId docId = DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
@@ -391,7 +391,6 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else {
     Document_ReplyFields(ctx, &doc);
     Document_Free(&doc);
-
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -503,9 +502,8 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t payloadSize = 0, offsetsSize = 0;
   const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
   const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
-
-  t_docId d = DocTable_Put(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL), (float)score,
-                           (u_char)flags, payload, payloadSize);
+  t_docId d = DocTable_Put(&sp->docs, MakeDocKeyR(argv[2]), (float)score, (u_char)flags, payload,
+                           payloadSize);
 
   if (offsetsSize) {
     Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
@@ -566,7 +564,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int rc = DocTable_Delete(&sp->docs, RedisModule_StringPtrLen(argv[2], NULL));
+  int rc = DocTable_Delete(&sp->docs, MakeDocKeyR(argv[2]));
   if (rc == 1) {
     sp->stats.numDocuments--;
     // Increment the index's garbage collector's scanning frequency after document deletions
