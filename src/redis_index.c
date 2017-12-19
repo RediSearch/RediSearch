@@ -95,9 +95,9 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 }
 
 /**
-* Format redis key for a term.
-* TODO: Add index name to it
-*/
+ * Format redis key for a term.
+ * TODO: Add index name to it
+ */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
@@ -146,7 +146,10 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
+      .spec = sp,
+      .redisCtx = ctx,
+      .key = k,
+      .keyName = keyName,
   };
   return sctx;
 }
@@ -453,8 +456,8 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     DocTable *dt = &ctx->spec->docs;
 
     for (size_t i = 1; i < dt->size; i++) {
-      Redis_DeleteKey(ctx->redisCtx, RedisModule_CreateString(ctx->redisCtx, dt->docs[i].key,
-                                                              strlen(dt->docs[i].key)));
+      const RSDocumentMetadata *dmd = dt->docs + i;
+      Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
     }
   }
 
