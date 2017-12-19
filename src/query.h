@@ -59,8 +59,10 @@ typedef struct {
   RedisSearchCtx *sctx;
   int numTokens;
   int tokenId;
-  RSSearchRequest *req;
   DocTable *docTable;
+  t_fieldMask fieldMask;
+  RSSearchFlags flags;
+  int slop;
 } QueryEvalCtx;
 
 /* Evaluate a QueryParseCtx stage and prepare it for execution. As execution is lazy
@@ -125,7 +127,10 @@ typedef struct {
 
   ConcurrentSearchCtx *conc;
 
-  RSSearchRequest *req;
+  RSSortingKey *sortBy;
+
+  RSSearchFlags flags;
+  // RSSearchRequest *req;
 
 } QueryPlan;
 

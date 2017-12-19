@@ -267,12 +267,12 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
-  int isSingleWord = q->numTokens == 1 && q->req->fieldMask == RS_FIELDMASK_ALL;
+  int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
 
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
-                                     q->req->fieldMask & qn->fieldMask, q->conc);
+                                     q->fieldMask & qn->fieldMask, q->conc);
   if (ir == NULL) {
     Term_Free(term);
     return NULL;
@@ -321,7 +321,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->req->fieldMask & qn->fieldMask, q->conc);
+                                       q->fieldMask & qn->fieldMask, q->conc);
 
     free(tok.str);
     if (!ir) {
@@ -369,13 +369,11 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
-                              q->req->fieldMask & qn->fieldMask, 0, 1);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
+                              0, 1);
   } else {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
-
-                              q->req->fieldMask & qn->fieldMask, q->req->slop,
-                              q->req->flags & Search_InOrder);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
+                              q->slop, q->flags & Search_InOrder);
   }
   return ret;
 }
@@ -802,7 +800,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithSortKeys) {
     ++count;
-    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->req->sortBy);
+    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->sortBy);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
@@ -826,7 +824,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   return count;
 }
 
-int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
+int Query_SerializeResults(QueryPlan *qex) {
   int rc;
   int count = 0;
   RedisModuleCtx *ctx = qex->ctx->redisCtx;
@@ -841,7 +839,7 @@ int Query_SerializeResults(QueryPlan *qex, RSSearchFlags flags) {
       RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
-    count += serializeResult(qex, &r, flags);
+    count += serializeResult(qex, &r, qex->flags);
 
     IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
@@ -889,7 +887,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
 }
 
 int QueryPlan_Execute(QueryPlan *plan, const char **err) {
-  int rc = Query_SerializeResults(plan, plan->req->flags);
+  int rc = Query_SerializeResults(plan);
   if (err) *err = plan->execCtx.errorString;
   return rc;
 }
@@ -912,13 +910,16 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
-  plan->req = req;
-  plan->execCtx = (QueryProcessingCtx){.errorString = NULL,
-                                       .minScore = 0,
-                                       .totalResults = 0,
-                                       .state = QueryState_OK,
-                                       .sctx = plan->ctx,
-                                       .conc = plan->conc};
+  plan->sortBy = req->sortBy;
+  plan->flags = req->flags;
+  plan->execCtx = (QueryProcessingCtx){
+      .errorString = NULL,
+      .minScore = 0,
+      .totalResults = 0,
+      .state = QueryState_OK,
+      .sctx = plan->ctx,
+      .conc = plan->conc,
+  };
   clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
   if (plan->conc) {
     ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
@@ -932,7 +933,9 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
       .numTokens = parsedQuery->numTokens,
       .tokenId = 1,
       .sctx = plan->ctx,
-      .req = req,
+      .fieldMask = req->fieldMask,
+      .slop = req->slop,
+      .flags = req->flags,
   };
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
