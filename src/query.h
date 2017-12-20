@@ -5,6 +5,7 @@
 
 #include "index.h"
 #include "numeric_filter.h"
+#include "rmutil/cmdparse.h"
 #include "numeric_index.h"
 #include "geo_index.h"
 #include "query_node.h"
@@ -140,6 +141,9 @@ void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
 QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode);
+
+QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req,
+                                      int concurrentMode, CmdArg *aggregateCmd);
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
 /* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result

@@ -129,7 +129,8 @@ void FieldList_RestrictReturn(FieldList *fields);
 
 /* Process the request in the thread pool concurrently */
 int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req);
-
+int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleString **argv,
+                                           int argc);
 /* Process the request in the main thread without context switching */
 int RSSearchRequest_ProcessMainThread(RedisSearchCtx *sctx, RSSearchRequest *req);
 #endif

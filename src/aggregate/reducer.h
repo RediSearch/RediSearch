@@ -24,11 +24,9 @@ typedef struct reducer {
 } Reducer;
 
 Reducer *NewCount(const char *alias);
-Reducer *NewCountArgs(CmdArray *args, char **err);
 
 Reducer *NewSum(const char *property, const char *alias);
-Reducer *NewSumArgs(CmdArray *args, char **err);
 
-Reducer *GetReducer(const char *name, CmdArray *args, char **err);
+Reducer *GetReducer(const char *name, const char *alias, CmdArray *args, char **err);
 
 #endif

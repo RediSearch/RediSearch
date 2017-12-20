@@ -1,4 +1,5 @@
 #include "search_request.h"
+#include "aggregate/aggregate.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "stemmer.h"
@@ -10,6 +11,7 @@
 #include "rmalloc.h"
 #include "summarize_spec.h"
 #include <sys/param.h>
+#include <rmutil/cmdparse.h>
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
@@ -303,7 +305,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   free(req);
 }
 
-int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
+QueryParseCtx *parseQuery(RSSearchRequest *req) {
 
   QueryParseCtx *q = NewQueryParseCtx(req);
   RedisModuleCtx *ctx = req->sctx->redisCtx;
@@ -321,7 +323,7 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
     Query_Free(q);
-    return REDISMODULE_ERR;
+    return NULL;
   }
   if (!(req->flags & Search_Verbatim)) {
     Query_Expand(q, req->expander);
@@ -349,10 +351,19 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     Vector_Free(req->numericFilters);
     req->numericFilters = NULL;
   }
+  return q;
+}
 
+int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
+
+  QueryParseCtx *q = parseQuery(req);
+  if (!q) {  // error has already been sent in this case
+    return REDISMODULE_ERR;
+  }
   QueryPlan *plan = Query_BuildPlan(q, req, concurrentMode);
   // Execute the query
-  // const char *err;
+  char *err;
+  RedisModuleCtx *ctx = req->sctx->redisCtx;
   int rc = QueryPlan_Execute(plan, (const char **)&err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
@@ -394,6 +405,31 @@ int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *re
   return REDISMODULE_OK;
 }
 
+int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleString **argv,
+                                           int argc) {
+  char *err = NULL;
+  CmdArg *cmd = Aggregate_ParseRequest(argv, argc, &err);
+  if (!cmd) {
+    return RedisModule_ReplyWithError(req->sctx->redisCtx,
+                                      err ? err : "Could not parse aggregate request");
+  }
+
+  QueryParseCtx *q = parseQuery(req);
+  if (!q) {  // error has already been sent in this case
+    return REDISMODULE_ERR;
+  }
+  QueryPlan *plan = Query_BuildAggregationPlan(q, req, 0, cmd);
+  // Execute the query
+  RedisModuleCtx *ctx = req->sctx->redisCtx;
+  int rc = QueryPlan_Execute(plan, (const char **)&err);
+  if (rc == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+  }
+  QueryPlan_Free(plan);
+  Query_Free(q);
+
+  return rc;
+}
 int RSSearchRequest_ProcessMainThread(RedisSearchCtx *sctx, RSSearchRequest *req) {
   req->sctx = sctx;
   req->bc = NULL;

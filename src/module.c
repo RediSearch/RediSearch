@@ -476,6 +476,64 @@ end:
   return REDISMODULE_OK;
 }
 
+/*
+  FT.AGGREGATE
+  {idx:string}
+  {FILTER:string}
+  SELECT {nargs:integer} {string} ...
+  GROUPBY
+    {nargs:integer} {string} ...
+    [AS {AS:string}]
+    REDUCE
+      {FUNC:string}
+      {nargs:integer} {string} ...
+      [AS {AS:string}]
+
+
+  [SORTBY {nargs:integer} {string} ...]
+  [PROJECT
+    {FUNC:string}
+    {nargs:integer} {string} ...
+    [AS {AS:string}]
+  ] */
+int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  // at least one field, and number of field/text args must be even
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  char *err;
+
+  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  if (req == NULL) {
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
+  req->sctx = sctx;
+
+  return RSSearchRequest_ProcessAggregateRequet(req, argv, argc);
+  // // in concurrent mode - process the request in the thread pool
+  // if (RSGlobalConfig.concurrentMode) {
+  //   int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
+  //   SearchCtx_Free(sctx);
+  //   return rc;
+  // } else {  // "safe" mode - process the request in the main thread
+  //   return RSSearchRequest_ProcessMainThread(sctx, req);
+  // }
+  // end:
+
+  //   RSSearchRequest_Free(req);
+  //   return REDISMODULE_OK;
+}
+
 /* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
  *
  *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
@@ -1258,6 +1316,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, AggregateCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
 

@@ -8,6 +8,7 @@
 #include "query.h"
 #include "config.h"
 #include "query_parser/parser.h"
+#include "aggregate/aggregate.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "util/minmax_heap.h"
@@ -960,6 +961,45 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
   plan->rootProcessor = Query_BuildProcessorChain(plan, req);
+  plan->execCtx.rootFilter = plan->rootFilter;
+  return plan;
+}
+
+QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req,
+                                      int concurrentMode, CmdArg *aggregateCmd) {
+  QueryPlan *plan = calloc(1, sizeof(*plan));
+  plan->ctx = req->sctx;
+  plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
+  plan->sortBy = NULL;
+  plan->flags = req->flags;
+  plan->execCtx = (QueryProcessingCtx){
+      .errorString = NULL,
+      .minScore = 0,
+      .totalResults = 0,
+      .state = QueryState_OK,
+      .sctx = plan->ctx,
+      .conc = plan->conc,
+  };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
+  if (plan->conc) {
+    ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
+    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
+                            Query_OnReopen, plan, NULL, 0);
+  }
+
+  QueryEvalCtx ev = {
+      .docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
+      .conc = plan->conc,
+      .numTokens = parsedQuery->numTokens,
+      .tokenId = 1,
+      .sctx = plan->ctx,
+      .fieldMask = req->fieldMask,
+      .slop = req->slop,
+      .flags = req->flags,
+  };
+
+  plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
+  plan->rootProcessor = Query_BuildAggregationChain(plan, req, aggregateCmd);
   plan->execCtx.rootFilter = plan->rootFilter;
   return plan;
 }

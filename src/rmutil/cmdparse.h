@@ -276,7 +276,7 @@ CmdArgIterator CmdArg_Children(CmdArg *arg);
 #define CMDARG_STRLEN(a) (a->s.len)
 #define CMDARG_STRPTR(a) (a->s.str)
 #define CMDARG_STRLEN(a) (a->s.len)
-#define CMDARG_ARR(a) (a->a)
+#define CMDARG_ARR(arr) (arr->a)
 #define CMDARG_OBJ(a) (a->obj)
 #define CMDARG_OBJLEN(a) (arg->a.obj.len)
 #define CMDARG_BOOL(a) (a->b)
@@ -299,6 +299,7 @@ CmdArg *CmdArg_FirstOf(CmdArg *, const char *key);
     CmdArg *result = NULL;                                \
     while (NULL != (result = CmdArgIterator_Next(&it))) { \
       blk;                                                \
-    }
+    }                                                     \
+  }
 
 #endif

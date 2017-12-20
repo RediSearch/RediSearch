@@ -737,7 +737,7 @@ end:
     CmdSchemaNode *edge = node->edges[i];
     if (edge->flags & CmdSchema_Required && !(sf[i] & CmdParser_Visited)) {
       // set an error indicating the first missed required argument
-      asprintf(err, "Missing required argument '%s'", node->edges[i]->name);
+      asprintf(err, "Missing required argument '%s' in '%s'", node->edges[i]->name, node->name);
       return CMDPARSE_ERR;
     }
 
