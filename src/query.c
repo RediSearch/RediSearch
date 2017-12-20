@@ -627,6 +627,26 @@ QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
   return ctx;
 }
 
+// QueryParseCtx *NewQueryParseCtxEx(RedisSearchCtx *sctx, const char *raw, size_t len,
+//                                   const char *language, RSPayload *payload) {
+
+//   QueryParseCtx *ctx = malloc(sizeof(*ctx));
+//   ctx->len = len;
+//   ctx->raw = strdup(raw);
+//   ctx->numTokens = 0;
+//   ctx->ok = 1;
+//   ctx->root = NULL;
+//   ctx->sctx = sctx;
+
+//   ctx->stopwords = (sctx && sctx->spec && ctx->sctx->spec->stopwords) ? sctx->spec->stopwords
+//                                                                       : DefaultStopWordList();
+//   ctx->language = language ? language : DEFAULT_LANGUAGE;
+//   ctx->tokenId = 1;
+//   ctx->errorMsg = NULL;
+//   ctx->payloadptr = payload;
+//   return ctx;
+// }
+
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
  * resulting in the query not performing context switches */
 // void Query_SetConcurrentMode(QueryPlan *q, int concurrent) {

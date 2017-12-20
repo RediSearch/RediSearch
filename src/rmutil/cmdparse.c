@@ -365,14 +365,21 @@ void CmdSchemaNode_Print(CmdSchemaNode *n, int depth) {
       for (int i = 0; i < n->size; i++) {
         CmdSchemaNode_Print(n->edges[i], depth + 2);
       }
-      pad(depth) break;
+
+      pad(depth);
+      break;
 
     case CmdSchemaNode_Flag:
       printf("%s", n->name);
       break;
   }
+
   if (n->flags & CmdSchema_Optional) {
     putchar(']');
+  }
+  if (n->flags & CmdSchema_Repeating) {
+
+    printf(" ... ");
   }
 
   if (n->help) {

@@ -5,6 +5,8 @@
 
 typedef struct Groper Grouper;
 
+void Aggregate_BuildSchema();
+
 Grouper *NewGrouper(const char *property, const char *alias, RSSortingTable *tbl);
 ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream);
 void Grouper_AddReducer(Grouper *g, Reducer *r);

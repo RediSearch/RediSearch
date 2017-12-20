@@ -145,7 +145,7 @@ Grouper *NewGrouper(const char *property, const char *alias, RSSortingTable *tbl
   g->iter = NULL;
   g->sortKeyIdx = RSSortingTable_GetFieldIdx(tbl, property);
   g->property = property;
-  g->alias = alias;
+  g->alias = alias ? alias : property;
   g->reducers = NULL;
   g->numReducers = 0;
   g->accumulating = 1;

@@ -30,6 +30,7 @@
 #include "search_request.h"
 #include "config.h"
 #include "gc.h"
+#include "aggregate/aggregate.h"
 #include "rmalloc.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
@@ -1200,6 +1201,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   Extensions_Init();
 
   ConcurrentSearch_ThreadPoolStart();
+
+  // Init Schemata
+  Aggregate_BuildSchema();
+
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
   /* Load extensions if needed */

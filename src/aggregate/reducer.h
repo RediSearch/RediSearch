@@ -4,6 +4,7 @@
 #include <redisearch.h>
 #include <result_processor.h>
 #include <dep/triemap/triemap.h>
+#include <rmutil/cmdparse.h>
 
 typedef struct reducer {
   void *privdata;
@@ -22,8 +23,12 @@ typedef struct reducer {
   void (*FreeInstance)(void *ctx);
 } Reducer;
 
-Reducer *NewCounter(const char *alias);
+Reducer *NewCount(const char *alias);
+Reducer *NewCountArgs(CmdArray *args, char **err);
 
-Reducer *NewSummer(const char *property, const char *alias);
+Reducer *NewSum(const char *property, const char *alias);
+Reducer *NewSumArgs(CmdArray *args, char **err);
+
+Reducer *GetReducer(const char *name, CmdArray *args, char **err);
 
 #endif
