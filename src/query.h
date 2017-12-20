@@ -117,7 +117,7 @@ void Query_Free(QueryParseCtx *q);
  *   processors
  ******************************************************************************************************/
 
-typedef struct {
+typedef struct QueryPlan {
   RedisSearchCtx *ctx;
 
   IndexIterator *rootFilter;

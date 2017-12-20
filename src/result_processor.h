@@ -162,5 +162,7 @@ SearchResult *NewSearchResult();
 void SearchResult_FreeInternal(SearchResult *r);
 void SearchResult_Free(void *p);
 
+struct QueryPlan;
+ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
 ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
 #endif  // !RS_RESULT_PROCESSOR_H_
