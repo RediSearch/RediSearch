@@ -44,7 +44,7 @@ void sum_FreeInstance(void *p) {
   free(c);
 }
 
-Reducer *NewSummer(const char *property, const char *alias) {
+Reducer *NewSum(const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;

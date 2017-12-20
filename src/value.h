@@ -227,20 +227,24 @@ static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
   return sizeof(RSFieldMap) + cap * sizeof(RSField);
 }
 
-/* Make sure the fieldmap has enough capacity to add elements */
-static void RSFieldMap_EnsureCap(RSFieldMap **m) {
-  if ((*m)->len + 1 >= (*m)->cap) {
-    (*m)->cap = MIN((*m)->cap * 2, UINT16_MAX);
-    *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
-  }
-}
-
 /* Create a new field map with a given initial capacity */
 static RSFieldMap *RS_NewFieldMap(uint16_t cap) {
   if (!cap) cap = 1;
   RSFieldMap *m = malloc(RSFieldMap_SizeOf(cap));
   *m = (RSFieldMap){.len = 0, .cap = cap};
   return m;
+}
+
+/* Make sure the fieldmap has enough capacity to add elements */
+static void RSFieldMap_EnsureCap(RSFieldMap **m) {
+  if (!*m) {
+    *m = RS_NewFieldMap(2);
+    return;
+  }
+  if ((*m)->len + 1 >= (*m)->cap) {
+    (*m)->cap = MIN((*m)->cap * 2, UINT16_MAX);
+    *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
+  }
 }
 
 #define FIELDMAP_FIELD(m, i) (m)->fields[i]

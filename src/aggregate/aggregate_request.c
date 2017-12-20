@@ -25,7 +25,7 @@ void Aggregate_BuildSchema() {
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
   CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArg('s'), CmdSchema_Required);
 
-  CmdSchema_AddNamed(requestSchema, "FILTER", CmdSchema_NewArg('s'), CmdSchema_Required);
+  CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddNamed(requestSchema, "SELECT", CmdSchema_NewVector('s'), CmdSchema_Required);
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
@@ -48,9 +48,25 @@ void Aggregate_BuildSchema() {
   CmdSchema_Print(requestSchema);
 }
 
-int parseReducer(Grouper *g, CmdArg *red) {
+CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
+  CmdArg *ret = NULL;
 
-  const char *func = CMDARG_STRPTR(CmdArg_FirstOf(red, "func")));
+  if (CMDPARSE_ERR != CmdParser_ParseRedisModuleCmd(requestSchema, &ret, argv, argc, err, 0)) {
+    return ret;
+  }
+  return NULL;
+}
+int parseReducer(Grouper *g, CmdArg *red, char **err) {
+
+  const char *func = CMDARG_STRPTR(CmdArg_FirstOf(red, "func"));
+  CmdArg *args = CmdArg_FirstOf(red, "args");
+  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(red, "AS"), CMDARG_STRPTR);
+
+  Reducer *r = GetReducer(func, alias, &CMDARG_ARR(args), err);
+  if (!r) {
+    return 0;
+  }
+  Grouper_AddReducer(g, r);
 
   return 1;
 }
@@ -64,25 +80,35 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(by, "AS"), CMDARG_STRPTR);
   Grouper *g =
       NewGrouper(prop, alias, req->sctx && req->sctx->spec ? req->sctx->spec->sortables : NULL);
+
   if (!g) return NULL;
 
+  char *err;
   // Add reducerss
+
   CMD_FOREACH_SELECT(grp, "REDUCE", {
-    if (!parseReducer(g, result)) goto fail;
+    if (!parseReducer(g, result, &err)) goto fail;
   });
+
   return NewGrouperProcessor(g, upstream);
 
 fail:
+  RedisModule_Log(req->sctx->redisCtx, "warning", "Error paring GROUPBY: %s", err);
   // Grouper_Free(g);
   return NULL;
 }
+
 ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd) {
 
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
 
+  next = NewLoader(next, req);
   CmdArg *groupBy = CmdArg_FirstOf(cmd, "GROUPBY");
   if (!groupBy) goto fail;
+
+  ResultProcessor *ret = buildGroupBy(groupBy, req, next);
+  return ret;
   // // If we are not in SORTBY mode - add a scorer to the chain
   // if (req->sortBy == NULL) {
   //   next = NewScorer(req->scorer, next, req);
@@ -103,7 +129,7 @@ ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req,
   //   }
   // }
 
-  // return next;
+  return NULL;
 
 fail:
   return NULL;

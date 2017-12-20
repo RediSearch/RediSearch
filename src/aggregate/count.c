@@ -33,7 +33,7 @@ void counter_FreeInstance(void *p) {
   free(c);
 }
 
-Reducer *NewCounter(const char *alias) {
+Reducer *NewCount(const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = counter_Add;
   r->Finalize = counter_Finalize;
