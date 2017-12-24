@@ -4,7 +4,7 @@
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
-
+#include <assert.h>
 #include "redisearch.h"
 #include "sortable.h"
 
@@ -48,6 +48,19 @@ typedef struct rsvalue {
   int shouldFree : 1;
 } RSValue;
 
+/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
+ * the actual value object */
+static void RSValue_Free(RSValue *v) {
+  if (v->t == RSValue_String && v->shouldFree) {
+    free(v->strval.str);
+  } else if (v->t == RSValue_Array) {
+    for (uint32_t i = 0; i < v->arrval.len; i++) {
+      RSValue_Free(&v->arrval.vals[i]);
+    }
+    free(v->arrval.vals);
+  }
+}
+
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if the
  * value needs to be detached */
 static inline RSValue RS_StringVal(char *str, uint32_t len) {
@@ -76,6 +89,26 @@ static inline RSValue RS_RedisStringVal(RedisModuleString *str) {
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
   return value->t == RSValue_String || value->t == RSValue_RedisString;
+}
+
+static RSValue RSValue_ToString(RSValue *v) {
+  switch (v->t) {
+    case RSValue_String:
+      return RS_StringValStatic(v->strval.str, v->strval.len);
+    case RSValue_RedisString: {
+      size_t sz;
+      const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
+      return RS_StringValStatic((char *)str, sz);
+    }
+    case RSValue_Number: {
+      char *str;
+      asprintf(&str, "%f", v->numval);
+      return RS_CStringVal(str);
+    }
+    case RSValue_Null:
+    default:
+      return RS_StringValStatic("", 0);
+  }
 }
 
 // Gets the string pointer and length from the value
@@ -136,6 +169,53 @@ static inline RSValue RS_NullVal() {
   };
 }
 
+static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
+  int cmp = strncmp(s1, s2, MIN(l1, l2));
+  if (l1 == l2) {
+    // if the strings are the same length, just return the result of strcmp
+    return cmp;
+  } else {  // if the lengths arent identical
+    // if the strings are identical but the lengths aren't, return the longer string
+    if (cmp == 0) {
+      return l1 > l2 ? 1 : -1;
+    } else {  // the strings are lexically different, just return that
+      return cmp;
+    }
+  }
+}
+static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
+  assert(v1);
+  assert(v2);
+  if (v1->t == v2->t) {
+    switch (v1->t) {
+      case RSValue_Number:
+
+        return v1->numval > v2->numval ? v1->numval : (v1->numval < v2->numval ? -1 : 0);
+      case RSValue_String:
+        return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
+      case RSValue_RedisString: {
+        size_t l1, l2;
+        const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
+        const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
+        return cmp_strings(s1, s2, l1, l2);
+      }
+      case RSValue_Null:
+        return 0;
+      case RSValue_Array:  // can't compare arrays ATM
+        return 0;
+    }
+  }
+
+  // default strategy: convert both to strings and compare strings
+  RSValue s1 = RSValue_ToString(v1);
+
+  RSValue s2 = RSValue_ToString(v2);
+  int cmp = RSValue_Cmp(&s1, &s1);
+  RSValue_Free(&s1);
+  RSValue_Free(&s2);
+  return cmp;
+}
+
 static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
   return &arr->arrval.vals[index];
 }
@@ -191,6 +271,21 @@ static void RSValue_Print(RSValue *v) {
   }
 }
 
+typedef struct {
+  size_t len;
+  const char *keys[];
+} RSMultiKey;
+
+static RSMultiKey *RS_NewMultiKey(size_t len) {
+  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(const char *));
+  ret->len = len;
+  return ret;
+}
+
+static void RSMultiKey_Free(RSMultiKey *k) {
+  free(k);
+}
+
 /* A result field is a key/value pair of variant type, used inside a value map */
 typedef struct {
   const char *key;
@@ -200,19 +295,6 @@ typedef struct {
 /* Create new KV field */
 static RSField RS_NewField(const char *k, RSValue val) {
   return (RSField){.key = k, .val = val};
-}
-
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
-static void RSValue_Free(RSValue *v) {
-  if (v->t == RSValue_String && v->shouldFree) {
-    free(v->strval.str);
-  } else if (v->t == RSValue_Array) {
-    for (uint32_t i = 0; i < v->arrval.len; i++) {
-      RSValue_Free(&v->arrval.vals[i]);
-    }
-    free(v->arrval.vals);
-  }
 }
 
 /* A "map" of fields for results and documents. */
@@ -273,6 +355,8 @@ static void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue val) {
 /* Set a value in the map for a given key, checking for duplicates and replacing the existing value
  * if needed, and appending a new one if needed */
 static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
+  RSFieldMap_EnsureCap(m);
+
   for (uint16_t i = 0; i < (*m)->len; i++) {
     if (!strcmp(FIELDMAP_FIELD(*m, i).key, key)) {
 
@@ -284,7 +368,6 @@ static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
     }
   }
   // not found - append a new field
-  RSFieldMap_EnsureCap(m);
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
 }
 
