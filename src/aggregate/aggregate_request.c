@@ -85,7 +85,6 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor
 
   char *err;
   // Add reducerss
-
   CMD_FOREACH_SELECT(grp, "REDUCE", {
     if (!parseReducer(g, result, &err)) goto fail;
   });
@@ -98,39 +97,61 @@ fail:
   return NULL;
 }
 
+ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream) {
+  if (!arg || arg->type != CmdArg_Array) {
+    return NULL;
+  }
+
+  RSMultiKey *mk = RS_NewMultiKey(CMDARG_ARRLEN(arg));
+  for (size_t i = 0; i < mk->len; i++) {
+    mk->keys[i] = CMDARG_STRPTR(CMDARG_ARRELEM(arg, i));
+  }
+
+  return NewSorterByFields(mk, 1, 0, upstream);
+}
+
+FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
+  FieldList *ret = NULL;
+  CmdArg *select = CmdArg_FirstOf(cmd, "SELECT");
+  if (select) {
+    ret = calloc(1, sizeof(*ret));
+    ret->explicitReturn = 1;
+    CmdArgIterator it = CmdArg_Children(select);
+    CmdArg *child;
+    while (NULL != (child = CmdArgIterator_Next(&it, NULL))) {
+      ReturnedField *rf = FieldList_GetCreateField(
+          ret, RedisModule_CreateString(ctx, CMDARG_STRPTR(child), CMDARG_STRLEN(child)));
+      rf->explicitReturn = 1;
+    }
+  }
+  return ret;
+}
+
 ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd) {
 
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
 
-  next = NewLoader(next, req);
-  CmdArg *groupBy = CmdArg_FirstOf(cmd, "GROUPBY");
-  if (!groupBy) goto fail;
+  FieldList *lst = getAggregateFields(req->sctx->redisCtx, cmd);
+  next = NewLoader(next, req->sctx, lst);
 
-  ResultProcessor *ret = buildGroupBy(groupBy, req, next);
-  return ret;
-  // // If we are not in SORTBY mode - add a scorer to the chain
-  // if (req->sortBy == NULL) {
-  //   next = NewScorer(req->scorer, next, req);
-  // }
+  CmdArgIterator it = CmdArg_Children(cmd);
+  CmdArg *child;
+  const char *key;
+  while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
+    if (!strcasecmp(key, "GROUPBY")) {
+      next = buildGroupBy(child, req, next);
+    } else if (!strcasecmp(key, "SORTBY")) {
+      next = buildSortBY(child, next);
+    }
+    if (!next) {
+      goto fail;
+    }
+  }
 
-  // // The sorter sorts the top-N results
-  // next = NewSorter(req->sortBy, req->offset + req->num, next, req->fields.wantSummaries);
-
-  // // The pager pages over the results of the sorter
-  // next = NewPager(next, req->offset, req->num);
-
-  // // The loader loads the documents from redis
-  // // If we do not need to return any fields - we do not need the loader in the loop
-  // if (!(req->flags & Search_NoContent)) {
-  //   next = NewLoader(next, req);
-  //   if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
-  //     next = NewHighlightProcessor(next, req);
-  //   }
-  // }
-
-  return NULL;
+  return next;
 
 fail:
+  // TODO: dont leak memory here
   return NULL;
 }
