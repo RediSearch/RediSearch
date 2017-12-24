@@ -267,7 +267,7 @@ CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 /* Create an iterator of all the children of an objet or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
 
-#define CMDARRAY_ELEMENT(arr, i) (arr->a.args[i])
+#define CMDARRAY_ELEMENT(arr, i) (arr->args[i])
 
 #define CMDARG_INT(a) (a->i)
 #define CMDARG_DOUBLE(a) (a->d)
@@ -284,7 +284,7 @@ CmdArgIterator CmdArg_Children(CmdArg *arg);
 #define CMDARG_ARRELEM(arg, i) (arg->a.args[i])
 
 /* Advane an iterator. Return NULL if the no objects can be read from the iterator */
-CmdArg *CmdArgIterator_Next(CmdArgIterator *it);
+CmdArg *CmdArgIterator_Next(CmdArgIterator *it, const char **key);
 
 /* Return the fist child of an object node that is named as key, NULL if this is not an object or no
  * such child exists */
@@ -293,13 +293,13 @@ CmdArg *CmdArg_FirstOf(CmdArg *, const char *key);
 /* Convenience macro for iterating all children of an object arg with a given expression - either a
  * function call or a code block. arg is the command arg we're iterating, key is the selection. The
  * resulting argument in the loop is always called "result" */
-#define CMD_FOREACH_SELECT(arg, key, blk)                 \
-  {                                                       \
-    CmdArgIterator it = CmdArg_Select(arg, key);          \
-    CmdArg *result = NULL;                                \
-    while (NULL != (result = CmdArgIterator_Next(&it))) { \
-      blk;                                                \
-    }                                                     \
+#define CMD_FOREACH_SELECT(arg, key, blk)                       \
+  {                                                             \
+    CmdArgIterator it = CmdArg_Select(arg, key);                \
+    CmdArg *result = NULL;                                      \
+    while (NULL != (result = CmdArgIterator_Next(&it, NULL))) { \
+      blk;                                                      \
+    }                                                           \
   }
 
 #endif
