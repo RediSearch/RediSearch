@@ -797,12 +797,15 @@ void Query_Free(QueryParseCtx *q) {
  ******************************************************************************************************/
 
 static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags) {
-  size_t count = 1;
+  size_t count = 0;
 
   RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  size_t keyLen;
-  const char *keyStr = DMD_KeyPtrLen(r->md, &keyLen);
-  RedisModule_ReplyWithStringBuffer(ctx, keyStr, keyLen);
+  if (r->md) {
+    count += 1;
+    size_t len;
+    const char *k = DMD_KeyPtrLen(r->md, &len);
+    RedisModule_ReplyWithStringBuffer(ctx, k, len);
+  }
 
   if (flags & Search_WithScores) {
     RedisModule_ReplyWithDouble(ctx, r->score);
@@ -811,7 +814,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithPayloads) {
     ++count;
-    const RSPayload *payload = r->md->payload;
+    const RSPayload *payload = r->md ? r->md->payload : NULL;
     if (payload) {
       RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
     } else {
@@ -854,16 +857,17 @@ int Query_SerializeResults(QueryPlan *qex) {
   do {
     SearchResult r;
     rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
-    if (rc == RS_RESULT_EOF) break;
 
+    if (rc == RS_RESULT_EOF) break;
+    // printf("Read result %d, rc %d\n", r.docId, rc);
     if (count == 0) {
       RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
     count += serializeResult(qex, &r, qex->flags);
 
-    IndexResult_Free(r.indexResult);
-    RSFieldMap_Free(r.fields, 0);
+    // IndexResult_Free(r.indexResult);
+    // RSFieldMap_Free(r.fields, 0);
   } while (rc != RS_RESULT_EOF);
   if (count == 0) {
     RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
