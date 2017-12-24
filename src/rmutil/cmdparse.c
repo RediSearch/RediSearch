@@ -817,13 +817,16 @@ CmdArgIterator CmdArg_Children(CmdArg *arg) {
   };
 }
 
-CmdArg *CmdArgIterator_Next(CmdArgIterator *it) {
+CmdArg *CmdArgIterator_Next(CmdArgIterator *it, const char **key) {
 
   switch (it->arg->type) {
     case CmdArg_Object: {
       CmdObject *obj = &it->arg->obj;
       while (it->pos < obj->len) {
         if (it->key == NULL || !strcasecmp(it->key, obj->entries[it->pos].k)) {
+          if (key) {
+            *key = obj->entries[it->pos].k;
+          }
           return obj->entries[it->pos++].v;
         }
         it->pos++;
@@ -833,6 +836,9 @@ CmdArg *CmdArgIterator_Next(CmdArgIterator *it) {
     case CmdArg_Array: {
       CmdArray *arr = &it->arg->a;
       if (it->pos < arr->len) {
+        if (key) {
+          *key = NULL;
+        }
         return arr->args[it->pos++];
       }
       break;
