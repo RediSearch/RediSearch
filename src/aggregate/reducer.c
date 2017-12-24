@@ -1,11 +1,18 @@
 #include "reducer.h"
+#include <rmutil/cmdparse.h>
+#include <string.h>
 
 Reducer *NewCountArgs(CmdArray *args, const char *alias, char **err) {
   return NewCount(alias);
 }
 
 Reducer *NewSumArgs(CmdArray *args, const char *alias, char **err) {
-  return NULL;
+
+  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for SUM");
+    return NULL;
+  }
+  return NewSum(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)), alias);
 }
 
 typedef Reducer *(*ReducerFactory)(CmdArray *args, const char *alias, char **err);
