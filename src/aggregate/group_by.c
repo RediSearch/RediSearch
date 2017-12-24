@@ -84,10 +84,28 @@ int grouper_EncodeKey(Grouper *g, SearchResult *res, char *buf, size_t maxlen) {
   }
   // if no sortable available - load by field
   RSValue *v = RSFieldMap_Get(res->fields, g->property);
-  if (!v || v->t != RSValue_String) {
-    return 0;
+  switch (v->t) {
+    case RSValue_String:
+      strncpy(buf, v->strval.str, MIN(v->strval.len, maxlen));
+      buf[MIN(v->strval.len, maxlen)] = 0;
+      break;
+    case RSValue_RedisString: {
+      size_t sz;
+      const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
+      strncpy(buf, str, MIN(sz, maxlen));
+      buf[MIN(sz, maxlen)] = 0;
+      break;
+    }
+    case RSValue_Number:
+      snprintf(buf, maxlen, "%f", v->numval);
+      break;
+    case RSValue_Null:
+      sprintf(buf, "NULL");
+      break;
+    default:
+      return 0;
   }
-  strncpy(buf, v->strval.str, MIN(v->strval.len, maxlen));
+
   return 1;
 }
 
@@ -104,12 +122,13 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc = ResultProcessor_Next(ctx->upstream, res, 1);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
+
     g->accumulating = 0;
     return grouper_Yield(g, res);
   }
 
   if (grouper_EncodeKey(g, res, buf, sizeof(buf))) {
-
+    // printf("Got group %s\n", buf);
     Group *group = TrieMap_Find(g->groups, buf, strlen(buf));
     if (!group || (void *)group == TRIEMAP_NOTFOUND) {
 
@@ -123,6 +142,9 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     for (size_t i = 0; i < g->numReducers; i++) {
       g->reducers[i]->Add(GROUP_CTX(group, i), res);
     }
+  } else {
+    printf("No key %s for group!\n", g->property);
+    RSFieldMap_Print(res->fields);
   }
   return RS_RESULT_QUEUED;
 }

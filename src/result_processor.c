@@ -268,6 +268,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
 struct sorterCtx {
 
   // The desired size of the heap - top N results
+  // If set to 0 this is a growing heap
   uint32_t size;
 
   // The offset - used when popping result after we're done
@@ -293,8 +294,8 @@ struct sorterCtx {
 /* Yield - pops the current top result from the heap */
 int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
-  // make sure we don't overshoot the heap size
-  if (sc->pq->count > 0 && sc->offset++ < sc->size) {
+  // make sure we don't overshoot the heap size, unless the heap size is dynamic
+  if (sc->pq->count > 0 && (!sc->size || sc->offset++ < sc->size)) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
     free(sr);
@@ -336,7 +337,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  if (sc->pq->count + 1 < sc->pq->size) {
+  // If the pool size is 0 we always do that, letting the heap grow dynamically
+  if (!sc->size || sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
@@ -396,18 +398,54 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
-ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream,
+struct fieldCmpCtx {
+  RSMultiKey *keys;
+  int ascending;
+};
+/* Compare results for the heap by sorting key */
+static int cmpByFields(const void *e1, const void *e2, const void *udata) {
+  const struct fieldCmpCtx *cc = udata;
+
+  const SearchResult *h1 = e1, *h2 = e2;
+  for (size_t i = 0; i < cc->keys->len; i++) {
+    const char *k = cc->keys->keys[i];
+    RSValue *v1 = RSFieldMap_Get(h1->fields, k);
+    RSValue *v2 = RSFieldMap_Get(h2->fields, k);
+    if (!v1 || !v2) {
+      break;
+    }
+
+    int rc = RSValue_Cmp(v1, v2);
+    printf("result cmp: %d\n", rc);
+    if (rc != 0) return cc->ascending ? rc : -rc;
+  }
+
+  int rc = h1->docId < h2->docId ? -1 : 1;
+  return cc->ascending ? rc : -rc;
+}
+typedef enum {
+  Sort_ByScore,
+  Sort_BySortKey,
+  Sort_ByFields,
+} SortMode;
+
+ResultProcessor *NewSorter(int SortMode, void *sortCtx, uint32_t size, ResultProcessor *upstream,
                            int copyIndexResults) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
-
-  if (sk) {
-    sc->cmp = cmpBySortKey;
-    sc->cmpCtx = sk;
-  } else {
-    sc->cmp = cmpByScore;
-    sc->cmpCtx = NULL;
+  // select the sorting function by the sort mode
+  switch (SortMode) {
+    case Sort_ByScore:
+      sc->cmp = cmpByScore;
+      break;
+    case Sort_ByFields:
+      sc->cmp = cmpByFields;
+      break;
+    case Sort_BySortKey:
+      sc->cmp = cmpBySortKey;
+      break;
   }
+  sc->cmpCtx = sortCtx;
 
   sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx, SearchResult_Free);
   sc->size = size;
@@ -420,6 +458,15 @@ ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *ups
   rp->Next = sorter_Next;
   rp->Free = sorter_Free;
   return rp;
+}
+
+ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
+                                   ResultProcessor *upstream) {
+  struct fieldCmpCtx *c = malloc(sizeof(*c));
+  c->ascending = ascending;
+  c->keys = mk;
+
+  return NewSorter(Sort_ByFields, c, size, upstream, 0);
 }
 
 /*******************************************************************************************************************
@@ -524,7 +571,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Add(&r->fields, doc.fields[i].name,
+    RSFieldMap_Set(&r->fields, doc.fields[i].name,
                    doc.fields[i].text ? RS_RedisStringVal(doc.fields[i].text) : RS_NullVal());
   }
   Document_Free(&doc);
@@ -532,10 +579,11 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
+ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields) {
   struct loaderCtx *sc = malloc(sizeof(*sc));
-  sc->ctx = r->sctx;
-  sc->fields = &r->fields;
+
+  sc->ctx = sctx;
+  sc->fields = fields;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
@@ -559,7 +607,8 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(req->sortBy, req->offset + req->num, next, req->fields.wantSummaries);
+  next = NewSorter(req->sortBy ? Sort_BySortKey : Sort_ByScore, req->sortBy, req->offset + req->num,
+                   next, req->fields.wantSummaries);
 
   // The pager pages over the results of the sorter
   next = NewPager(next, req->offset, req->num);
@@ -567,7 +616,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
   if (!(req->flags & Search_NoContent)) {
-    next = NewLoader(next, req);
+    next = NewLoader(next, req->sctx, &req->fields);
     if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
     }

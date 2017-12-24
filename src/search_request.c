@@ -425,8 +425,8 @@ int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleStri
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }
-  QueryPlan_Free(plan);
-  Query_Free(q);
+  // QueryPlan_Free(plan);
+  // Query_Free(q);
 
   return rc;
 }
