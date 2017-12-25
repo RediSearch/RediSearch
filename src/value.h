@@ -7,6 +7,7 @@
 #include <assert.h>
 #include "redisearch.h"
 #include "sortable.h"
+#include "util/fnv.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -108,6 +109,29 @@ static RSValue RSValue_ToString(RSValue *v) {
     case RSValue_Null:
     default:
       return RS_StringValStatic("", 0);
+  }
+}
+
+/* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
+uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
+  switch (v->t) {
+    case RSValue_Number:
+      return fnv_64a_buf(&v->numval, sizeof(double), hval);
+    case RSValue_String:
+      return fnv_64a_buf(v->strval.str, v->strval.len, hval);
+    case RSValue_RedisString: {
+      size_t sz;
+      const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
+      return fnv_64a_buf((void *)c, sz, hval);
+    }
+    case RSValue_Null:
+      return fnv_64a_buf("__NULL__", 8, hval);
+    case RSValue_Array: {
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        hval = RSValue_Hash(&v->arrval.vals[i], hval);
+      }
+      return hval;
+    }
   }
 }
 
