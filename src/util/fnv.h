@@ -8,4 +8,6 @@
 
 uint32_t fnv_32a_buf(void *buf, size_t len, uint32_t hval);
 
+uint64_t fnv_64a_buf(void *buf, size_t len, uint64_t hval);
+
 #endif
