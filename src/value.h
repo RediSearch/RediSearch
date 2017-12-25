@@ -55,7 +55,7 @@ typedef struct rsvalue {
 static void RSValue_Free(RSValue *v) {
   if (v->t == RSValue_String && v->shouldFree) {
     free(v->strval.str);
-  } else if (v->t == RSValue_Array) {
+  } else if (v->t == RSValue_Array && v->shouldFree) {
     for (uint32_t i = 0; i < v->arrval.len; i++) {
       RSValue_Free(&v->arrval.vals[i]);
     }
@@ -63,8 +63,39 @@ static void RSValue_Free(RSValue *v) {
   }
 }
 
-/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if the
- * value needs to be detached */
+/* Shallow Copy returns a copy of the original value, while marking the underlying string or array
+ * as not needing free, as they are held by another "master" value. This means that you can safely
+ * call RSValue_Free on shallow copies without it having any effect */
+static inline RSValue RSValue_ShallowCopy(RSValue *v) {
+
+  RSValue ret = *v;
+  ret.shouldFree = 0;
+  return ret;
+}
+
+/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on arrays.
+ * On numeric values it's no slower than shallow copy. Redis strings ar not recreated
+ */
+static RSValue RSValue_DeepCopy(RSValue *v) {
+
+  RSValue ret = *v;
+  if (v->t == RSValue_String) {
+    ret.strval.str = strndup(v->strval.str, v->strval.len);
+    ret.shouldFree = 1;
+
+  } else if (v->t == RSValue_Array) {
+    ret.arrval.vals = calloc(ret.arrval.len, sizeof(RSValue));
+    for (uint32_t i = 0; i < v->arrval.len; i++) {
+      ret.arrval.vals[i] = RSValue_DeepCopy(&v->arrval.vals[i]);
+    }
+    ret.shouldFree = 1;
+  }
+
+  return ret;
+}
+
+/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
+ * the value needs to be detached */
 static inline RSValue RS_StringVal(char *str, uint32_t len) {
   return (RSValue){.t = RSValue_String, .shouldFree = 1, .strval = {.str = str, .len = len}};
 }
@@ -161,10 +192,10 @@ static inline RSValue RS_ArrVal(RSValue *vals, uint32_t len) {
   return (RSValue){
       .t = RSValue_Array,
       .arrval = {.vals = vals, .len = len},
+      .shouldFree = 1,
   };
 }
 
-/* Wrap a variadic list of NULL terminated C strings into an RSVAlue array value */
 static inline RSValue RS_VStringArray(uint32_t sz, ...) {
   RSValue *arr = calloc(sz, sizeof(RSValue));
   va_list ap;
