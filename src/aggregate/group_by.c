@@ -149,7 +149,7 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     for (size_t i = 0; i < g->keys->len; i++) {
       // TODO: Init sorting table
       RSValue v = getValue(res, g->sortTable, g->keys->keys[i]);
-      RSFieldMap_Add(&gm, g->keys->keys[i], v);
+      RSFieldMap_Add(&gm, g->keys->keys[i], RSValue_DeepCopy(&v));
     }
 
     // create the group
