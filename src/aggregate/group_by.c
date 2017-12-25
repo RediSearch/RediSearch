@@ -1,20 +1,27 @@
 #include <redisearch.h>
 #include <result_processor.h>
 #include <dep/triemap/triemap.h>
+
+#define GROUPBY_C_
 #include "reducer.h"
 
+/* A group context is used by the reducer to manage context for a single group */
 typedef struct {
   void *ptr;
   void (*free)(void *);
 } GroupCtx;
 
+/* A group represents the allocated context of all reducers in a group, and the selected values of
+ * that group */
 typedef struct {
   size_t len;
+  RSFieldMap *values;
   GroupCtx ptrs[];
 } Group;
 
-Group *NewGroup(size_t len) {
+Group *NewGroup(size_t len, RSFieldMap *groupVals) {
   Group *g = malloc(sizeof(Group) + len * sizeof(GroupCtx));
+  g->values = groupVals;
   g->len = len;
   return g;
 }
@@ -29,11 +36,11 @@ void Group_Free(void *p) {
 
 #define GROUP_CTX(g, i) (g->ptrs[i].ptr)
 
-typedef struct {
+typedef struct Grouper {
   TrieMap *groups;
   TrieMapIterator *iter;
-  const char *property;
-  const char *alias;
+  RSMultiKey *keys;
+  RSSortingTable *sortTable;
   Reducer **reducers;
   size_t numReducers;
   int accumulating;
@@ -60,10 +67,17 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
       return RS_RESULT_EOF;
     }
 
-    r->fields = RS_NewFieldMap(g->numReducers);
+    r->fields = RS_NewFieldMap(g->numReducers + g->keys->len);
+
     // Add a property with the group name
-    RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
+    // RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
     Group *gr = p;
+    // Copy the group fields to the field map
+    for (int i = 0; i < g->keys->len; i++) {
+      // TODO: Watch string copy here
+      RSFieldMap_Add(&r->fields, g->keys->keys[i], *RSFieldMap_Item(gr->values, i));
+    }
+    // Copy the reducer values to the group
     for (size_t i = 0; i < g->numReducers; i++) {
       g->reducers[i]->Finalize(GROUP_CTX(gr, i), g->reducers[i]->alias, r);
     }
@@ -72,41 +86,39 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
   } while (1);
 }
 
-int grouper_EncodeKey(Grouper *g, SearchResult *res, char *buf, size_t maxlen) {
-
+RSValue getValue(SearchResult *res, RSSortingTable *tbl, const char *key) {
   // First try to get the group value by sortables
-  if (g->sortKeyIdx != -1 && res->md->sortVector) {
-    RSSortableValue *tv = &res->md->sortVector->values[g->sortKeyIdx];
-    if (tv->type == RS_SORTABLE_STR) {
-      strncpy(buf, tv->str, MIN(maxlen, strlen(tv->str)));
-      return 1;
+  if (tbl && res->md && res->md->sortVector) {
+    int idx = RSSortingTable_GetFieldIdx(tbl, key);
+    if (idx >= 0 && idx < res->md->sortVector->len) {
+      RSSortableValue *val = &res->md->sortVector->values[idx];
+      switch (val->type) {
+        case RS_SORTABLE_STR:
+          return RS_CStringValStatic(val->str);
+        case RS_SORTABLE_NUM:
+          return RS_NumVal(val->num);
+        default:
+          return RS_NullVal();
+      }
     }
-  }
-  // if no sortable available - load by field
-  RSValue *v = RSFieldMap_Get(res->fields, g->property);
-  switch (v->t) {
-    case RSValue_String:
-      strncpy(buf, v->strval.str, MIN(v->strval.len, maxlen));
-      buf[MIN(v->strval.len, maxlen)] = 0;
-      break;
-    case RSValue_RedisString: {
-      size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
-      strncpy(buf, str, MIN(sz, maxlen));
-      buf[MIN(sz, maxlen)] = 0;
-      break;
-    }
-    case RSValue_Number:
-      snprintf(buf, maxlen, "%f", v->numval);
-      break;
-    case RSValue_Null:
-      sprintf(buf, "NULL");
-      break;
-    default:
-      return 0;
   }
 
-  return 1;
+  RSValue *v = RSFieldMap_Get(res->fields, key);
+  if (v) {
+    return *v;
+  }
+  return RS_NullVal();
+}
+uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
+
+  uint64_t ret = 0;
+  for (size_t i = 0; i < g->keys->len; i++) {
+    // TODO: Init sorting table
+    RSValue v = getValue(res, NULL, g->keys->keys[i]);
+    ret = RSValue_Hash(&v, ret);
+  }
+
+  return ret;
 }
 
 int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
@@ -127,25 +139,31 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     return grouper_Yield(g, res);
   }
 
-  if (grouper_EncodeKey(g, res, buf, sizeof(buf))) {
-    // printf("Got group %s\n", buf);
-    Group *group = TrieMap_Find(g->groups, buf, strlen(buf));
-    if (!group || (void *)group == TRIEMAP_NOTFOUND) {
+  uint64_t hash = grouper_EncodeGroupKey(g, res);
+  // printf("Got group %s\n", buf);
+  Group *group = TrieMap_Find(g->groups, (char *)&hash, sizeof(uint64_t));
+  if (!group || (void *)group == TRIEMAP_NOTFOUND) {
 
-      group = NewGroup(g->numReducers);
-      for (size_t i = 0; i < g->numReducers; i++) {
-        group->ptrs[i].ptr = g->reducers[i]->NewInstance(g->reducers[i]->privdata);
-        group->ptrs[i].free = g->reducers[i]->FreeInstance;
-      }
-      TrieMap_Add(g->groups, buf, strlen(buf), group, NULL);
+    // Copy the group keys to the new group
+    RSFieldMap *gm = RS_NewFieldMap(g->keys->len);
+    for (size_t i = 0; i < g->keys->len; i++) {
+      // TODO: Init sorting table
+      RSValue v = getValue(res, g->sortTable, g->keys->keys[i]);
+      RSFieldMap_Add(&gm, g->keys->keys[i], v);
     }
+
+    // create the group
+    group = NewGroup(g->numReducers, gm);
     for (size_t i = 0; i < g->numReducers; i++) {
-      g->reducers[i]->Add(GROUP_CTX(group, i), res);
+      group->ptrs[i].ptr = g->reducers[i]->NewInstance(g->reducers[i]->privdata);
+      group->ptrs[i].free = g->reducers[i]->FreeInstance;
     }
-  } else {
-    printf("No key %s for group!\n", g->property);
-    RSFieldMap_Print(res->fields);
+    TrieMap_Add(g->groups, (char *)&hash, sizeof(uint64_t), group, NULL);
   }
+  for (size_t i = 0; i < g->numReducers; i++) {
+    g->reducers[i]->Add(GROUP_CTX(group, i), res);
+  }
+
   return RS_RESULT_QUEUED;
 }
 
@@ -162,13 +180,12 @@ void Grouper_Free(struct resultProcessor *p) {
   free(p);
 }
 
-Grouper *NewGrouper(const char *property, const char *alias, RSSortingTable *tbl) {
+Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
   Grouper *g = malloc(sizeof(*g));
   g->groups = NewTrieMap();
   g->iter = NULL;
-  g->sortKeyIdx = RSSortingTable_GetFieldIdx(tbl, property);
-  g->property = property;
-  g->alias = alias ? alias : property;
+  g->sortTable = tbl;
+  g->keys = keys;
   g->reducers = NULL;
   g->numReducers = 0;
   g->accumulating = 1;

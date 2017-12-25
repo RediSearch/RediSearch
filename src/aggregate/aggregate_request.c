@@ -13,7 +13,7 @@ void Aggregate_BuildSchema() {
       FILTER {query}
       SELECT {nargs} {field} ...
       [
-        GROUPBY {nargs} {property} ... [AS {alias}]
+        GROUPBY {nargs} {property} ...
         GROUPREDUCE {function} {nargs} {arg} ... [AS {alias}]
         ...
       ]
@@ -30,7 +30,6 @@ void Aggregate_BuildSchema() {
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(grp, "by", CmdSchema_NewVector('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(grp, "AS", CmdSchema_NewArg('s'), CmdSchema_Optional);
 
   CmdSchemaNode *red =
       CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Required | CmdSchema_Repeating, NULL);
@@ -76,10 +75,8 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
-  const char *prop = CMDARG_STRPTR(CMDARG_ARRELEM(by, 0));
-  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(by, "AS"), CMDARG_STRPTR);
-  Grouper *g =
-      NewGrouper(prop, alias, req->sctx && req->sctx->spec ? req->sctx->spec->sortables : NULL);
+  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by));
+  Grouper *g = NewGrouper(keys, req->sctx && req->sctx->spec ? req->sctx->spec->sortables : NULL);
 
   if (!g) return NULL;
 
