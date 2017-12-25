@@ -8,6 +8,7 @@
 #include "redisearch.h"
 #include "sortable.h"
 #include "util/fnv.h"
+#include "rmutil/cmdparse.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -113,7 +114,7 @@ static RSValue RSValue_ToString(RSValue *v) {
 }
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
-uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
+static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
   switch (v->t) {
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
@@ -193,6 +194,27 @@ static inline RSValue RS_NullVal() {
   };
 }
 
+static RSValue RS_NewValueFromCmdArg(CmdArg *arg) {
+  switch (arg->type) {
+    case CmdArg_Double:
+      return RS_NumVal(CMDARG_DOUBLE(arg));
+    case CmdArg_Integer:
+      return RS_NumVal((double)CMDARG_INT(arg));
+    case CmdArg_String:
+      return RS_StringValStatic(CMDARG_STRPTR(arg), CMDARG_STRLEN(arg));
+    case CmdArg_Flag:
+      return RS_NumVal((double)CMDARG_BOOL(arg));
+    case CmdArg_Array: {
+      RSValue *vals = calloc(CMDARG_ARRLEN(arg), sizeof(RSValue));
+      for (size_t i = 0; i < CMDARG_ARRLEN(arg); ++i) {
+        vals[i] = RS_NewValueFromCmdArg(CMDARG_ARRELEM(arg, i));
+      }
+      return RS_ArrVal(vals, CMDARG_ARRLEN(arg));
+    }
+    default:
+      return RS_NullVal();
+  }
+}
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
   if (l1 == l2) {
@@ -303,6 +325,16 @@ typedef struct {
 static RSMultiKey *RS_NewMultiKey(size_t len) {
   RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(const char *));
   ret->len = len;
+  return ret;
+}
+
+/* Create a multi-key from a string array */
+static RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr) {
+  RSMultiKey *ret = RS_NewMultiKey(arr->len);
+  for (size_t i = 0; i < arr->len; i++) {
+    assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
+    ret->keys[i] = CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i));
+  }
   return ret;
 }
 

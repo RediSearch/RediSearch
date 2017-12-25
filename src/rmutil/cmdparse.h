@@ -268,7 +268,7 @@ CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 CmdArgIterator CmdArg_Children(CmdArg *arg);
 
 #define CMDARRAY_ELEMENT(arr, i) (arr->args[i])
-
+#define CMDARRAY_LENGTH(arr) (arr->len)
 #define CMDARG_INT(a) (a->i)
 #define CMDARG_DOUBLE(a) (a->d)
 #define CMDARG_STR(a) (a->s)
