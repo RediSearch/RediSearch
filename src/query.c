@@ -1005,7 +1005,7 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
 }
 
 QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req,
-                                      int concurrentMode, CmdArg *aggregateCmd) {
+                                      int concurrentMode, CmdArg *aggregateCmd, char **err) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = req->sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
@@ -1038,7 +1038,11 @@ QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchReques
   };
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
-  plan->rootProcessor = Query_BuildAggregationChain(plan, req, aggregateCmd);
+  plan->rootProcessor = Query_BuildAggregationChain(plan, req, aggregateCmd, err);
   plan->execCtx.rootFilter = plan->rootFilter;
+  if (!plan->rootFilter || !plan->rootProcessor) {
+    QueryPlan_Free(plan);
+    return NULL;
+  }
   return plan;
 }

@@ -27,6 +27,8 @@ Reducer *NewCount(const char *alias);
 
 Reducer *NewSum(const char *property, const char *alias);
 
+Reducer *NewToList(const char *property, const char *alias);
+
 Reducer *GetReducer(const char *name, const char *alias, CmdArray *args, char **err);
 
 #endif

@@ -416,7 +416,6 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     }
 
     int rc = RSValue_Cmp(v1, v2);
-    printf("result cmp: %d\n", rc);
     if (rc != 0) return cc->ascending ? rc : -rc;
   }
 

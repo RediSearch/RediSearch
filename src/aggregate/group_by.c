@@ -86,35 +86,12 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
   } while (1);
 }
 
-RSValue getValue(SearchResult *res, RSSortingTable *tbl, const char *key) {
-  // First try to get the group value by sortables
-  if (tbl && res->md && res->md->sortVector) {
-    int idx = RSSortingTable_GetFieldIdx(tbl, key);
-    if (idx >= 0 && idx < res->md->sortVector->len) {
-      RSSortableValue *val = &res->md->sortVector->values[idx];
-      switch (val->type) {
-        case RS_SORTABLE_STR:
-          return RS_CStringValStatic(val->str);
-        case RS_SORTABLE_NUM:
-          return RS_NumVal(val->num);
-        default:
-          return RS_NullVal();
-      }
-    }
-  }
-
-  RSValue *v = RSFieldMap_Get(res->fields, key);
-  if (v) {
-    return *v;
-  }
-  return RS_NullVal();
-}
 uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 
   uint64_t ret = 0;
   for (size_t i = 0; i < g->keys->len; i++) {
     // TODO: Init sorting table
-    RSValue v = getValue(res, NULL, g->keys->keys[i]);
+    RSValue v = SearchResult_GetValue(res, NULL, g->keys->keys[i]);
     ret = RSValue_Hash(&v, ret);
   }
 
@@ -148,8 +125,10 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     RSFieldMap *gm = RS_NewFieldMap(g->keys->len);
     for (size_t i = 0; i < g->keys->len; i++) {
       // TODO: Init sorting table
-      RSValue v = getValue(res, g->sortTable, g->keys->keys[i]);
-      RSFieldMap_Add(&gm, g->keys->keys[i], RSValue_DeepCopy(&v));
+      RSValue v = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
+      RSValue cv;
+      RSValue_DeepCopy(&cv, &v);
+      RSFieldMap_Add(&gm, g->keys->keys[i], cv);
     }
 
     // create the group

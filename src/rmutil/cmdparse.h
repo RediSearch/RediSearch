@@ -13,6 +13,9 @@ typedef enum {
   CmdArg_Array,
   CmdArg_Object,
   CmdArg_Flag,
+  // this is a special type returned from type checks when the arg is null, and not really used
+  CmdArg_NullPtr,
+
 } CmdArgType;
 
 struct CmdArg;
@@ -266,6 +269,8 @@ CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key);
 
 /* Create an iterator of all the children of an objet or array node */
 CmdArgIterator CmdArg_Children(CmdArg *arg);
+
+#define CMDARG_TYPE(arg) (arg ? arg->type : CmdArg_NullPtr)
 
 #define CMDARRAY_ELEMENT(arr, i) (arr->args[i])
 #define CMDARRAY_LENGTH(arr) (arr->len)
