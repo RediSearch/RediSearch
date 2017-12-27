@@ -1,5 +1,4 @@
-#include "reducer.h"
-
+#include <aggregate/reducer.h>
 struct counter {
   size_t count;
 };

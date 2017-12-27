@@ -66,32 +66,29 @@ static void RSValue_Free(RSValue *v) {
 /* Shallow Copy returns a copy of the original value, while marking the underlying string or array
  * as not needing free, as they are held by another "master" value. This means that you can safely
  * call RSValue_Free on shallow copies without it having any effect */
-static inline RSValue RSValue_ShallowCopy(RSValue *v) {
+static inline void RSValue_ShallowCopy(RSValue *dst, RSValue *src) {
 
-  RSValue ret = *v;
-  ret.shouldFree = 0;
-  return ret;
+  *dst = *src;
+  dst->shouldFree = 0;
 }
 
 /* Deep copy an object duplicate strings and array, and duplicate sub values recursively on arrays.
  * On numeric values it's no slower than shallow copy. Redis strings ar not recreated
  */
-static RSValue RSValue_DeepCopy(RSValue *v) {
+static void RSValue_DeepCopy(RSValue *dst, RSValue *src) {
 
-  RSValue ret = *v;
-  if (v->t == RSValue_String) {
-    ret.strval.str = strndup(v->strval.str, v->strval.len);
-    ret.shouldFree = 1;
+  *dst = *src;
+  if (src->t == RSValue_String) {
+    dst->strval.str = strndup(src->strval.str, src->strval.len);
+    dst->shouldFree = 1;
 
-  } else if (v->t == RSValue_Array) {
-    ret.arrval.vals = calloc(ret.arrval.len, sizeof(RSValue));
-    for (uint32_t i = 0; i < v->arrval.len; i++) {
-      ret.arrval.vals[i] = RSValue_DeepCopy(&v->arrval.vals[i]);
+  } else if (src->t == RSValue_Array) {
+    dst->arrval.vals = calloc(src->arrval.len, sizeof(RSValue));
+    for (uint32_t i = 0; i < src->arrval.len; i++) {
+      RSValue_DeepCopy(&dst->arrval.vals[i], &src->arrval.vals[i]);
     }
-    ret.shouldFree = 1;
+    dst->shouldFree = 1;
   }
-
-  return ret;
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if

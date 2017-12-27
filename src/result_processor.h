@@ -58,6 +58,11 @@ typedef struct {
 
 } QueryProcessingCtx;
 
+static inline RSSortingTable *QueryProcessingCtx_GetSortingTable(QueryProcessingCtx *c) {
+  if (c->sctx && c->sctx->spec) return c->sctx->spec->sortables;
+  return NULL;
+}
+
 /*
  * SearchResult - the object all the processing chain is working on.
  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
@@ -86,6 +91,32 @@ typedef struct {
   // dynamic fields
   RSFieldMap *fields;
 } SearchResult;
+
+/* Get a value by name from the result, either from its sorting table or from its loaded values */
+static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
+                                            const char *key) {
+  // First try to get the group value by sortables
+  if (tbl && res->md && res->md->sortVector) {
+    int idx = RSSortingTable_GetFieldIdx(tbl, key);
+    if (idx >= 0 && idx < res->md->sortVector->len) {
+      RSSortableValue *val = &res->md->sortVector->values[idx];
+      switch (val->type) {
+        case RS_SORTABLE_STR:
+          return RS_CStringValStatic(val->str);
+        case RS_SORTABLE_NUM:
+          return RS_NumVal(val->num);
+        default:
+          return RS_NullVal();
+      }
+    }
+  }
+
+  RSValue *v = RSFieldMap_Get(res->fields, key);
+  if (v) {
+    return *v;
+  }
+  return RS_NullVal();
+}
 
 /* Result processor return codes */
 
@@ -138,6 +169,15 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
  * */
 int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
 
+/* Shortcut macro - call ResultProcessor_Next and return EOF if it returned EOF - otherwise it has
+ * to return OK */
+#define ResultProcessor_ReadOrEOF(proc, res, allowSwitch)                         \
+  {                                                                               \
+    if (RS_RESULT_EOF == ResultProcessor_Next(ctx->upstream, res, allowSwitch)) { \
+      return RS_RESULT_EOF;                                                       \
+    }                                                                             \
+  }
+
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
  * chain until we find a processor with a Total callback. This allows processors to avoid
@@ -170,4 +210,5 @@ ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);
 ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
 ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
+
 #endif  // !RS_RESULT_PROCESSOR_H_

@@ -55,6 +55,7 @@ CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
   }
   return NULL;
 }
+
 int parseReducer(Grouper *g, CmdArg *red, char **err) {
 
   const char *func = CMDARG_STRPTR(CmdArg_FirstOf(red, "func"));
@@ -70,7 +71,8 @@ int parseReducer(Grouper *g, CmdArg *red, char **err) {
   return 1;
 }
 
-ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor *upstream) {
+ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor *upstream,
+                              char **err) {
 
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
@@ -78,24 +80,23 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor
   RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by));
   Grouper *g = NewGrouper(keys, req->sctx && req->sctx->spec ? req->sctx->spec->sortables : NULL);
 
-  if (!g) return NULL;
-
-  char *err;
   // Add reducerss
   CMD_FOREACH_SELECT(grp, "REDUCE", {
-    if (!parseReducer(g, result, &err)) goto fail;
+    if (!parseReducer(g, result, err)) goto fail;
   });
 
   return NewGrouperProcessor(g, upstream);
 
 fail:
-  RedisModule_Log(req->sctx->redisCtx, "warning", "Error paring GROUPBY: %s", err);
-  // Grouper_Free(g);
+  RedisModule_Log(req->sctx->redisCtx, "warning", "Error paring GROUPBY: %s", *err);
+  // TODO: Grouper_Free(g);
   return NULL;
 }
 
-ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream) {
-  if (!arg || arg->type != CmdArg_Array) {
+ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream, char **err) {
+  assert(arg && CMDARG_TYPE(arg) == CmdArg_Array);
+  if (CMDARG_ARRLEN(arg) == 0) {
+    asprintf(err, "Missing parameters for SORTBY");
     return NULL;
   }
 
@@ -105,6 +106,25 @@ ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream) {
   }
 
   return NewSorterByFields(mk, 1, 0, upstream);
+}
+
+ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, char **err) {
+  CmdArg *func = CmdArg_FirstOf(arg, "func");
+  if (!func || CMDARG_TYPE(func) != CmdArg_String) {
+    asprintf(err, "Missing or invalid projection function");
+    return NULL;
+  }
+
+  const char *fname = CMDARG_STRPTR(func);
+  CmdArg *args = CmdArg_FirstOf(arg, "args");
+  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
+
+  return GetProjector(upstream, fname, alias, args, err);
+
+fail:
+  // RedisModule_Log(NULL, "warning", "Error parsing PROJECT: %s", err);
+  // Grouper_Free(g);
+  return NULL;
 }
 
 FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
@@ -124,7 +144,8 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   return ret;
 }
 
-ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd) {
+ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd,
+                                             char **err) {
 
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
@@ -137,9 +158,11 @@ ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req,
   const char *key;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     if (!strcasecmp(key, "GROUPBY")) {
-      next = buildGroupBy(child, req, next);
+      next = buildGroupBy(child, req, next, err);
     } else if (!strcasecmp(key, "SORTBY")) {
-      next = buildSortBY(child, next);
+      next = buildSortBY(child, next, err);
+    } else if (!strcasecmp(key, "PROJECT")) {
+      next = buildProjection(child, next, err);
     }
     if (!next) {
       goto fail;

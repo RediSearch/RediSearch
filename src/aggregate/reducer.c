@@ -15,6 +15,15 @@ Reducer *NewSumArgs(CmdArray *args, const char *alias, char **err) {
   return NewSum(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)), alias);
 }
 
+Reducer *NewToListArgs(CmdArray *args, const char *alias, char **err) {
+
+  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for TOLIST");
+    return NULL;
+  }
+  return NewToList(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)), alias);
+}
+
 typedef Reducer *(*ReducerFactory)(CmdArray *args, const char *alias, char **err);
 
 static struct {
@@ -23,6 +32,7 @@ static struct {
 } reducers_g[] = {
     {"sum", NewSumArgs},
     {"count", NewCountArgs},
+    {"tolist", NewToListArgs},
     {NULL, NULL},
 };
 

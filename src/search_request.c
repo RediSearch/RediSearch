@@ -413,14 +413,18 @@ int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleStri
     return RedisModule_ReplyWithError(req->sctx->redisCtx,
                                       err ? err : "Could not parse aggregate request");
   }
+  RedisModuleCtx *ctx = req->sctx->redisCtx;
 
   QueryParseCtx *q = parseQuery(req);
   if (!q) {  // error has already been sent in this case
     return REDISMODULE_ERR;
   }
-  QueryPlan *plan = Query_BuildAggregationPlan(q, req, 0, cmd);
+  QueryPlan *plan = Query_BuildAggregationPlan(q, req, 0, cmd, &err);
+  if (!plan || err != NULL) {
+    RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
+    return REDISMODULE_ERR;
+  }
   // Execute the query
-  RedisModuleCtx *ctx = req->sctx->redisCtx;
   int rc = QueryPlan_Execute(plan, (const char **)&err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
