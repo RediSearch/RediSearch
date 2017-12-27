@@ -890,7 +890,7 @@ int Query_SerializeResults(QueryPlan *qex) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   do {
-    SearchResult r;
+    SearchResult r = SEARCH_RESULT_INIT;
     rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
 
     if (rc == RS_RESULT_EOF) break;

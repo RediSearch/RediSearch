@@ -125,10 +125,10 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     RSFieldMap *gm = RS_NewFieldMap(g->keys->len);
     for (size_t i = 0; i < g->keys->len; i++) {
       // TODO: Init sorting table
-      RSValue v = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
-      RSValue cv;
-      RSValue_DeepCopy(&cv, &v);
-      RSFieldMap_Add(&gm, g->keys->keys[i], cv);
+      RSValue src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
+      RSValue dst;
+      RSValue_DeepCopy(&dst, &src);
+      RSFieldMap_Add(&gm, g->keys->keys[i], dst);
     }
 
     // create the group
@@ -137,7 +137,7 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
       group->ptrs[i].ptr = g->reducers[i]->NewInstance(g->reducers[i]->privdata);
       group->ptrs[i].free = g->reducers[i]->FreeInstance;
     }
-    TrieMap_Add(g->groups, (char *)&hash, sizeof(uint64_t), group, NULL);
+    TrieMap_Add(g->groups, (char *)&hash, sizeof(hash), group, NULL);
   }
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Add(GROUP_CTX(group, i), res);

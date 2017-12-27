@@ -163,6 +163,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->score = 0;
   res->sv = dmd->sortVector;
   res->md = dmd;
+  res->fields = NULL;
 
   return RS_RESULT_OK;
 }

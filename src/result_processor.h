@@ -92,6 +92,9 @@ typedef struct {
   RSFieldMap *fields;
 } SearchResult;
 
+#define SEARCH_RESULT_INIT \
+  ((SearchResult){         \
+      .docId = 0, .score = 0, .sv = NULL, .md = NULL, .indexResult = NULL, .fields = NULL})
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
 static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
                                             const char *key) {
