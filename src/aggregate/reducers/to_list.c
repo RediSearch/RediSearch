@@ -11,7 +11,6 @@ void *tolist_NewInstance(void *privdata) {
   struct tolistCtx *ctx = malloc(sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = property;
-  printf("new instance %s\n", ctx->property);
   return ctx;
 }
 
@@ -24,7 +23,7 @@ int tolist_Add(void *ctx, SearchResult *res) {
 
     uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-      RSValue *sv = malloc(sizeof(sv));
+      RSValue *sv = malloc(sizeof(RSValue));
       RSValue_DeepCopy(sv, v);
       TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), sv, NULL);
     }
