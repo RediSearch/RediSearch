@@ -213,5 +213,6 @@ ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);
 ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
 ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
+ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit);
 
 #endif  // !RS_RESULT_PROCESSOR_H_
