@@ -15,7 +15,7 @@ CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err);
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl);
 ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream);
 void Grouper_AddReducer(Grouper *g, Reducer *r);
-ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd,
+ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RedisSearchCtx *sctx, CmdArg *cmd,
                                              char **err);
 
 ResultProcessor *GetProjector(ResultProcessor *upstream, const char *name, const char *alias,

@@ -419,7 +419,7 @@ int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleStri
   if (!q) {  // error has already been sent in this case
     return REDISMODULE_ERR;
   }
-  QueryPlan *plan = Query_BuildAggregationPlan(q, req, 0, cmd, &err);
+  QueryPlan *plan = Query_BuildAggregationPlan(q, req->sctx, 0, cmd, &err);
   if (!plan || err != NULL) {
     RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;

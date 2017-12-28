@@ -969,13 +969,13 @@ QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int
   return plan;
 }
 
-QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req,
+QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RedisSearchCtx *sctx,
                                       int concurrentMode, CmdArg *aggregateCmd, char **err) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
-  plan->ctx = req->sctx;
+  plan->ctx = sctx;
   plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
   plan->sortBy = NULL;
-  plan->flags = req->flags;
+  plan->flags = RS_DEFAULT_QUERY_FLAGS;
   plan->execCtx = (QueryProcessingCtx){
       .errorString = NULL,
       .minScore = 0,
@@ -986,7 +986,7 @@ QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchReques
   };
   clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
   if (plan->conc) {
-    ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
+    ConcurrentSearchCtx_Init(sctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
                             Query_OnReopen, plan, NULL, 0);
   }
@@ -997,13 +997,13 @@ QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchReques
       .numTokens = parsedQuery->numTokens,
       .tokenId = 1,
       .sctx = plan->ctx,
-      .fieldMask = req->fieldMask,
-      .slop = req->slop,
-      .flags = req->flags,
+      .fieldMask = RS_FIELDMASK_ALL,
+      .slop = -1,
+      .flags = RS_DEFAULT_QUERY_FLAGS,
   };
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
-  plan->rootProcessor = Query_BuildAggregationChain(plan, req, aggregateCmd, err);
+  plan->rootProcessor = Query_BuildAggregationChain(plan, sctx, aggregateCmd, err);
   plan->execCtx.rootFilter = plan->rootFilter;
   if (!plan->rootFilter || !plan->rootProcessor) {
     QueryPlan_Free(plan);

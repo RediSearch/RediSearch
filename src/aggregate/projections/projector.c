@@ -19,6 +19,7 @@
  *  * MUL x y
  *  * ADD x y
  *  * LOG x
+ *  * LOG2 x
  *
  * String projections:
  *  * LOWER x
@@ -78,6 +79,9 @@ typedef ResultProcessor *(*ProjectorFactory)(ResultProcessor *upstream, const ch
 PROJECTOR_FACTORY(NewFloorArgs);
 PROJECTOR_FACTORY(NewAbsArgs);
 PROJECTOR_FACTORY(NewCeilArgs);
+PROJECTOR_FACTORY(NewLogArgs);
+PROJECTOR_FACTORY(NewLog2Args);
+PROJECTOR_FACTORY(NewSqrtArgs);
 
 // String projections
 PROJECTOR_FACTORY(NewLowerArgs);
@@ -88,7 +92,8 @@ static struct {
   ProjectorFactory f;
 } projectors_g[] = {
     {"abs", NewAbsArgs},     {"floor", NewFloorArgs}, {"ceil", NewCeilArgs},
-    {"upper", NewUpperArgs}, {"lower", NewLowerArgs}, {NULL, NULL},
+    {"upper", NewUpperArgs}, {"lower", NewLowerArgs}, {"sqrt", NewSqrtArgs},
+    {"log", NewLogArgs},     {"log2", NewLog2Args},   {NULL, NULL},
 };
 
 /* Projectors are result processors that have 1:1 conversion of values, without aggregation. I.e.

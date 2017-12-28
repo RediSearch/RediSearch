@@ -142,7 +142,7 @@ void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
 QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode);
 
-QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req,
+QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RedisSearchCtx *sctx,
                                       int concurrentMode, CmdArg *aggregateCmd, char **err);
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);

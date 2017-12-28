@@ -75,14 +75,14 @@ int parseReducer(Grouper *g, CmdArg *red, char **err) {
   return 1;
 }
 
-ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor *upstream,
+ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor *upstream,
                               char **err) {
 
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
   RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by));
-  Grouper *g = NewGrouper(keys, req->sctx && req->sctx->spec ? req->sctx->spec->sortables : NULL);
+  Grouper *g = NewGrouper(keys, sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
   // Add reducerss
   CMD_FOREACH_SELECT(grp, "REDUCE", {
@@ -92,7 +92,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RSSearchRequest *req, ResultProcessor
   return NewGrouperProcessor(g, upstream);
 
 fail:
-  RedisModule_Log(req->sctx->redisCtx, "warning", "Error paring GROUPBY: %s", *err);
+  RedisModule_Log(sctx->redisCtx, "warning", "Error paring GROUPBY: %s", *err);
   // TODO: Grouper_Free(g);
   return NULL;
 }
@@ -124,11 +124,6 @@ ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, char **
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
 
   return GetProjector(upstream, fname, alias, args, err);
-
-fail:
-  // RedisModule_Log(NULL, "warning", "Error parsing PROJECT: %s", err);
-  // Grouper_Free(g);
-  return NULL;
 }
 
 ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
@@ -160,21 +155,22 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   return ret;
 }
 
-ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req, CmdArg *cmd,
+ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RedisSearchCtx *sctx, CmdArg *cmd,
                                              char **err) {
 
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
-
-  FieldList *lst = getAggregateFields(req->sctx->redisCtx, cmd);
-  next = NewLoader(next, req->sctx, lst);
+  ResultProcessor *prev = NULL;
+  FieldList *lst = getAggregateFields(sctx->redisCtx, cmd);
+  next = NewLoader(next, sctx, lst);
 
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
+    prev = next;
     if (!strcasecmp(key, "GROUPBY")) {
-      next = buildGroupBy(child, req, next, err);
+      next = buildGroupBy(child, sctx, next, err);
     } else if (!strcasecmp(key, "SORTBY")) {
       next = buildSortBY(child, next, err);
     } else if (!strcasecmp(key, "PROJECT")) {
@@ -190,6 +186,11 @@ ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req,
   return next;
 
 fail:
-  // TODO: dont leak memory here
+  if (prev) {
+    ResultProcessor_Free(prev);
+  }
+  if (!*err) {
+    *err = strdup("Could not parse aggregate request");
+  }
   return NULL;
 }
