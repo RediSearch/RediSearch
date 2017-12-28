@@ -370,8 +370,10 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilte
   NumericUnionCtx *uc = malloc(sizeof(*uc));
   uc->lastRevId = t->revisionId;
   uc->it = it;
-  ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free,
-                          ConcurrentKey_SharedNothing);
+  if (csx) {
+    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free,
+                            ConcurrentKey_SharedNothing);
+  }
   return it;
 }
 
