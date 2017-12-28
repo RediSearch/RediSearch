@@ -56,6 +56,9 @@ void CmdArg_Print(CmdArg *n, int depth) {
     case CmdArg_Flag:
       printf(n->b ? "TRUE" : "FALSE");
       break;
+    case CmdArg_NullPtr:
+      printf("NULL");
+      break;
   }
 }
 static inline CmdArg *NewCmdArg(CmdArgType t) {

@@ -44,9 +44,13 @@ void Aggregate_BuildSchema() {
   CmdSchema_AddPostional(prj, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddPostional(prj, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
   CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArg('s'), CmdSchema_Optional);
+
+  CmdSchema_AddNamed(requestSchema, "LIMIT",
+                     CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
+                     CmdSchema_Optional | CmdSchema_Repeating);
+
   CmdSchema_Print(requestSchema);
 }
-
 CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
   CmdArg *ret = NULL;
 
@@ -127,6 +131,18 @@ fail:
   return NULL;
 }
 
+ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
+  long long offset, limit;
+  offset = CMDARG_INT(CMDARG_ARRELEM(arg, 0));
+  limit = CMDARG_INT(CMDARG_ARRELEM(arg, 1));
+
+  if (offset < 0 || limit <= 0) {
+    *err = strdup("Invalid offset/num for LIMIT");
+    return NULL;
+  }
+  return NewPager(upstream, (uint32_t)offset, (uint32_t)limit);
+}
+
 FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   FieldList *ret = NULL;
   CmdArg *select = CmdArg_FirstOf(cmd, "SELECT");
@@ -163,6 +179,8 @@ ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RSSearchRequest *req,
       next = buildSortBY(child, next, err);
     } else if (!strcasecmp(key, "PROJECT")) {
       next = buildProjection(child, next, err);
+    } else if (!strcasecmp(key, "LIMIT")) {
+      next = addLimit(child, next, err);
     }
     if (!next) {
       goto fail;
