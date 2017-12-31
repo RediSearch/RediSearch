@@ -7,20 +7,8 @@
 #include "geo_index.h"
 #include "id_filter.h"
 #include "sortable.h"
-
-typedef enum {
-  Search_NoContent = 0x01,
-  Search_Verbatim = 0x02,
-  Search_NoStopwords = 0x04,
-
-  Search_WithScores = 0x08,
-  Search_WithPayloads = 0x10,
-
-  Search_InOrder = 0x20,
-
-  Search_WithSortKeys = 0x40,
-
-} RSSearchFlags;
+#include "search_options.h"
+#include "query_plan.h"
 
 typedef enum {
   // No summaries
@@ -67,26 +55,15 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
-#define RS_DEFAULT_QUERY_FLAGS 0x00
-
-// maximum results you can get in one query
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
-
 typedef struct {
-  /* The index name - since we need to open the spec in a side thread */
-  char *indexName;
+
   /* RS Context */
   RedisSearchCtx *sctx;
-  RedisModuleBlockedClient *bc;
 
   char *rawQuery;
   size_t qlen;
 
-  RSSearchFlags flags;
-
-  /* Paging */
-  size_t offset;
-  size_t num;
+  RSSearchOptions opts;
 
   /* Numeric Filters */
   Vector *numericFilters;
@@ -97,22 +74,9 @@ typedef struct {
   /* InKeys */
   IdFilter *idFilter;
 
-  /* InFields */
-  t_fieldMask fieldMask;
-
-  int slop;
-
-  char *language;
-
-  char *expander;
-
-  char *scorer;
-
   FieldList fields;
 
   RSPayload payload;
-
-  RSSortingKey *sortBy;
 
 } RSSearchRequest;
 
@@ -120,7 +84,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
                               char **errStr);
 
 void RSSearchRequest_Free(RSSearchRequest *req);
-
+QueryPlan *SearchRequest_BuildPlan(RSSearchRequest *req, char **err);
 ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
 
 // Remove any fields not explicitly requested by `RETURN`, iff any explicit

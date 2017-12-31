@@ -9,10 +9,8 @@
 #include "query.h"
 #include "config.h"
 #include "query_parser/parser.h"
-#include "aggregate/aggregate.h"
 #include "redis_index.h"
 #include "tokenize.h"
-#include "util/minmax_heap.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -258,7 +256,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 void Query_Expand(QueryParseCtx *q, const char *expander) {
   if (!q->root) return;
 
-  RSQueryExpanderCtx expCtx = {.query = q, .language = q->language};
+  RSQueryExpanderCtx expCtx = {.query = q, .language = q->opts.language};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
@@ -275,12 +273,12 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
-  int isSingleWord = q->numTokens == 1 && q->fieldMask == RS_FIELDMASK_ALL;
+  int isSingleWord = q->numTokens == 1 && q->opts->fieldMask == RS_FIELDMASK_ALL;
 
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
-                                     q->fieldMask & qn->fieldMask, q->conc);
+                                     q->opts->fieldMask & qn->fieldMask, q->conc);
   if (ir == NULL) {
     Term_Free(term);
     return NULL;
@@ -331,7 +329,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->fieldMask & qn->fieldMask, q->conc);
+                                       q->opts->fieldMask & qn->fieldMask, q->conc);
 
     free(tok.str);
     if (!ir) {
@@ -379,11 +377,12 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
-                              0, 1);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
+                              q->opts->fieldMask & qn->fieldMask, 0, 1);
   } else {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, q->fieldMask & qn->fieldMask,
-                              q->slop, q->flags & Search_InOrder);
+    ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
+                              q->opts->fieldMask & qn->fieldMask, q->opts->slop,
+                              q->opts->flags & Search_InOrder);
   }
   return ret;
 }
@@ -631,48 +630,22 @@ void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t nu
   }
 }
 
-QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
+QueryParseCtx *NewQueryParseCtx(RedisSearchCtx *sctx, const char *raw, size_t len,
+                                RSSearchOptions *opts) {
 
   QueryParseCtx *ctx = malloc(sizeof(*ctx));
-  ctx->len = req->qlen;
-  ctx->raw = strdup(req->rawQuery);
+  ctx->len = len;
+  ctx->raw = strdup(raw);
   ctx->numTokens = 0;
   ctx->ok = 1;
   ctx->root = NULL;
-  ctx->sctx = req->sctx;
-  if (req->flags & Search_NoStopwords) {
-    ctx->stopwords = EmptyStopWordList();
-  } else {
-    ctx->stopwords = (ctx->sctx && ctx->sctx->spec && ctx->sctx->spec->stopwords)
-                         ? ctx->sctx->spec->stopwords
-                         : DefaultStopWordList();
-  }
-  ctx->language = req->language ? req->language : DEFAULT_LANGUAGE;
+  ctx->sctx = sctx;
+  ctx->opts = opts ? *opts : RS_DEFAULT_SEARCHOPTS;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;
-  ctx->payloadptr = &req->payload;
+
   return ctx;
 }
-
-// QueryParseCtx *NewQueryParseCtxEx(RedisSearchCtx *sctx, const char *raw, size_t len,
-//                                   const char *language, RSPayload *payload) {
-
-//   QueryParseCtx *ctx = malloc(sizeof(*ctx));
-//   ctx->len = len;
-//   ctx->raw = strdup(raw);
-//   ctx->numTokens = 0;
-//   ctx->ok = 1;
-//   ctx->root = NULL;
-//   ctx->sctx = sctx;
-
-//   ctx->stopwords = (sctx && sctx->spec && ctx->sctx->spec->stopwords) ? sctx->spec->stopwords
-//                                                                       : DefaultStopWordList();
-//   ctx->language = language ? language : DEFAULT_LANGUAGE;
-//   ctx->tokenId = 1;
-//   ctx->errorMsg = NULL;
-//   ctx->payloadptr = payload;
-//   return ctx;
-// }
 
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
  * resulting in the query not performing context switches */
@@ -815,234 +788,4 @@ void Query_Free(QueryParseCtx *q) {
 
   free(q->raw);
   free(q);
-}
-
-/******************************************************************************************************
- *   Query Plan - the actual binding context of the whole execution plan - from filters to
- *   processors
- ******************************************************************************************************/
-
-static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags) {
-  size_t count = 0;
-
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  if (r->md) {
-    count += 1;
-    size_t len;
-    const char *k = DMD_KeyPtrLen(r->md, &len);
-    RedisModule_ReplyWithStringBuffer(ctx, k, len);
-  }
-
-  if (flags & Search_WithScores) {
-    RedisModule_ReplyWithDouble(ctx, r->score);
-    count++;
-  }
-
-  if (flags & Search_WithPayloads) {
-    ++count;
-    const RSPayload *payload = r->md ? r->md->payload : NULL;
-    if (payload) {
-      RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
-    } else {
-      RedisModule_ReplyWithNull(ctx);
-    }
-  }
-
-  if (flags & Search_WithSortKeys) {
-    ++count;
-    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->sortBy);
-    if (sortkey) {
-      if (sortkey->type == RS_SORTABLE_NUM) {
-        /* Serialize double - by prepending "%" to the number, so the coordinator/client can tell
-         * it's a double and not just a numeric string value */
-        RedisModule_ReplyWithString(ctx,
-                                    RedisModule_CreateStringPrintf(ctx, "#%.17g", sortkey->num));
-      } else if (sortkey->type == RS_SORTABLE_STR) {
-        /* Serialize string - by prepending "$" to it */
-        RedisModule_ReplyWithString(ctx, RedisModule_CreateStringPrintf(ctx, "$%s", sortkey->str));
-      } else {
-        // NIL, or any other type:
-        RedisModule_ReplyWithNull(ctx);
-      }
-    }
-
-    else {
-      RedisModule_ReplyWithNull(ctx);
-    }
-  }
-
-  if (!(flags & Search_NoContent)) {
-    count++;
-    RedisModule_ReplyWithArray(ctx, r->fields->len * 2);
-    for (int i = 0; i < r->fields->len; i++) {
-      RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].key,
-                                        strlen(r->fields->fields[i].key));
-      RSValue_SendReply(ctx, RSFieldMap_Item(r->fields, i));
-    }
-  }
-  return count;
-}
-
-int Query_SerializeResults(QueryPlan *qex) {
-  int rc;
-  int count = 0;
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  do {
-    SearchResult r = SEARCH_RESULT_INIT;
-    rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
-
-    if (rc == RS_RESULT_EOF) break;
-    // printf("Read result %d, rc %d\n", r.docId, rc);
-    if (count == 0) {
-      RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
-      count++;
-    }
-    count += serializeResult(qex, &r, qex->flags);
-
-    // IndexResult_Free(r.indexResult);
-    // RSFieldMap_Free(r.fields, 0);
-  } while (rc != RS_RESULT_EOF);
-  if (count == 0) {
-    RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
-    count++;
-  }
-  RedisModule_ReplySetArrayLength(ctx, count);
-  return REDISMODULE_OK;
-}
-
-/* A callback called when we regain concurrent execution context, and the index spec key is
- * reopened. We protect against the case that the spec has been deleted during query execution */
-void Query_OnReopen(RedisModuleKey *k, void *privdata) {
-
-  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-  QueryPlan *q = privdata;
-
-  // If we don't have a spec or key - we abort the query
-  if (k == NULL || sp == NULL) {
-
-    q->execCtx.state = QueryState_Aborted;
-    q->ctx->spec = NULL;
-    return;
-  }
-
-  // The spec might have changed while we were sleeping - for example a realloc of the doc table
-  q->ctx->spec = sp;
-
-  if (RSGlobalConfig.queryTimeoutMS > 0) {
-    // Check the elapsed processing time
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-
-    long long durationNS = (long long)1000000000 * (now.tv_sec - q->execCtx.startTime.tv_sec) +
-                           (now.tv_nsec - q->execCtx.startTime.tv_nsec);
-    // printf("Elapsed: %zdms\n", durationNS / 1000000);
-    // Abort on timeout
-    if (durationNS > RSGlobalConfig.queryTimeoutMS * 1000000) {
-      q->execCtx.state = QueryState_TimedOut;
-    }
-  }
-  // q->docTable = &sp->docs;
-}
-
-int QueryPlan_Execute(QueryPlan *plan, const char **err) {
-  int rc = Query_SerializeResults(plan);
-  if (err) *err = plan->execCtx.errorString;
-  return rc;
-}
-
-void QueryPlan_Free(QueryPlan *plan) {
-  if (plan->rootProcessor) {
-    ResultProcessor_Free(plan->rootProcessor);
-  }
-  if (plan->rootFilter) {
-    plan->rootFilter->Free(plan->rootFilter);
-  }
-  if (plan->conc) {
-    ConcurrentSearchCtx_Free(plan->conc);
-    free(plan->conc);
-  }
-  free(plan);
-}
-
-QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode) {
-  QueryPlan *plan = calloc(1, sizeof(*plan));
-  plan->ctx = req->sctx;
-  plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
-  plan->sortBy = req->sortBy;
-  plan->flags = req->flags;
-  plan->execCtx = (QueryProcessingCtx){
-      .errorString = NULL,
-      .minScore = 0,
-      .totalResults = 0,
-      .state = QueryState_OK,
-      .sctx = plan->ctx,
-      .conc = plan->conc,
-  };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
-  if (plan->conc) {
-    ConcurrentSearchCtx_Init(sctx->redisCtx, plan->conc);
-    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL, 0);
-  }
-
-  QueryEvalCtx ev = {
-      .docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
-      .conc = plan->conc,
-      .numTokens = parsedQuery->numTokens,
-      .tokenId = 1,
-      .sctx = plan->ctx,
-      .fieldMask = req->fieldMask,
-      .slop = req->slop,
-      .flags = req->flags,
-  };
-
-  plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
-  plan->rootProcessor = Query_BuildProcessorChain(plan, req);
-  plan->execCtx.rootFilter = plan->rootFilter;
-  return plan;
-}
-
-QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RedisSearchCtx *sctx,
-                                      int concurrentMode, CmdArg *aggregateCmd, char **err) {
-  QueryPlan *plan = calloc(1, sizeof(*plan));
-  plan->ctx = sctx;
-  plan->conc = concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
-  plan->sortBy = NULL;
-  plan->flags = RS_DEFAULT_QUERY_FLAGS;
-  plan->execCtx = (QueryProcessingCtx){
-      .errorString = NULL,
-      .minScore = 0,
-      .totalResults = 0,
-      .state = QueryState_OK,
-      .sctx = plan->ctx,
-      .conc = plan->conc,
-  };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
-  if (plan->conc) {
-    ConcurrentSearchCtx_Init(req->sctx->redisCtx, plan->conc);
-    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL, 0);
-  }
-
-  QueryEvalCtx ev = {
-      .docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
-      .conc = plan->conc,
-      .numTokens = parsedQuery->numTokens,
-      .tokenId = 1,
-      .sctx = plan->ctx,
-      .fieldMask = RS_FIELDMASK_ALL,
-      .slop = -1,
-      .flags = RS_DEFAULT_QUERY_FLAGS,
-  };
-
-  plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
-  plan->rootProcessor = Query_BuildAggregationChain(plan, sctx, aggregateCmd, err);
-  plan->execCtx.rootFilter = plan->rootFilter;
-  if (!plan->rootFilter || !plan->rootProcessor) {
-    QueryPlan_Free(plan);
-    return NULL;
-  }
-  return plan;
 }

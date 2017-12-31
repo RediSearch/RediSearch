@@ -4,6 +4,7 @@
 #include "util/minmax_heap.h"
 #include "ext/default.h"
 #include "util/array.h"
+#include "query_plan.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -596,26 +597,27 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, Fiel
  * Building the processor chaing based on the processors available and the request parameters
  *******************************************************************************************************************/
 
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata) {
 
+  RSSearchRequest *req = privdata;
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
 
   // If we are not in SORTBY mode - add a scorer to the chain
-  if (req->sortBy == NULL) {
-    next = NewScorer(req->scorer, next, req);
+  if (q->opts.sortBy == NULL) {
+    next = NewScorer(q->opts.scorer, next, req);
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(req->sortBy ? Sort_BySortKey : Sort_ByScore, req->sortBy, req->offset + req->num,
-                   next, req->fields.wantSummaries);
+  next = NewSorter(q->opts.sortBy ? Sort_BySortKey : Sort_ByScore, q->opts.sortBy,
+                   q->opts.offset + q->opts.num, next, req->fields.wantSummaries);
 
   // The pager pages over the results of the sorter
-  next = NewPager(next, req->offset, req->num);
+  next = NewPager(next, q->opts.offset, q->opts.num);
 
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
-  if (!(req->flags & Search_NoContent)) {
+  if (!(q->opts.flags & Search_NoContent)) {
     next = NewLoader(next, req->sctx, &req->fields);
     if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
