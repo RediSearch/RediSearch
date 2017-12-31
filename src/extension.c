@@ -144,14 +144,14 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
 void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
-                      RSTokenFlags flags, int replace, int exact) {
+                               RSTokenFlags flags, int replace, int exact) {
 
   QueryParseCtx *q = ctx->query;
   QueryNode *qn = *ctx->currentNode;
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    QueryPhraseNode_AddChild(ph,  NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    QueryPhraseNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
@@ -176,7 +176,7 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
 
 /* Set the query payload */
 void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
-  *ctx->query->payloadptr = payload;
+  *ctx->query->opts.payload = payload;
 }
 
 /* Get an expander by name */

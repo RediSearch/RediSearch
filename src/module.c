@@ -829,14 +829,31 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, err);
   }
 
+  QueryPlan *plan = SearchRequest_BuildPlan(req, &err);
+  if (!plan) {
+    if (err) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+      RedisModule_ReplyWithError(ctx, err);
+      free(err);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    RSSearchRequest_Free(req);
+    SearchCtx_Free(sctx);
+    return REDISMODULE_ERR;
+  }
+  int rc;
   // in concurrent mode - process the request in the thread pool
   if (RSGlobalConfig.concurrentMode) {
-    int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
-    SearchCtx_Free(sctx);
-    return rc;
+    rc = QueryPlan_ProcessInThreadpool(ctx, plan);
   } else {  // "safe" mode - process the request in the main thread
-    return RSSearchRequest_ProcessMainThread(sctx, req);
+    rc = QueryPlan_ProcessMainThread(sctx, plan);
   }
+  SearchCtx_Free(sctx);
+  RSSearchRequest_Free(req);
+  return rc;
 }
 
 /* FT.TAGVALS {idx} {field}

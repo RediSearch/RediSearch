@@ -16,12 +16,12 @@
 #include "id_filter.h"
 #include "redisearch.h"
 #include "rmutil/sds.h"
-#include "search_request.h"
 #include "concurrent_ctx.h"
 #include "result_processor.h"
+#include "search_options.h"
 
-/* A QueryParseCtx represents the parse tree and execution plan for a single search
- * QueryParseCtx */
+/* A QueryParseCtx represents the parse tree and execution plan for a single
+ * search QueryParseCtx */
 typedef struct RSQuery {
   // the raw query text
   char *raw;
@@ -34,25 +34,19 @@ typedef struct RSQuery {
   // the current token id (we assign ids to all token nodes)
   int tokenId;
 
-  // Stopword list
-  StopWordList *stopwords;
-
-  const char *language;
   // parsing state
   int ok;
 
   // Index spec
   RedisSearchCtx *sctx;
 
-  // Pointer to payload info. The target resides in the search request itself
-  RSPayload *payloadptr;
-
   // query root
   QueryNode *root;
 
   char *errorMsg;
 
-  t_fieldMask fieldMask;
+  RSSearchOptions opts;
+
 } QueryParseCtx;
 
 typedef struct {
@@ -61,9 +55,7 @@ typedef struct {
   int numTokens;
   int tokenId;
   DocTable *docTable;
-  t_fieldMask fieldMask;
-  RSSearchFlags flags;
-  int slop;
+  RSSearchOptions *opts;
 } QueryEvalCtx;
 
 /* Evaluate a QueryParseCtx stage and prepare it for execution. As execution is lazy
@@ -98,7 +90,9 @@ void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 
 /* Initialize a new QueryParseCtx object from user input. This does not parse the QueryParseCtx
  * just yet */
-QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req);
+QueryParseCtx *NewQueryParseCtx(RedisSearchCtx *sctx, const char *raw, size_t len,
+                                RSSearchOptions *opts);
+
 QueryNode *Query_Parse(QueryParseCtx *q, char **err);
 
 void Query_Expand(QueryParseCtx *q, const char *expander);
@@ -112,43 +106,4 @@ const char *Query_DumpExplain(QueryParseCtx *q);
 /* Free a QueryParseCtx object */
 void Query_Free(QueryParseCtx *q);
 
-/******************************************************************************************************
- *   Query Plan - the actual binding context of the whole execution plan - from filters to
- *   processors
- ******************************************************************************************************/
-
-typedef struct QueryPlan {
-  RedisSearchCtx *ctx;
-
-  IndexIterator *rootFilter;
-
-  ResultProcessor *rootProcessor;
-
-  QueryProcessingCtx execCtx;
-
-  ConcurrentSearchCtx *conc;
-
-  RSSortingKey *sortBy;
-
-  RSSearchFlags flags;
-  // RSSearchRequest *req;
-
-} QueryPlan;
-
-/* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn
- * it off, resulting in the QueryParseCtx not performing context switches */
-void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
-
-/* Build the processor chain of the QueryParseCtx, returning the root processor */
-QueryPlan *Query_BuildPlan(QueryParseCtx *parsedQuery, RSSearchRequest *req, int concurrentMode);
-
-QueryPlan *Query_BuildAggregationPlan(QueryParseCtx *parsedQuery, RedisSearchCtx *sctx,
-                                      int concurrentMode, CmdArg *aggregateCmd, char **err);
-
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req);
-/* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
- * object */
-int QueryPlan_Execute(QueryPlan *ctx, const char **err);
-
-void QueryPlan_Free(QueryPlan *plan);
 #endif
