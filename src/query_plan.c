@@ -172,7 +172,7 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   if (plan->conc) {
     ConcurrentSearchCtx_Init(ctx->redisCtx, plan->conc);
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL, 0);
+                            Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
   }
   queryPlan_EvalQuery(plan, parsedQuery, opts);
   plan->execCtx.rootFilter = plan->rootFilter;
@@ -219,6 +219,7 @@ void threadProcessPlan(void *p) {
 }
 
 int QueryPlan_ProcessInThreadpool(RedisModuleCtx *ctx, QueryPlan *plan) {
+
   plan->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   ConcurrentSearch_ThreadPoolRun(threadProcessPlan, plan, CONCURRENT_POOL_SEARCH);
   return REDISMODULE_OK;

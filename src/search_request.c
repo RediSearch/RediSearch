@@ -19,7 +19,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   RSSearchRequest *req = calloc(1, sizeof(*req));
   *req = (RSSearchRequest){
-      .sctx = NULL,
+      .sctx = ctx,
       .opts = RS_DEFAULT_SEARCHOPTS,
   };
   req->opts.indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL));
@@ -296,10 +296,6 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   }
 
   FieldList_Free(&req->fields);
-
-  if (req->sctx) {
-    SearchCtx_Free(req->sctx);
-  }
 
   free(req);
 }
