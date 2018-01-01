@@ -256,7 +256,8 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 void Query_Expand(QueryParseCtx *q, const char *expander) {
   if (!q->root) return;
 
-  RSQueryExpanderCtx expCtx = {.query = q, .language = q->opts.language};
+  RSQueryExpanderCtx expCtx = {.query = q,
+                               .language = q->opts.language ? q->opts.language : DEFAULT_LANGUAGE};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
