@@ -1,4 +1,6 @@
 #include "result_processor.h"
+#include "search_request.h"
+#include "highlight.h"
 #include "fragmenter.h"
 #include "value.h"
 #include "util/minmax.h"
@@ -300,7 +302,7 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
   hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
   hlpCtx->fields = &req->fields;
-  if (req->language && strcasecmp(req->language, "chinese") == 0) {
+  if (req->opts.language && strcasecmp(req->opts.language, "chinese") == 0) {
     hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
   ResultProcessor *rp = NewResultProcessor(parent, hlpCtx);

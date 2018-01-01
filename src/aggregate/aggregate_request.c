@@ -3,6 +3,7 @@
 #include <query.h>
 #include <result_processor.h>
 #include <rmutil/cmdparse.h>
+#include <search_request.h>
 
 static CmdSchemaNode *requestSchema = NULL;
 
@@ -155,28 +156,29 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   return ret;
 }
 
-ResultProcessor *Query_BuildAggregationChain(QueryPlan *q, RedisSearchCtx *sctx, CmdArg *cmd,
-                                             char **err) {
+ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
 
+  CmdArg *cmd = ctx;
   // The base processor translates index results into search results
-  ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
+  ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
   ResultProcessor *prev = NULL;
-  FieldList *lst = getAggregateFields(sctx->redisCtx, cmd);
-  next = NewLoader(next, sctx, lst);
+  FieldList *lst = getAggregateFields(plan->ctx->redisCtx, cmd);
+  next = NewLoader(next, plan->ctx, lst);
 
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
+  char *err = NULL;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     prev = next;
     if (!strcasecmp(key, "GROUPBY")) {
-      next = buildGroupBy(child, sctx, next, err);
+      next = buildGroupBy(child, plan->ctx, next, &err);
     } else if (!strcasecmp(key, "SORTBY")) {
-      next = buildSortBY(child, next, err);
+      next = buildSortBY(child, next, &err);
     } else if (!strcasecmp(key, "PROJECT")) {
-      next = buildProjection(child, next, err);
+      next = buildProjection(child, next, &err);
     } else if (!strcasecmp(key, "LIMIT")) {
-      next = addLimit(child, next, err);
+      next = addLimit(child, next, &err);
     }
     if (!next) {
       goto fail;
@@ -193,4 +195,42 @@ fail:
     *err = strdup("Could not parse aggregate request");
   }
   return NULL;
+}
+
+int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc) {
+  char *err = NULL;
+  CmdArg *cmd = Aggregate_ParseRequest(argv, argc, &err);
+  if (!cmd) {
+    return RedisModule_ReplyWithError(sctx->redisCtx,
+                                      err ? err : "Could not parse aggregate request");
+  }
+  RedisModuleCtx *ctx = sctx->redisCtx;
+
+  CmdString *str = &CMDARG_STR(CmdArg_FirstOf(cmd, "query"));
+
+  RSSearchOptions opts = RS_DEFAULT_SEARCHOPTS;
+
+  QueryParseCtx *q = NewQueryParseCtx(sctx, str->str, str->len, &opts);
+
+  if (!Query_Parse(q, &err)) {
+    Query_Free(q);
+    RedisModule_ReplyWithError(ctx, err ? err : "Unkonown Error");
+    return REDISMODULE_ERR;
+  }
+  Query_Expand(q, opts.expander);
+
+  QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd);
+  if (!plan || err != NULL) {
+    RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
+    return REDISMODULE_ERR;
+  }
+  // Execute the query
+  int rc = QueryPlan_Execute(plan, (const char **)&err);
+  if (rc == REDISMODULE_ERR) {
+    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+  }
+  // QueryPlan_Free(plan);
+  // Query_Free(q);
+
+  return rc;
 }

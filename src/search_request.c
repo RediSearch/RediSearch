@@ -351,33 +351,3 @@ QueryPlan *SearchRequest_BuildPlan(RSSearchRequest *req, char **err) {
 
   return Query_BuildPlan(req->sctx, q, &req->opts, Query_BuildProcessorChain, req);
 }
-
-// int RSSearchRequest_ProcessAggregateRequet(RSSearchRequest *req, RedisModuleString **argv,
-//                                            int argc) {
-//   char *err = NULL;
-//   CmdArg *cmd = Aggregate_ParseRequest(argv, argc, &err);
-//   if (!cmd) {
-//     return RedisModule_ReplyWithError(req->sctx->redisCtx,
-//                                       err ? err : "Could not parse aggregate request");
-//   }
-//   RedisModuleCtx *ctx = req->sctx->redisCtx;
-
-//   QueryParseCtx *q = parseQuery(req);
-//   if (!q) {  // error has already been sent in this case
-//     return REDISMODULE_ERR;
-//   }
-//   QueryPlan *plan = Query_BuildAggregationPlan(q, req->sctx, 0, cmd, &err);
-//   if (!plan || err != NULL) {
-//     RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
-//     return REDISMODULE_ERR;
-//   }
-//   // Execute the query
-//   int rc = QueryPlan_Execute(plan, (const char **)&err);
-//   if (rc == REDISMODULE_ERR) {
-//     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-//   }
-//   // QueryPlan_Free(plan);
-//   // Query_Free(q);
-
-//   return rc;
-// }

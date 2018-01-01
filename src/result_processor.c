@@ -5,6 +5,7 @@
 #include "ext/default.h"
 #include "util/array.h"
 #include "query_plan.h"
+#include "highlight.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions

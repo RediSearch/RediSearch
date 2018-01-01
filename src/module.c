@@ -421,7 +421,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
   req->sctx = sctx;
 
-  QueryParseCtx *q = NewQueryParseCtx(req);
+  QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
   if (!q) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
@@ -441,8 +441,8 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
     goto end;
   }
-  if (!(req->flags & Search_Verbatim)) {
-    Query_Expand(q, req->expander);
+  if (!(req->opts.flags & Search_Verbatim)) {
+    Query_Expand(q, req->opts.expander);
   }
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
@@ -510,16 +510,7 @@ int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   char *err;
-
-  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
-  if (req == NULL) {
-    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, err);
-  }
-  req->sctx = sctx;
-
-  return RSSearchRequest_ProcessAggregateRequet(req, argv, argc);
+  return Aggregate_ProcessRequest(sctx, argv, argc);
   // // in concurrent mode - process the request in the thread pool
   // if (RSGlobalConfig.concurrentMode) {
   //   int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);

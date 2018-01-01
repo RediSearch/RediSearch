@@ -5,8 +5,9 @@
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
-#include "search_request.h"
-
+#include "search_ctx.h"
+#include "index_iterator.h"
+#include "search_options.h"
 /********************************************************************************
  * Result Processor Chain
  *
@@ -211,8 +212,8 @@ ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
                                    ResultProcessor *upstream);
 
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);
+
 ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
-ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
 ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit);
 
 #endif  // !RS_RESULT_PROCESSOR_H_
