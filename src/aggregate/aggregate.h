@@ -11,7 +11,8 @@ typedef struct Grouper Grouper;
 
 void Aggregate_BuildSchema();
 
-CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err);
+int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc);
+
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl);
 ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream);
 void Grouper_AddReducer(Grouper *g, Reducer *r);

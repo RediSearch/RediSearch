@@ -17,7 +17,6 @@
 #include "redisearch.h"
 #include "rmutil/sds.h"
 #include "concurrent_ctx.h"
-#include "result_processor.h"
 #include "search_options.h"
 
 /* A QueryParseCtx represents the parse tree and execution plan for a single
