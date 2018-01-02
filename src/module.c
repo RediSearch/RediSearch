@@ -419,7 +419,6 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, err);
   }
-  req->sctx = sctx;
 
   QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
   if (!q) {
@@ -799,7 +798,7 @@ and
 then pairs of
     document id, and a nested array of field/value, unless NOCONTENT was given
 */
-int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -820,7 +819,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, err);
   }
 
-  QueryPlan *plan = SearchRequest_BuildPlan(req, &err);
+  QueryPlan *plan = SearchRequest_BuildPlan(sctx, req, &err);
   if (!plan) {
     if (err) {
       RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
@@ -835,16 +834,25 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     SearchCtx_Free(sctx);
     return REDISMODULE_ERR;
   }
-  int rc;
-  // in concurrent mode - process the request in the thread pool
-  if (RSGlobalConfig.concurrentMode) {
-    rc = QueryPlan_ProcessInThreadpool(ctx, plan);
-  } else {  // "safe" mode - process the request in the main thread
-    rc = QueryPlan_ProcessMainThread(sctx, plan);
+
+  int rc = QueryPlan_Run(plan, &err);
+  if (err) {
+    RedisModule_ReplyWithError(ctx, err);
+    free(err);
   }
   SearchCtx_Free(sctx);
   RSSearchRequest_Free(req);
-  return rc;
+  return REDISMODULE_OK;
+}
+
+int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // in concurrent mode - process the request in the thread pool
+  if (RSGlobalConfig.concurrentMode) {
+    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _SearchCommand, ctx, argv,
+                                               argc);
+  } else {  // "safe" mode - process the request in the main thread
+    return _SearchCommand(ctx, argv, argc);
+  }
 }
 
 /* FT.TAGVALS {idx} {field}

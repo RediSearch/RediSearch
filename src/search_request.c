@@ -19,7 +19,6 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   RSSearchRequest *req = calloc(1, sizeof(*req));
   *req = (RSSearchRequest){
-      .sctx = ctx,
       .opts = RS_DEFAULT_SEARCHOPTS,
   };
   req->opts.indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL));
@@ -300,10 +299,10 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   free(req);
 }
 
-QueryParseCtx *parseQuery(RSSearchRequest *req, char **err) {
+QueryParseCtx *parseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
 
-  QueryParseCtx *q = NewQueryParseCtx(req->sctx, req->rawQuery, req->qlen, &req->opts);
-  RedisModuleCtx *ctx = req->sctx->redisCtx;
+  QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
+  RedisModuleCtx *ctx = sctx->redisCtx;
 
   if (!Query_Parse(q, err)) {
     Query_Free(q);
@@ -338,12 +337,12 @@ QueryParseCtx *parseQuery(RSSearchRequest *req, char **err) {
   return q;
 }
 
-QueryPlan *SearchRequest_BuildPlan(RSSearchRequest *req, char **err) {
+QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
 
-  QueryParseCtx *q = parseQuery(req, err);
+  QueryParseCtx *q = parseQuery(sctx, req, err);
   if (!q) {  // error has already been sent in this case
     return NULL;
   }
 
-  return Query_BuildPlan(req->sctx, q, &req->opts, Query_BuildProcessorChain, req);
+  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req);
 }
