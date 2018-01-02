@@ -131,10 +131,9 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
 
-  RedisModuleString *keyName = RedisModule_CreateStringPrintf(
-      ctx, INDEX_SPEC_KEY_FMT, RedisModule_StringPtrLen(indexName, NULL));
+  RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, indexName);
 
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
   // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
@@ -152,6 +151,11 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
       .keyName = keyName,
   };
   return sctx;
+}
+
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+
+  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL));
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {

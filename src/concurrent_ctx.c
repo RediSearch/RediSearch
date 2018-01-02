@@ -17,11 +17,45 @@ void ConcurrentSearch_ThreadPoolStart() {
   }
 }
 
+struct ConcurrentSearchCommandCtx {
+  RedisModuleBlockedClient *bc;
+  RedisModuleCtx *ctx;
+  RedisModuleCmdFunc handler;
+  int argc;
+  RedisModuleString **argv;
+};
+
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   threadpool p =
       type == CONCURRENT_POOL_INDEX ? ConcurrentIndexThreadPool : ConcurrentSearchThreadPool;
   thpool_add_work(p, func, arg);
+}
+
+static void threadHandleCommand(void *p) {
+  struct ConcurrentSearchCommandCtx *ctx = p;
+  RedisModule_ThreadSafeContextLock(ctx->ctx);
+  ctx->handler(ctx->ctx, ctx->argv, ctx->argc);
+  RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+  RedisModule_FreeThreadSafeContext(ctx->ctx);
+  RedisModule_UnblockClient(ctx->bc, NULL);
+}
+
+int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,
+                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  struct ConcurrentSearchCommandCtx *cmdCtx = malloc(sizeof(*cmdCtx));
+  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  cmdCtx->argc = argc;
+  cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
+  RedisModule_AutoMemory(cmdCtx->ctx);
+  cmdCtx->handler = handler;
+  // Copy command arguments so they can be released by the calling thread
+  cmdCtx->argv = calloc(argc, sizeof(RedisModuleString *));
+  for (int i = 0; i < argc; i++) {
+    cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
+  }
+
+  ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
 }
 
 static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {

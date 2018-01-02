@@ -39,13 +39,7 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata);
 
-int QueryPlan_ProcessMainThread(RedisSearchCtx *sctx, QueryPlan *plan);
-
-int QueryPlan_ProcessInThreadpool(RedisModuleCtx *ctx, QueryPlan *plan);
-
-/* Lazily execute the parsed QueryParseCtx and all its stages, and return a final result
- * object */
-int QueryPlan_Execute(QueryPlan *ctx, const char **err);
+int QueryPlan_Run(QueryPlan *plan, char **err);
 
 void QueryPlan_Free(QueryPlan *plan);
 

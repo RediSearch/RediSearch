@@ -237,7 +237,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
   sc->scorerFree = scx->ff;
   sc->scorerCtx.payload = req->payload;
   // Initialize scorer stats
-  IndexSpec_GetStats(req->sctx->spec, &sc->scorerCtx.indexStats);
+  IndexSpec_GetStats(upstream->ctx.qxc->sctx->spec, &sc->scorerCtx.indexStats);
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
@@ -327,7 +327,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   if (sc->pooledResult == NULL) {
     sc->pooledResult = NewSearchResult();
-  } else {
+  } else if (sc->pooledResult->fields) {
     sc->pooledResult->fields->len = 0;
   }
   SearchResult *h = sc->pooledResult;
@@ -619,8 +619,8 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata) {
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
   if (!(q->opts.flags & Search_NoContent)) {
-    next = NewLoader(next, req->sctx, &req->fields);
-    if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
+    next = NewLoader(next, q->ctx, &req->fields);
+    if (req->fields.wantSummaries && (q->ctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
     }
   }

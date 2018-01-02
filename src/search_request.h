@@ -12,9 +12,6 @@
 
 typedef struct {
 
-  /* RS Context */
-  RedisSearchCtx *sctx;
-
   char *rawQuery;
   size_t qlen;
 
@@ -39,7 +36,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
                               char **errStr);
 
 void RSSearchRequest_Free(RSSearchRequest *req);
-QueryPlan *SearchRequest_BuildPlan(RSSearchRequest *req, char **err);
+QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, char **err);
 ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
 
 // Remove any fields not explicitly requested by `RETURN`, iff any explicit

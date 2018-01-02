@@ -225,7 +225,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
     return REDISMODULE_ERR;
   }
   // Execute the query
-  int rc = QueryPlan_Execute(plan, (const char **)&err);
+  int rc = QueryPlan_Run(plan, (const char **)&err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }

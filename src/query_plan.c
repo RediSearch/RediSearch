@@ -120,12 +120,6 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // q->docTable = &sp->docs;
 }
 
-int QueryPlan_Execute(QueryPlan *plan, const char **err) {
-  int rc = Query_SerializeResults(plan);
-  if (err) *err = plan->execCtx.errorString;
-  return rc;
-}
-
 void QueryPlan_Free(QueryPlan *plan) {
   if (plan->rootProcessor) {
     ResultProcessor_Free(plan->rootProcessor);
@@ -180,56 +174,12 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   return plan;
 }
 
-int runQueryPlan(QueryPlan *plan) {
-
-  // Execute the query
-  char *err;
-  RedisModuleCtx *ctx = plan->ctx->redisCtx;
-  int rc = QueryPlan_Execute(plan, (const char **)&err);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-  }
-  QueryPlan_Free(plan);
-  return rc;
-}
-
-// process the query in the thread pool - thread pool callback
-void threadProcessPlan(void *p) {
-  QueryPlan *plan = p;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(plan->bc);
-  RedisModule_AutoMemory(ctx);
-
-  RedisModule_ThreadSafeContextLock(ctx);
-  plan->ctx = NewSearchCtx(
-      ctx, RedisModule_CreateString(ctx, plan->opts.indexName, strlen(plan->opts.indexName)));
-
-  if (!plan->ctx) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  } else {
-    runQueryPlan(plan);
-  }
-
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_UnblockClient(plan->bc, NULL);
-  QueryPlan_Free(plan);
-  RedisModule_FreeThreadSafeContext(ctx);
-
-  return;
-  //  return REDISMODULE_OK;
-}
-
-int QueryPlan_ProcessInThreadpool(RedisModuleCtx *ctx, QueryPlan *plan) {
-
-  plan->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  ConcurrentSearch_ThreadPoolRun(threadProcessPlan, plan, CONCURRENT_POOL_SEARCH);
-  return REDISMODULE_OK;
-}
-
-int QueryPlan_ProcessMainThread(RedisSearchCtx *sctx, QueryPlan *plan) {
-  plan->ctx = sctx;
+int QueryPlan_Run(QueryPlan *plan, char **err) {
   plan->bc = NULL;
 
-  int rc = runQueryPlan(plan);
-  QueryPlan_Free(plan);
+  *err = NULL;
+  RedisModuleCtx *ctx = plan->ctx->redisCtx;
+  int rc = Query_SerializeResults(plan);
+  *err = plan->execCtx.errorString;
   return rc;
 }
