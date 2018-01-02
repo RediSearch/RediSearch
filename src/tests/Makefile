@@ -2,11 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-<<<<<<< HEAD
 CFLAGS = -g -O3 -fPIC -D_GNU_SOURCE -std=gnu99 -I./  -Werror=implicit-function-declaration
-=======
-CFLAGS = -g -O0 -fPIC -D_GNU_SOURCE -std=gnu99 -I./ 
->>>>>>> WIP first POC of an aggregator functino
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 

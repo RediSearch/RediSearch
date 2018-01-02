@@ -12,8 +12,10 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   RedisModuleCtx *ctx = qex->ctx->redisCtx;
   if (r->md) {
+    size_t klen;
+    const char *k = DMD_KeyPtrLen(r->md, &klen);
     count += 1;
-    RedisModule_ReplyWithStringBuffer(ctx, r->md->key, strlen(r->md->key));
+    RedisModule_ReplyWithStringBuffer(ctx, k, klen);
   }
 
   if (flags & Search_WithScores) {
