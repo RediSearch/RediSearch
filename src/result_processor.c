@@ -90,8 +90,9 @@ inline void SearchResult_FreeInternal(SearchResult *r) {
   if (!r) return;
   // This won't affect anything if the result is null
   IndexResult_Free(r->indexResult);
-
-  RSFieldMap_Free(r->fields, 0);
+  if (r->fields) {
+    RSFieldMap_Free(r->fields, 0);
+  }
 }
 
 /* Free the search result object including the object itself */
