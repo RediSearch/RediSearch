@@ -209,6 +209,8 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
   CmdString *str = &CMDARG_STR(CmdArg_FirstOf(cmd, "query"));
 
   RSSearchOptions opts = RS_DEFAULT_SEARCHOPTS;
+  // mark the query as an aggregation query
+  opts.flags |= Search_AggregationQuery;
 
   QueryParseCtx *q = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
@@ -225,12 +227,12 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
     return REDISMODULE_ERR;
   }
   // Execute the query
-  int rc = QueryPlan_Run(plan, (const char **)&err);
+  int rc = QueryPlan_Run(plan, &err);
   if (rc == REDISMODULE_ERR) {
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }
-  // QueryPlan_Free(plan);
-  // Query_Free(q);
-
+  QueryPlan_Free(plan);
+  Query_Free(q);
+  SearchCtx_Free(sctx);
   return rc;
 }

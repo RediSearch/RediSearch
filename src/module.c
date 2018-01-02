@@ -495,7 +495,7 @@ end:
     {nargs:integer} {string} ...
     [AS {AS:string}]
   ] */
-int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // at least one field, and number of field/text args must be even
   if (argc < 3) {
@@ -510,18 +510,15 @@ int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   char *err;
   return Aggregate_ProcessRequest(sctx, argv, argc);
-  // // in concurrent mode - process the request in the thread pool
-  // if (RSGlobalConfig.concurrentMode) {
-  //   int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
-  //   SearchCtx_Free(sctx);
-  //   return rc;
-  // } else {  // "safe" mode - process the request in the main thread
-  //   return RSSearchRequest_ProcessMainThread(sctx, req);
-  // }
-  // end:
+}
 
-  //   RSSearchRequest_Free(req);
-  //   return REDISMODULE_OK;
+int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (RSGlobalConfig.concurrentMode) {
+    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _AggregateCommand, ctx, argv,
+                                               argc);
+  } else {  // "safe" mode - process the request in the main thread
+    return _AggregateCommand(ctx, argv, argc);
+  }
 }
 
 /* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
@@ -840,6 +837,7 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, err);
     free(err);
   }
+  QueryPlan_Free(plan);
   SearchCtx_Free(sctx);
   RSSearchRequest_Free(req);
   return REDISMODULE_OK;
