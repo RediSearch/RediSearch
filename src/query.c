@@ -297,6 +297,8 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!terms) return NULL;
 
   TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
+  if (!it) return NULL;
+  
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = calloc(itsCap, sizeof(*its));
 

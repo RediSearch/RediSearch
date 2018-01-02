@@ -60,11 +60,14 @@ static inline void runeBufFree(runeBuf *buf) {
 
 int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
+  if (len > MAX_STRING_LEN) {
+    return 0;
+  }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
   int rc;
 
-  if (len && len < MAX_STRING_LEN) {
+  if (runes && len && len < MAX_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
   } else {
@@ -77,7 +80,11 @@ int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr
 
 int Trie_Delete(Trie *t, char *s, size_t len) {
 
+  
   rune *runes = strToRunes(s, &len);
+  if (!runes || len > MAX_STRING_LEN) {
+    return 0;
+  }
   int rc = TrieNode_Delete(t->root, runes, len);
   t->size -= rc;
   free(runes);
@@ -108,6 +115,9 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist) {
   size_t rlen;
   rune *runes = strToFoldedRunes(prefix, &rlen);
+  if (!runes) {
+    return NULL;
+  }
   DFAFilter *fc = malloc(sizeof(*fc));
   *fc = NewDFAFilter(runes, rlen, maxDist, 1);
 
@@ -118,11 +128,22 @@ TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist)
 
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize) {
+  
+
+  if (len > TRIE_MAX_PREFIX*sizeof(rune)) {
+    return NULL;
+  }                  
+  size_t rlen;
+  rune *runes = strToFoldedRunes(s, &rlen);
+  // make sure query length does not overflow
+  if (!runes || rlen >= MAX_STRING_LEN) {
+    free(runes);
+    return NULL;
+  }
+  
   heap_t *pq = malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  size_t rlen;
-  rune *runes = strToFoldedRunes(s, &rlen);
   DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);

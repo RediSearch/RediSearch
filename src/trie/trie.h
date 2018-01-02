@@ -10,7 +10,7 @@
 typedef uint16_t t_len;
 
 #define MAX_STRING_LEN 255
-
+#define TRIE_MAX_PREFIX 100
 #define TRIENODE_SORTED 0x1
 #define TRIENODE_TERMINAL 0x2
 #define TRIENODE_DELETED 0x4
