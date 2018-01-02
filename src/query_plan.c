@@ -11,7 +11,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   size_t count = 0;
 
   RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  if (r->md) {
+  if (r->md && !(qex->opts.flags & Search_AggregationQuery)) {
     size_t klen;
     const char *k = DMD_KeyPtrLen(r->md, &klen);
     count += 1;
