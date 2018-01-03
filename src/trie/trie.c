@@ -257,10 +257,10 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 void __trieNode_sortChildren(TrieNode *n);
 
 /* Optimize the node and its children:
-*   1. If a child should be deleted - delete it and reduce the child count
-*   2. If a child has a single child - merge them
-*   3. recalculate the max child score
-*/
+ *   1. If a child should be deleted - delete it and reduce the child count
+ *   2. If a child has a single child - merge them
+ *   3. recalculate the max child score
+ */
 void __trieNode_optimizeChildren(TrieNode *n) {
 
   int i = 0;
@@ -299,7 +299,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
 int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
-  static TrieNode *stack[MAX_STRING_LEN];
+  static TrieNode *stack[TRIE_MAX_STRING_LEN];
   int stackPos = 0;
   int rc = 0;
   while (n && offset < len) {
@@ -391,7 +391,7 @@ void __trieNode_sortChildren(TrieNode *n) {
 
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
-  if (it->stackOffset < MAX_STRING_LEN - 1) {
+  if (it->stackOffset < TRIE_MAX_STRING_LEN - 1) {
     stackNode *sn = &it->stack[it->stackOffset++];
     sn->childOffset = 0;
     sn->stringOffset = 0;

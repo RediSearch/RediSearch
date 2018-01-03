@@ -1112,7 +1112,9 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // get the string to search for
   size_t len;
   char *s = (char *)RedisModule_StringPtrLen(argv[2], &len);
-
+  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid query length");
+  }
   // get optional FUZZY argument
   long maxDist = 0;
   if (RMUtil_ArgExists("FUZZY", argv, argc, 3)) {
@@ -1136,7 +1138,9 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int withPayloads = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
 
   Vector *res = Trie_Search(tree, s, len, num, maxDist, 1, trim, optimize);
-
+  if (!res) {
+    return RedisModule_ReplyWithError(ctx, "Invalid query");
+  }
   // if we also need to return scores, we need double the records
   int mul = 1;
   mul = withScores ? mul + 1 : mul;

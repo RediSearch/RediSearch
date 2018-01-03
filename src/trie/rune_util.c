@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// The maximum size we allow converting to at once
+#define MAX_RUNESTR_LEN 1024
+
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
   const char *map = 0;
@@ -19,7 +22,10 @@ rune runeFold(rune r) {
 }
 
 char *runesToStr(rune *in, size_t len, size_t *utflen) {
-
+  if (len > MAX_RUNESTR_LEN) {
+    if (utflen) *utflen = 0;
+    return NULL;
+  }
   uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
@@ -38,6 +44,11 @@ char *runesToStr(rune *in, size_t len, size_t *utflen) {
 rune *strToFoldedRunes(char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
+  if (rlen > MAX_RUNESTR_LEN) {
+     if (len) *len = 0;
+     return NULL;
+  } 
+
   uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
   nu_readstr(str, decoded, nu_utf8_read);
@@ -55,6 +66,11 @@ rune *strToFoldedRunes(char *str, size_t *len) {
 rune *strToRunes(const char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
+  if (rlen > MAX_RUNESTR_LEN) {
+    if (len) *len = 0;
+    return NULL;
+  }
+  
   rune *ret = malloc((rlen + 1) * sizeof(rune));
   strToRunesN(str, strlen(str), ret);
   ret[rlen] = '\0';
