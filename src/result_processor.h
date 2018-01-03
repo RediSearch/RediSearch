@@ -99,6 +99,9 @@ typedef struct {
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
 static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
                                             const char *key) {
+  if (*key == '@') {
+    key++;
+  }
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
     int idx = RSSortingTable_GetFieldIdx(tbl, key);

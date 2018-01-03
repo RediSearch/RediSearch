@@ -67,6 +67,9 @@ typedef struct CmdArg {
 
 void CmdArg_Free(CmdArg *arg);
 
+/* General signature for a command validator func. You can inject your own */
+typedef int (*CmdArgValidatorFunc)(CmdArg *arg, void *ctx);
+
 /*************************************************************************************************************************
  *
  *  Command Schema Definition Objects
@@ -80,6 +83,7 @@ void CmdArg_Free(CmdArg *arg);
  */
 typedef struct {
   char type;
+  const char *name;
 } CmdSchemaArg;
 
 /* dummy struct for flags - they don't need anything */
@@ -134,6 +138,8 @@ typedef struct {
     CmdSchemaVariadic var;
   };
   CmdSchemaElementType type;
+  CmdArgValidatorFunc validator;
+  void *validatorCtx;
 } CmdSchemaElement;
 
 /* Command schema node flags */
@@ -206,9 +212,15 @@ int CmdSchema_AddPostionalWithHelp(CmdSchemaNode *s, const char *param, CmdSchem
  * the length of the format string */
 CmdSchemaElement *CmdSchema_NewTuple(const char *fmt, const char **names);
 
+/* Wrap a schema element with a validator func. Only one validator per element allowed */
+CmdSchemaElement *CmdSchema_Validate(CmdSchemaElement *e, CmdArgValidatorFunc f, void *privdata);
+
 /* Create a new single argument (string, long or double) to be added as a named or positional. The
  * type char can be d (double), l (long) or s (string) */
 CmdSchemaElement *CmdSchema_NewArg(const char type);
+
+/* Samve as CmdSchema_NewArg, but with a name annotation for help messages */
+CmdSchemaElement *CmdSchema_NewArgAnnotated(const char type, const char *name);
 
 /* Create a new vector to be added as a named or positional argument. A vector is a list of values
  * of the same type that starts with a length specifier (i.e. 3 foo bar baz) */

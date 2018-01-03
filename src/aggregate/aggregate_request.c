@@ -7,12 +7,30 @@
 
 static CmdSchemaNode *requestSchema = NULL;
 
+// validator for property names
+int validatePropertyName(CmdArg *arg, void *p) {
+  return (CMDARG_TYPE(arg) == CmdArg_String && CMDARG_STRLEN(arg) > 1 &&
+          CMDARG_STRPTR(arg)[0] == '@');
+}
+
+int validatePropertyVector(CmdArg *arg, void *p) {
+  if (CMDARG_TYPE(arg) != CmdArg_Array || CMDARG_ARRLEN(arg) == 0) {
+    return 0;
+  }
+  for (size_t i = 0; i < CMDARG_ARRLEN(arg); i++) {
+    if (!validatePropertyName(CMDARG_ARRELEM(arg, i), NULL)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 void Aggregate_BuildSchema() {
   if (requestSchema) return;
   /*
   FT.AGGREGATE {index}
       FILTER {query}
-      SELECT {nargs} {field} ...
+      SELECT {nargs} {@field} ...
       [
         GROUPBY {nargs} {property} ...
         GROUPREDUCE {function} {nargs} {arg} ... [AS {alias}]
@@ -24,13 +42,20 @@ void Aggregate_BuildSchema() {
       ...
       */
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
-  CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArg('s'), CmdSchema_Required);
+  CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
+                         CmdSchema_Required);
 
-  CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(requestSchema, "SELECT", CmdSchema_NewVector('s'), CmdSchema_Required);
+  CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArgAnnotated('s', "query_string"),
+                         CmdSchema_Required);
+
+  CmdSchema_AddNamed(requestSchema, "SELECT",
+                     CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
+                     CmdSchema_Required);
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(grp, "by", CmdSchema_NewVector('s'), CmdSchema_Required);
+  CmdSchema_AddPostional(grp, "by",
+                         CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
+                         CmdSchema_Required);
 
   CmdSchemaNode *red =
       CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Required | CmdSchema_Repeating, NULL);
@@ -38,8 +63,10 @@ void Aggregate_BuildSchema() {
   CmdSchema_AddPostional(red, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
   CmdSchema_AddNamed(red, "AS", CmdSchema_NewArg('s'), CmdSchema_Optional);
 
-  CmdSchema_AddNamed(requestSchema, "SORTBY", CmdSchema_NewVector('s'),
+  CmdSchema_AddNamed(requestSchema, "SORTBY",
+                     CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
                      CmdSchema_Optional | CmdSchema_Repeating);
+
   CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "PROJECT",
                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(prj, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
@@ -52,7 +79,9 @@ void Aggregate_BuildSchema() {
 
   CmdSchema_Print(requestSchema);
 }
+
 CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
+
   CmdArg *ret = NULL;
 
   if (CMDPARSE_ERR != CmdParser_ParseRedisModuleCmd(requestSchema, &ret, argv, argc, err, 0)) {

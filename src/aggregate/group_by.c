@@ -91,7 +91,7 @@ uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
   uint64_t ret = 0;
   for (size_t i = 0; i < g->keys->len; i++) {
     // TODO: Init sorting table
-    RSValue v = SearchResult_GetValue(res, NULL, g->keys->keys[i]);
+    RSValue v = SearchResult_GetValue(res, NULL, RSKEY(g->keys->keys[i]));
     ret = RSValue_Hash(&v, ret);
   }
 
