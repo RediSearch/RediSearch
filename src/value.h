@@ -345,6 +345,7 @@ static void RSValue_Print(RSValue *v) {
   }
 }
 
+// Convert a property key from '@property_name' format as used in queries to 'property_name'
 #define RSKEY(s) ((s && *s == '@') ? s + 1 : s)
 
 typedef struct {
@@ -444,7 +445,7 @@ static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
   RSFieldMap_EnsureCap(m);
 
   for (uint16_t i = 0; i < (*m)->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(*m, i).key, key)) {
+    if (!strcmp(FIELDMAP_FIELD(*m, i).key, RSKEY(key))) {
 
       // avoid memory leaks...
       RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
