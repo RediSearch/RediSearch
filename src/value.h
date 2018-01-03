@@ -345,6 +345,8 @@ static void RSValue_Print(RSValue *v) {
   }
 }
 
+#define RSKEY(s) ((s && *s == '@') ? s + 1 : s)
+
 typedef struct {
   size_t len;
   const char *keys[];
@@ -361,7 +363,7 @@ static RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr) {
   RSMultiKey *ret = RS_NewMultiKey(arr->len);
   for (size_t i = 0; i < arr->len; i++) {
     assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
-    ret->keys[i] = CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i));
+    ret->keys[i] = RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i)));
   }
   return ret;
 }
@@ -378,7 +380,7 @@ typedef struct {
 
 /* Create new KV field */
 static RSField RS_NewField(const char *k, RSValue val) {
-  return (RSField){.key = k, .val = val};
+  return (RSField){.key = RSKEY(k), .val = val};
 }
 
 /* A "map" of fields for results and documents. */
@@ -423,7 +425,7 @@ static inline RSValue *RSFieldMap_Item(RSFieldMap *m, uint16_t pos) {
 /* Find an item by name. */
 static inline RSValue *RSFieldMap_Get(RSFieldMap *m, const char *k) {
   for (uint16_t i = 0; i < m->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(m, i).key, k)) {
+    if (!strcmp(FIELDMAP_FIELD(m, i).key, RSKEY(k))) {
       return &FIELDMAP_FIELD(m, i).val;
     }
   }

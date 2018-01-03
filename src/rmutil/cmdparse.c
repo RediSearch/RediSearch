@@ -168,7 +168,8 @@ static int CmdArray_Append(CmdArray *arr, CmdArg *val) {
 static CmdSchemaElement *newSchemaElement(CmdSchemaElementType type) {
   CmdSchemaElement *ret = calloc(1, sizeof(*ret));
   ret->type = type;
-
+  ret->validator = NULL;
+  ret->validatorCtx = NULL;
   return ret;
 }
 
@@ -234,6 +235,12 @@ int CmdSchema_AddPostionalWithHelp(CmdSchemaNode *s, const char *param, CmdSchem
   return cmdSchema_genericAdd(s, CmdSchemaNode_PositionalArg, param, elem, flags, help);
 }
 
+CmdSchemaElement *CmdSchema_Validate(CmdSchemaElement *e, CmdArgValidatorFunc f, void *privdata) {
+  e->validator = f;
+  e->validatorCtx = privdata;
+  return e;
+}
+
 CmdSchemaElement *CmdSchema_NewTuple(const char *fmt, const char **names) {
   CmdSchemaElement *ret = newSchemaElement(CmdSchemaElement_Tuple);
   ret->tup.fmt = fmt;
@@ -244,6 +251,13 @@ CmdSchemaElement *CmdSchema_NewTuple(const char *fmt, const char **names) {
 CmdSchemaElement *CmdSchema_NewArg(const char type) {
   CmdSchemaElement *ret = newSchemaElement(CmdSchemaElement_Arg);
   ret->arg.type = type;
+
+  return ret;
+}
+
+CmdSchemaElement *CmdSchema_NewArgAnnotated(const char type, const char *name) {
+  CmdSchemaElement *ret = CmdSchema_NewArg(type);
+  ret->arg.name = name;
   return ret;
 }
 
