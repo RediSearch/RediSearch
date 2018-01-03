@@ -9,7 +9,7 @@
 
 typedef uint16_t t_len;
 
-#define MAX_STRING_LEN 255
+#define TRIE_MAX_STRING_LEN 255
 #define TRIE_MAX_PREFIX 100
 #define TRIENODE_SORTED 0x1
 #define TRIENODE_TERMINAL 0x2
@@ -86,8 +86,8 @@ TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPay
                           float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
-* up until offset, and
-* a single child holding The old score of n, and its score */
+ * up until offset, and
+ * a single child holding The old score of n, and its score */
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
@@ -101,15 +101,15 @@ typedef enum {
 int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns
-* 0 if the entry was
-* not found.
-* Note that you cannot put entries with zero score */
+ * 0 if the entry was
+ * not found.
+ * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
-* anything,
-* but the node will not be persisted to disk, thus deleted after reload.
-* Returns 1 if the node was indeed deleted, 0 otherwise */
+ * anything,
+ * but the node will not be persisted to disk, thus deleted after reload.
+ * Returns 1 if the node was indeed deleted, 0 otherwise */
 int TrieNode_Delete(TrieNode *n, rune *str, t_len len);
 
 /* Free the trie's root and all its children recursively */
@@ -141,10 +141,10 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[MAX_STRING_LEN + 1];
+  rune buf[TRIE_MAX_STRING_LEN + 1];
   t_len bufOffset;
 
-  stackNode stack[MAX_STRING_LEN + 1];
+  stackNode stack[TRIE_MAX_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
   float minScore;

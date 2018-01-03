@@ -1112,7 +1112,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // get the string to search for
   size_t len;
   char *s = (char *)RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= MAX_STRING_LEN) {
+  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
   // get optional FUZZY argument
