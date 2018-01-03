@@ -56,6 +56,7 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler
   }
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
+  return REDISMODULE_OK;
 }
 
 static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
