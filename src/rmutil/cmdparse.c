@@ -328,7 +328,7 @@ const char *typeString(char t) {
 void CmdSchemaElement_Print(const char *name, CmdSchemaElement *e) {
   switch (e->type) {
     case CmdSchemaElement_Arg:
-      printf("{%s:%s}", name, typeString(e->arg.type));
+      printf("{%s:%s}", e->arg.name ? e->arg.name : name, typeString(e->arg.type));
       break;
     case CmdSchemaElement_Tuple: {
       for (int i = 0; i < strlen(e->tup.fmt); i++) {
@@ -629,20 +629,37 @@ static int processOption(CmdSchemaOption *opt, CmdArg **current, CmdString *argv
 
 static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdString *argv, int argc,
                                     int *pos, char **err) {
+  int rc;
   switch (elem->type) {
     case CmdSchemaElement_Arg:
-      return parseArg(&elem->arg, out, argv, argc, pos, err);
+      rc = parseArg(&elem->arg, out, argv, argc, pos, err);
+      break;
     case CmdSchemaElement_Tuple:
-      return parseTuple(&elem->tup, out, argv, argc, pos, err);
+      rc = parseTuple(&elem->tup, out, argv, argc, pos, err);
+      break;
     case CmdSchemaElement_Vector:
-      return parseVector(&elem->vec, out, argv, argc, pos, err);
+      rc = parseVector(&elem->vec, out, argv, argc, pos, err);
+      break;
     case CmdSchemaElement_Flag:
-      return processFlag(1, out, argv, argc, pos, err);
+      rc = processFlag(1, out, argv, argc, pos, err);
+      break;
     case CmdSchemaElement_Option:
-      return processOption(&elem->opt, out, argv, argc, pos, err);
+      rc = processOption(&elem->opt, out, argv, argc, pos, err);
+      break;
     case CmdSchemaElement_Variadic:
-      return parseVariadicVector(&elem->var, out, argv, argc, pos, err);
+      rc = parseVariadicVector(&elem->var, out, argv, argc, pos, err);
+      break;
   }
+
+  if (rc == CMDPARSE_ERR) return rc;
+  // if needed - validate the element
+  if (elem->validator) {
+    if (!elem->validator(*out, elem->validatorCtx)) {
+      asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos].str);
+      return CMDPARSE_ERR;
+    }
+  }
+  return CMDPARSE_OK;
 }
 
 static int cmdArg_AddChild(CmdArg *parent, const char *name, CmdArg *child, char **err) {

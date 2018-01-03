@@ -12,7 +12,7 @@ Reducer *NewSumArgs(CmdArray *args, const char *alias, char **err) {
     *err = strdup("Invalid arguments for SUM");
     return NULL;
   }
-  return NewSum(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)), alias);
+  return NewSum(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
 Reducer *NewToListArgs(CmdArray *args, const char *alias, char **err) {
@@ -21,7 +21,7 @@ Reducer *NewToListArgs(CmdArray *args, const char *alias, char **err) {
     *err = strdup("Invalid arguments for TOLIST");
     return NULL;
   }
-  return NewToList(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)), alias);
+  return NewToList(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
 typedef Reducer *(*ReducerFactory)(CmdArray *args, const char *alias, char **err);

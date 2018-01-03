@@ -61,17 +61,17 @@ void Aggregate_BuildSchema() {
       CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Required | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(red, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddPostional(red, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(red, "AS", CmdSchema_NewArg('s'), CmdSchema_Optional);
+  CmdSchema_AddNamed(red, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
 
   CmdSchema_AddNamed(requestSchema, "SORTBY",
                      CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
                      CmdSchema_Optional | CmdSchema_Repeating);
 
-  CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "PROJECT",
+  CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "APPLY",
                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(prj, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddPostional(prj, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArg('s'), CmdSchema_Optional);
+  CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
 
   CmdSchema_AddNamed(requestSchema, "LIMIT",
                      CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
@@ -177,8 +177,14 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
     CmdArgIterator it = CmdArg_Children(select);
     CmdArg *child;
     while (NULL != (child = CmdArgIterator_Next(&it, NULL))) {
-      ReturnedField *rf = FieldList_GetCreateField(
-          ret, RedisModule_CreateString(ctx, CMDARG_STRPTR(child), CMDARG_STRLEN(child)));
+      const char *k = CMDARG_STRPTR(child);
+      size_t len = CMDARG_STRLEN(child);
+      if (len > 0 && *k == '@') {
+        k++;
+        len--;
+      }
+      ReturnedField *rf = FieldList_GetCreateField(ret, RedisModule_CreateString(ctx, k, len));
+
       rf->explicitReturn = 1;
     }
   }
@@ -204,7 +210,7 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
       next = buildGroupBy(child, plan->ctx, next, &err);
     } else if (!strcasecmp(key, "SORTBY")) {
       next = buildSortBY(child, next, &err);
-    } else if (!strcasecmp(key, "PROJECT")) {
+    } else if (!strcasecmp(key, "APPLY")) {
       next = buildProjection(child, next, &err);
     } else if (!strcasecmp(key, "LIMIT")) {
       next = addLimit(child, next, &err);
@@ -220,9 +226,9 @@ fail:
   if (prev) {
     ResultProcessor_Free(prev);
   }
-  if (!*err) {
-    *err = strdup("Could not parse aggregate request");
-  }
+  // if (!*err) {
+  //   *err = (char *)strdup("Could not parse aggregate request");
+  // }
   return NULL;
 }
 
@@ -233,6 +239,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(sctx->redisCtx,
                                       err ? err : "Could not parse aggregate request");
   }
+
   RedisModuleCtx *ctx = sctx->redisCtx;
 
   CmdString *str = &CMDARG_STR(CmdArg_FirstOf(cmd, "query"));
