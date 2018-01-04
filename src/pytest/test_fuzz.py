@@ -63,12 +63,12 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         # format the equivalent search query for the same tokens
         q = ''.join(('(%s)' % '|'.join(toks) for toks in unions))
         args = ['ft.search', 'idx', q, 'nocontent', 'limit', 0, 100]
-        #print args
+        # print args
 
         qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
                                                     q, 'nocontent', 'limit', 0, 100)[1:]))
 
-        #print sorted(result), '<=>', sorted(qr)
+        # print sorted(result), '<=>', sorted(qr)
         return result.difference(qr)
 
     def testFuzzy(self):
