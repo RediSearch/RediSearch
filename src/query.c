@@ -101,6 +101,7 @@ static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
   s->fieldMask = RS_FIELDMASK_ALL;
+  s->flags = 0;
   return s;
 }
 
@@ -138,14 +139,14 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
 
 QueryNode *NewUnionNode() {
   QueryNode *ret = NewQueryNode(QN_UNION);
-  ret->fieldMask = 0;
+  // ret->fieldMask = 0;
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
   return ret;
 }
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
-  ret->fieldMask = 0;
+  // ret->fieldMask = 0;
 
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
@@ -232,11 +233,16 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
                              QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
+  // Do not expand verbatim nodes
+  if (qn->flags & QueryNode_Verbatim) {
+    return;
+  }
+
   if (qn->type == QN_TOKEN) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
 
-  } else if (qn->type == QN_PHRASE) {
+  } else if (qn->type == QN_PHRASE && !qn->pn.exact) {  // do not expand exact phrases
     for (int i = 0; i < qn->pn.numChildren; i++) {
       QueryNode_Expand(expander, expCtx, &qn->pn.children[i]);
     }
@@ -298,7 +304,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
   TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
   if (!it) return NULL;
-  
+
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = calloc(itsCap, sizeof(*its));
 
@@ -566,20 +572,39 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
+/* Set the field mask recursively on a query node. This is called by the parser to handle situations
+ * like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
+void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
+  if (!n) return;
+  n->fieldMask &= mask;
+  switch (n->type) {
+
+    case QN_PHRASE:
+      for (int i = 0; i < n->pn.numChildren; i++) {
+        QueryNode_SetFieldMask(n->pn.children[i], mask);
+      }
+      break;
+
+    case QN_UNION:
+      for (int i = 0; i < n->un.numChildren; i++) {
+        QueryNode_SetFieldMask(n->un.children[i], mask);
+      }
+      break;
+
+    case QN_NOT:
+      QueryNode_SetFieldMask(n->not.child, mask);
+      break;
+    case QN_OPTIONAL:
+      QueryNode_SetFieldMask(n->opt.child, mask);
+      break;
+
+    default:
+      break;
+  }
+}
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
   if (!child) return;
   QueryPhraseNode *pn = &parent->pn;
-  // QueryNode_Print(NULL, parent, 0);
-  // printf("parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
-  if (child != NULL && (pn->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
-    parent->fieldMask |= child->fieldMask;
-  }
-  // printf("AFTER: parent mask %x, child mask %x\n", parent->fieldMask, child->fieldMask);
-
-  // Child nodes inherit the field mask from their parent if they are
-  if (child) {
-    child->fieldMask &= parent->fieldMask;
-  }
 
   pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
   pn->children[pn->numChildren++] = child;
@@ -589,12 +614,7 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
   if (!child) return;
   QueryUnionNode *un = &parent->un;
-  if (child != NULL && (un->numChildren == 0 || child->fieldMask != RS_FIELDMASK_ALL)) {
-    parent->fieldMask |= child->fieldMask;
-  }
-  if (child) {
-    child->fieldMask &= parent->fieldMask;
-  }
+
   un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
   un->children[un->numChildren++] = child;
 }

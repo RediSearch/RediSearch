@@ -1,17 +1,21 @@
+%left LOWEST.
 %left TILDE.
 %left TAGLIST.
-
-%left TERM. 
 %left QUOTE.
+
 %left COLON.
 %left MINUS.
 %left NUMBER.
-%left MODIFIER.
 %left STOPWORD.
 
 %left TERMLIST.
+%left TERM. 
+%left PREFIX.
+
 %right LP.
 %left RP.
+// needs to be above lp/rp
+%left MODIFIER.
 %left AND.
 %left OR.
 %left ORX.
@@ -87,6 +91,9 @@ size_t unescapen(char *s, size_t sz) {
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
 
+%type prefix { QueryNode * } 
+%destructor prefix { QueryNode_Free($$); }
+
 %type termlist { QueryNode * } 
 %destructor termlist { QueryNode_Free($$); }
 
@@ -140,10 +147,10 @@ expr(A) ::= expr(B) expr(C) . [AND] {
         if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
             B->fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-        } else {
+        } else {     
             A = NewPhraseNode(0);
             QueryPhraseNode_AddChild(A, B);
-        } 
+        }
         QueryPhraseNode_AddChild(A, C);
     }
 } 
@@ -158,22 +165,33 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    
-    if (B && B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
-        A =B;
+    if (B == NULL && C == NULL) {
+        A = NULL;
+    } else if (B && B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
+        A = B;
     } else {
         A = NewUnionNode();
         QueryUnionNode_AddChild(A, B);
+        if (B) 
+         A->fieldMask |= B->fieldMask;
+
     } 
-    QueryUnionNode_AddChild(A, C); 
+    if (C) {
+
+        QueryUnionNode_AddChild(A, C);
+        A->fieldMask |= C->fieldMask;
+        QueryNode_SetFieldMask(A, A->fieldMask);
+    }
     
 }
 
 union(A) ::= union(B) OR expr(C). [ORX] {
     
     A = B;
-
     QueryUnionNode_AddChild(A, C); 
+    A->fieldMask |= C->fieldMask;
+    QueryNode_SetFieldMask(C, A->fieldMask);
+
 
 }
 
@@ -186,35 +204,37 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         if (ctx->sctx->spec) {
-            C->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
         }
         A = C; 
     }
 }
 
-expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
 
+    // expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
 
-    A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
-    if (ctx->sctx->spec) {
-        A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
-    }
-}
+    //     A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
+    //     if (ctx->sctx->spec) {
+    //         A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
+    //     }
+    // }
 
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     
     if (C == NULL) {
         A = NULL;
     } else {
-        C->fieldMask = 0;
+        //C->fieldMask = 0;
+        t_fieldMask mask = 0; 
         if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(B); i++) {
                 char *p;
                 Vector_Get(B, i, &p);
-                C->fieldMask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
+                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
                 free(p);
             }
         }
+        QueryNode_SetFieldMask(C, mask);
         Vector_Free(B);
         A=C;
     }
@@ -228,17 +248,29 @@ expr(A) ::= LP expr(B) RP . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= QUOTE termlist(B) QUOTE. {
+expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
     B->pn.exact =1;
+    B->flags |= QueryNode_Verbatim;
+
     A = B;
 }
 
-term(A) ::= QUOTE term(B) QUOTE. {
-    A = B;
+expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
+    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A->flags |= QueryNode_Verbatim;
+    
 }
 
-expr(A) ::= term(B) .  {
-        A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+expr(A) ::= term(B) . [LOWEST]  {
+   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+}
+
+expr(A) ::= prefix(B) . [PREFIX]  {
+    A= B;
+}
+
+expr(A) ::= termlist(B) .  [TERMLIST] {
+        A = B;
 }
 
 expr(A) ::= STOPWORD . [STOPWORD] {
@@ -246,12 +278,11 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 }
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
-    
     A = NewPhraseNode(0);
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
-
 }
+
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
@@ -281,7 +312,7 @@ expr(A) ::= TILDE expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= term(B) STAR. {
+prefix(A) ::= PREFIX(B) . [PREFIX] {
     A = NewPrefixNode(ctx, strdupcase(B.s, B.len), B.len);
 }
 
@@ -290,7 +321,7 @@ expr(A) ::= term(B) STAR. {
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    B.len = unescapen(B.s, B.len);
+    B.len = unescapen((char*)B.s, B.len);
     A = B;
  } 
 
@@ -405,6 +436,7 @@ num(A) ::= MINUS num(B). {
 term(A) ::= TERM(B) . {
     A = B; 
 }
+
 term(A) ::= NUMBER(B) . {
     A = B; 
 }

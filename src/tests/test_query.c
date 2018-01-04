@@ -31,7 +31,7 @@ int isValidQuery(char *qt, RedisSearchCtx ctx) {
 
   if (err) {
     Query_Free(q);
-    fprintf(stderr, "Error parsing query '%s': %s", qt, err);
+    fprintf(stderr, "Error parsing query '%s': %s\n", qt, err);
     free(err);
     return 1;
   }
@@ -237,7 +237,7 @@ int testGeoQuery() {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
+  char *qt = "@title:(hello world) @loc:[31.52 32.1342 10.01 km]";
   RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
 
   QueryParseCtx *q = NewQueryParseCtx(&req);
@@ -248,7 +248,7 @@ int testGeoQuery() {
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x01)
+  ASSERT((n->fieldMask == RS_FIELDMASK_ALL));
   ASSERT_EQUAL(n->pn.numChildren, 2);
 
   QueryNode *gn = n->pn.children[1];
@@ -299,7 +299,7 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
   Query_Free(q);
@@ -315,17 +315,11 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.numChildren, 2)
-  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x00)
-
-  n = n->pn.children[0];
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.numChildren, 2)
+  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
+  ASSERT_EQUAL(n->pn.numChildren, 3)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
 
