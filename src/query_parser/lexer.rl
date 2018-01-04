@@ -36,6 +36,7 @@ lsqb = '[';
 escape = '\\';
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
+prefix = term.star $1;
 mod = '@'.term $ 1;
 
 main := |*
@@ -138,13 +139,7 @@ main := |*
       fbreak;
     }
   };
-  star => { 
-    tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, STAR, tok, q);    
-    if (!q->ok) {
-      fbreak;
-    }
-  }; 
+
   lsqb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -172,6 +167,18 @@ main := |*
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
     }
+    if (!q->ok) {
+      fbreak;
+    }
+  };
+  prefix => {
+    tok.len = te-ts - 1;
+    tok.s = ts;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    
+    RSQuery_Parse(pParser, PREFIX, tok, q);
+    
     if (!q->ok) {
       fbreak;
     }

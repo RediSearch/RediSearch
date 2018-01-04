@@ -76,8 +76,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
                 res = r.execute_command(
                     'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
-                self.assertEqual(51, len(res))
-                self.assertEqual(50, res[0])
+                self.assertEqual(101, len(res))
+                self.assertEqual(100, res[0])
 
     def testSearch(self):
         with self.redis() as r:
@@ -357,9 +357,9 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
             q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
             res = r.execute_command('ft.explain', 'idx', q)
-
-            self.assertEqual(res, """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    UNION {\n      what\n      +what(expanded)\n    }\n    UNION {\n      what\n      +what(expanded)\n    }\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n""")
-
+            #print res.replace('\n', '\\n')
+            expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+            self.assertEqual(res, expected)
 
     def testNoIndex(self):
         with self.redis() as r:
@@ -614,7 +614,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 r.execute_command('ft.search', 'idx', 'foo (foo (bar baz (gaz)))', 'nocontent'),
                 r.execute_command('ft.search', 'idx', 'foo (foo (bar (baz (gaz (foo bar (gaz))))))', 'nocontent')]
             
-            for r in res:
+            for i, r in enumerate(res):
+                #print i, res[0], r
                 self.assertListEqual(res[0], r)
             
 

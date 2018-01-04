@@ -1,20 +1,21 @@
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
-
 %left QUOTE.
-%left TERM. 
 
 %left COLON.
 %left MINUS.
 %left NUMBER.
-%left MODIFIER.
 %left STOPWORD.
 
 %left TERMLIST.
+%left TERM. 
+%left PREFIX.
 
 %right LP.
 %left RP.
+// needs to be above lp/rp
+%left MODIFIER.
 %left AND.
 %left OR.
 %left ORX.
@@ -90,6 +91,9 @@ size_t unescapen(char *s, size_t sz) {
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
 
+%type prefix { QueryNode * } 
+%destructor prefix { QueryNode_Free($$); }
+
 %type termlist { QueryNode * } 
 %destructor termlist { QueryNode_Free($$); }
 
@@ -143,15 +147,10 @@ expr(A) ::= expr(B) expr(C) . [AND] {
         if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
             B->fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-    
-            printf("Appending child\n");
-        
         } else {     
-
             A = NewPhraseNode(0);
             QueryPhraseNode_AddChild(A, B);
         }
-       
         QueryPhraseNode_AddChild(A, C);
     }
 } 
@@ -211,6 +210,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     }
 }
 
+
     // expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
 
     //     A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
@@ -249,19 +249,24 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
-    printf("New EXPR quoted term list\n");
     B->pn.exact =1;
+    B->flags |= QueryNode_Verbatim;
+
     A = B;
 }
 
-term(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    printf("New QUOTE term\n");
-    A = B;
+expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
+    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A->flags |= QueryNode_Verbatim;
+    
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-    printf("New token EXPR %.*s\n", B.len, B.s);
-        A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+}
+
+expr(A) ::= prefix(B) . [PREFIX]  {
+    A= B;
 }
 
 expr(A) ::= termlist(B) .  [TERMLIST] {
@@ -273,17 +278,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 }
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
-        printf("New TERMLIST FROM %.*s %.*s\n", B.len, B.s, C.len, C.s);
-
     A = NewPhraseNode(0);
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
-
 }
+
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-            printf("TERMLIST ADD %.*s\n", C.len, C.s);
-
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
@@ -311,7 +312,7 @@ expr(A) ::= TILDE expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= term(B) STAR. {
+prefix(A) ::= PREFIX(B) . [PREFIX] {
     A = NewPrefixNode(ctx, strdupcase(B.s, B.len), B.len);
 }
 

@@ -299,7 +299,7 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
+  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
   Query_Free(q);
@@ -315,17 +315,11 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.numChildren, 2)
-  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x00)
-
-  n = n->pn.children[0];
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x03)
-  ASSERT_EQUAL(n->pn.numChildren, 2)
+  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
+  ASSERT_EQUAL(n->pn.numChildren, 3)
   ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
   ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
 
