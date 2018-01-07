@@ -4,14 +4,16 @@ struct sumCtx {
   size_t count;
   double total;
   const char *property;
+  RSSortingTable *sortables;
 };
 
-void *sum_NewInstance(void *privdata) {
-  const char *property = privdata;
+void *sum_NewInstance(ReducerCtx *rctx) {
+  const char *property = rctx->privdata;
 
   struct sumCtx *ctx = malloc(sizeof(*ctx));
   ctx->count = 0;
   ctx->total = 0;
+  ctx->sortables = rctx->ctx->spec->sortables;
   ctx->property = property;
   return ctx;
 }
@@ -19,10 +21,15 @@ void *sum_NewInstance(void *privdata) {
 int sum_Add(void *ctx, SearchResult *res) {
   struct sumCtx *ctr = ctx;
   ctr->count++;
+  RSValue v = SearchResult_GetValue(res, ctr->sortables, ctr->property);
 
-  RSValue *v = RSFieldMap_Get(res->fields, ctr->property);
-  if (v->t == RSValue_Number) {
-    ctr->total += v->numval;
+  if (v.t == RSValue_Number) {
+    ctr->total += v.numval;
+  } else {  // try to convert value to number
+    double d = 0;
+    if (RSValue_ToNumber(&v, &d)) {
+      ctr->total += d;
+    }
   }
 
   return 1;
@@ -36,7 +43,7 @@ int sum_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 // Free just frees up the processor. If left as NULL we simply use free()
 void sum_Free(Reducer *r) {
-  free(r->privdata);
+  free(r->ctx.privdata);
   free(r);
 }
 void sum_FreeInstance(void *p) {
@@ -44,7 +51,7 @@ void sum_FreeInstance(void *p) {
   free(c);
 }
 
-Reducer *NewSum(const char *property, const char *alias) {
+Reducer *NewSum(RedisSearchCtx *ctx, const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;
@@ -56,7 +63,7 @@ Reducer *NewSum(const char *property, const char *alias) {
   } else {
     r->alias = alias;
   }
-  r->privdata = strdup(property);
+  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = ctx};
 
   return r;
 }

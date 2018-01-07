@@ -91,7 +91,7 @@ uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
   uint64_t ret = 0;
   for (size_t i = 0; i < g->keys->len; i++) {
     // TODO: Init sorting table
-    RSValue v = SearchResult_GetValue(res, NULL, RSKEY(g->keys->keys[i]));
+    RSValue v = SearchResult_GetValue(res, g->sortTable, RSKEY(g->keys->keys[i]));
     ret = RSValue_Hash(&v, ret);
   }
 
@@ -134,7 +134,7 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     // create the group
     group = NewGroup(g->numReducers, gm);
     for (size_t i = 0; i < g->numReducers; i++) {
-      group->ptrs[i].ptr = g->reducers[i]->NewInstance(g->reducers[i]->privdata);
+      group->ptrs[i].ptr = g->reducers[i]->NewInstance(&g->reducers[i]->ctx);
       group->ptrs[i].free = g->reducers[i]->FreeInstance;
     }
     TrieMap_Add(g->groups, (char *)&hash, sizeof(hash), group, NULL);
@@ -163,6 +163,7 @@ Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
   Grouper *g = malloc(sizeof(*g));
   g->groups = NewTrieMap();
   g->iter = NULL;
+
   g->sortTable = tbl;
   g->keys = keys;
   g->reducers = NULL;

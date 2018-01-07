@@ -3,7 +3,7 @@ struct counter {
   size_t count;
 };
 
-void *counter_NewInstance(void *privdata) {
+void *counter_NewInstance(ReducerCtx *ctx) {
 
   struct counter *ctr = malloc(sizeof(*ctr));
   ctr->count = 0;
@@ -25,7 +25,7 @@ int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 // Free just frees up the processor. If left as NULL we simply use free()
 void counter_Free(Reducer *r) {
-  free(r->privdata);
+  free(r->ctx.privdata);
   free(r);
 }
 void counter_FreeInstance(void *p) {
@@ -33,14 +33,14 @@ void counter_FreeInstance(void *p) {
   free(c);
 }
 
-Reducer *NewCount(const char *alias) {
+Reducer *NewCount(RedisSearchCtx *ctx, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = counter_Add;
   r->Finalize = counter_Finalize;
   r->Free = counter_Free;
   r->FreeInstance = counter_FreeInstance;
   r->NewInstance = counter_NewInstance;
-  r->privdata = NULL;
+  r->ctx = (ReducerCtx){ctx, NULL};
   r->alias = alias ? alias : "count";
   return r;
 }

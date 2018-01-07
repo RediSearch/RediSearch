@@ -90,13 +90,13 @@ CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
   return NULL;
 }
 
-int parseReducer(Grouper *g, CmdArg *red, char **err) {
+int parseReducer(RedisSearchCtx *ctx, Grouper *g, CmdArg *red, char **err) {
 
   const char *func = CMDARG_STRPTR(CmdArg_FirstOf(red, "func"));
   CmdArg *args = CmdArg_FirstOf(red, "args");
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(red, "AS"), CMDARG_STRPTR);
 
-  Reducer *r = GetReducer(func, alias, &CMDARG_ARR(args), err);
+  Reducer *r = GetReducer(ctx, func, alias, &CMDARG_ARR(args), err);
   if (!r) {
     return 0;
   }
@@ -116,7 +116,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
 
   // Add reducerss
   CMD_FOREACH_SELECT(grp, "REDUCE", {
-    if (!parseReducer(g, result, err)) goto fail;
+    if (!parseReducer(sctx, g, result, err)) goto fail;
   });
 
   return NewGrouperProcessor(g, upstream);
@@ -199,7 +199,6 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
   ResultProcessor *prev = NULL;
   FieldList *lst = getAggregateFields(plan->ctx->redisCtx, cmd);
   next = NewLoader(next, plan->ctx, lst);
-
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
