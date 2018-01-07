@@ -145,6 +145,19 @@ static RSValue RSValue_ToString(RSValue *v) {
   }
 }
 
+static int RSValue_ParseNumber(const char *p, size_t l, RSValue *v) {
+  char *e;
+  errno = 0;
+  double d = strtod(p, &e);
+  if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
+      *e != '\0') {
+    return 0;
+  }
+  v->t = RSValue_Number;
+  v->numval = d;
+
+  return 1;
+}
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */

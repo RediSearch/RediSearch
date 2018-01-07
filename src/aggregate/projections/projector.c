@@ -46,6 +46,9 @@ void ProjectorCtx_GenericFree(ResultProcessor *p) {
   if (pc->properties) {
     RSMultiKey_Free(pc->properties);
   }
+  if (pc->privdata) {
+    free(pc->privdata);
+  }
   free(pc);
   free(p);
 }
@@ -86,14 +89,17 @@ PROJECTOR_FACTORY(NewSqrtArgs);
 // String projections
 PROJECTOR_FACTORY(NewLowerArgs);
 PROJECTOR_FACTORY(NewUpperArgs);
-
+ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
+                                  char **err);
 static struct {
   const char *k;
   ProjectorFactory f;
 } projectors_g[] = {
-    {"abs", NewAbsArgs},     {"floor", NewFloorArgs}, {"ceil", NewCeilArgs},
-    {"upper", NewUpperArgs}, {"lower", NewLowerArgs}, {"sqrt", NewSqrtArgs},
-    {"log", NewLogArgs},     {"log2", NewLog2Args},   {NULL, NULL},
+    {"abs", NewAbsArgs},       {"floor", NewFloorArgs},
+    {"ceil", NewCeilArgs},     {"upper", NewUpperArgs},
+    {"lower", NewLowerArgs},   {"sqrt", NewSqrtArgs},
+    {"log", NewLogArgs},       {"log2", NewLog2Args},
+    {"sum", NewAddProjection}, {NULL, NULL},
 };
 
 /* Projectors are result processors that have 1:1 conversion of values, without aggregation. I.e.
