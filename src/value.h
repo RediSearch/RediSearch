@@ -123,6 +123,8 @@ static inline int RSValue_IsString(const RSValue *value) {
   return value->t == RSValue_String || value->t == RSValue_RedisString;
 }
 
+/* Convert a value to a string value. If the value is already a string value it gets shallow-copied
+ * (no string buffer gets copied) */
 static RSValue RSValue_ToString(RSValue *v) {
   switch (v->t) {
     case RSValue_String:
@@ -143,27 +145,34 @@ static RSValue RSValue_ToString(RSValue *v) {
   }
 }
 
+/* Convert a value to a number, either returning the actual numeric values or by parsing a string
+into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
+not. If possible, we put the actual value into teh double pointer */
 static inline int RSValue_ToNumber(RSValue *v, double *d) {
   const char *p = NULL;
   size_t l = 0;
   switch (v->t) {
+    // for numerics - just set the value and return
     case RSValue_Number:
       *d = v->numval;
       return 1;
+
     case RSValue_String:
+      // C strings - take the ptr and len
       p = v->strval.str;
       l = v->strval.len;
       break;
-    case RSValue_RedisString: {
+    case RSValue_RedisString:
+      // Redis strings - take the number and len
       p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
-    }
+
     case RSValue_Null:
     case RSValue_Array:
     default:
       return 0;
   }
-
+  // If we have a string - try to parse it
   if (p) {
     char *e;
     errno = 0;
