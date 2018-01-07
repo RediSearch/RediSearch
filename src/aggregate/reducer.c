@@ -2,29 +2,30 @@
 #include <rmutil/cmdparse.h>
 #include <string.h>
 
-Reducer *NewCountArgs(CmdArray *args, const char *alias, char **err) {
-  return NewCount(alias);
+Reducer *NewCountArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+  return NewCount(ctx, alias);
 }
 
-Reducer *NewSumArgs(CmdArray *args, const char *alias, char **err) {
+Reducer *NewSumArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
 
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for SUM");
     return NULL;
   }
-  return NewSum(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewSum(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewToListArgs(CmdArray *args, const char *alias, char **err) {
+Reducer *NewToListArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
 
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for TOLIST");
     return NULL;
   }
-  return NewToList(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewToList(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-typedef Reducer *(*ReducerFactory)(CmdArray *args, const char *alias, char **err);
+typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                   char **err);
 
 static struct {
   const char *k;
@@ -36,10 +37,11 @@ static struct {
     {NULL, NULL},
 };
 
-Reducer *GetReducer(const char *name, const char *alias, CmdArray *args, char **err) {
+Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
+                    char **err) {
   for (int i = 0; reducers_g[i].k != NULL; i++) {
     if (!strcasecmp(reducers_g[i].k, name)) {
-      return reducers_g[i].f(args, alias, err);
+      return reducers_g[i].f(ctx, args, alias, err);
     }
   }
 

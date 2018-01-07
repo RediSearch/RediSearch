@@ -6,12 +6,17 @@
 #include <dep/triemap/triemap.h>
 #include <rmutil/cmdparse.h>
 
-typedef struct reducer {
+typedef struct {
   void *privdata;
+  RedisSearchCtx *ctx;
+} ReducerCtx;
+
+typedef struct reducer {
+  ReducerCtx ctx;
 
   const char *alias;
 
-  void *(*NewInstance)(void *privdata);
+  void *(*NewInstance)(ReducerCtx *ctx);
 
   int (*Add)(void *ctx, SearchResult *res);
 
@@ -23,12 +28,13 @@ typedef struct reducer {
   void (*FreeInstance)(void *ctx);
 } Reducer;
 
-Reducer *NewCount(const char *alias);
+Reducer *NewCount(RedisSearchCtx *ctx, const char *alias);
 
-Reducer *NewSum(const char *property, const char *alias);
+Reducer *NewSum(RedisSearchCtx *ctx, const char *property, const char *alias);
 
-Reducer *NewToList(const char *property, const char *alias);
+Reducer *NewToList(RedisSearchCtx *ctx, const char *property, const char *alias);
 
-Reducer *GetReducer(const char *name, const char *alias, CmdArray *args, char **err);
+Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
+                    char **err);
 
 #endif

@@ -3,32 +3,31 @@
 struct tolistCtx {
   TrieMap *values;
   const char *property;
+  RSSortingTable *sortables;
 };
 
-void *tolist_NewInstance(void *privdata) {
-  const char *property = privdata;
+void *tolist_NewInstance(ReducerCtx *rctx) {
+  const char *property = rctx->privdata;
 
   struct tolistCtx *ctx = malloc(sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = property;
+  ctx->sortables = rctx->ctx->spec->sortables;
   return ctx;
 }
 
 int tolist_Add(void *ctx, SearchResult *res) {
   struct tolistCtx *tlc = ctx;
 
-  RSValue *v = RSFieldMap_Get(res->fields, tlc->property);
-
-  if (v != NULL) {
-
-    uint64_t hval = RSValue_Hash(v, 0);
+  RSValue v = SearchResult_GetValue(res, tlc->sortables, tlc->property);
+  if (v.t != RSValue_Null) {
+    uint64_t hval = RSValue_Hash(&v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
       RSValue *sv = malloc(sizeof(RSValue));
-      RSValue_DeepCopy(sv, v);
+      RSValue_DeepCopy(sv, &v);
       TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), sv, NULL);
     }
   }
-
   return 1;
 }
 
@@ -56,7 +55,7 @@ void freeValues(void *ptr) {
 }
 // Free just frees up the processor. If left as NULL we simply use free()
 void tolist_Free(Reducer *r) {
-  free(r->privdata);
+  free(r->ctx.privdata);
   free(r);
 }
 void tolist_FreeInstance(void *p) {
@@ -66,7 +65,7 @@ void tolist_FreeInstance(void *p) {
   free(tlc);
 }
 
-Reducer *NewToList(const char *property, const char *alias) {
+Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = tolist_Add;
   r->Finalize = tolist_Finalize;
@@ -75,7 +74,7 @@ Reducer *NewToList(const char *property, const char *alias) {
   r->NewInstance = tolist_NewInstance;
 
   r->alias = alias ? alias : property;
-  r->privdata = strdup(property);
+  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = sctx};
 
   return r;
 }

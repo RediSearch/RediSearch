@@ -99,9 +99,8 @@ typedef struct {
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
 static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
                                             const char *key) {
-  if (*key == '@') {
-    key++;
-  }
+  key = RSKEY(key);
+
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
     int idx = RSSortingTable_GetFieldIdx(tbl, key);
@@ -111,6 +110,7 @@ static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *t
         case RS_SORTABLE_STR:
           return RS_CStringValStatic(val->str);
         case RS_SORTABLE_NUM:
+
           return RS_NumVal(val->num);
         default:
           return RS_NullVal();

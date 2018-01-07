@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
+#include <errno.h>
+#include <math.h>
 #include <assert.h>
 #include "redisearch.h"
 #include "sortable.h"
@@ -139,6 +141,42 @@ static RSValue RSValue_ToString(RSValue *v) {
     default:
       return RS_StringValStatic("", 0);
   }
+}
+
+static inline int RSValue_ToNumber(RSValue *v, double *d) {
+  const char *p = NULL;
+  size_t l = 0;
+  switch (v->t) {
+    case RSValue_Number:
+      *d = v->numval;
+      return 1;
+    case RSValue_String:
+      p = v->strval.str;
+      l = v->strval.len;
+      break;
+    case RSValue_RedisString: {
+      p = RedisModule_StringPtrLen(v->rstrval, &l);
+      break;
+    }
+    case RSValue_Null:
+    case RSValue_Array:
+    default:
+      return 0;
+  }
+
+  if (p) {
+    char *e;
+    errno = 0;
+    *d = strtod(p, &e);
+    if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
+        *e != '\0') {
+      return 0;
+    }
+
+    return 1;
+  }
+
+  return 0;
 }
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
