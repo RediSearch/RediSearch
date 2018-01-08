@@ -60,9 +60,11 @@ LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
 LIBFRISO=dep/friso/libfriso.a
 LIBMINIZ=dep/miniz/libminiz.a
+LIBBLOOM=dep/bloom/libbloom.a
 
 # Compilation deps for the module
-LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER)
+LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER) \
+	 $(LIBBLOOM)
 # TODO: make conditional on chinese support
 LIBS += $(LIBMINIZ)
 MODULE=$(CC_OBJECTS) $(LIBS)
@@ -100,6 +102,8 @@ $(LIBFRISO):
 	$(MAKE) -C dep/friso -f Makefile.RediSearch
 $(LIBMINIZ):
 	$(MAKE) -C dep/miniz
+$(LIBBLOOM):
+	$(MAKE) -C dep/bloom
 
 # Compile query parse .y and .rl files. 
 # This is not included in the usual make target!
