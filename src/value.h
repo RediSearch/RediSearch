@@ -201,6 +201,27 @@ static inline int RSValue_ToNumber(RSValue *v, double *d) {
   return 0;
 }
 
+/**
+ * Returns the value as a simple opaque buffer
+ */
+static inline const void *RSValue_ToBuffer(const RSValue *value, size_t *outlen) {
+  switch (value->t) {
+    case RSValue_Number:
+      *outlen = sizeof(value->numval);
+      return &value->numval;
+    case RSValue_String:
+      *outlen = value->strval.len;
+      return value->strval.str;
+    case RSValue_RedisString:
+      return RedisModule_StringPtrLen(value->rstrval, outlen);
+    case RSValue_Array:
+    case RSValue_Null:
+    default:
+      *outlen = 0;
+      return "";
+  }
+}
+
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
   switch (v->t) {
