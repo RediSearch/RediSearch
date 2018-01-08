@@ -25,7 +25,6 @@ int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 // Free just frees up the processor. If left as NULL we simply use free()
 void counter_Free(Reducer *r) {
-  free(r->ctx.privdata);
   free(r);
 }
 void counter_FreeInstance(void *p) {
