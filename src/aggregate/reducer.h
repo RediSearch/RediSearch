@@ -37,6 +37,8 @@ Reducer *NewToList(RedisSearchCtx *ctx, const char *property, const char *alias)
 Reducer *NewMin(RedisSearchCtx *, const char *, const char *);
 Reducer *NewMax(RedisSearchCtx *, const char *, const char *);
 Reducer *NewAvg(RedisSearchCtx *, const char *, const char *);
+Reducer *NewCountDistinct(RedisSearchCtx *, const char *, const char *);
+Reducer *NewCountDistinctish(RedisSearchCtx *, const char *, const char *);
 
 Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
                     char **err);

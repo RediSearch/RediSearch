@@ -48,6 +48,23 @@ Reducer *NewAvgArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char
   return NewAvg(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
+Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for COUNT_DISTINCT");
+    return NULL;
+  }
+  return NewCountDistinct(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+}
+
+Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                 char **err) {
+  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
+    return NULL;
+  }
+  return NewCountDistinctish(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+}
+
 typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
                                    char **err);
 
@@ -55,8 +72,15 @@ static struct {
   const char *k;
   ReducerFactory f;
 } reducers_g[] = {
-    {"sum", NewSumArgs},     {"min", NewMinArgs},       {"max", NewMaxArgs}, {"avg", NewAvgArgs},
-    {"count", NewCountArgs}, {"tolist", NewToListArgs}, {NULL, NULL},
+    {"sum", NewSumArgs},
+    {"min", NewMinArgs},
+    {"max", NewMaxArgs},
+    {"avg", NewAvgArgs},
+    {"count", NewCountArgs},
+    {"count_distinct", NewCountDistinctArgs},
+    {"count_distinctish", NewCountDistinctArgs},
+    {"tolist", NewToListArgs},
+    {NULL, NULL},
 };
 
 Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,

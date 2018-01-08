@@ -7,7 +7,7 @@ import itertools
 import pprint
 
 
-class AggregateTestCase(ModuleTestCase('../redisearch.so')):
+class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
     ingested = False
 
@@ -19,7 +19,8 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so')):
         self.ingested = True
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'BRAND', 'TEXT',  'NOSTEM', 'SORTABLE',
                  'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE', 'categories', 'TAG')
-        fp = bz2.BZ2File('games.json.bz2')
+        client = self.client
+        fp = open('games.json', 'r')
 
         for line in fp:
             obj = json.loads(line)
@@ -64,7 +65,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so')):
         print ""
         pprint.pprint(res[1:])
         # self.assertEqual(7, len(res))
-    
+
     def testAvg(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
             'SELECT', '2', '@brand', '@price',
@@ -78,6 +79,27 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so')):
         print ""
         pprint.pprint(res[1:])
         # self.assertEqual(7, len(res))
+
+    def testCountDistinct(self):
+        cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
+            'SELECT', '3', '@brand', '@categories', '@description',
+            'GROUPBY', '1', '@categories',
+            'REDUCE', 'COUNT_DISTINCT', '1', '@description',
+            'REDUCE', 'COUNT', '0'
+            ]
+        self.cmd('PING')
+        pprint.pprint(self.cmd(*cmd)[1:])
+
+    def testCountDistinctish(self):
+        self.cmd('PING')
+        cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
+            'SELECT', '3', '@brand', '@categories', '@description',
+            'GROUPBY', '1', '@categories',
+            'REDUCE', 'COUNT_DISTINCTISH', '1', '@description',
+            'REDUCE', 'COUNT', '0'
+            ]
+        res = self.cmd(*cmd)[1:]
+        # pprint.pprint(res)
 
 
 if __name__ == '__main__':
