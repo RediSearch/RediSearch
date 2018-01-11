@@ -66,9 +66,11 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
       // nothing to read further from the groups...
       return RS_RESULT_EOF;
     }
-
-    r->fields = RS_NewFieldMap(g->numReducers + g->keys->len);
-
+    if (r->fields) {
+      r->fields->len = 0;
+    } else {
+      r->fields = RS_NewFieldMap(2 + g->numReducers + g->keys->len);
+    }
     // Add a property with the group name
     // RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
     Group *gr = p;
