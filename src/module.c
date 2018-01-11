@@ -808,7 +808,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   TagIndex *idx = TagIndex_Open(ctx, TagIndex_FormatName(sctx, field), 0, NULL);
   if (!idx) {
-    RedisModule_ReplyWithError(ctx, "Could not open tag index");
+    RedisModule_ReplyWithArray(ctx, 0);
     goto cleanup;
   }
 
