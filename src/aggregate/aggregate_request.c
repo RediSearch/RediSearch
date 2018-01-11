@@ -198,7 +198,7 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
   ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
   ResultProcessor *prev = NULL;
   FieldList *lst = getAggregateFields(plan->ctx->redisCtx, cmd);
-  next = NewLoader(next, plan->ctx, lst);
+  // next = NewLoader(next, plan->ctx, lst);
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
