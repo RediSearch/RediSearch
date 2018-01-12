@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -676,7 +677,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
   if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!q || !q->sctx->spec) {
-      s = sdscatprintf(s, "@%llx", (uint64_t)qs->fieldMask);
+      s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->fieldMask);
     } else {
       s = sdscat(s, "@");
       t_fieldMask fm = qs->fieldMask;
