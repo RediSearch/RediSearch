@@ -17,7 +17,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.cmd('flushdb')
 
         self.ingested = True
-        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'BRAND', 'TEXT',  'NOSTEM', 'SORTABLE',
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'BRAND', 'TEXT',  'NOSTEM', 'SORTABLE',
                  'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE', 'categories', 'TAG')
         client = self.client
         fp = open('games.json', 'r')
@@ -82,9 +82,9 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
     def testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'SELECT', '3', '@brand', '@categories', '@description',
+            'SELECT', '3', '@brand', '@categories', '@title',
             'GROUPBY', '1', '@categories',
-            'REDUCE', 'COUNT_DISTINCT', '1', '@description',
+            'REDUCE', 'COUNT_DISTINCT', '1', '@title',
             'REDUCE', 'COUNT', '0'
             ]
         self.cmd('PING')
@@ -93,9 +93,9 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def testCountDistinctish(self):
         self.cmd('PING')
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'SELECT', '3', '@brand', '@categories', '@description',
+            'SELECT', '3', '@brand', '@categories', '@title',
             'GROUPBY', '1', '@categories',
-            'REDUCE', 'COUNT_DISTINCTISH', '1', '@description',
+            'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
             'REDUCE', 'COUNT', '0'
             ]
         res = self.cmd(*cmd)[1:]
