@@ -608,6 +608,18 @@ void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t nu
   }
 }
 
+static void assignSearchOpts(RSSearchOptions *tgt, const RSSearchOptions *src,
+                             RedisSearchCtx *ctx) {
+  if (src) {
+    *tgt = *src;
+  } else {
+    *tgt = RS_DEFAULT_SEARCHOPTS;
+  }
+  if (!(tgt->flags & Search_NoStopwrods) && tgt->stopwords == NULL) {
+    tgt->stopwords = ctx->spec->stopwords;
+  }
+}
+
 QueryParseCtx *NewQueryParseCtx(RedisSearchCtx *sctx, const char *raw, size_t len,
                                 RSSearchOptions *opts) {
 
@@ -618,9 +630,9 @@ QueryParseCtx *NewQueryParseCtx(RedisSearchCtx *sctx, const char *raw, size_t le
   ctx->ok = 1;
   ctx->root = NULL;
   ctx->sctx = sctx;
-  ctx->opts = opts ? *opts : RS_DEFAULT_SEARCHOPTS;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;
+  assignSearchOpts(&ctx->opts, opts, sctx);
 
   return ctx;
 }
