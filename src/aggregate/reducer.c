@@ -78,7 +78,7 @@ static struct {
     {"avg", NewAvgArgs},
     {"count", NewCountArgs},
     {"count_distinct", NewCountDistinctArgs},
-    {"count_distinctish", NewCountDistinctArgs},
+    {"count_distinctish", NewCountDistinctishArgs},
     {"tolist", NewToListArgs},
     {NULL, NULL},
 };
