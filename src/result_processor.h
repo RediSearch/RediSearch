@@ -118,9 +118,11 @@ static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *t
     }
   }
 
-  RSValue *v = RSFieldMap_Get(res->fields, key);
-  if (v) {
-    return *v;
+  if (res->fields) {
+    RSValue *v = RSFieldMap_Get(res->fields, key);
+    if (v) {
+      return *v;
+    }
   }
   return RS_NullVal();
 }
