@@ -49,8 +49,9 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (!(flags & Search_NoContent)) {
     count++;
-    RedisModule_ReplyWithArray(ctx, r->fields->len * 2);
-    for (int i = 0; i < r->fields->len; i++) {
+    size_t fieldCount = r->fields ? r->fields->len : 0;
+    RedisModule_ReplyWithArray(ctx, fieldCount * 2);
+    for (int i = 0; i < fieldCount; i++) {
       RedisModule_ReplyWithStringBuffer(ctx, r->fields->fields[i].key,
                                         strlen(r->fields->fields[i].key));
       RSValue_SendReply(ctx, RSFieldMap_Item(r->fields, i));
