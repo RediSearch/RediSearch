@@ -16,6 +16,7 @@ CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
@@ -34,7 +35,7 @@ TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
 # Library dependencies
 DEP_LIBS = ../rmutil/librmutil.a ../trie/libtrie.a ../dep/triemap/libtriemap.a \
 		   ../dep/libnu/libnu.a ../dep/snowball/libstemmer.o ../dep/friso/libfriso.a \
-		   ../dep/miniz/libminiz.a
+		   ../dep/miniz/libminiz.a ../dep/bloom/libbloom.a
 DEPS = $(DEP_OBJECTS) $(DEP_LIBS)
 SRCDIR := $(shell pwd)
 LDFLAGS :=  -lc -lm -ldl -lpthread
