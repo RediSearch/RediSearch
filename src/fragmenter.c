@@ -7,14 +7,6 @@
 #include <sys/uio.h>
 #include <assert.h>
 
-#ifdef __APPLE__
-#define myQsort_r(arr, nelem, elemSize, compfn, arg) qsort_r(arr, nelem, elemSize, arg, compfn)
-#define MY_QSORTR_ARGS(ctx, a, b) void *ctx, const void *a, const void *b
-#else
-#define myQsort_r(arr, nelem, elemSize, compfn, arg) qsort_r(arr, nelem, elemSize, compfn, arg)
-#define MY_QSORTR_ARGS(ctx, a, b) const void *a, const void *b, void *ctx
-#endif
-
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6
 
@@ -244,13 +236,9 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   return docBuf;
 }
 
-static int fragSortCmp(MY_QSORTR_ARGS(ctx, pa, pb)) {
-  const uint32_t a = *(uint32_t *)pa, b = *(uint32_t *)pb;
-  const Fragment *frags = FragmentList_GetFragments(ctx);
-  if (frags[a].score == frags[b].score) {
-    return a - b;
-  }
-  return frags[a].score > frags[b].score ? -1 : 1;
+static int fragSortCmp(const void *pa, const void *pb) {
+  const Fragment *a = *(const Fragment **)pa, *b = *(const Fragment **)pb;
+  return a->score == b->score ? 0 : a->score > b->score ? -1 : 1;
 }
 
 static void FragmentList_Sort(FragmentList *fragList) {
@@ -262,19 +250,18 @@ static void FragmentList_Sort(FragmentList *fragList) {
   fragList->sortedFrags = malloc(sizeof(*fragList->sortedFrags) * fragList->numFrags);
 
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    fragList->sortedFrags[ii] = ii;
+    fragList->sortedFrags[ii] = origFrags + ii;
   }
-  myQsort_r(fragList->sortedFrags, fragList->numFrags, sizeof fragList->sortedFrags[0], fragSortCmp,
-            fragList);
+
+  qsort(fragList->sortedFrags, fragList->numFrags, sizeof(fragList->sortedFrags[0]), fragSortCmp);
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    ((Fragment *)origFrags)[fragList->sortedFrags[ii]].scoreRank = ii;
+    ((Fragment *)fragList->sortedFrags[ii])->scoreRank = ii;
   }
 }
 
-static int sortByOrder(MY_QSORTR_ARGS(ctx, pa, pb)) {
-  uint32_t a = *(uint32_t *)pa, b = *(uint32_t *)pb;
-  const Fragment *frags = FragmentList_GetFragments(ctx);
-  return (int)frags[a].fragPos - (int)frags[b].fragPos;
+static int sortByOrder(const void *pa, const void *pb) {
+  const Fragment *a = *(const Fragment **)pa, *b = *(const Fragment **)pb;
+  return (int)a->fragPos - (int)b->fragPos;
 }
 
 /**
@@ -358,21 +345,21 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
   niovs = Min(niovs, fragList->numFrags);
 
   if (!fragList->scratchFrags) {
-    fragList->scratchFrags = malloc(sizeof(fragList->scratchFrags) * fragList->numFrags);
+    fragList->scratchFrags = malloc(sizeof(*fragList->scratchFrags) * fragList->numFrags);
   }
-  uint32_t *indexes = fragList->scratchFrags;
+  const Fragment **indexes = fragList->scratchFrags;
 
   if (order == HIGHLIGHT_ORDER_POS) {
     for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = ii;
+      indexes[ii] = frags + ii;
     }
   } else if (order & HIGHLIGHT_ORDER_SCORE) {
     FragmentList_Sort(fragList);
     for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = frags[fragList->sortedFrags[ii]].fragPos;
+      indexes[ii] = fragList->sortedFrags[ii];
     }
     if (order & HIGHLIGHT_ORDER_POS) {
-      myQsort_r(indexes, niovs, sizeof indexes[0], sortByOrder, fragList);
+      qsort(indexes, niovs, sizeof indexes[0], sortByOrder);
     }
   }
 
@@ -383,14 +370,14 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
     Array *curArr = iovArrList + ii;
 
     const char *beforeLimit = NULL, *afterLimit = NULL;
-    const Fragment *curFrag = frags + indexes[ii];
+    const Fragment *curFrag = indexes[ii];
 
     if (order & HIGHLIGHT_ORDER_POS) {
       if (ii > 0) {
-        beforeLimit = frags[indexes[ii - 1]].buf + frags[indexes[ii - 1]].len;
+        beforeLimit = indexes[ii - 1]->buf + indexes[ii - 1]->len;
       }
       if (ii + 1 < niovs) {
-        afterLimit = frags[indexes[ii + 1]].buf;
+        afterLimit = indexes[ii + 1]->buf;
       }
     }
 
