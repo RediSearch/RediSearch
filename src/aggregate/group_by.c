@@ -1,6 +1,7 @@
 #include <redisearch.h>
 #include <result_processor.h>
-#include <dep/triemap/triemap.h>
+#include "util/khtable.h"
+#include "util/block_alloc.h"
 
 #define GROUPBY_C_
 #include "reducer.h"
@@ -14,55 +15,91 @@ typedef struct {
 /* A group represents the allocated context of all reducers in a group, and the selected values of
  * that group */
 typedef struct {
-  size_t len;
+  KHTableEntry entBase;  // For entry into the table
+  uint64_t h64key;       // "Key" of the group - using a hash rather than the actual string
+  size_t len;            // Number of contexts
   RSFieldMap *values;
-  GroupCtx ptrs[];
+  GroupCtx ctxs[0];
 } Group;
 
-Group *NewGroup(size_t len, RSFieldMap *groupVals) {
-  Group *g = malloc(sizeof(Group) + len * sizeof(GroupCtx));
-  g->values = groupVals;
-  g->len = len;
-  return g;
-}
-
-void Group_Free(void *p) {
-  Group *g = p;
-  for (size_t i = 0; i < g->len; i++) {
-    g->ptrs[i].free(g->ptrs[i].ptr);
-  }
-  free(g);
-}
-
-#define GROUP_CTX(g, i) (g->ptrs[i].ptr)
-
+#define GROUP_CTX(g, i) (g->ctxs[i].ptr)
+#define GROUPS_PER_BLOCK 32
 typedef struct Grouper {
-  TrieMap *groups;
-  TrieMapIterator *iter;
+  KHTable groups;
+  KHTableIterator giter;
+  BlkAlloc groupsAlloc;
   RSMultiKey *keys;
   RSSortingTable *sortTable;
   Reducer **reducers;
   size_t numReducers;
   int accumulating;
   int sortKeyIdx;
+  int hasIter;
 } Grouper;
+
+static KHTableEntry *gtGroupAlloc(void *ctx) {
+  Grouper *g = ctx;
+  size_t elemSize = sizeof(Group) + (sizeof(GroupCtx) * g->numReducers);
+  Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
+  memset(group, 0, elemSize);
+
+  for (size_t ii = 0; ii < g->numReducers; ++ii) {
+    group->ctxs[ii].ptr = g->reducers[ii]->NewInstance(&g->reducers[ii]->ctx);
+    group->ctxs[ii].free = g->reducers[ii]->FreeInstance;
+  }
+  return &group->entBase;
+}
+
+static int gtGroupCompare(const KHTableEntry *item, const void *s, size_t n, uint32_t h) {
+  assert(n == 8);
+  // Return 0 if a match; invert the condition
+  return *(uint64_t *)s != ((Group *)item)->h64key;
+}
+
+uint32_t gtGroupHash(const KHTableEntry *item) {
+  return (uint32_t)((Group *)item)->h64key;
+}
+
+static KHTableProcs gtGroupProcs_g = {
+    .Alloc = gtGroupAlloc, .Compare = gtGroupCompare, .Hash = gtGroupHash};
+
+static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t hash) {
+  // Copy the group keys to the new group
+  group->values = RS_NewFieldMap(group->len);
+
+  for (size_t i = 0; i < g->keys->len; i++) {
+    // TODO: Init sorting table
+    RSValue src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
+    RSValue dst;
+    RSValue_DeepCopy(&dst, &src);
+    RSFieldMap_Add(&group->values, g->keys->keys[i], dst);
+  }
+
+  // Set the 64 bit hash to compare for later
+  group->h64key = hash;
+}
+
+void Group_Clean(KHTableEntry *ent, void *ctx, void *arg) {
+  Group *group = (Group *)ent;
+  for (size_t i = 0; i < group->len; i++) {
+    group->ctxs[i].free(group->ctxs[i].ptr);
+  }
+}
 
 /* Yield - pops the current top result from the heap */
 int grouper_Yield(Grouper *g, SearchResult *r) {
-  if (!g->iter) {
-    g->iter = TrieMap_Iterate(g->groups, "", 0);
-    // if for some reason we couldn't create an iterator, end here
-    if (!g->iter) {
-      return RS_RESULT_EOF;
-    }
+  if (!g->hasIter) {
+    KHTableIter_Init(&g->groups, &g->giter);
+    g->hasIter = 1;
   }
 
   char *s;
   tm_len_t l;
-  void *p;
+  KHTableEntry *p;
+
   do {
     // try the next group
-    if (!TrieMapIterator_Next(g->iter, &s, &l, &p)) {
+    if (!(p = KHtableIter_Next(&g->giter))) {
       // nothing to read further from the groups...
       return RS_RESULT_EOF;
     }
@@ -73,7 +110,7 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
     }
     // Add a property with the group name
     // RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
-    Group *gr = p;
+    Group *gr = (Group *)p;
     // Copy the group fields to the field map
     for (int i = 0; i < g->keys->len; i++) {
       // TODO: Watch string copy here
@@ -120,26 +157,11 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   uint64_t hash = grouper_EncodeGroupKey(g, res);
   // printf("Got group %s\n", buf);
-  Group *group = TrieMap_Find(g->groups, (char *)&hash, sizeof(uint64_t));
-  if (!group || (void *)group == TRIEMAP_NOTFOUND) {
-
-    // Copy the group keys to the new group
-    RSFieldMap *gm = RS_NewFieldMap(g->keys->len);
-    for (size_t i = 0; i < g->keys->len; i++) {
-      // TODO: Init sorting table
-      RSValue src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
-      RSValue dst;
-      RSValue_DeepCopy(&dst, &src);
-      RSFieldMap_Add(&gm, g->keys->keys[i], dst);
-    }
-
-    // create the group
-    group = NewGroup(g->numReducers, gm);
-    for (size_t i = 0; i < g->numReducers; i++) {
-      group->ptrs[i].ptr = g->reducers[i]->NewInstance(&g->reducers[i]->ctx);
-      group->ptrs[i].free = g->reducers[i]->FreeInstance;
-    }
-    TrieMap_Add(g->groups, (char *)&hash, sizeof(hash), group, NULL);
+  int isNew = 0;
+  Group *group = (Group *)KHTable_GetEntry(&g->groups, &hash, sizeof hash, (uint32_t)hash, &isNew);
+  assert(group);
+  if (isNew) {
+    Group_Init(group, g, res, hash);
   }
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Add(GROUP_CTX(group, i), res);
@@ -151,8 +173,8 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 // Free just frees up the processor. If left as NULL we simply use free()
 void Grouper_Free(struct resultProcessor *p) {
   Grouper *g = p->ctx.privdata;
+  KHTable_FreeEx(&g->groups, g, Group_Clean);
 
-  TrieMap_Free(g->groups, Group_Free);
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Free(g->reducers[i]);
   }
@@ -163,14 +185,15 @@ void Grouper_Free(struct resultProcessor *p) {
 
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
   Grouper *g = malloc(sizeof(*g));
-  g->groups = NewTrieMap();
-  g->iter = NULL;
+  BlkAlloc_Init(&g->groupsAlloc);
+  KHTable_Init(&g->groups, &gtGroupProcs_g, g, 256);
 
   g->sortTable = tbl;
   g->keys = keys;
   g->reducers = NULL;
   g->numReducers = 0;
   g->accumulating = 1;
+  g->hasIter = 0;
 
   return g;
 }
