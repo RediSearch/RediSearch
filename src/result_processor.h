@@ -208,7 +208,6 @@ void ResultProcessor_GenericFree(ResultProcessor *rp);
 
 SearchResult *NewSearchResult();
 
-void SearchResult_FreeInternal(SearchResult *r);
 void SearchResult_Free(void *p);
 
 struct QueryPlan;
