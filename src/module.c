@@ -1238,12 +1238,12 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-#define RM_TRY(f, ...)                                                                  \
-  if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                              \
-    RedisModule_Log(ctx, "warning", "Could not run " __STRING(f) "(" #__VA_ARGS__ ")"); \
-    return REDISMODULE_ERR;                                                             \
-  } else {                                                                              \
-    RedisModule_Log(ctx, "verbose", "Successfully executed " __STRING(f));              \
+#define RM_TRY(f, ...)                                                         \
+  if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
+    RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
+    return REDISMODULE_ERR;                                                    \
+  } else {                                                                     \
+    RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
