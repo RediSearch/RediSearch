@@ -102,10 +102,10 @@ typedef struct {
   Array frags;
 
   // Array of indexes (in frags), sorted by score
-  uint32_t *sortedFrags;
+  const Fragment **sortedFrags;
 
   // Scratch space, used internally
-  uint32_t *scratchFrags;
+  const Fragment **scratchFrags;
 
   // Number of fragments
   uint32_t numFrags;
