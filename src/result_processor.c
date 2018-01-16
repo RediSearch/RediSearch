@@ -522,6 +522,8 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
+
     pc->count++;
     return RS_RESULT_QUEUED;
   }
@@ -529,6 +531,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (pc->count >= pc->limit + pc->offset) {
     IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
     return RS_RESULT_EOF;
   }
   pc->count++;
