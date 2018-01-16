@@ -41,7 +41,6 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def testGroupBy(self):
         return
         cmd = ['ft.aggregate', 'idx', 'sony',
-               'SELECT', '2', '@brand', '@price',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
                'GROUPBY', '1', '@count',
@@ -55,34 +54,31 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
     def testMin(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
-            'SELECT', '2', '@brand', '@price',
             'GROUPBY', '1', '@brand',
             'REDUCE', 'min', '1', '@price',
             'SORTYBY', '1', 'min(price)']
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
-        self.assertEqual(172, res[0])
+        self.assertEqual(26, res[0])
         print ""
         pprint.pprint(res[1:])
         # self.assertEqual(7, len(res))
 
     def testAvg(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
-            'SELECT', '2', '@brand', '@price',
             'GROUPBY', '1', '@brand',
             'REDUCE', 'avg', '1', '@price',
             'REDUCE', 'count', '0',
             'SORTYBY', '1', 'avg(price)']
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
-        self.assertEqual(172, res[0])
+        self.assertEqual(26, res[0])
         print ""
         pprint.pprint(res[1:])
         # self.assertEqual(7, len(res))
 
     def testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'SELECT', '3', '@brand', '@categories', '@title',
             'GROUPBY', '1', '@categories',
             'REDUCE', 'COUNT_DISTINCT', '1', '@title',
             'REDUCE', 'COUNT', '0'
@@ -93,7 +89,6 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def testCountDistinctish(self):
         self.cmd('PING')
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'SELECT', '3', '@brand', '@categories', '@title',
             'GROUPBY', '1', '@categories',
             'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
             'REDUCE', 'COUNT', '0'
@@ -102,13 +97,22 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         # pprint.pprint(res)
     
     def testQuantile(self):
-        self.cmd('PING')
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
             'GROUPBY', '1', '@brand',
             'REDUCE', 'QUANTILE', '2', '@price', '0.50',
             'REDUCE', 'AVG', '1', '@price',
             'REDUCE', 'COUNT', '0']
         pprint.pprint(self.cmd(*cmd))
+    
+    def testStdDev(self):
+        cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
+            'GROUPBY', '1', '@brand',
+            'REDUCE', 'STDDEV', '1', '@price',
+            'REDUCE', 'COUNT', '0',
+            'SORTBY', '1', '@count']
+        pprint.pprint(self.cmd(*cmd))
+
+
 
 
 if __name__ == '__main__':
