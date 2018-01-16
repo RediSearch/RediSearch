@@ -18,12 +18,12 @@
 
 // Enumeration of possible value types
 typedef enum {
-  RSValue_Number = 0x01,
-  RSValue_String = 0x02,
-  RSValue_Null = 0x04,
-  RSValue_RedisString = 0x08,
+  RSValue_Number = 1,
+  RSValue_String = 3,
+  RSValue_Null = 4,
+  RSValue_RedisString = 5,
   // An array of values, that can be of any type
-  RSValue_Array = 0x10,
+  RSValue_Array = 6,
 
 } RSValueType;
 
@@ -120,7 +120,7 @@ static inline RSValue RS_RedisStringVal(RedisModuleString *str) {
 
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
-  return value->t == RSValue_String || value->t == RSValue_RedisString;
+  return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets shallow-copied
@@ -162,6 +162,7 @@ static int RSValue_ParseNumber(const char *p, size_t l, RSValue *v) {
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */
 static inline int RSValue_ToNumber(RSValue *v, double *d) {
+  if (!v) return 0;
   const char *p = NULL;
   size_t l = 0;
   switch (v->t) {
@@ -390,10 +391,14 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
     case RSValue_Array:
+      printf("return array %d\n", v->arrval.len);
       RedisModule_ReplyWithArray(ctx, v->arrval.len);
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_SendReply(ctx, &v->arrval.vals[i]);
       }
+      return REDISMODULE_OK;
+    default:
+      RedisModule_ReplyWithNull(ctx);
   }
   return REDISMODULE_OK;
 }

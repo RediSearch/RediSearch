@@ -3,28 +3,29 @@
 
 /* A macro to generate math projection functions for wrapping math functions that are applied to a
  * double and return double */
-#define NUMERIC_PROJECTION_WRAPPER(f, math_func)                                         \
-  static int f(ResultProcessorCtx *ctx, SearchResult *res) {                             \
-    ProjectorCtx *pc = ctx->privdata;                                                    \
-    /* this will return EOF if needed */                                                 \
-    ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);                                    \
-    RSValue v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc), \
-                                      pc->properties->keys[0]);                          \
-    if (v.t == RSValue_Number) {                                                         \
-      RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0],      \
-                     RS_NumVal(math_func(v.numval)));                                    \
-    } else {                                                                             \
-      double d;                                                                          \
-      /* Try to parse as number                           */                             \
-      if (RSValue_ToNumber(&v, &d)) {                                                    \
-        RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0],    \
-                       RS_NumVal(d));                                                    \
-      } else {                                                                           \
-        RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0],    \
-                       RS_NullVal());                                                    \
-      }                                                                                  \
-    }                                                                                    \
-    return RS_RESULT_OK;                                                                 \
+#define NUMERIC_PROJECTION_WRAPPER(f, math_func)                                                   \
+  static int f(ResultProcessorCtx *ctx, SearchResult *res) {                                       \
+    ProjectorCtx *pc = ctx->privdata;                                                              \
+    /* this will return EOF if needed */                                                           \
+    ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);                                              \
+    RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),          \
+                                       pc->properties->keys[0]);                                   \
+    if (v && v->t == RSValue_Number) {                                                             \
+      RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0],                \
+                     RS_NumVal(math_func(v->numval)));                                             \
+    } else {                                                                                       \
+      if (v) {                                                                                     \
+        double d; /* Try to parse as number                           */                           \
+        if (RSValue_ToNumber(v, &d)) {                                                             \
+          RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0],            \
+                         RS_NumVal(d));                                                            \
+          goto end;                                                                                \
+        }                                                                                          \
+      }                                                                                            \
+      RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], RS_NullVal()); \
+    }                                                                                              \
+  end:                                                                                             \
+    return RS_RESULT_OK;                                                                           \
   }
 
 #define GENERIC_PROJECTOR_FACTORY(f, next_func)                                                \
@@ -65,9 +66,9 @@ typedef struct {
   valueOrProp params[];
 } dynamicExpr;
 
-static inline RSValue getVaueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTable *tbl) {
+static inline RSValue *getVaueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTable *tbl) {
   if (vp->isValue) {
-    return vp->val;
+    return &vp->val;
   }
   return SearchResult_GetValue(r, tbl, vp->prop);
 }
@@ -81,13 +82,13 @@ static int add_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   double sum = 0;
   int ok = 1;
   for (int i = 0; i < dx->len; i++) {
-    RSValue v = getVaueOrProp(res, &dx->params[i],
-                              ctx->qxc->sctx->spec ? ctx->qxc->sctx->spec->sortables : NULL);
-    if (v.t == RSValue_Number) {
-      sum += v.numval;
-    } else {
+    RSValue *v = getVaueOrProp(res, &dx->params[i],
+                               ctx->qxc->sctx->spec ? ctx->qxc->sctx->spec->sortables : NULL);
+    if (v && v->t == RSValue_Number) {
+      sum += v->numval;
+    } else if (v) {
       double d = 0;
-      if (RSValue_ToNumber(&v, &d)) {
+      if (RSValue_ToNumber(v, &d)) {
         sum += d;
       } else {
         ok = 0;

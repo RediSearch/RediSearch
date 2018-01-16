@@ -72,10 +72,12 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
 
   for (size_t i = 0; i < g->keys->len; i++) {
     // TODO: Init sorting table
-    RSValue src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
-    RSValue dst;
-    RSValue_DeepCopy(&dst, &src);
-    RSFieldMap_Add(&group->values, g->keys->keys[i], dst);
+    RSValue *src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
+    static RSValue dst;
+    if (src) {
+      RSValue_DeepCopy(&dst, src);
+      RSFieldMap_Add(&group->values, g->keys->keys[i], dst);
+    }
   }
 
   // Set the 64 bit hash to compare for later
@@ -140,10 +142,13 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
 uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 
   uint64_t ret = 0;
+
+  static RSValue nil = {.t = RSValue_Null};
   for (size_t i = 0; i < g->keys->len; i++) {
     // TODO: Init sorting table
-    RSValue v = SearchResult_GetValue(res, g->sortTable, RSKEY(g->keys->keys[i]));
-    ret = RSValue_Hash(&v, ret);
+    RSValue *v = SearchResult_GetValue(res, g->sortTable, RSKEY(g->keys->keys[i]));
+
+    ret = RSValue_Hash(v ? v : &nil, ret);
   }
 
   return ret;

@@ -97,34 +97,22 @@ typedef struct {
   ((SearchResult){         \
       .docId = 0, .score = 0, .sv = NULL, .md = NULL, .indexResult = NULL, .fields = NULL})
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
-static inline RSValue SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
-                                            const char *key) {
+static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl,
+                                             const char *key) {
   key = RSKEY(key);
 
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
     int idx = RSSortingTable_GetFieldIdx(tbl, key);
     if (idx >= 0 && idx < res->md->sortVector->len) {
-      RSSortableValue *val = &res->md->sortVector->values[idx];
-      switch (val->type) {
-        case RS_SORTABLE_STR:
-          return RS_CStringValStatic(val->str);
-        case RS_SORTABLE_NUM:
-
-          return RS_NumVal(val->num);
-        default:
-          return RS_NullVal();
-      }
+      return &res->md->sortVector->values[idx];
     }
   }
 
   if (res->fields) {
-    RSValue *v = RSFieldMap_Get(res->fields, key);
-    if (v) {
-      return *v;
-    }
+    return RSFieldMap_Get(res->fields, key);
   }
-  return RS_NullVal();
+  return NULL;
 }
 
 /* Result processor return codes */

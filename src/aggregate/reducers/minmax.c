@@ -42,8 +42,8 @@ static void *avg_NewInstance(ReducerCtx *ctx) {
 static int minmax_Add(void *ctx, SearchResult *res) {
   struct minmaxCtx *m = ctx;
   double val;
-  RSValue v = SearchResult_GetValue(res, m->sortables, m->property);
-  if (!RSValue_ToNumber(&v, &val)) {
+  RSValue *v = SearchResult_GetValue(res, m->sortables, m->property);
+  if (!RSValue_ToNumber(v, &val)) {
     return 1;
   }
 
