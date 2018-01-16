@@ -66,6 +66,14 @@ static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, con
   return NewCountDistinctish(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
+static Reducer *NewStddevArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for STDDEV");
+    return NULL;
+  }
+  return NewStddev(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+}
+
 static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
                                 char **err) {
   if (args->len != 2 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
@@ -103,6 +111,7 @@ static struct {
     {"count_distinctish", NewCountDistinctishArgs},
     {"tolist", NewToListArgs},
     {"quantile", NewQuantileArgs},
+    {"stddev", NewStddevArgs},
     {NULL, NULL},
 };
 

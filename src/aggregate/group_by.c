@@ -52,7 +52,6 @@ static KHTableEntry *gtGroupAlloc(void *ctx) {
 }
 
 static int gtGroupCompare(const KHTableEntry *item, const void *s, size_t n, uint32_t h) {
-  assert(n == 8);
   // Return 0 if a match; invert the condition
   return *(uint64_t *)s != ((Group *)item)->h64key;
 }
@@ -91,7 +90,7 @@ static void gtGroupClean(KHTableEntry *ent, void *unused_a, void *unused_b) {
   }
   group->len = 0;
   if (group->values) {
-    RSFieldMap_Free(group->values, 0);
+    // RSFieldMap_Free(group->values, 0);
     group->values = NULL;
   }
 }
