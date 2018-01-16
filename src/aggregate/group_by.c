@@ -23,6 +23,7 @@ typedef struct {
 } Group;
 
 #define GROUP_CTX(g, i) (g->ctxs[i].ptr)
+#define GROUP_BYTESIZE(parent) (sizeof(Group) + (sizeof(GroupCtx) * (parent)->numReducers))
 #define GROUPS_PER_BLOCK 32
 typedef struct Grouper {
   KHTable groups;
@@ -65,6 +66,8 @@ static KHTableProcs gtGroupProcs_g = {
 
 static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t hash) {
   // Copy the group keys to the new group
+  group->len = g->numReducers;
+  assert(group->values == NULL);
   group->values = RS_NewFieldMap(group->len);
 
   for (size_t i = 0; i < g->keys->len; i++) {
@@ -79,11 +82,20 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
   group->h64key = hash;
 }
 
-void Group_Clean(KHTableEntry *ent, void *ctx, void *arg) {
+static void gtGroupClean(KHTableEntry *ent, void *unused_a, void *unused_b) {
   Group *group = (Group *)ent;
   for (size_t i = 0; i < group->len; i++) {
     group->ctxs[i].free(group->ctxs[i].ptr);
   }
+  group->len = 0;
+  if (group->values) {
+    RSFieldMap_Free(group->values, 0);
+    group->values = NULL;
+  }
+}
+
+static void baGroupClean(void *ptr, void *arg) {
+  gtGroupClean(ptr, NULL, NULL);
 }
 
 /* Yield - pops the current top result from the heap */
@@ -137,7 +149,7 @@ uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
   return ret;
 }
 
-int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
+static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   static char buf[1024];
   // static SearchResult up;
@@ -171,13 +183,15 @@ int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 }
 
 // Free just frees up the processor. If left as NULL we simply use free()
-void Grouper_Free(struct resultProcessor *p) {
+static void Grouper_Free(struct resultProcessor *p) {
   Grouper *g = p->ctx.privdata;
-  KHTable_FreeEx(&g->groups, g, Group_Clean);
+  KHTable_FreeEx(&g->groups, NULL, gtGroupClean);
+  BlkAlloc_FreeAll(&g->groupsAlloc, baGroupClean, g, GROUP_BYTESIZE(g));
 
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Free(g->reducers[i]);
   }
+
   free(g->reducers);
   free(g);
   free(p);
