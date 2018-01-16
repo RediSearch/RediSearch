@@ -259,16 +259,21 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
 
   if (!Query_Parse(q, &err)) {
     Query_Free(q);
+    CmdArg_Free(cmd);
+
     RedisModule_ReplyWithError(ctx, err ? err : "Unkonown Error");
     return REDISMODULE_ERR;
   }
   Query_Expand(q, opts.expander);
 
+// TODO: Pass err here
   QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd);
   if (!plan || err != NULL) {
     Query_Free(q);
+    CmdArg_Free(cmd);
 
     RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
+    free(err);
     return REDISMODULE_ERR;
   }
   // Execute the query
@@ -279,6 +284,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
   }
   QueryPlan_Free(plan);
   Query_Free(q);
+  CmdArg_Free(cmd);
   SearchCtx_Free(sctx);
   return rc;
 }

@@ -39,6 +39,8 @@ static void threadHandleCommand(void *p) {
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
   RedisModule_FreeThreadSafeContext(ctx->ctx);
   RedisModule_UnblockClient(ctx->bc, NULL);
+  free(ctx->argv);
+  free(p);
 }
 
 int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,

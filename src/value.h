@@ -244,6 +244,8 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
       return hval;
     }
   }
+
+  return 0;
 }
 
 // Gets the string pointer and length from the value

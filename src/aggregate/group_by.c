@@ -191,6 +191,7 @@ static void Grouper_Free(struct resultProcessor *p) {
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Free(g->reducers[i]);
   }
+  RSMultiKey_Free(g->keys);
 
   free(g->reducers);
   free(g);
