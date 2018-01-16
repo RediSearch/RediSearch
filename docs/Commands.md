@@ -426,9 +426,6 @@ Delete a document from the index. Returns 1 if the document was in the index, or
 
 After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
 
-**NOTE**: This does not actually delete the document from the index, just marks it as deleted. 
-Thus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.
-
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
