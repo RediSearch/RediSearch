@@ -57,7 +57,7 @@ static int gtGroupCompare(const KHTableEntry *item, const void *s, size_t n, uin
   return *(uint64_t *)s != ((Group *)item)->h64key;
 }
 
-uint32_t gtGroupHash(const KHTableEntry *item) {
+static uint32_t gtGroupHash(const KHTableEntry *item) {
   return (uint32_t)((Group *)item)->h64key;
 }
 
@@ -101,7 +101,7 @@ static void baGroupClean(void *ptr, void *arg) {
 }
 
 /* Yield - pops the current top result from the heap */
-int grouper_Yield(Grouper *g, SearchResult *r) {
+static int grouper_Yield(Grouper *g, SearchResult *r) {
   if (!g->hasIter) {
     KHTableIter_Init(&g->groups, &g->giter);
     g->hasIter = 1;
@@ -139,7 +139,7 @@ int grouper_Yield(Grouper *g, SearchResult *r) {
   } while (1);
 }
 
-uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
+static uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 
   uint64_t ret = 0;
 

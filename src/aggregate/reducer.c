@@ -2,11 +2,11 @@
 #include <rmutil/cmdparse.h>
 #include <string.h>
 
-Reducer *NewCountArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewCountArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   return NewCount(ctx, alias);
 }
 
-Reducer *NewSumArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewSumArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
 
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for SUM");
@@ -15,7 +15,7 @@ Reducer *NewSumArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char
   return NewSum(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewToListArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewToListArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
 
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for TOLIST");
@@ -24,7 +24,7 @@ Reducer *NewToListArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, c
   return NewToList(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewMinArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewMinArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for MIN");
     return NULL;
@@ -32,7 +32,7 @@ Reducer *NewMinArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char
   return NewMin(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewMaxArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewMaxArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for MAX");
     return NULL;
@@ -40,7 +40,7 @@ Reducer *NewMaxArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char
   return NewMax(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewAvgArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewAvgArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for AVG");
     return NULL;
@@ -48,7 +48,8 @@ Reducer *NewAvgArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char
   return NewAvg(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                     char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for COUNT_DISTINCT");
     return NULL;
@@ -56,8 +57,8 @@ Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const char *a
   return NewCountDistinct(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
-Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                 char **err) {
+static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                        char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
     return NULL;
