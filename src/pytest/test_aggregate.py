@@ -100,6 +100,15 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
             ]
         res = self.cmd(*cmd)[1:]
         # pprint.pprint(res)
+    
+    def testQuantile(self):
+        self.cmd('PING')
+        cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
+            'GROUPBY', '1', '@brand',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.50',
+            'REDUCE', 'AVG', '1', '@price',
+            'REDUCE', 'COUNT', '0']
+        pprint.pprint(self.cmd(*cmd))
 
 
 if __name__ == '__main__':

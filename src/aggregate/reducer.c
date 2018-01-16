@@ -66,6 +66,27 @@ static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, con
   return NewCountDistinctish(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
 }
 
+static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                char **err) {
+  if (args->len != 2 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+    *err = strdup("Invalid arguments for QUANTILE");
+    return NULL;
+  }
+  const char *property = RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)));
+
+  RSValue v = RS_NewValueFromCmdArg(CMDARRAY_ELEMENT(args, 1));
+  double pct;
+  if (!RSValue_ToNumber(&v, &pct)) {
+    *err = strdup("QUANTILE(key, pct)");
+    return NULL;
+  }
+
+  if (pct <= 0 || pct >= 1) {
+    *err = strdup("Quantile must be between 0.0 and 1.0 (exclusive) )");
+  }
+  return NewQuantile(ctx, property, alias, pct);
+}
+
 typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
                                    char **err);
 
@@ -81,6 +102,7 @@ static struct {
     {"count_distinct", NewCountDistinctArgs},
     {"count_distinctish", NewCountDistinctishArgs},
     {"tolist", NewToListArgs},
+    {"quantile", NewQuantileArgs},
     {NULL, NULL},
 };
 
