@@ -37,7 +37,7 @@ struct QuantStream {
 
 static int dblCmp(const void *a, const void *b) {
   double da = *(const double *)a, db = *(const double *)b;
-  return da - db;
+  return da < db ? -1 : da > db ? 1 : 0;
 }
 
 static double getMaxValUnknown(double r, double n) {
@@ -204,9 +204,14 @@ static void QS_Flush(QuantStream *stream) {
 
   // Clear the buffer
   stream->bufferLength = 0;
-  for (Sample *s = stream->firstSample; s && s->next; s = s->next) {
-    assert(s->v <= s->next->v);
-  }
+
+  // Verification
+  // for (Sample *s = stream->firstSample; s && s->next; s = s->next) {
+  //   if (s->v > s->next->v) {
+  //     printf("s->v (%lf) > s->next->v (%lf). ABORT\n", s->v, s->next->v);
+  //     abort();
+  //   }
+  // }
 }
 
 static void QS_Compress(QuantStream *stream) {
@@ -224,21 +229,9 @@ static void QS_Compress(QuantStream *stream) {
     Sample *nextCur = cur->prev;
     Sample *parent = cur->next;
     double gCur = cur->g;
-    // printf("ShouldMerge? VAL=%lu, %d. MaxVal: %f\n", (size_t)(cur->g + parent->g + parent->d),
-    //        (size_t)(cur->g + parent->g + parent->d) <= (size_t)QS_GetMaxVal(stream, r),
-    //        QS_GetMaxVal(stream, r));
     if (cur->g + parent->g + parent->d <= QS_GetMaxVal(stream, r)) {
-      // printf("[%lu]: Merging. (R)=%lf, (F):%lf, CUR:(%lf,%lf,%lf) NEXT:(%lf,%lf,%lf)\n", ii, r,
-      //        QS_GetMaxVal(stream, r), cur->v, cur->g, cur->d, parent->v, parent->g, parent->d);
       parent->g += gCur;
       QS_RemoveSample(stream, cur);
-    } else {
-      // printf("[%lu]: Not Merging. (R)=%lf, (F):%lf, CUR:(%lf,%lf,%lf) NEXT:(%lf,%lf,%lf)\n", ii, r,
-      //        QS_GetMaxVal(stream, r), cur->v, cur->g, cur->d, parent->v, parent->g, parent->d);
-      if (ii == 48) {
-        abort();
-        exit(0);
-      }
     }
     r -= gCur;
     cur = nextCur;
@@ -258,13 +251,16 @@ void QS_Insert(QuantStream *stream, double val) {
 double QS_Query(QuantStream *stream, double q) {
   if (stream->bufferLength) {
     QS_Flush(stream);
-    // QS_Compress(stream);
   }
 
   double t = ceil(q * stream->n);
   t += ceil(QS_GetMaxVal(stream, t) / 2.0);
   const Sample *prev = stream->firstSample;
   double r = 0;
+
+  if (!prev) {
+    return 0;
+  }
 
   for (const Sample *cur = prev->next; cur; cur = cur->next) {
     if (r + cur->g + cur->d > t) {
