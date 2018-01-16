@@ -24,7 +24,7 @@ typedef struct {
 
 #define GROUP_CTX(g, i) (g->ctxs[i].ptr)
 #define GROUP_BYTESIZE(parent) (sizeof(Group) + (sizeof(GroupCtx) * (parent)->numReducers))
-#define GROUPS_PER_BLOCK 32
+#define GROUPS_PER_BLOCK 64
 typedef struct Grouper {
   KHTable groups;
   KHTableIterator giter;
@@ -155,8 +155,6 @@ uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 }
 
 static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-
-  static char buf[1024];
   // static SearchResult up;
 
   Grouper *g = ctx->privdata;
@@ -173,7 +171,6 @@ static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   }
 
   uint64_t hash = grouper_EncodeGroupKey(g, res);
-  // printf("Got group %s\n", buf);
   int isNew = 0;
   Group *group = (Group *)KHTable_GetEntry(&g->groups, &hash, sizeof hash, (uint32_t)hash, &isNew);
   assert(group);
@@ -205,7 +202,7 @@ static void Grouper_Free(struct resultProcessor *p) {
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
   Grouper *g = malloc(sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
-  KHTable_Init(&g->groups, &gtGroupProcs_g, g, 256);
+  KHTable_Init(&g->groups, &gtGroupProcs_g, g, 512);
 
   g->sortTable = tbl;
   g->keys = keys;

@@ -168,9 +168,16 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
     ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
                             Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
   }
-  queryPlan_EvalQuery(plan, parsedQuery, opts);
+  if (!queryPlan_EvalQuery(plan, parsedQuery, opts)) {
+    QueryPlan_Free(plan);
+    return NULL;
+  }
   plan->execCtx.rootFilter = plan->rootFilter;
   plan->rootProcessor = pcb(plan, chainBuilderContext);
+  if (!plan->rootProcessor) {
+    QueryPlan_Free(plan);
+    return NULL;
+  }
   return plan;
 }
 
