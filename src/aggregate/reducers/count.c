@@ -31,6 +31,7 @@ void counter_Free(Reducer *r) {
   BlkAlloc_FreeAll(&r->ctx.alloc, NULL, NULL, 0);
   free(r);
 }
+
 void counter_FreeInstance(void *p) {
 }
 

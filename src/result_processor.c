@@ -168,9 +168,8 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->md = dmd;
   if (res->fields != NULL) {
     res->fields->len = 0;
-  }
-  res->fields = NULL;
-
+  } 
+  
   return RS_RESULT_OK;
 }
 
@@ -271,6 +270,11 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
  * finding the top N results
  ********************************************************************************************************************/
 
+typedef enum {
+  Sort_ByScore,
+  Sort_BySortKey,
+  Sort_ByFields,
+} SortMode;
 /* Sorter's private context */
 struct sorterCtx {
 
@@ -296,6 +300,13 @@ struct sorterCtx {
   int accumulating;
 
   int saveIndexResults;
+
+  SortMode sortMode;
+};
+
+struct fieldCmpCtx {
+  RSMultiKey *keys;
+  int ascending;
 };
 
 /* Yield - pops the current top result from the heap */
@@ -316,6 +327,15 @@ void sorter_Free(ResultProcessor *rp) {
   if (sc->pooledResult) {
     SearchResult_Free(sc->pooledResult);
   }
+  if (sc->cmpCtx) {
+    if (sc->sortMode == Sort_ByFields) {
+      struct fieldCmpCtx *fcc = sc->cmpCtx;
+      RSMultiKey_Free(fcc->keys);
+      free(fcc);
+    }
+  }
+  
+  
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(sc->pq);
   free(sc);
@@ -405,10 +425,7 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
-struct fieldCmpCtx {
-  RSMultiKey *keys;
-  int ascending;
-};
+
 /* Compare results for the heap by sorting key */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const struct fieldCmpCtx *cc = udata;
@@ -429,18 +446,14 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   int rc = h1->docId < h2->docId ? -1 : 1;
   return cc->ascending ? rc : -rc;
 }
-typedef enum {
-  Sort_ByScore,
-  Sort_BySortKey,
-  Sort_ByFields,
-} SortMode;
 
-ResultProcessor *NewSorter(int SortMode, void *sortCtx, uint32_t size, ResultProcessor *upstream,
+
+ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size, ResultProcessor *upstream,
                            int copyIndexResults) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
   // select the sorting function by the sort mode
-  switch (SortMode) {
+  switch (sortMode) {
     case Sort_ByScore:
       sc->cmp = cmpByScore;
       break;
@@ -459,6 +472,7 @@ ResultProcessor *NewSorter(int SortMode, void *sortCtx, uint32_t size, ResultPro
   sc->pooledResult = NULL;
   sc->accumulating = 1;
   sc->saveIndexResults = copyIndexResults;
+  sc->sortMode = sortMode;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = sorter_Next;
@@ -507,12 +521,14 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (pc->count < pc->offset) {
 
     IndexResult_Free(r->indexResult);
-    free(r->fields);
+    RSFieldMap_Free(r->fields, 0);
     pc->count++;
     return RS_RESULT_QUEUED;
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
+    IndexResult_Free(r->indexResult);
+    RSFieldMap_Free(r->fields, 0);
     return RS_RESULT_EOF;
   }
   pc->count++;
@@ -525,6 +541,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
   pc->offset = offset;
   pc->limit = limit;
   pc->count = 0;
+
   ResultProcessor *rp = NewResultProcessor(upstream, pc);
 
   rp->Next = pager_Next;
