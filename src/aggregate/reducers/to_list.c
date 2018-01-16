@@ -19,12 +19,12 @@ void *tolist_NewInstance(ReducerCtx *rctx) {
 int tolist_Add(void *ctx, SearchResult *res) {
   struct tolistCtx *tlc = ctx;
 
-  RSValue v = SearchResult_GetValue(res, tlc->sortables, tlc->property);
-  if (v.t != RSValue_Null) {
-    uint64_t hval = RSValue_Hash(&v, 0);
+  RSValue *v = SearchResult_GetValue(res, tlc->sortables, tlc->property);
+  if (v) {
+    uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
       RSValue *sv = malloc(sizeof(RSValue));
-      RSValue_DeepCopy(sv, &v);
+      RSValue_DeepCopy(sv, v);
       TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), sv, NULL);
     }
   }

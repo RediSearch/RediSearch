@@ -21,13 +21,13 @@ void *sum_NewInstance(ReducerCtx *rctx) {
 int sum_Add(void *ctx, SearchResult *res) {
   struct sumCtx *ctr = ctx;
   ctr->count++;
-  RSValue v = SearchResult_GetValue(res, ctr->sortables, ctr->property);
+  RSValue *v = SearchResult_GetValue(res, ctr->sortables, ctr->property);
 
-  if (v.t == RSValue_Number) {
-    ctr->total += v.numval;
+  if (v && v->t == RSValue_Number) {
+    ctr->total += v->numval;
   } else {  // try to convert value to number
     double d = 0;
-    if (RSValue_ToNumber(&v, &d)) {
+    if (RSValue_ToNumber(v, &d)) {
       ctr->total += d;
     }
   }

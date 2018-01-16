@@ -93,13 +93,13 @@ static void cdt_FreeInstance(void *p) {
 
 static int cdt_Add(void *ctx, SearchResult *res) {
   DistinctContext *cdt = ctx;
-  RSValue val = SearchResult_GetValue(res, cdt->sortables, cdt->property);
-  if (val.t == RSValue_Null) {
+  RSValue *val = SearchResult_GetValue(res, cdt->sortables, cdt->property);
+  if (!val || val->t == RSValue_Null) {
     return 1;
   }
 
   size_t buflen;
-  const void *buf = RSValue_ToBuffer(&val, &buflen);
+  const void *buf = RSValue_ToBuffer(val, &buflen);
   int isNew = 0;
   if (cdt->mode == DistinctMode_Ish) {
     isNew = SBChain_Add(cdt->u.approx, buf, buflen);

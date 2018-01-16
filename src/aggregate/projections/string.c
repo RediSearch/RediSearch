@@ -8,16 +8,16 @@ static int upper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   // this will return EOF if needed
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
 
-  RSValue v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
-                                    pc->properties->keys[0]);
-  if (RSValue_IsString(&v)) {
+  RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
+                                     pc->properties->keys[0]);
+  if (RSValue_IsString(v)) {
     size_t sz;
-    char *p = (char *)RSValue_StringPtrLen(&v, &sz);
+    char *p = (char *)RSValue_StringPtrLen(v, &sz);
     for (size_t i = 0; i < sz; i++) {
       p[i] = toupper(p[i]);
     }
     // we set the value again, in case it was in the table or the alias is not the same as the key
-    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], v);
+    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], *v);
   }
 
   return RS_RESULT_OK;
@@ -30,17 +30,17 @@ static int lower_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   // this will return EOF if needed
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
 
-  RSValue v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
-                                    pc->properties->keys[0]);
-  if (RSValue_IsString(&v)) {
+  RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
+                                     pc->properties->keys[0]);
+  if (v && RSValue_IsString(v)) {
     size_t sz;
-    char *p = (char *)RSValue_StringPtrLen(&v, &sz);
+    char *p = (char *)RSValue_StringPtrLen(v, &sz);
     for (size_t i = 0; i < sz; i++) {
       p[i] = tolower(p[i]);
     }
   }
   // we set the value again, in case it was in the table or the alias is not the same as the key
-  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], v);
+  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], *v);
   return RS_RESULT_OK;
 }
 

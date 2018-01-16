@@ -1,5 +1,6 @@
 #include "query_plan.h"
 #include "config.h"
+#include "value.h"
 #include "aggregate/aggregate.h"
 
 /******************************************************************************************************
@@ -35,13 +36,9 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithSortKeys) {
     ++count;
-    const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->opts.sortBy);
+    RSValue *sortkey = RSSortingVector_Get(r->sv, qex->opts.sortBy);
     if (sortkey) {
-      if (sortkey->type == RS_SORTABLE_NUM) {
-        RedisModule_ReplyWithDouble(ctx, sortkey->num);
-      } else {
-        RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
-      }
+      RSValue_SendReply(ctx, sortkey);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }
