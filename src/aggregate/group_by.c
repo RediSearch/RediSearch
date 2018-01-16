@@ -165,7 +165,8 @@ static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc = ResultProcessor_Next(ctx->upstream, res, 1);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-
+    // Set the number of results to the total number of groups we found
+    ctx->qxc->totalResults = g->groups.numItems;
     g->accumulating = 0;
     return grouper_Yield(g, res);
   }
