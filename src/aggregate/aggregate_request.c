@@ -48,9 +48,12 @@ void Aggregate_BuildSchema() {
   CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArgAnnotated('s', "query_string"),
                          CmdSchema_Required);
 
-  CmdSchema_AddNamed(requestSchema, "SELECT",
-                     CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
-                     CmdSchema_Required);
+  CmdSchema_AddNamedWithHelp(
+      requestSchema, "LOAD",
+      CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
+      CmdSchema_Optional,
+      "Optionally load non-sortable properties from the HASH object. Do not unless as last resort, "
+      "this hurts performance badly.");
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(grp, "by",
@@ -170,7 +173,7 @@ ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
 
 FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   FieldList *ret = NULL;
-  CmdArg *select = CmdArg_FirstOf(cmd, "SELECT");
+  CmdArg *select = CmdArg_FirstOf(cmd, "LOAD");
   if (select) {
     ret = calloc(1, sizeof(*ret));
     ret->explicitReturn = 1;
@@ -197,8 +200,13 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
   ResultProcessor *prev = NULL;
+  // Load LOAD based stuff from hash vals
   FieldList *lst = getAggregateFields(plan->ctx->redisCtx, cmd);
-  // next = NewLoader(next, plan->ctx, lst);
+  if (lst != NULL) {
+    next = NewLoader(next, plan->ctx, lst);
+  }
+
+  // Walk the children and evaluate them
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
@@ -258,12 +266,15 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
 
   QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd);
   if (!plan || err != NULL) {
+    Query_Free(q);
+
     RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;
   }
   // Execute the query
   int rc = QueryPlan_Run(plan, &err);
   if (rc == REDISMODULE_ERR) {
+
     RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
   }
   QueryPlan_Free(plan);
