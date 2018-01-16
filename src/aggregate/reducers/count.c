@@ -1,11 +1,14 @@
 #include <aggregate/reducer.h>
+#include <util/block_alloc.h>
+
 struct counter {
   size_t count;
 };
 
 void *counter_NewInstance(ReducerCtx *ctx) {
-
-  struct counter *ctr = malloc(sizeof(*ctr));
+  BlkAlloc *ba = ctx->privdata;
+  struct counter *ctr =
+      ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
   ctr->count = 0;
   return ctr;
 }
@@ -25,21 +28,19 @@ int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 // Free just frees up the processor. If left as NULL we simply use free()
 void counter_Free(Reducer *r) {
+  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, NULL, 0);
   free(r);
 }
 void counter_FreeInstance(void *p) {
-  struct counter *c = p;
-  free(c);
 }
 
 Reducer *NewCount(RedisSearchCtx *ctx, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = NewReducer(ctx, alias ? alias : "count", NULL);
+
   r->Add = counter_Add;
   r->Finalize = counter_Finalize;
   r->Free = counter_Free;
   r->FreeInstance = counter_FreeInstance;
   r->NewInstance = counter_NewInstance;
-  r->ctx = (ReducerCtx){ctx, NULL};
-  r->alias = alias ? alias : "count";
   return r;
 }

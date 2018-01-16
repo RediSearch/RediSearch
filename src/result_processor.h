@@ -104,7 +104,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
     int idx = RSSortingTable_GetFieldIdx(tbl, key);
-    if (idx >= 0 && idx < res->md->sortVector->len) {
+    if (idx >= 0) {
       return &res->md->sortVector->values[idx];
     }
   }

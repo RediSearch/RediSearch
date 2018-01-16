@@ -75,8 +75,8 @@ int Query_SerializeResults(QueryPlan *qex) {
     }
     count += serializeResult(qex, &r, qex->opts.flags);
 
-    // IndexResult_Free(r.indexResult);
-    // RSFieldMap_Free(r.fields, 0);
+    IndexResult_Free(r.indexResult);
+    RSFieldMap_Free(r.fields, 0);
   } while (rc != RS_RESULT_EOF);
   if (count == 0) {
     RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));

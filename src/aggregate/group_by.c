@@ -24,7 +24,7 @@ typedef struct {
 
 #define GROUP_CTX(g, i) (g->ctxs[i].ptr)
 #define GROUP_BYTESIZE(parent) (sizeof(Group) + (sizeof(GroupCtx) * (parent)->numReducers))
-#define GROUPS_PER_BLOCK 64
+#define GROUPS_PER_BLOCK 1024
 typedef struct Grouper {
   KHTable groups;
   KHTableIterator giter;
@@ -33,6 +33,7 @@ typedef struct Grouper {
   RSSortingTable *sortTable;
   Reducer **reducers;
   size_t numReducers;
+  size_t capReducers;
   int accumulating;
   int sortKeyIdx;
   int hasIter;
@@ -67,10 +68,10 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
   // Copy the group keys to the new group
   group->len = g->numReducers;
   assert(group->values == NULL);
-  group->values = RS_NewFieldMap(group->len);
+  group->values = RS_NewFieldMap(g->keys->len + g->numReducers);
 
   for (size_t i = 0; i < g->keys->len; i++) {
-    // TODO: Init sorting table
+    // We must do a deep copy of the group values since they may be deleted during processing
     RSValue *src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
     static RSValue dst;
     if (src) {
@@ -85,9 +86,9 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
 
 static void gtGroupClean(KHTableEntry *ent, void *unused_a, void *unused_b) {
   Group *group = (Group *)ent;
-  for (size_t i = 0; i < group->len; i++) {
-    group->ctxs[i].free(group->ctxs[i].ptr);
-  }
+  // for (size_t i = 0; i < group->len; i++) {
+  //   group->ctxs[i].free(group->ctxs[i].ptr);
+  // }
   group->len = 0;
   if (group->values) {
     // RSFieldMap_Free(group->values, 0);
@@ -117,24 +118,21 @@ static int grouper_Yield(Grouper *g, SearchResult *r) {
       return RS_RESULT_EOF;
     }
     if (r->fields) {
-      r->fields->len = 0;
-    } else {
-      r->fields = RS_NewFieldMap(2 + g->numReducers + g->keys->len);
+      RSFieldMap_Free(r->fields, 0);
+      r->fields = NULL;
     }
-    // Add a property with the group name
-    // RSFieldMap_Add(&r->fields, g->alias ? g->alias : g->property, RS_CStringVal(strndup(s, l)));
+
+    // We copy the group field map (containing the group keys) as is to the result as a field map!
     Group *gr = (Group *)p;
-    // Copy the group fields to the field map
-    for (int i = 0; i < g->keys->len; i++) {
-      // TODO: Watch string copy here
-      RSFieldMap_Add(&r->fields, g->keys->keys[i], *RSFieldMap_Item(gr->values, i));
-    }
+    r->fields = gr->values;
+    r->indexResult = NULL;
+    gr->values = NULL;
+
     // Copy the reducer values to the group
     for (size_t i = 0; i < g->numReducers; i++) {
       g->reducers[i]->Finalize(GROUP_CTX(gr, i), g->reducers[i]->alias, r);
     }
     return RS_RESULT_OK;
-
   } while (1);
 }
 
@@ -206,7 +204,8 @@ Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
 
   g->sortTable = tbl;
   g->keys = keys;
-  g->reducers = NULL;
+  g->capReducers = 2;
+  g->reducers = calloc(g->capReducers, sizeof(Reducer *));
   g->numReducers = 0;
   g->accumulating = 1;
   g->hasIter = 0;
@@ -225,6 +224,9 @@ void Grouper_AddReducer(Grouper *g, Reducer *r) {
   if (!r) return;
 
   g->numReducers++;
-  g->reducers = realloc(g->reducers, g->numReducers * sizeof(Reducer *));
+  if (g->numReducers == g->capReducers) {
+    g->capReducers *= 2;
+    g->reducers = realloc(g->reducers, g->capReducers * sizeof(Reducer *));
+  }
   g->reducers[g->numReducers - 1] = r;
 }
