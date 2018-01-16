@@ -5,11 +5,18 @@
 #include <result_processor.h>
 #include <dep/triemap/triemap.h>
 #include <rmutil/cmdparse.h>
+#include <util/block_alloc.h>
 
 typedef struct {
   void *privdata;
   RedisSearchCtx *ctx;
+  BlkAlloc alloc;
+
 } ReducerCtx;
+
+static inline void *ReducerCtx_Alloc(ReducerCtx *ctx, size_t sz, size_t blkSz) {
+  return BlkAlloc_Alloc(&ctx->alloc, sz, blkSz);
+}
 
 typedef struct reducer {
   ReducerCtx ctx;
@@ -27,6 +34,15 @@ typedef struct reducer {
 
   void (*FreeInstance)(void *ctx);
 } Reducer;
+
+static Reducer *NewReducer(RedisSearchCtx *ctx, const char *alias, void *privdata) {
+  Reducer *r = malloc(sizeof(*r));
+  r->alias = alias;
+  r->ctx.ctx = ctx;
+  r->ctx.privdata = privdata;
+  BlkAlloc_Init(&r->ctx.alloc);
+  return r;
+}
 
 Reducer *NewCount(RedisSearchCtx *ctx, const char *alias);
 

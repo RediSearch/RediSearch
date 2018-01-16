@@ -99,7 +99,7 @@ void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
     // for (BlkAllocBlock *tmp = blocks->root; tmp; tmp = tmp->next) {
     //   n++;
     // }
-    // printf("%p: (Alloc): Have %lu blocks active\n", blocks, n);
+    // printf("%p Allocated new block, elem size %d %d\n", blocks, elemSize, blockSize / elemSize);
   }
 
   void *p = blocks->last->data + blocks->last->numUsed;
