@@ -24,8 +24,7 @@ static int quantile_Add(void *ctx, SearchResult *res) {
   quantileCtx *qctx = ctx;
   double d;
   RSValue *v = SearchResult_GetValue(res, qctx->sortables, qctx->params->property);
-  if (!RSValue_ToNumber(v, &d)) {
-    printf("Not a number (T=%d) (%s)\n", v->t, qctx->params->property);
+  if (v == NULL || !RSValue_ToNumber(v, &d)) {
     return 1;
   }
   QS_Insert(qctx->strm, d);
