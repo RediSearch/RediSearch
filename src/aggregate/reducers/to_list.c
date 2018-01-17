@@ -2,7 +2,7 @@
 
 struct tolistCtx {
   TrieMap *values;
-  const char *property;
+  RSKey property;
   RSSortingTable *sortables;
 };
 
@@ -11,7 +11,7 @@ void *tolist_NewInstance(ReducerCtx *rctx) {
 
   struct tolistCtx *ctx = malloc(sizeof(*ctx));
   ctx->values = NewTrieMap();
-  ctx->property = property;
+  ctx->property = RS_KEY(property);
   ctx->sortables = rctx->ctx->spec->sortables;
   return ctx;
 }
@@ -19,7 +19,7 @@ void *tolist_NewInstance(ReducerCtx *rctx) {
 int tolist_Add(void *ctx, SearchResult *res) {
   struct tolistCtx *tlc = ctx;
 
-  RSValue *v = SearchResult_GetValue(res, tlc->sortables, tlc->property);
+  RSValue *v = SearchResult_GetValue(res, tlc->sortables, &tlc->property);
   if (v) {
     uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {

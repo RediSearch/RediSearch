@@ -168,8 +168,8 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->md = dmd;
   if (res->fields != NULL) {
     res->fields->len = 0;
-  } 
-  
+  }
+
   return RS_RESULT_OK;
 }
 
@@ -334,8 +334,7 @@ void sorter_Free(ResultProcessor *rp) {
       free(fcc);
     }
   }
-  
-  
+
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(sc->pq);
   free(sc);
@@ -425,16 +424,15 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
-
 /* Compare results for the heap by sorting key */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const struct fieldCmpCtx *cc = udata;
 
   const SearchResult *h1 = e1, *h2 = e2;
   for (size_t i = 0; i < cc->keys->len; i++) {
-    const char *k = cc->keys->keys[i];
-    RSValue *v1 = RSFieldMap_Get(h1->fields, k);
-    RSValue *v2 = RSFieldMap_Get(h2->fields, k);
+    RSKey *k = &cc->keys->keys[i];
+    RSValue *v1 = RSFieldMap_GetByKey(h1->fields, k);
+    RSValue *v2 = RSFieldMap_GetByKey(h2->fields, k);
     if (!v1 || !v2) {
       break;
     }
@@ -447,9 +445,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   return cc->ascending ? rc : -rc;
 }
 
-
-ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size, ResultProcessor *upstream,
-                           int copyIndexResults) {
+ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
+                           ResultProcessor *upstream, int copyIndexResults) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
   // select the sorting function by the sort mode

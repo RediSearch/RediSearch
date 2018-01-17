@@ -63,7 +63,7 @@ ResultProcessor *NewProjectorGeneric(int (*NextFunc)(ResultProcessorCtx *ctx, Se
     }
   }
 
-  RSMultiKey *props = RS_NewMultiKeyFromArgs(&CMDARG_ARR(args));
+  RSMultiKey *props = RS_NewMultiKeyFromArgs(&CMDARG_ARR(args), 1);
   ProjectorCtx *ctx = NewProjectorCtx(props, alias, privdata);
 
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);

@@ -5,7 +5,7 @@ typedef enum { Minmax_Min = 1, Minmax_Max = 2, Minmax_Avg } MinmaxMode;
 
 struct minmaxCtx {
   double val;
-  const char *property;
+  RSKey property;
   RSSortingTable *sortables;
   MinmaxMode mode;
   size_t numMatches;
@@ -14,7 +14,7 @@ struct minmaxCtx {
 static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
   struct minmaxCtx *m = malloc(sizeof(*m));
   m->mode = mode;
-  m->property = ctx->privdata;
+  m->property = RS_KEY(ctx->privdata);
   m->numMatches = 0;
   m->sortables = ctx->ctx->spec->sortables;
   if (mode == Minmax_Min) {
@@ -42,7 +42,7 @@ static void *avg_NewInstance(ReducerCtx *ctx) {
 static int minmax_Add(void *ctx, SearchResult *res) {
   struct minmaxCtx *m = ctx;
   double val;
-  RSValue *v = SearchResult_GetValue(res, m->sortables, m->property);
+  RSValue *v = SearchResult_GetValue(res, m->sortables, &m->property);
   if (!RSValue_ToNumber(v, &val)) {
     return 1;
   }
@@ -69,7 +69,7 @@ static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
 }
 
 static void minmax_Free(Reducer *r) {
-  free(r->ctx.privdata);
+  // free(r->ctx.privdata);
   free(r);
 }
 
@@ -84,7 +84,7 @@ static Reducer *newMinMax(RedisSearchCtx *ctx, const char *property, const char 
   r->Finalize = minmax_Finalize;
   r->Free = minmax_Free;
   r->FreeInstance = minmax_FreeInstance;
-  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = ctx};
+  r->ctx = (ReducerCtx){.privdata = (void *)property, .ctx = ctx};
 
   const char *fmtstr = NULL;
   if (mode == Minmax_Max) {

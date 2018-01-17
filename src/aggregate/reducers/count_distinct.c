@@ -25,7 +25,7 @@ typedef struct {
     SBChain *approx;
   } u;
   RSSortingTable *sortables;
-  const char *property;
+  RSKey property;
   size_t distinctItems;
 } DistinctContext;
 
@@ -68,7 +68,7 @@ static void *cdt_NewInstanceCommon(ReducerCtx *ctx, DistinctMode mode) {
   }
 
   // property to search for
-  cdt->property = ctx->privdata;
+  cdt->property = RS_KEY(ctx->privdata);
   cdt->sortables = ctx->ctx->spec->sortables;
   return cdt;
 }
@@ -93,7 +93,7 @@ static void cdt_FreeInstance(void *p) {
 
 static int cdt_Add(void *ctx, SearchResult *res) {
   DistinctContext *cdt = ctx;
-  RSValue *val = SearchResult_GetValue(res, cdt->sortables, cdt->property);
+  RSValue *val = SearchResult_GetValue(res, cdt->sortables, &cdt->property);
   if (!val || val->t == RSValue_Null) {
     return 1;
   }
@@ -128,7 +128,6 @@ static int cdt_Finalize(void *ctx, const char *key, SearchResult *res) {
 }
 
 static void cdt_Free(Reducer *r) {
-  free(r->ctx.privdata);
   free(r);
 }
 
@@ -147,7 +146,7 @@ static Reducer *newCountDistinctCommon(RedisSearchCtx *ctx, const char *property
   } else {
     r->alias = alias;
   }
-  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = ctx};
+  r->ctx = (ReducerCtx){.privdata = (void *)property, .ctx = ctx};
   return r;
 }
 

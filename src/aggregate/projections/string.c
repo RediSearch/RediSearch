@@ -9,7 +9,7 @@ static int upper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
 
   RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
-                                     pc->properties->keys[0]);
+                                     &pc->properties->keys[0]);
   if (RSValue_IsString(v)) {
     size_t sz;
     char *p = (char *)RSValue_StringPtrLen(v, &sz);
@@ -17,7 +17,7 @@ static int upper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
       p[i] = toupper(p[i]);
     }
     // we set the value again, in case it was in the table or the alias is not the same as the key
-    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], *v);
+    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, *v);
   }
 
   return RS_RESULT_OK;
@@ -31,7 +31,7 @@ static int lower_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
 
   RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
-                                     pc->properties->keys[0]);
+                                     &pc->properties->keys[0]);
   if (v && RSValue_IsString(v)) {
     size_t sz;
     char *p = (char *)RSValue_StringPtrLen(v, &sz);
@@ -40,7 +40,7 @@ static int lower_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     }
   }
   // we set the value again, in case it was in the table or the alias is not the same as the key
-  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0], *v);
+  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, *v);
   return RS_RESULT_OK;
 }
 

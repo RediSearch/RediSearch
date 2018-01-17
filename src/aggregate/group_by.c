@@ -37,6 +37,8 @@ typedef struct Grouper {
   int accumulating;
   int sortKeyIdx;
   int hasIter;
+  int *skeyOffsets;
+
 } Grouper;
 
 static KHTableEntry *gtGroupAlloc(void *ctx) {
@@ -71,12 +73,13 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
   group->values = RS_NewFieldMap(g->keys->len + g->numReducers);
 
   for (size_t i = 0; i < g->keys->len; i++) {
+
     // We must do a deep copy of the group values since they may be deleted during processing
-    RSValue *src = SearchResult_GetValue(res, g->sortTable, g->keys->keys[i]);
+    RSValue *src = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
     static RSValue dst;
     if (src) {
       RSValue_DeepCopy(&dst, src);
-      RSFieldMap_Add(&group->values, g->keys->keys[i], dst);
+      RSFieldMap_Add(&group->values, g->keys->keys[i].key, dst);
     }
   }
 
@@ -142,9 +145,8 @@ static uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 
   static RSValue nil = {.t = RSValue_Null};
   for (size_t i = 0; i < g->keys->len; i++) {
-    // TODO: Init sorting table
-    RSValue *v = SearchResult_GetValue(res, g->sortTable, RSKEY(g->keys->keys[i]));
 
+    RSValue *v = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
     ret = RSValue_Hash(v ? v : &nil, ret);
   }
 
@@ -205,6 +207,10 @@ Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
 
   g->sortTable = tbl;
   g->keys = keys;
+  g->skeyOffsets = calloc(keys->len, sizeof(int));
+  for (size_t i = 0; i < keys->len; i++) {
+    g->skeyOffsets[i] = -2;
+  }
   g->capReducers = 2;
   g->reducers = calloc(g->capReducers, sizeof(Reducer *));
   g->numReducers = 0;
