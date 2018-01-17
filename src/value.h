@@ -436,23 +436,38 @@ static void RSValue_Print(RSValue *v) {
 // Convert a property key from '@property_name' format as used in queries to 'property_name'
 #define RSKEY(s) ((s && *s == '@') ? s + 1 : s)
 
+#define RSKEY_NOTFOUND -1
+#define RSKEY_NOCACHE -2
+#define RSKEY_UNCACHED -3
+#define RSKEY_ISVALIDIDX(i) (i >= 0)
 typedef struct {
-  size_t len;
-  const char *keys[];
+  const char *key;
+  int cachedIdx;
+} RSKey;
+
+#define RS_KEY(s)                  \
+  ((RSKey){                        \
+      .key = s,                    \
+      .cachedIdx = RSKEY_UNCACHED, \
+  })
+
+typedef struct {
+  uint16_t len;
+  RSKey keys[];
 } RSMultiKey;
 
-static RSMultiKey *RS_NewMultiKey(size_t len) {
-  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(const char *));
+static RSMultiKey *RS_NewMultiKey(uint16_t len) {
+  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
   return ret;
 }
 
 /* Create a multi-key from a string array */
-static RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr) {
+static RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching) {
   RSMultiKey *ret = RS_NewMultiKey(arr->len);
   for (size_t i = 0; i < arr->len; i++) {
     assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
-    ret->keys[i] = RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i)));
+    ret->keys[i] = RS_KEY(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i))));
   }
   return ret;
 }
@@ -521,14 +536,33 @@ static inline RSValue *RSFieldMap_Get(RSFieldMap *m, const char *k) {
   return NULL;
 }
 
+static inline RSValue *RSFieldMap_GetByKey(RSFieldMap *m, RSKey *k) {
+  if (RSKEY_ISVALIDIDX(k->cachedIdx)) {
+    return &FIELDMAP_FIELD(m, k->cachedIdx).val;
+  }
+
+  for (uint16_t i = 0; i < m->len; i++) {
+    if (!strcmp(FIELDMAP_FIELD(m, i).key, RSKEY(k->key))) {
+      if (k->cachedIdx != RSKEY_NOCACHE) {
+        k->cachedIdx = i;
+      }
+      return &FIELDMAP_FIELD(m, i).val;
+    }
+  }
+  if (k->cachedIdx != RSKEY_NOCACHE) {
+    k->cachedIdx = RSKEY_NOTFOUND;
+  }
+  return NULL;
+}
+
 /* Add a filed to the map WITHOUT checking for duplications */
 static void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue val) {
   RSFieldMap_EnsureCap(m);
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
 }
 
-/* Set a value in the map for a given key, checking for duplicates and replacing the existing value
- * if needed, and appending a new one if needed */
+/* Set a value in the map for a given key, checking for duplicates and replacing the existing
+ * value if needed, and appending a new one if needed */
 static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue val) {
   RSFieldMap_EnsureCap(m);
 

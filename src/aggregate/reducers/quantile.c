@@ -2,7 +2,7 @@
 #include "util/quantile.h"
 
 typedef struct {
-  char *property;
+  RSKey property;
   double pct;
 } quantileParams;
 
@@ -23,7 +23,7 @@ static void *quantile_NewInstance(ReducerCtx *ctx) {
 static int quantile_Add(void *ctx, SearchResult *res) {
   quantileCtx *qctx = ctx;
   double d;
-  RSValue *v = SearchResult_GetValue(res, qctx->sortables, qctx->params->property);
+  RSValue *v = SearchResult_GetValue(res, qctx->sortables, &qctx->params->property);
   if (v == NULL || !RSValue_ToNumber(v, &d)) {
     return 1;
   }
@@ -40,7 +40,7 @@ static int quantile_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 static void quantile_Free(Reducer *r) {
   quantileParams *params = r->ctx.privdata;
-  free(params->property);
+  // free(params->property);
   free(params);
   free(r);
 }
@@ -62,7 +62,7 @@ Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alia
 
   quantileParams *params = calloc(1, sizeof(*params));
 
-  params->property = strdup(property);
+  params->property = RS_KEY(property);
   params->pct = pct;
   r->ctx = (ReducerCtx){.ctx = ctx, .privdata = params};
   return r;

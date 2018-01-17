@@ -3,7 +3,7 @@
 struct sumCtx {
   size_t count;
   double total;
-  const char *property;
+  RSKey property;
   RSSortingTable *sortables;
 };
 
@@ -14,14 +14,14 @@ void *sum_NewInstance(ReducerCtx *rctx) {
   ctx->count = 0;
   ctx->total = 0;
   ctx->sortables = rctx->ctx->spec->sortables;
-  ctx->property = property;
+  ctx->property = RS_KEY(property);
   return ctx;
 }
 
 int sum_Add(void *ctx, SearchResult *res) {
   struct sumCtx *ctr = ctx;
   ctr->count++;
-  RSValue *v = SearchResult_GetValue(res, ctr->sortables, ctr->property);
+  RSValue *v = SearchResult_GetValue(res, ctr->sortables, &ctr->property);
 
   if (v && v->t == RSValue_Number) {
     ctr->total += v->numval;

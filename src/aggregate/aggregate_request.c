@@ -114,7 +114,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
-  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by));
+  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
   Grouper *g = NewGrouper(keys, sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
   // Add reducerss
@@ -139,7 +139,8 @@ ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream, char **err)
 
   RSMultiKey *mk = RS_NewMultiKey(CMDARG_ARRLEN(arg));
   for (size_t i = 0; i < mk->len; i++) {
-    mk->keys[i] = CMDARG_STRPTR(CMDARG_ARRELEM(arg, i));
+    mk->keys[i] =
+        (RSKey){.key = CMDARG_STRPTR(CMDARG_ARRELEM(arg, i)), .cachedIdx = RSKEY_UNCACHED};
   }
 
   return NewSorterByFields(mk, 1, 0, upstream);
@@ -266,7 +267,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
   }
   Query_Expand(q, opts.expander);
 
-// TODO: Pass err here
+  // TODO: Pass err here
   QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd);
   if (!plan || err != NULL) {
     Query_Free(q);

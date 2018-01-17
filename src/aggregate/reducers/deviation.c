@@ -2,7 +2,7 @@
 #include <math.h>
 
 typedef struct {
-  char *property;
+  RSKey property;
   size_t n;
   double oldM, newM, oldS, newS;
   RSSortingTable *sortables;
@@ -10,7 +10,7 @@ typedef struct {
 
 static void *stddev_NewInstance(ReducerCtx *ctx) {
   devCtx *dctx = calloc(1, sizeof(*dctx));
-  dctx->property = ctx->privdata;
+  dctx->property = RS_KEY(ctx->privdata);
   dctx->sortables = ctx->ctx->spec->sortables;
   return dctx;
 }
@@ -18,7 +18,7 @@ static void *stddev_NewInstance(ReducerCtx *ctx) {
 static int stddev_Add(void *ctx, SearchResult *res) {
   devCtx *dctx = ctx;
   double d;
-  RSValue *v = SearchResult_GetValue(res, dctx->sortables, dctx->property);
+  RSValue *v = SearchResult_GetValue(res, dctx->sortables, &dctx->property);
   if (v == NULL || !RSValue_ToNumber(v, &d)) {
     return 1;
   }
@@ -64,6 +64,6 @@ Reducer *NewStddev(RedisSearchCtx *ctx, const char *property, const char *alias)
   r->FreeInstance = stddev_FreeInstance;
   r->NewInstance = stddev_NewInstance;
   r->alias = alias ? alias : "stddev";
-  r->ctx = (ReducerCtx){.ctx = ctx, .privdata = strdup(property)};
+  r->ctx = (ReducerCtx){.ctx = ctx, .privdata = (void *)property};
   return r;
 }
