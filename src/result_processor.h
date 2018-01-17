@@ -104,7 +104,6 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
     if (idx <= 0) {
       idx = RSSortingTable_GetFieldIdx(tbl, RSKEY(k->key));
       if (k->cachedIdx != RSKEY_NOCACHE) {
-        printf("Caching idx for %s: %d\n", k->key, idx);
         k->cachedIdx = idx;
       }
     }

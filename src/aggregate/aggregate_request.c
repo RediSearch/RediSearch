@@ -139,8 +139,7 @@ ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream, char **err)
 
   RSMultiKey *mk = RS_NewMultiKey(CMDARG_ARRLEN(arg));
   for (size_t i = 0; i < mk->len; i++) {
-    mk->keys[i] =
-        (RSKey){.key = CMDARG_STRPTR(CMDARG_ARRELEM(arg, i)), .cachedIdx = RSKEY_UNCACHED};
+    mk->keys[i] = RS_KEY(CMDARG_STRPTR(CMDARG_ARRELEM(arg, i)));
   }
 
   return NewSorterByFields(mk, 1, 0, upstream);
