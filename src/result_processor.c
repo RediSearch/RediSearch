@@ -430,9 +430,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 
   const SearchResult *h1 = e1, *h2 = e2;
   for (size_t i = 0; i < cc->keys->len; i++) {
-    RSKey *k = &cc->keys->keys[i];
-    RSValue *v1 = RSFieldMap_GetByKey(h1->fields, k);
-    RSValue *v2 = RSFieldMap_GetByKey(h2->fields, k);
+    RSValue *v1 = RSFieldMap_GetByKey(h1->fields, &cc->keys->keys[i]);
+    RSValue *v2 = RSFieldMap_GetByKey(h2->fields, &cc->keys->keys[i]);
     if (!v1 || !v2) {
       break;
     }

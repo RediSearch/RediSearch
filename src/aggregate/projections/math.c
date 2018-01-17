@@ -57,7 +57,7 @@ GENERIC_PROJECTOR_FACTORY(NewLog2Args, log2_Next);
 typedef struct {
   union {
     RSValue val;
-    const char *prop;
+    RSKey prop;
   };
   int isValue;
 } valueOrProp;
@@ -71,7 +71,7 @@ static inline RSValue *getVaueOrProp(SearchResult *r, valueOrProp *vp, RSSorting
   if (vp->isValue) {
     return &vp->val;
   }
-  return SearchResult_GetValue(r, tbl, vp->prop);
+  return SearchResult_GetValue(r, tbl, &vp->prop);
 }
 
 static int add_Next(ResultProcessorCtx *ctx, SearchResult *res) {
@@ -115,7 +115,7 @@ ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, 
     const char *p = CMDARG_STRPTR(CMDARG_ARRELEM(args, i));
     if (*p == '@') {
       dx->params[i].isValue = 0;
-      dx->params[i].prop = RSKEY(p);
+      dx->params[i].prop = RS_KEY(RSKEY(p));
     } else {
       if (!RSValue_ParseNumber(p, CMDARG_STRLEN(CMDARG_ARRELEM(args, i)), &dx->params[i].val)) {
         RETURN_ERROR(err, "Could not parse argument %s", p);
