@@ -91,15 +91,30 @@ PROJECTOR_FACTORY(NewLowerArgs);
 PROJECTOR_FACTORY(NewUpperArgs);
 ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
                                   char **err);
+ResultProcessor *NewMulProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
+                                  char **err);
+ResultProcessor *NewDivProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
+                                  char **err);
+ResultProcessor *NewModProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
+                                  char **err);
+
 static struct {
   const char *k;
   ProjectorFactory f;
 } projectors_g[] = {
-    {"abs", NewAbsArgs},       {"floor", NewFloorArgs},
-    {"ceil", NewCeilArgs},     {"upper", NewUpperArgs},
-    {"lower", NewLowerArgs},   {"sqrt", NewSqrtArgs},
-    {"log", NewLogArgs},       {"log2", NewLog2Args},
-    {"sum", NewAddProjection}, {NULL, NULL},
+    {"abs", NewAbsArgs},
+    {"floor", NewFloorArgs},
+    {"ceil", NewCeilArgs},
+    {"upper", NewUpperArgs},
+    {"lower", NewLowerArgs},
+    {"sqrt", NewSqrtArgs},
+    {"log", NewLogArgs},
+    {"log2", NewLog2Args},
+    {"sum", NewAddProjection},
+    {"mul", NewMulProjection},
+    {"div", NewDivProjection},
+    {"mod", NewModProjection},
+    {NULL, NULL},
 };
 
 /* Projectors are result processors that have 1:1 conversion of values, without aggregation. I.e.
