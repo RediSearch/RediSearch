@@ -62,19 +62,28 @@ typedef struct {
   int isValue;
 } valueOrProp;
 
+typedef enum { BinaryFunc_Add, BinaryFunc_Div, BinaryFunc_Mul, BinaryFunc_Mod } BinaryFuncType;
+
 typedef struct {
-  int len;
+  size_t len;
+  const char *alias;
   valueOrProp params[];
 } dynamicExpr;
 
-static inline RSValue *getVaueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTable *tbl) {
+static inline int getValueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTable *tbl,
+                                 double *out) {
   if (vp->isValue) {
-    return &vp->val;
+    *out = vp->val.numval;
+    return 1;
   }
-  return SearchResult_GetValue(r, tbl, &vp->prop);
+  RSValue *val = SearchResult_GetValue(r, tbl, &vp->prop);
+  if (val == NULL) {
+    return 0;
+  }
+  return RSValue_ToNumber(val, out);
 }
 
-static int add_Next(ResultProcessorCtx *ctx, SearchResult *res) {
+static int binfunc_NextCommon(ResultProcessorCtx *ctx, SearchResult *res, BinaryFuncType type) {
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
 
   ProjectorCtx *pc = ctx->privdata;
@@ -82,31 +91,63 @@ static int add_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   double sum = 0;
   int ok = 1;
+  RSSortingTable *stbl = ctx->qxc->sctx->spec ? ctx->qxc->sctx->spec->sortables : NULL;
   for (int i = 0; i < dx->len; i++) {
-    RSValue *v = getVaueOrProp(res, &dx->params[i],
-                               ctx->qxc->sctx->spec ? ctx->qxc->sctx->spec->sortables : NULL);
-    if (v && v->t == RSValue_Number) {
-      sum += v->numval;
-    } else if (v) {
-      double d = 0;
-      if (RSValue_ToNumber(v, &d)) {
-        sum += d;
-      } else {
-        ok = 0;
+    int status;
+    double cur;
+    if (!(ok = getValueOrProp(res, &dx->params[i], stbl, &cur))) {
+      break;
+    }
+    if (!ok) {
+      break;
+    }
+    switch (type) {
+      case BinaryFunc_Add:
+        sum += cur;
         break;
-      }
+      case BinaryFunc_Div:
+        if (cur) {
+          sum /= cur;
+        }
+        break;
+      case BinaryFunc_Mod:
+        if ((int64_t)cur) {
+          sum = (int64_t)(sum) % (int64_t)cur;
+        }
+        break;
+      case BinaryFunc_Mul:
+        sum *= cur;
+        break;
     }
   }
 
-  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : "sum", ok ? RS_NumVal(sum) : RS_NullVal());
+  RSFieldMap_Set(&res->fields, pc->alias, ok ? RS_NumVal(sum) : RS_NullVal());
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
-                                  char **err) {
+typedef struct {
+  int (*nextfn)(ResultProcessorCtx *, SearchResult *);
+  BinaryFuncType type;
+  const char *defaultAlias;
+} BinaryFunction;
 
-  if (CMDARG_ARRLEN(args) < 1) {
-    RETURN_ERROR(err, "Invalid or missing arguments for projection ADD%s", "");
+#define GEN_BINFUNC(varname, alias, funcname, type_)                \
+  static int funcname(ResultProcessorCtx *ctx, SearchResult *res) { \
+    return binfunc_NextCommon(ctx, res, type_);                     \
+  }                                                                 \
+  static BinaryFunction varname = {.defaultAlias = alias, .type = type_, .nextfn = funcname};
+
+GEN_BINFUNC(mulFunc_g, "mul", mul_Next, BinaryFunc_Mul)
+GEN_BINFUNC(divFunc_g, "div", div_Next, BinaryFunc_Div)
+GEN_BINFUNC(modFunc_g, "mod", mod_Next, BinaryFunc_Mod)
+GEN_BINFUNC(addFunc_g, "add", add_Next, BinaryFunc_Add)
+
+static ResultProcessor *newBinfuncProjectionCommon(ResultProcessor *upstream, const char *alias,
+                                                   const BinaryFunction *binfunc, CmdArg *args,
+                                                   char **err) {
+
+  if (CMDARG_ARRLEN(args) < 1 || (binfunc->type == BinaryFunc_Mod && CMDARG_ARRLEN(args) != 1)) {
+    RETURN_ERROR(err, "Invalid or missing arguments for projection %s", binfunc->defaultAlias);
   }
 
   dynamicExpr *dx = malloc(sizeof(dynamicExpr) + CMDARG_ARRLEN(args) * sizeof(valueOrProp));
@@ -125,11 +166,23 @@ ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, 
   }
 
   ProjectorCtx *ctx = malloc(sizeof(ProjectorCtx));
-  ctx->alias = alias;
+  if (!alias) {
+    ctx->alias = binfunc->defaultAlias;
+  }
   ctx->privdata = dx;
   ctx->properties = NULL;
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);
-  proc->Next = add_Next;
+  proc->Next = binfunc->nextfn;
   proc->Free = ProjectorCtx_GenericFree;
   return proc;
 }
+
+#define BINARY_FACTORY(name, binfunc)                                                             \
+  ResultProcessor *name(ResultProcessor *upstream, const char *alias, CmdArg *args, char **err) { \
+    return newBinfuncProjectionCommon(upstream, alias, binfunc, args, err);                       \
+  }
+
+BINARY_FACTORY(NewAddProjection, &addFunc_g)
+BINARY_FACTORY(NewMulProjection, &mulFunc_g)
+BINARY_FACTORY(NewDivProjection, &divFunc_g)
+BINARY_FACTORY(NewModProjection, &modFunc_g)
