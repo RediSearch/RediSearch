@@ -23,7 +23,7 @@ typedef enum {
   RSValue_Null = 4,
   RSValue_RedisString = 5,
   // NULL terminated C string that sohuld not be freed with the value
-  RSValue_ConstString = 6,
+  RSValue_ConstString = 7,
 
   // An array of values, that can be of any type
   RSValue_Array = 6,
@@ -65,7 +65,6 @@ static void RSValue_Free(RSValue *v) {
   // RSValue_Print(v);
 
   if (v->refcount <= 0) {
-    // printf("Freeing value %p of type %d, refcount %d\n", v, v->t, v->refcount);
 
     if (v->t == RSValue_String) {
       free(v->strval.str);
@@ -195,6 +194,7 @@ static inline int RSValue_ToNumber(RSValue *v, double *d) {
       return 1;
 
     case RSValue_String:
+    case RSValue_ConstString:
       // C strings - take the ptr and len
       p = v->strval.str;
       l = v->strval.len;
@@ -234,6 +234,8 @@ static inline const void *RSValue_ToBuffer(const RSValue *value, size_t *outlen)
       *outlen = sizeof(value->numval);
       return &value->numval;
     case RSValue_String:
+    case RSValue_ConstString:
+
       *outlen = value->strval.len;
       return value->strval.str;
     case RSValue_RedisString:
@@ -250,6 +252,7 @@ static inline const void *RSValue_ToBuffer(const RSValue *value, size_t *outlen)
 static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
   switch (v->t) {
     case RSValue_String:
+    case RSValue_ConstString:
       return fnv_64a_buf(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
@@ -274,7 +277,7 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
 
 // Gets the string pointer and length from the value
 static inline const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
-  if (value->t == RSValue_String) {
+  if (value->t == RSValue_String || value->t == RSValue_ConstString) {
     if (lenp) {
       *lenp = value->strval.len;
     }
@@ -393,6 +396,7 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
 
         return v1->numval > v2->numval ? v1->numval : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
+      case RSValue_ConstString:
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
       case RSValue_RedisString: {
         size_t l1, l2;
@@ -426,6 +430,7 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   }
   switch (v->t) {
     case RSValue_String:
+    case RSValue_ConstString:
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
     case RSValue_RedisString:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
@@ -451,6 +456,7 @@ static void RSValue_Print(RSValue *v) {
   }
   switch (v->t) {
     case RSValue_String:
+    case RSValue_ConstString:
       printf("%.*s", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
