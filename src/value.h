@@ -48,13 +48,16 @@ typedef struct rsvalue {
     // redis string value
     struct RedisModuleString *rstrval;
   };
-  RSValueType t : 31;
+  RSValueType t : 8;
+  unsigned int refcount : 23;
   int shouldFree : 1;
 } RSValue;
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 static void RSValue_Free(RSValue *v) {
+  // assert(v->refcount);
+  // if (--v->refcount == 0) {
   if (v->t == RSValue_String && v->shouldFree) {
     free(v->strval.str);
   } else if (v->t == RSValue_Array && v->shouldFree) {
@@ -63,7 +66,16 @@ static void RSValue_Free(RSValue *v) {
     }
     free(v->arrval.vals);
   }
+  //}
 }
+
+// static inline void RSValue_IncrRef(RSValue *v) {
+//   ++v->refcount;
+// }
+
+// static inline void RSValue_DecrRef(RSValue *v) {
+//   --v->refcount;
+// }
 
 /* Shallow Copy returns a copy of the original value, while marking the underlying string or array
  * as not needing free, as they are held by another "master" value. This means that you can safely
@@ -74,8 +86,8 @@ static inline void RSValue_ShallowCopy(RSValue *dst, RSValue *src) {
   dst->shouldFree = 0;
 }
 
-/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on arrays.
- * On numeric values it's no slower than shallow copy. Redis strings ar not recreated
+/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on
+ * arrays. On numeric values it's no slower than shallow copy. Redis strings ar not recreated
  */
 static void RSValue_DeepCopy(RSValue *dst, RSValue *src) {
 
@@ -103,7 +115,8 @@ static inline RSValue RS_StringValStatic(char *str, uint32_t len) {
   return (RSValue){.t = RSValue_String, .shouldFree = 0, .strval = {.str = str, .len = len}};
 }
 
-/* Wrap a string with length into a value object, assuming the string is a null terminated C string
+/* Wrap a string with length into a value object, assuming the string is a null terminated C
+ * string
  */
 static inline RSValue RS_CStringVal(char *str) {
   return RS_StringVal(str, strlen(str));
@@ -123,8 +136,8 @@ static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
 }
 
-/* Convert a value to a string value. If the value is already a string value it gets shallow-copied
- * (no string buffer gets copied) */
+/* Convert a value to a string value. If the value is already a string value it gets
+ * shallow-copied (no string buffer gets copied) */
 static RSValue RSValue_ToString(RSValue *v) {
   switch (v->t) {
     case RSValue_String:
