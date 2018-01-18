@@ -85,18 +85,20 @@ PROJECTOR_FACTORY(NewCeilArgs);
 PROJECTOR_FACTORY(NewLogArgs);
 PROJECTOR_FACTORY(NewLog2Args);
 PROJECTOR_FACTORY(NewSqrtArgs);
+PROJECTOR_FACTORY(NewAddProjection);
+PROJECTOR_FACTORY(NewMulProjection);
+PROJECTOR_FACTORY(NewDivProjection);
+PROJECTOR_FACTORY(NewModProjection);
 
 // String projections
 PROJECTOR_FACTORY(NewLowerArgs);
 PROJECTOR_FACTORY(NewUpperArgs);
-ResultProcessor *NewAddProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
-                                  char **err);
-ResultProcessor *NewMulProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
-                                  char **err);
-ResultProcessor *NewDivProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
-                                  char **err);
-ResultProcessor *NewModProjection(ResultProcessor *upstream, const char *alias, CmdArg *args,
-                                  char **err);
+PROJECTOR_FACTORY(NewToStringArgs);
+PROJECTOR_FACTORY(NewSubstrArgs);
+PROJECTOR_FACTORY(NewStrftimeArgs);
+PROJECTOR_FACTORY(NewISOTimeArgs);
+PROJECTOR_FACTORY(NewJoinArgs);
+PROJECTOR_FACTORY(NewFormatArgs);
 
 static struct {
   const char *k;
@@ -114,6 +116,12 @@ static struct {
     {"mul", NewMulProjection},
     {"div", NewDivProjection},
     {"mod", NewModProjection},
+    {"tostring", NewToStringArgs},
+    {"join", NewJoinArgs},
+    {"substr", NewSubstrArgs},
+    {"format", NewFormatArgs},
+    {"strftime", NewStrftimeArgs},
+    {"isotime", NewISOTimeArgs},
     {NULL, NULL},
 };
 
