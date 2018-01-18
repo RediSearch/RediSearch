@@ -113,11 +113,12 @@ static int cdt_Add(void *ctx, SearchResult *res) {
       itm->keyLen = buflen;
       itm->hash = hash;
     }
-
-    if (isNew) {
-      cdt->distinctItems++;
-    }
   }
+
+  if (isNew) {
+    cdt->distinctItems++;
+  }
+
   return 1;
 }
 
