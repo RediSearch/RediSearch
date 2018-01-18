@@ -7,11 +7,9 @@ struct tolistCtx {
 };
 
 void *tolist_NewInstance(ReducerCtx *rctx) {
-  const char *property = rctx->privdata;
-
   struct tolistCtx *ctx = malloc(sizeof(*ctx));
   ctx->values = NewTrieMap();
-  ctx->property = RS_KEY(property);
+  ctx->property = RS_KEY(rctx->property);
   ctx->sortables = rctx->ctx->spec->sortables;
   return ctx;
 }
@@ -71,9 +69,8 @@ Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias
   r->Free = tolist_Free;
   r->FreeInstance = tolist_FreeInstance;
   r->NewInstance = tolist_NewInstance;
-
-  r->alias = alias ? alias : property;
-  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = sctx};
+  r->alias = FormatAggAlias(alias, "tolist", property);
+  r->ctx = (ReducerCtx){.property = property, .ctx = sctx};
 
   return r;
 }

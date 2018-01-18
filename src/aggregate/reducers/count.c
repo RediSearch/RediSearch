@@ -26,22 +26,17 @@ int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
   return 1;
 }
 
-// Free just frees up the processor. If left as NULL we simply use free()
-void counter_Free(Reducer *r) {
-  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, NULL, 0);
-  free(r);
-}
-
 void counter_FreeInstance(void *p) {
 }
 
 Reducer *NewCount(RedisSearchCtx *ctx, const char *alias) {
-  Reducer *r = NewReducer(ctx, alias ? alias : "count", NULL);
+  Reducer *r = NewReducer(ctx, NULL);
 
   r->Add = counter_Add;
   r->Finalize = counter_Finalize;
-  r->Free = counter_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = counter_FreeInstance;
   r->NewInstance = counter_NewInstance;
+  r->alias = FormatAggAlias(alias, "count", "");
   return r;
 }

@@ -10,7 +10,7 @@ typedef struct {
 
 static void *stddev_NewInstance(ReducerCtx *ctx) {
   devCtx *dctx = calloc(1, sizeof(*dctx));
-  dctx->property = RS_KEY(ctx->privdata);
+  dctx->property = RS_KEY(ctx->property);
   dctx->sortables = ctx->ctx->spec->sortables;
   return dctx;
 }
@@ -51,19 +51,14 @@ static void stddev_FreeInstance(void *p) {
   free(p);
 }
 
-static void stddev_Free(Reducer *r) {
-  free(r->ctx.privdata);
-  free(r);
-}
-
 Reducer *NewStddev(RedisSearchCtx *ctx, const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = stddev_Add;
   r->Finalize = stddev_Finalize;
-  r->Free = stddev_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = stddev_FreeInstance;
   r->NewInstance = stddev_NewInstance;
-  r->alias = alias ? alias : "stddev";
-  r->ctx = (ReducerCtx){.ctx = ctx, .privdata = (void *)property};
+  r->alias = FormatAggAlias(alias, "stddev", property);
+  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
   return r;
 }
