@@ -171,7 +171,7 @@ int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitch
 
 /* Shortcut macro - call ResultProcessor_Next and return EOF if it returned EOF - otherwise it has
  * to return OK */
-#define ResultProcessor_ReadOrEOF(proc, res, allowSwitch)                         \
+#define RESULTPROCESSOR_MAYBE_RET_EOF(proc, res, allowSwitch)                     \
   {                                                                               \
     if (RS_RESULT_EOF == ResultProcessor_Next(ctx->upstream, res, allowSwitch)) { \
       return RS_RESULT_EOF;                                                       \

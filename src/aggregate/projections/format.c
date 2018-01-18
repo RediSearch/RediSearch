@@ -49,7 +49,7 @@ char *strnstr(const char *haystack, const char *needle, size_t len)
 #endif
 
 static int format_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
   formatCtx *fctx = ctx->privdata;
   RSSortingTable *stbl = QueryProcessingCtx_GetSortingTable(ctx->qxc);
   Array_Resize(&fctx->scratch, 0);

@@ -11,7 +11,7 @@ static int upper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc;
 
   // this will return EOF if needed
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
 
   RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
                                      &pc->properties->keys[0]);
@@ -33,7 +33,7 @@ static int lower_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc;
 
   // this will return EOF if needed
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
 
   RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
                                      &pc->properties->keys[0]);
@@ -54,7 +54,7 @@ static int tostring_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc;
 
   // this will return EOF if needed
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
 
   RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),
                                      &pc->properties->keys[0]);
@@ -106,7 +106,7 @@ static const char *getString(ResultProcessorCtx *ctx, RSKey *key, SearchResult *
 }
 
 static int substr_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
   substrCtx *bctx = ctx->privdata;
   // Get the field:
   size_t n = 0;
@@ -185,7 +185,7 @@ typedef struct {
 } joinCtx;
 
 static int join_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
 
   joinCtx *jctx = ctx->privdata;
   RSSortingTable *stbl = QueryProcessingCtx_GetSortingTable(ctx->qxc);
@@ -254,7 +254,7 @@ typedef struct {
 } timeCtx;
 
 static int time_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
   timeCtx *tctx = ctx->privdata;
   RSSortingTable *stbl = QueryProcessingCtx_GetSortingTable(ctx->qxc);
   RSValue *v = SearchResult_GetValue(res, stbl, &tctx->key);

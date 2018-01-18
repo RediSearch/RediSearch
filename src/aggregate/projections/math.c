@@ -7,7 +7,7 @@
   static int f(ResultProcessorCtx *ctx, SearchResult *res) {                                \
     ProjectorCtx *pc = ctx->privdata;                                                       \
     /* this will return EOF if needed */                                                    \
-    ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);                                       \
+    RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);                                   \
     RSValue *v = SearchResult_GetValue(res, QueryProcessingCtx_GetSortingTable(ctx->qxc),   \
                                        &pc->properties->keys[0]);                           \
     if (v && v->t == RSValue_Number) {                                                      \
@@ -84,7 +84,7 @@ static inline int getValueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTabl
 }
 
 static int binfunc_NextCommon(ResultProcessorCtx *ctx, SearchResult *res, BinaryFuncType type) {
-  ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
+  RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 0);
   BinaryFuncCtx *bctx = ctx->privdata;
 
   double sum = 0;
