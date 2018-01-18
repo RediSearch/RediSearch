@@ -5,6 +5,7 @@ struct sumCtx {
   double total;
   RSKey property;
   RSSortingTable *sortables;
+  int isAvg;  // We might use an enum if there are more modes
 };
 
 void *sum_NewInstance(ReducerCtx *rctx) {
@@ -13,6 +14,7 @@ void *sum_NewInstance(ReducerCtx *rctx) {
   ctx->total = 0;
   ctx->sortables = rctx->ctx->spec->sortables;
   ctx->property = RS_KEY(rctx->property);
+  ctx->isAvg = rctx->privdata != NULL;
   return ctx;
 }
 
@@ -35,7 +37,16 @@ int sum_Add(void *ctx, SearchResult *res) {
 
 int sum_Finalize(void *ctx, const char *key, SearchResult *res) {
   struct sumCtx *ctr = ctx;
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(ctr->total));
+  double v = 0;
+  if (ctr->isAvg) {
+    if (ctr->count) {
+      v = ctr->total / ctr->count;
+    }
+  } else {
+    v = ctr->total;
+  }
+
+  RSFieldMap_Set(&res->fields, key, RS_NumVal(v));
   return 1;
 }
 
@@ -44,15 +55,24 @@ void sum_FreeInstance(void *p) {
   free(c);
 }
 
-Reducer *NewSum(RedisSearchCtx *ctx, const char *property, const char *alias) {
+Reducer *newSumCommon(RedisSearchCtx *ctx, const char *property, const char *alias, int isAvg) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;
   r->Free = Reducer_GenericFree;
   r->FreeInstance = sum_FreeInstance;
   r->NewInstance = sum_NewInstance;
-  r->alias = FormatAggAlias(alias, "sum", property);
-  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
+  r->alias = FormatAggAlias(alias, isAvg ? "avg" : "sum", property);
+  // Note, malloc for one byte because it's freed at the end. Simple pointer won't do
+  r->ctx = (ReducerCtx){.ctx = ctx, .property = property, .privdata = isAvg ? malloc(1) : NULL};
 
   return r;
+}
+
+Reducer *NewSum(RedisSearchCtx *ctx, const char *property, const char *alias) {
+  return newSumCommon(ctx, property, alias, 0);
+}
+
+Reducer *NewAvg(RedisSearchCtx *ctx, const char *property, const char *alias) {
+  return newSumCommon(ctx, property, alias, 1);
 }
