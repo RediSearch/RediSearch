@@ -260,6 +260,27 @@ static inline const char *RSValue_StringPtrLen(const RSValue *value, size_t *len
   }
 }
 
+// Combines PtrLen with ToString to convert any RSValue into a string buffer.
+// Returns NULL if buf is required, but is too small
+static inline const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
+                                                      size_t buflen) {
+  if (value->t == RSValue_String || value->t == RSValue_RedisString) {
+    return RSValue_StringPtrLen(value, lenp);
+  } else if (value->t == RSValue_Number) {
+    size_t n = snprintf(buf, buflen, "%f", value->numval);
+    if (n >= buflen) {
+      *lenp = 0;
+      return "";
+    }
+    *lenp = n;
+    return buf;
+  } else {
+    // Array, Null, other types
+    *lenp = 0;
+    return "";
+  }
+}
+
 /* Wrap a number into a value object */
 static inline RSValue RS_NumVal(double n) {
   return (RSValue){
