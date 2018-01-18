@@ -22,7 +22,7 @@ static int upper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
       p[i] = toupper(p[i]);
     }
     // we set the value again, in case it was in the table or the alias is not the same as the key
-    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, *v);
+    RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, v);
   }
 
   return RS_RESULT_OK;
@@ -45,7 +45,7 @@ static int lower_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     }
   }
   // we set the value again, in case it was in the table or the alias is not the same as the key
-  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, *v);
+  RSFieldMap_Set(&res->fields, pc->alias ? pc->alias : pc->properties->keys[0].key, v);
   return RS_RESULT_OK;
 }
 
@@ -112,12 +112,12 @@ static int substr_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   size_t n = 0;
   const char *s = getString(ctx, &bctx->key, res, &n);
   if (s == NULL) {
-    return 1;
+    return RS_RESULT_OK;
   }
 
   size_t maxlen = Min(bctx->len ? bctx->len : n, n - bctx->off);
-  RSFieldMap_Set(&res->fields, bctx->alias, RS_StringValStatic((char *)s + bctx->off, maxlen));
-  return 1;
+  RSFieldMap_Set(&res->fields, bctx->alias, RS_StringVal((char *)s + bctx->off, maxlen));
+  return RS_RESULT_OK;
 }
 
 static int cmdArgStrToNum(const CmdArg *arg, int *n) {
@@ -191,17 +191,17 @@ static int join_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RSSortingTable *stbl = QueryProcessingCtx_GetSortingTable(ctx->qxc);
   RSValue *v = SearchResult_GetValue(res, stbl, &jctx->key);
   if (v == NULL || v->t != RSValue_Array) {
-    return 1;
+    return RS_RESULT_OK;
   }
 
   // TODO: Better way to concatenate any of this?
   size_t finalLen = 0;
   for (size_t ii = 0; ii < v->arrval.len; ++ii) {
     size_t n;
-    if (!RSValue_IsString(v->arrval.vals + ii)) {
+    if (!RSValue_IsString(v->arrval.vals[ii])) {
       continue;
     }
-    const char *s = RSValue_StringPtrLen(v->arrval.vals + ii, &n);
+    const char *s = RSValue_StringPtrLen(v->arrval.vals[ii], &n);
     finalLen += n;
     if (ii != 0) {
       finalLen += jctx->sepLen;
@@ -212,7 +212,7 @@ static int join_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   size_t offset = 0;
   for (size_t ii = 0; ii < v->arrval.len; ++ii) {
     size_t n;
-    const char *s = RSValue_StringPtrLen(v->arrval.vals + ii, &n);
+    const char *s = RSValue_StringPtrLen(v->arrval.vals[ii], &n);
     memcpy(buf + offset, s, n);
     offset += n;
     if (ii != v->arrval.len - 1) {
@@ -221,8 +221,8 @@ static int join_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     }
   }
 
-  RSFieldMap_Set(&res->fields, jctx->alias, RS_StringValStatic(buf, finalLen));
-  return 1;
+  RSFieldMap_Set(&res->fields, jctx->alias, (RS_StringVal(buf, finalLen)));
+  return RS_RESULT_OK;
 }
 
 ResultProcessor *NewJoinArgs(ResultProcessor *upstream, const char *alias, CmdArg *args,
@@ -259,7 +259,7 @@ static int time_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RSSortingTable *stbl = QueryProcessingCtx_GetSortingTable(ctx->qxc);
   RSValue *v = SearchResult_GetValue(res, stbl, &tctx->key);
   if (v == NULL || v->t != RSValue_Number) {
-    return 1;
+    return RS_RESULT_OK;
   }
 
   // Get the format
@@ -268,19 +268,19 @@ static int time_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   time_t tt = (time_t)v->numval;
   struct tm tm;
   if (!gmtime_r(&tt, &tm)) {
-    return 1;
+    return RS_RESULT_OK;
   }
 
   size_t rv = strftime(timebuf, sizeof timebuf, tctx->fmt, &tm);
   if (rv == 0) {
-    return 1;
+    return RS_RESULT_OK;
   }
 
   // Finally, allocate a buffer to store the time!
   char *buf = BlkAlloc_Alloc(&tctx->alloc, rv, Max(rv, STRING_BLOCK_SIZE));
   memcpy(buf, timebuf, rv);
-  RSFieldMap_Set(&res->fields, tctx->alias, RS_StringValStatic(buf, rv));
-  return 1;
+  RSFieldMap_Set(&res->fields, tctx->alias, (RS_ConstStringVal(buf, rv)));
+  return RS_RESULT_OK;
 }
 
 static ResultProcessor *NewTimeResultProcessor(ResultProcessor *upstream, const char *alias,

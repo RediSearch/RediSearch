@@ -162,7 +162,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
-    RSFieldMap_Set(&r->fields, fieldName, RS_CStringVal(hlDoc));
+    RSFieldMap_Set(&r->fields, fieldName, RS_StringValC(hlDoc));
     FragmentList_Free(&frags);
     return;
   }

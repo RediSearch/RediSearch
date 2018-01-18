@@ -23,9 +23,8 @@ int tolist_Add(void *ctx, SearchResult *res) {
   if (v) {
     uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-      RSValue *sv = malloc(sizeof(RSValue));
-      RSValue_DeepCopy(sv, v);
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), sv, NULL);
+
+      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), RSValue_IncrRef(v), NULL);
     }
   }
   return 1;
@@ -37,14 +36,14 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
   char *c;
   tm_len_t l;
   void *ptr;
-  RSValue *arr = calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue **arr = calloc(tlc->values->cardinality, sizeof(RSValue));
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
-      arr[i++] = *(RSValue *)ptr;
+      arr[i++] = RSValue_IncrRef(ptr);
     }
   }
-  RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, i));
+  RSFieldMap_Set(&res->fields, key, (RS_ArrVal(arr, i)));
   TrieMapIterator_Free(it);
   return 1;
 }

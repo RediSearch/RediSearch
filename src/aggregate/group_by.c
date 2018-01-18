@@ -15,8 +15,7 @@ typedef struct {
 /* A group represents the allocated context of all reducers in a group, and the selected values of
  * that group */
 typedef struct {
-  uint64_t h64key;  // "Key" of the group - using a hash rather than the actual string
-  size_t len;       // Number of contexts
+  size_t len;  // Number of contexts
   RSFieldMap *values;
   GroupCtx ctxs[0];
 } Group;
@@ -67,22 +66,14 @@ static Group *GroupAlloc(void *ctx) {
 static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t hash) {
   // Copy the group keys to the new group
   group->len = g->numReducers;
-  assert(group->values == NULL);
   group->values = RS_NewFieldMap(g->keys->len + g->numReducers);
 
   for (size_t i = 0; i < g->keys->len; i++) {
 
     // We must do a deep copy of the group values since they may be deleted during processing
     RSValue *src = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
-    static RSValue dst;
-    if (src) {
-      RSValue_DeepCopy(&dst, src);
-      RSFieldMap_Add(&group->values, g->keys->keys[i].key, dst);
-    }
+    RSFieldMap_Add(&group->values, g->keys->keys[i].key, RSValue_Copy(src));
   }
-
-  // Set the 64 bit hash to compare for later
-  group->h64key = hash;
 }
 
 static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
@@ -140,12 +131,10 @@ static int grouper_Yield(Grouper *g, SearchResult *r) {
 static uint64_t grouper_EncodeGroupKey(Grouper *g, SearchResult *res) {
 
   uint64_t ret = 0;
-
-  static RSValue nil = {.t = RSValue_Null};
   for (size_t i = 0; i < g->keys->len; i++) {
 
     RSValue *v = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
-    ret = RSValue_Hash(v ? v : &nil, ret);
+    ret = RSValue_Hash(v, ret);
   }
 
   return ret;

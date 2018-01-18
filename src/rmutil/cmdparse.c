@@ -510,6 +510,35 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
   return CMDPARSE_OK;
 }
 
+int CmdArg_ParseDouble(CmdArg *arg, double *d) {
+  if (!arg) return 0;
+  switch (arg->type) {
+    case CmdArg_Double:
+      *d = arg->d;
+      return 1;
+    case CmdArg_Integer:
+      *d = (double)arg->i;
+    case CmdArg_String:
+      return parseDouble(arg->s.str, d);
+    default:
+      return 0;
+  }
+}
+int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
+  if (!arg) return 0;
+  switch (arg->type) {
+    case CmdArg_Double:
+      *i = round(arg->d);
+      return 1;
+    case CmdArg_Integer:
+      *i = arg->i;
+    case CmdArg_String:
+      return parseInt(arg->s.str, i);
+    default:
+      return 0;
+  }
+}
+
 #define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \
   {                                                        \
     if (pos >= argc) {                                     \
