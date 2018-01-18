@@ -429,6 +429,7 @@ static int CmdSchemaNode_Match(CmdSchemaNode *n, CmdString *token) {
       return 1;
     }
   }
+  return 0;
 }
 
 void CmdSchemaNode_Free(CmdSchemaNode *n) {
@@ -532,8 +533,13 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
       return 1;
     case CmdArg_Integer:
       *i = arg->i;
-    case CmdArg_String:
-      return parseInt(arg->s.str, i);
+    case CmdArg_String: {
+      long long ii;
+      int rc =  parseInt(arg->s.str, &ii);
+      if (rc) *i = ii;
+      return rc;
+    }
+     
     default:
       return 0;
   }
@@ -658,7 +664,7 @@ static int processOption(CmdSchemaOption *opt, CmdArg **current, CmdString *argv
 
 static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdString *argv, int argc,
                                     int *pos, char **err) {
-  int rc;
+  int rc = CMDPARSE_ERR;
   switch (elem->type) {
     case CmdSchemaElement_Arg:
       rc = parseArg(&elem->arg, out, argv, argc, pos, err);

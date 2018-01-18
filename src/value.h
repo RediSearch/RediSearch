@@ -434,7 +434,6 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
     case RSValue_Array:
-      printf("return array %d\n", v->arrval.len);
       RedisModule_ReplyWithArray(ctx, v->arrval.len);
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_SendReply(ctx, v->arrval.vals[i]);

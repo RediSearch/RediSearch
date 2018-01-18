@@ -4,6 +4,7 @@
 #include "util/array.h"
 #include "util/block_alloc.h"
 #include <ctype.h>
+#include <string.h>
 
 #define STRING_BLOCK_SIZE 512
 
@@ -25,6 +26,27 @@ typedef struct {
   size_t numSegs;
   formatSegment *segs;
 } formatCtx;
+
+#ifdef __linux__
+char *strnstr(const char *haystack, const char *needle, size_t len)
+{
+        int i;
+        size_t needle_len;
+
+        if (0 == (needle_len = strnlen(needle, len)))
+                return (char *)haystack;
+
+        for (i=0; i<=(int)(len-needle_len); i++)
+        {
+                if ((haystack[0] == needle[0]) &&
+                        (0 == strncmp(haystack, needle, needle_len)))
+                        return (char *)haystack;
+
+                haystack++;
+        }
+        return NULL;
+}
+#endif
 
 static int format_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
@@ -126,6 +148,7 @@ static void format_Free(ResultProcessor *rp) {
   free(fctx);
   free(rp);
 }
+
 
 ResultProcessor *NewFormatArgs(ResultProcessor *upstream, const char *alias, CmdArg *args,
                                char **err) {
