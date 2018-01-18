@@ -68,7 +68,7 @@ static void *cdt_NewInstanceCommon(ReducerCtx *ctx, DistinctMode mode) {
   }
 
   // property to search for
-  cdt->property = RS_KEY(ctx->privdata);
+  cdt->property = RS_KEY(ctx->property);
   cdt->sortables = ctx->ctx->spec->sortables;
   return cdt;
 }
@@ -137,17 +137,13 @@ static Reducer *newCountDistinctCommon(RedisSearchCtx *ctx, const char *property
   Reducer *r = malloc(sizeof(*r));
   r->Add = cdt_Add;
   r->Finalize = cdt_Finalize;
-  r->Free = cdt_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = cdt_FreeInstance;
   r->NewInstance = mode == DistinctMode_Exact ? cdt_NewInstanceExact : cdt_NewInstanceApprox;
   r->ctx = (ReducerCtx){ctx, NULL};
-  if (!alias) {
-    asprintf((char **)&r->alias,
-             mode == DistinctMode_Exact ? "count_distinct(%s)" : "count_distinctish(%s)", property);
-  } else {
-    r->alias = alias;
-  }
-  r->ctx = (ReducerCtx){.privdata = (void *)property, .ctx = ctx};
+  r->alias = FormatAggAlias(
+      alias, mode == DistinctMode_Exact ? "count_distinct" : "count_distinctish", property);
+  r->ctx = (ReducerCtx){.property = property, .ctx = ctx};
   return r;
 }
 

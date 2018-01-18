@@ -14,7 +14,7 @@ struct minmaxCtx {
 static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
   struct minmaxCtx *m = malloc(sizeof(*m));
   m->mode = mode;
-  m->property = RS_KEY(ctx->privdata);
+  m->property = RS_KEY(ctx->property);
   m->numMatches = 0;
   m->sortables = ctx->ctx->spec->sortables;
   if (mode == Minmax_Min) {
@@ -68,11 +68,6 @@ static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
   return 1;
 }
 
-static void minmax_Free(Reducer *r) {
-  // free(r->ctx.privdata);
-  free(r);
-}
-
 static void minmax_FreeInstance(void *p) {
   free(p);
 }
@@ -82,27 +77,23 @@ static Reducer *newMinMax(RedisSearchCtx *ctx, const char *property, const char 
   Reducer *r = malloc(sizeof(*r));
   r->Add = minmax_Add;
   r->Finalize = minmax_Finalize;
-  r->Free = minmax_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = minmax_FreeInstance;
-  r->ctx = (ReducerCtx){.privdata = (void *)property, .ctx = ctx};
+  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
 
-  const char *fmtstr = NULL;
+  const char *fstr = NULL;
   if (mode == Minmax_Max) {
     r->NewInstance = max_NewInstance;
-    fmtstr = "max(%s)";
+    fstr = "max";
   } else if (mode == Minmax_Min) {
     r->NewInstance = min_NewInstance;
-    fmtstr = "min(%s)";
+    fstr = "min";
   } else if (mode == Minmax_Avg) {
     r->NewInstance = avg_NewInstance;
-    fmtstr = "avg(%s)";
-  }
-  if (!alias) {
-    asprintf((char **)&r->alias, fmtstr, property);
-  } else {
-    r->alias = alias;
+    fstr = "avg";
   }
 
+  r->alias = FormatAggAlias(alias, fstr, property);
   return r;
 }
 

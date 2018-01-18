@@ -38,13 +38,6 @@ static int quantile_Finalize(void *ctx, const char *key, SearchResult *res) {
   return 1;
 }
 
-static void quantile_Free(Reducer *r) {
-  quantileParams *params = r->ctx.privdata;
-  // free(params->property);
-  free(params);
-  free(r);
-}
-
 static void quantile_FreeInstance(void *p) {
   quantileCtx *qctx = p;
   QS_Free(qctx->strm);
@@ -55,10 +48,10 @@ Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alia
   Reducer *r = malloc(sizeof(*r));
   r->Add = quantile_Add;
   r->Finalize = quantile_Finalize;
-  r->Free = quantile_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = quantile_FreeInstance;
   r->NewInstance = quantile_NewInstance;
-  r->alias = alias ? alias : "quantile";
+  r->alias = FormatAggAlias(alias, "quantile", property);
 
   quantileParams *params = calloc(1, sizeof(*params));
 

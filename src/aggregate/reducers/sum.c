@@ -8,13 +8,11 @@ struct sumCtx {
 };
 
 void *sum_NewInstance(ReducerCtx *rctx) {
-  const char *property = rctx->privdata;
-
   struct sumCtx *ctx = malloc(sizeof(*ctx));
   ctx->count = 0;
   ctx->total = 0;
   ctx->sortables = rctx->ctx->spec->sortables;
-  ctx->property = RS_KEY(property);
+  ctx->property = RS_KEY(rctx->property);
   return ctx;
 }
 
@@ -41,11 +39,6 @@ int sum_Finalize(void *ctx, const char *key, SearchResult *res) {
   return 1;
 }
 
-// Free just frees up the processor. If left as NULL we simply use free()
-void sum_Free(Reducer *r) {
-  free(r->ctx.privdata);
-  free(r);
-}
 void sum_FreeInstance(void *p) {
   struct sumCtx *c = p;
   free(c);
@@ -55,15 +48,11 @@ Reducer *NewSum(RedisSearchCtx *ctx, const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;
-  r->Free = sum_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = sum_FreeInstance;
   r->NewInstance = sum_NewInstance;
-  if (!alias) {
-    asprintf((char **)&r->alias, "sum(%s)", property);
-  } else {
-    r->alias = alias;
-  }
-  r->ctx = (ReducerCtx){.privdata = strdup(property), .ctx = ctx};
+  r->alias = FormatAggAlias(alias, "sum", property);
+  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
 
   return r;
 }

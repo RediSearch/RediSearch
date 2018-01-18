@@ -9,9 +9,9 @@
 
 typedef struct {
   void *privdata;
+  const char *property;
   RedisSearchCtx *ctx;
   BlkAlloc alloc;
-
 } ReducerCtx;
 
 static inline void *ReducerCtx_Alloc(ReducerCtx *ctx, size_t sz, size_t blkSz) {
@@ -21,7 +21,7 @@ static inline void *ReducerCtx_Alloc(ReducerCtx *ctx, size_t sz, size_t blkSz) {
 typedef struct reducer {
   ReducerCtx ctx;
 
-  const char *alias;
+  char *alias;
 
   void *(*NewInstance)(ReducerCtx *ctx);
 
@@ -35,13 +35,34 @@ typedef struct reducer {
   void (*FreeInstance)(void *ctx);
 } Reducer;
 
-static Reducer *NewReducer(RedisSearchCtx *ctx, const char *alias, void *privdata) {
+static inline void Reducer_GenericFree(Reducer *r) {
+  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
+  free(r->ctx.privdata);
+  free(r->alias);
+  free(r);
+}
+
+static Reducer *NewReducer(RedisSearchCtx *ctx, void *privdata) {
   Reducer *r = malloc(sizeof(*r));
-  r->alias = alias;
   r->ctx.ctx = ctx;
   r->ctx.privdata = privdata;
   BlkAlloc_Init(&r->ctx.alloc);
   return r;
+}
+
+// Format a function name in the form of s(arg). Returns a pointer for use with 'free'
+static inline char *FormatAggAlias(const char *alias, const char *fname, const char *propname) {
+  if (alias) {
+    return strdup(alias);
+  }
+
+  if (!propname || *propname == 0) {
+    return strdup(fname);
+  }
+
+  char *s = NULL;
+  asprintf(&s, "%s(%s)", fname, propname);
+  return s;
 }
 
 Reducer *NewCount(RedisSearchCtx *ctx, const char *alias);
