@@ -65,10 +65,10 @@ typedef struct {
 typedef enum { BinaryFunc_Add, BinaryFunc_Div, BinaryFunc_Mul, BinaryFunc_Mod } BinaryFuncType;
 
 typedef struct {
+  ProjectorCtx base;
   size_t len;
-  const char *alias;
   valueOrProp params[];
-} dynamicExpr;
+} BinaryFuncCtx;
 
 static inline int getValueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTable *tbl,
                                  double *out) {
@@ -85,17 +85,15 @@ static inline int getValueOrProp(SearchResult *r, valueOrProp *vp, RSSortingTabl
 
 static int binfunc_NextCommon(ResultProcessorCtx *ctx, SearchResult *res, BinaryFuncType type) {
   ResultProcessor_ReadOrEOF(ctx->upstream, res, 0);
-
-  ProjectorCtx *pc = ctx->privdata;
-  dynamicExpr *dx = pc->privdata;
+  BinaryFuncCtx *bctx = ctx->privdata;
 
   double sum = 0;
   int ok = 1;
   RSSortingTable *stbl = ctx->qxc->sctx->spec ? ctx->qxc->sctx->spec->sortables : NULL;
-  for (int i = 0; i < dx->len; i++) {
+  for (int i = 0; i < bctx->len; i++) {
     int status;
     double cur;
-    if (!(ok = getValueOrProp(res, &dx->params[i], stbl, &cur))) {
+    if (!(ok = getValueOrProp(res, &bctx->params[i], stbl, &cur))) {
       break;
     }
     if (!ok) {
@@ -121,7 +119,7 @@ static int binfunc_NextCommon(ResultProcessorCtx *ctx, SearchResult *res, Binary
     }
   }
 
-  RSFieldMap_Set(&res->fields, pc->alias, ok ? RS_NumVal(sum) : RS_NullVal());
+  RSFieldMap_Set(&res->fields, bctx->base.alias, ok ? RS_NumVal(sum) : RS_NullVal());
   return RS_RESULT_OK;
 }
 
@@ -149,19 +147,18 @@ static ResultProcessor *newBinfuncProjectionCommon(ResultProcessor *upstream, co
   if (CMDARG_ARRLEN(args) < 1 || (binfunc->type == BinaryFunc_Mod && CMDARG_ARRLEN(args) != 1)) {
     RETURN_ERROR(err, "Invalid or missing arguments for projection %s", binfunc->defaultAlias);
   }
-
-  dynamicExpr *dx = malloc(sizeof(dynamicExpr) + CMDARG_ARRLEN(args) * sizeof(valueOrProp));
-  dx->len = CMDARG_ARRLEN(args);
-  for (size_t i = 0; i < dx->len; i++) {
+  BinaryFuncCtx *bctx = malloc(sizeof(*bctx) + CMDARG_ARRLEN(args) * sizeof(valueOrProp));
+  bctx->len = CMDARG_ARRLEN(args);
+  for (size_t i = 0; i < bctx->len; i++) {
     const char *p = CMDARG_STRPTR(CMDARG_ARRELEM(args, i));
     if (*p == '@') {
-      dx->params[i].isValue = 0;
-      dx->params[i].prop = RS_KEY(RSKEY(p));
+      bctx->params[i].isValue = 0;
+      bctx->params[i].prop = RS_KEY(RSKEY(p));
     } else {
-      if (!RSValue_ParseNumber(p, CMDARG_STRLEN(CMDARG_ARRELEM(args, i)), &dx->params[i].val)) {
+      if (!RSValue_ParseNumber(p, CMDARG_STRLEN(CMDARG_ARRELEM(args, i)), &bctx->params[i].val)) {
         RETURN_ERROR(err, "Could not parse argument %s", p);
       }
-      dx->params[i].isValue = 1;
+      bctx->params[i].isValue = 1;
     }
   }
 
@@ -169,7 +166,7 @@ static ResultProcessor *newBinfuncProjectionCommon(ResultProcessor *upstream, co
   if (!alias) {
     ctx->alias = binfunc->defaultAlias;
   }
-  ctx->privdata = dx;
+  ctx->privdata = bctx;
   ctx->properties = NULL;
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);
   proc->Next = binfunc->nextfn;
