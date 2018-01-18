@@ -7,6 +7,10 @@ import itertools
 import pprint
 
 
+def to_dict(res):
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return d
+
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
     ingested = False
@@ -39,7 +43,6 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.ingest()
 
     def testGroupBy(self):
-        return
         cmd = ['ft.aggregate', 'idx', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
@@ -49,7 +52,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
-        self.assertEqual(7, len(res))
+        self.assertEqual(3, len(res))
         print res
 
     def testMin(self):
@@ -69,13 +72,25 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
             'GROUPBY', '1', '@brand',
             'REDUCE', 'avg', '1', '@price',
             'REDUCE', 'count', '0',
-            'SORTYBY', '1', 'avg(price)']
+            'SORTYBY', '1', 'avg(price)',]
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         self.assertEqual(26, res[0])
-        print ""
-        pprint.pprint(res[1:])
-        # self.assertEqual(7, len(res))
+        # Ensure the formatting actually exists
+
+        first_row = to_dict(res[1])
+        self.assertEqual(17, int(float(first_row['avg(price)'])))
+
+        for row in res[1:]:
+            row = to_dict(row)
+            self.assertTrue('avg(price)' in row)
+
+        # Test aliasing
+        cmd = ['FT.AGGREGATE', 'idx', 'sony', 'GROUPBY', '1', '@brand',
+            'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice']
+        res = self.cmd(*cmd)
+        first_row = to_dict(res[1])
+        self.assertEqual(17, int(float(first_row['avgPrice'])))
 
     def testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
@@ -83,34 +98,51 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
             'REDUCE', 'COUNT_DISTINCT', '1', '@title',
             'REDUCE', 'COUNT', '0'
             ]
-        self.cmd('PING')
-        pprint.pprint(self.cmd(*cmd)[1:])
+        res = self.cmd(*cmd)[1:]
+        row = to_dict(res[0])
+        self.assertEqual(2207, int(row['count_distinct(title)']))
 
-    def testCountDistinctish(self):
-        self.cmd('PING')
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
             'GROUPBY', '1', '@categories',
             'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
             'REDUCE', 'COUNT', '0'
             ]
         res = self.cmd(*cmd)[1:]
-        # pprint.pprint(res)
-    
+        row = to_dict(res[0])
+        self.assertEqual(2207, int(row['count_distinctish(title)']))
+
     def testQuantile(self):
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
             'GROUPBY', '1', '@brand',
-            'REDUCE', 'QUANTILE', '2', '@price', '0.50',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.90', 'AS', 'q90',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.95', 'AS', 'q95',
             'REDUCE', 'AVG', '1', '@price',
-            'REDUCE', 'COUNT', '0']
-        pprint.pprint(self.cmd(*cmd))
+            'REDUCE', 'COUNT', '0',
+            'SORTBY', '1', '@count',
+            'LIMIT', '0', '10']
+
+        res = self.cmd(*cmd)
+        row = to_dict(res[1])
+        self.assertEqual('14.99', row['q50'])
+        self.assertEqual(106, int(float(row['q90'])))
+        self.assertEqual(99, int(float(row['q95'])))
     
     def testStdDev(self):
         cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
             'GROUPBY', '1', '@brand',
             'REDUCE', 'STDDEV', '1', '@price',
+            'REDUCE', 'AVG', '1', '@price', 'AS', 'avgPrice',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50Price',
             'REDUCE', 'COUNT', '0',
-            'SORTBY', '1', '@count']
-        pprint.pprint(self.cmd(*cmd))
+            'SORTBY', '1', '@count',
+            'LIMIT', '0', '10']
+        res = self.cmd(*cmd)
+        row = to_dict(res[1])
+
+        self.assertEqual(14, int(float(row['q50Price'])))
+        self.assertEqual(53, int(float(row['stddev(price)'])))
+        self.assertEqual(29, int(float(row['avgPrice'])))
 
 
 
