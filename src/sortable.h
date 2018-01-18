@@ -19,7 +19,7 @@
  * are defined will have such a vector. */
 typedef struct RSSortingVector {
   unsigned int len : 8;
-  RSValue values[];
+  RSValue *values[];
 } RSSortingVector;
 
 #pragma pack()

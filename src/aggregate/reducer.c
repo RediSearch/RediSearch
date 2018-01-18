@@ -82,10 +82,9 @@ static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, CmdArray *args, const char 
   }
   const char *property = RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)));
 
-  RSValue v = RS_NewValueFromCmdArg(CMDARRAY_ELEMENT(args, 1));
   double pct;
-  if (!RSValue_ToNumber(&v, &pct)) {
-    *err = strdup("QUANTILE(key, pct)");
+  if (!CmdArg_ParseDouble(CMDARRAY_ELEMENT(args, 1), &pct)) {
+    *err = strdup("Could not parse percent for QUANTILE(key, pct)");
     return NULL;
   }
 

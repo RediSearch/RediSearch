@@ -17,7 +17,7 @@ RSSortingVector *NewSortingVector(int len) {
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret->values[i].t = RSValue_Null;
+    ret->values[i] = RS_NullVal();
   }
   return ret;
 }
@@ -25,8 +25,8 @@ RSSortingVector *NewSortingVector(int len) {
 /* Internal compare function between members of the sorting vectors, sorted by sk */
 inline int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk) {
 
-  RSValue *v1 = &self->values[sk->index];
-  RSValue *v2 = &other->values[sk->index];
+  RSValue *v1 = self->values[sk->index];
+  RSValue *v2 = other->values[sk->index];
   int rc = RSValue_Cmp(v1, v2);
   return sk->ascending ? rc : -rc;
 }
@@ -72,7 +72,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
         break;
       case RS_SORTABLE_STR:
 
-        tbl->values[idx] = RS_CStringValStatic(normalizeStr((char *)p));
+        tbl->values[idx] = RS_ConstStringValC(normalizeStr((char *)p));
       case RS_SORTABLE_NIL:
       default:
         break;
@@ -82,7 +82,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
 RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k) {
   if (!v || !k) return NULL;
   if (k->index >= 0 && k->index < v->len) {
-    return &v->values[k->index];
+    return v->values[k->index];
   }
   return NULL;
 }
@@ -90,7 +90,7 @@ RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k) {
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
   for (int i = 0; i < v->len; i++) {
-    RSValue_Free(&v->values[i]);
+    RSValue_Free(v->values[i]);
   }
   rm_free(v);
 }
@@ -103,10 +103,11 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
   }
   RedisModule_SaveUnsigned(rdb, v->len);
   for (int i = 0; i < v->len; i++) {
-    RSValue *val = &v->values[i];
+    RSValue *val = v->values[i];
     RedisModule_SaveUnsigned(rdb, val->t);
     switch (val->t) {
       case RSValue_String:
+      case RSValue_ConstString:
         // save string - one extra byte for null terminator
         RedisModule_SaveStringBuffer(rdb, val->strval.str, val->strval.len + 1);
         break;
@@ -139,7 +140,7 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RS_StringValStatic(s, len - 1);
+        vec->values[i] = RS_StringVal(s, len - 1);
 
         break;
       }
@@ -149,6 +150,7 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
+        vec->values[i] = RSValue_IncrRef(RS_NullVal());
       default:
         break;
     }

@@ -108,14 +108,14 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
       }
     }
     if (RSKEY_ISVALIDIDX(idx)) {
-      return &res->md->sortVector->values[idx];
+      return (res->md->sortVector->values[idx]);
     }
   }
 
   if (res->fields) {
     return RSFieldMap_GetByKey(res->fields, k);
   }
-  return NULL;
+  return RS_NullVal();
 }
 
 /* Result processor return codes */

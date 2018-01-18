@@ -58,7 +58,7 @@ static int format_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   char *buf =
       BlkAlloc_Alloc(&fctx->alloc, fctx->scratch.len, Max(fctx->scratch.len, STRING_BLOCK_SIZE));
   memcpy(buf, fctx->scratch.data, fctx->scratch.len);
-  RSFieldMap_Set(&res->fields, fctx->alias, RS_StringValStatic(buf, fctx->scratch.len));
+  RSFieldMap_Set(&res->fields, fctx->alias, RS_ConstStringVal(buf, fctx->scratch.len));
   return 1;
 }
 
