@@ -1,7 +1,7 @@
 #include <aggregate/reducer.h>
 #include <float.h>
 
-typedef enum { Minmax_Min = 1, Minmax_Max = 2, Minmax_Avg } MinmaxMode;
+typedef enum { Minmax_Min = 1, Minmax_Max = 2 } MinmaxMode;
 
 struct minmaxCtx {
   double val;
@@ -34,11 +34,6 @@ static void *min_NewInstance(ReducerCtx *ctx) {
 static void *max_NewInstance(ReducerCtx *ctx) {
   return newInstanceCommon(ctx, Minmax_Max);
 }
-
-static void *avg_NewInstance(ReducerCtx *ctx) {
-  return newInstanceCommon(ctx, Minmax_Avg);
-}
-
 static int minmax_Add(void *ctx, SearchResult *res) {
   struct minmaxCtx *m = ctx;
   double val;
@@ -51,8 +46,6 @@ static int minmax_Add(void *ctx, SearchResult *res) {
     m->val = val;
   } else if (m->mode == Minmax_Min && val < m->val) {
     m->val = val;
-  } else if (m->mode == Minmax_Avg) {
-    m->val += val;
   }
 
   m->numMatches++;
@@ -61,9 +54,6 @@ static int minmax_Add(void *ctx, SearchResult *res) {
 
 static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
   struct minmaxCtx *ctx = base;
-  if (ctx->mode == Minmax_Avg && ctx->numMatches) {
-    ctx->val /= (double)ctx->numMatches;
-  }
   RSFieldMap_Set(&res->fields, key, RS_NumVal(ctx->numMatches ? ctx->val : 0));
   return 1;
 }
@@ -88,9 +78,6 @@ static Reducer *newMinMax(RedisSearchCtx *ctx, const char *property, const char 
   } else if (mode == Minmax_Min) {
     r->NewInstance = min_NewInstance;
     fstr = "min";
-  } else if (mode == Minmax_Avg) {
-    r->NewInstance = avg_NewInstance;
-    fstr = "avg";
   }
 
   r->alias = FormatAggAlias(alias, fstr, property);
@@ -103,8 +90,4 @@ Reducer *NewMin(RedisSearchCtx *ctx, const char *property, const char *alias) {
 
 Reducer *NewMax(RedisSearchCtx *ctx, const char *property, const char *alias) {
   return newMinMax(ctx, property, alias, Minmax_Max);
-}
-
-Reducer *NewAvg(RedisSearchCtx *ctx, const char *property, const char *alias) {
-  return newMinMax(ctx, property, alias, Minmax_Avg);
 }
