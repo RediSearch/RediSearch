@@ -53,33 +53,41 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         self.assertEqual(3, len(res))
-        print res
+        # print res
 
-    def testMin(self):
+    def testMinMax(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
             'GROUPBY', '1', '@brand',
-            'REDUCE', 'min', '1', '@price',
-            'SORTYBY', '1', 'min(price)']
+            'REDUCE', 'count', '0',
+            'REDUCE', 'min', '1', '@price', 'as', 'minPrice',
+            'SORTBY', '1', '@minPrice']
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
-        self.assertEqual(26, res[0])
-        print ""
-        pprint.pprint(res[1:])
-        # self.assertEqual(7, len(res))
+        row = to_dict(res[1])
+        self.assertEqual(88, int(float(row['minPrice'])))
+
+        cmd = ['ft.aggregate', 'idx', 'sony',
+            'GROUPBY', '1', '@brand',
+            'REDUCE', 'count', '0',
+            'REDUCE', 'max', '1', '@price', 'as', 'maxPrice',
+            'SORTBY', '1', '@maxPrice']
+        res = self.cmd(*cmd)
+        row = to_dict(res[1])
+        self.assertEqual(695, int(float(row['maxPrice'])))
 
     def testAvg(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
             'GROUPBY', '1', '@brand',
             'REDUCE', 'avg', '1', '@price',
             'REDUCE', 'count', '0',
-            'SORTYBY', '1', 'avg(price)',]
+            'SORTBY', '1', '@avg(price)',]
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         self.assertEqual(26, res[0])
         # Ensure the formatting actually exists
 
         first_row = to_dict(res[1])
-        self.assertEqual(17, int(float(first_row['avg(price)'])))
+        self.assertEqual(109, int(float(first_row['avg(price)'])))
 
         for row in res[1:]:
             row = to_dict(row)
