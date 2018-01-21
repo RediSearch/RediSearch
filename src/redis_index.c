@@ -104,7 +104,7 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
   size_t nameLen = strlen(ctx->spec->name);
 
   char *buf, *bufDyn = NULL;
-  if (nameLen + len + 10 > sizeof(buf)) {
+  if (nameLen + len + 10 > sizeof(buf_s)) {
     buf = bufDyn = calloc(1, nameLen + len + 10);
     strcpy(buf, "ft:");
   } else {

@@ -9,7 +9,7 @@ import time
 
 
 class SearchTestCase(ModuleTestCase('../redisearch.so')):
-
+        
     def testAdd(self):
         with self.redis() as r:
             r.flushdb()
@@ -984,6 +984,21 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.search', 'idx', '\\+kitti', "nocontent", 'verbatim')
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
+
+    def testDuplicateEntry(self):
+
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric'))
+            for i in xrange(100):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
+                                                'title', 'hello kitty', 'score', i, 'score', i, 'SCORE', i))
+
+            for _ in r.retry_with_rdb_reload():
+                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[0 100]', 'return', '1', 'score', 'limit', '0', '1')
+                self.assertEqual([100L, 'doc99', ['score', '99']], res)
+
 
 
     def testNumericRange(self):
