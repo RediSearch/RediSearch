@@ -468,10 +468,16 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
     // Update sortables if needed
+    FieldSpecDedupeArray dedupes = {0};
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
-      if (!FieldSpec_IsSortable(fs)) continue;
+      uint16_t fieldId;
+      FieldSpec *fs = IndexSpec_GetFieldAndId(sctx->spec, f->name, strlen(f->name), &fieldId);
+      if (!FieldSpec_IsSortable(fs) || dedupes[fieldId]) {
+        continue;
+      }
+
+      dedupes[fieldId] = 1;
 
       int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
       if (idx < 0) continue;
