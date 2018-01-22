@@ -66,8 +66,13 @@ void Aggregate_BuildSchema() {
   CmdSchema_AddPostional(red, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
   CmdSchema_AddNamed(red, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
 
-  CmdSchema_AddNamed(requestSchema, "SORTBY",
-                     CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
+  CmdSchemaNode *sort = CmdSchema_AddSubSchema(requestSchema, "SORTBY",
+                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
+  CmdSchema_AddPostional(sort, "by",
+                         CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
+                         CmdSchema_Required);
+  // SORT can have its own MAX limitation that speeds up things
+  CmdSchema_AddNamed(sort, "MAX", CmdSchema_NewArgAnnotated('l', "num"),
                      CmdSchema_Optional | CmdSchema_Repeating);
 
   CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "APPLY",
@@ -130,19 +135,20 @@ fail:
   return NULL;
 }
 
-ResultProcessor *buildSortBY(CmdArg *arg, ResultProcessor *upstream, char **err) {
-  assert(arg && CMDARG_TYPE(arg) == CmdArg_Array);
-  if (CMDARG_ARRLEN(arg) == 0) {
-    asprintf(err, "Missing parameters for SORTBY");
-    return NULL;
+ResultProcessor *buildSortBY(CmdArg *srt, ResultProcessor *upstream, char **err) {
+  CmdArg *by = CmdArg_FirstOf(srt, "by");
+  if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
+
+  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
+
+  CmdArg *max = CmdArg_FirstOf(srt, "MAX");
+  long long mx = 0;
+  if (max) {
+    mx = CMDARG_INT(max);
+    if (mx < 0) mx = 0;
   }
 
-  RSMultiKey *mk = RS_NewMultiKey(CMDARG_ARRLEN(arg));
-  for (size_t i = 0; i < mk->len; i++) {
-    mk->keys[i] = RS_KEY(CMDARG_STRPTR(CMDARG_ARRELEM(arg, i)));
-  }
-
-  return NewSorterByFields(mk, 1, 0, upstream);
+  return NewSorterByFields(keys, 1, mx, upstream);
 }
 
 ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, char **err) {
