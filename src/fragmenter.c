@@ -238,7 +238,10 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
 
 static int fragSortCmp(const void *pa, const void *pb) {
   const Fragment *a = *(const Fragment **)pa, *b = *(const Fragment **)pb;
-  return a->score == b->score ? 0 : a->score > b->score ? -1 : 1;
+  if (a->score == b->score) {
+    return a - b;
+  }
+  return a->score > b->score ? -1 : 1;
 }
 
 static void FragmentList_Sort(FragmentList *fragList) {
