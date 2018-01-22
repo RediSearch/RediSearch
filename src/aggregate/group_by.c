@@ -66,13 +66,13 @@ static Group *GroupAlloc(void *ctx) {
 static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t hash) {
   // Copy the group keys to the new group
   group->len = g->numReducers;
-  group->values = RS_NewFieldMap(g->keys->len + g->numReducers);
+  group->values = RS_NewFieldMap(g->keys->len + g->numReducers + 1);
 
   for (size_t i = 0; i < g->keys->len; i++) {
 
     // We must do a deep copy of the group values since they may be deleted during processing
     RSValue *src = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
-    RSFieldMap_Add(&group->values, g->keys->keys[i].key, RSValue_Copy(src));
+    RSFieldMap_Add(&group->values, g->keys->keys[i].key, src);
   }
 }
 

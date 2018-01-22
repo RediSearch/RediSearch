@@ -22,7 +22,7 @@ int counter_Add(void *ctx, SearchResult *res) {
 int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
   struct counter *ctr = ctx;
   // printf("Counter finalize! count %zd\n", ctr->count);
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(ctr->count));
+  RSFieldMap_SetNumber(&res->fields, key, ctr->count);
   return 1;
 }
 
