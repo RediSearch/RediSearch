@@ -13,10 +13,10 @@
 RedisModuleType *IndexSpecType;
 
 /*
-* Get a field spec by field name. Case insensitive!
-* Return the field spec if found, NULL if not
-*/
-inline FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
+ * Get a field spec by field name. Case insensitive!
+ * Return the field spec if found, NULL if not
+ */
+FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
   for (int i = 0; i < spec->numFields; i++) {
     if (len != strlen(spec->fields[i].name)) continue;
     if (!strncasecmp(spec->fields[i].name, name, len)) {
@@ -126,7 +126,7 @@ char *strtolower(char *str) {
   return str;
 }
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
-*  Returns 1 on successful parse, 0 otherwise */
+ *  Returns 1 on successful parse, 0 otherwise */
 int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
 
   // if we're at the end - fail
