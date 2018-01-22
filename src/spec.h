@@ -177,28 +177,6 @@ extern RedisModuleType *IndexSpecType;
  */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
-/**
- * This "ID" type is independent of the field mask, and is used to distinguish
- * between one field and another field. For now, the ID is the position in
- * the array of fields - a detail we'll try to hide.
- */
-typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
-#define FIELDSPEC_INVALID_ID UINT16_MAX
-
-/**
- * Returns the spec and ID
- */
-static inline FieldSpec *IndexSpec_GetFieldAndId(IndexSpec *spec, const char *name, size_t len,
-                                                 uint16_t *id) {
-  FieldSpec *fs = IndexSpec_GetField(spec, name, len);
-  if (fs == NULL) {
-    *id = FIELDSPEC_INVALID_ID;
-    return fs;
-  }
-  *id = (uintptr_t)(fs - spec->fields);
-  return fs;
-}
-
 char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a

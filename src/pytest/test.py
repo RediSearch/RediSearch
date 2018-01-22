@@ -1507,18 +1507,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         # Should fail
         with self.assertResponseError():
             self.cmd('FT.CREATE', 'idx2', 'schema', 'txt', 'text')
-    
-    def testDuplicateNonspecFields(self):
-        self.cmd('FT.CREATE', 'idx', 'schema', 'txt', 'text')
-        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'fields',
-            'txt', 'Hello World', 'txt', 'Goodbye World',
-            'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3')
-        
-        res = self.cmd('ft.get', 'idx', 'doc')
-        res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        self.assertTrue(res['txt'] in ('Hello World', 'Goodbye World'))
-        self.assertTrue(res['f1'] in ('f1val', 'f1val2'))
-        self.assertEqual('f1Val3', res['F1'])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
