@@ -47,7 +47,6 @@ typedef struct {
   size_t numRanges;
   size_t numEntries;
   size_t card;
-  t_docId lastDocId;
 
   uint32_t revisionId;
 } NumericRangeTree;

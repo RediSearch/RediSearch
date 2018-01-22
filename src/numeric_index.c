@@ -253,18 +253,10 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;
-  ret->lastDocId = 0;
   return ret;
 }
 
 int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
-
-  // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
-  // from it
-  if (docId <= t->lastDocId) {
-    return 0;
-  }
-  t->lastDocId = docId;
 
   int rc = NumericRangeNode_Add(t->root, docId, value);
   // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now

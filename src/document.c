@@ -49,11 +49,18 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
   }
 
   size_t numIndexable = 0;
+
+  // size: uint16_t * SPEC_MAX_FIELDS
+  FieldSpecDedupeArray dedupe = {0};
+
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
-    FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
-    if (fs) {
+    uint16_t id;
+    FieldSpec *fs = IndexSpec_GetFieldAndId(sp, f->name, strlen(f->name), &id);
+    if (fs && dedupe[id] == 0) {
       aCtx->fspecs[i] = *fs;
+      dedupe[id] = 1;
+
       if (FieldSpec_IsSortable(fs)) {
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
@@ -71,6 +78,7 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
         aCtx->stateFlags |= ACTX_F_INDEXABLES;
       }
     } else {
+      // Field is not in schema, or is duplicate
       aCtx->fspecs[i].name = NULL;
     }
   }
