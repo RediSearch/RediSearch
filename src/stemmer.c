@@ -56,6 +56,7 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 void __sbstemmer_Free(Stemmer *s) {
   struct sbStemmerCtx *ctx = s->ctx;
   sb_stemmer_delete(ctx->sb);
+  free(ctx->buf);
   free(ctx);
   free(s);
 }
