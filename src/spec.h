@@ -82,6 +82,11 @@ typedef struct fieldSpec {
 
   int sortIdx;
 
+  /**
+   * Unique field index. Each field has a unique index regardless of its type
+   */
+  uint16_t index;
+
   union {
     TextFieldOptions textOpts;
     TagFieldOptions tagOpts;
@@ -176,6 +181,14 @@ extern RedisModuleType *IndexSpecType;
  * Return the field spec if found, NULL if not
  */
 FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
+
+/**
+ * This "ID" type is independent of the field mask, and is used to distinguish
+ * between one field and another field. For now, the ID is the position in
+ * the array of fields - a detail we'll try to hide.
+ */
+typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
+#define FIELDSPEC_INVALID_ID UINT16_MAX
 
 char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
 

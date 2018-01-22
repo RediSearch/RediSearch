@@ -37,8 +37,10 @@ static void freeDocumentContext(void *p) {
   free(aCtx);
 }
 
-static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
-                                       size_t oldFieldCount) {
+#define DUP_FIELD_ERRSTR "Requested to index field twice"
+
+static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
+                                      size_t oldFieldCount) {
   aCtx->doc = *base;
   Document *doc = &aCtx->doc;
 
@@ -49,11 +51,23 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
   }
 
   size_t numIndexable = 0;
+
+  // size: uint16_t * SPEC_MAX_FIELDS
+  FieldSpecDedupeArray dedupe = {0};
+
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs) {
+
       aCtx->fspecs[i] = *fs;
+      if (dedupe[fs->index]) {
+        aCtx->errorString = DUP_FIELD_ERRSTR;
+        return -1;
+      }
+
+      dedupe[fs->index] = 1;
+
       if (FieldSpec_IsSortable(fs)) {
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
@@ -71,6 +85,7 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
         aCtx->stateFlags |= ACTX_F_INDEXABLES;
       }
     } else {
+      // Field is not in schema, or is duplicate
       aCtx->fspecs[i].name = NULL;
     }
   }
@@ -87,9 +102,10 @@ static void AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Do
     }
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numIndexable);
   }
+  return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err) {
 
   if (!actxPool_g) {
     actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
@@ -106,7 +122,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b) {
   aCtx->indexer = GetDocumentIndexer(sp->name);
 
   // Assign the document:
-  AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields);
+  if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
+    *err = aCtx->errorString;
+    mempool_release(actxPool_g, aCtx);
+    return NULL;
+  }
 
   // try to reuse the forward index on recycled contexts
   if (aCtx->fwIdx) {
@@ -459,11 +479,20 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
+    FieldSpecDedupeArray dedupes = {0};
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
       FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
-      if (!FieldSpec_IsSortable(fs)) continue;
+      if (fs == NULL || !FieldSpec_IsSortable(fs)) {
+        continue;
+      }
+
+      if (dedupes[fs->index]) {
+        BAIL(DUP_FIELD_ERRSTR);
+      }
+
+      dedupes[fs->index] = 1;
 
       int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
       if (idx < 0) continue;
