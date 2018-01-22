@@ -309,6 +309,11 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
       goto failure;
     }
+
+    if (IndexSpec_GetField(spec, fs->name, strlen(fs->name)) != fs) {
+      *err = "Duplicate field in schema";
+      goto failure;
+    }
   }
 
   /* If we have sortable fields, create a sorting lookup table */

@@ -1550,6 +1550,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'num', 42, 'num', 32)
 
 
+    def testDuplicateSpec(self):
+        with self.assertResponseError():
+            self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
