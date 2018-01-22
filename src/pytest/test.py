@@ -1498,6 +1498,15 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         for _ in self.client.retry_with_rdb_reload():
             res = self.cmd('ft.search', 'idx', 'match')
             self.assertEqual(res, [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']])
+    
+    def testNonDefaultDb(self):
+        # Should be ok
+        self.cmd('FT.CREATE', 'idx1', 'schema', 'txt', 'text')
+        self.cmd('SELECT 1')
+
+        # Should fail
+        with self.assertResponseError():
+            self.cmd('FT.CREATE', 'idx2', 'schema', 'txt', 'text')
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

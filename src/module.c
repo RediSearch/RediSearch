@@ -852,6 +852,11 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
+
+  if (RedisModule_GetSelectedDb(ctx) != 0) {
+    return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
+  }
+
   RedisModule_AutoMemory(ctx);
   RedisModule_ReplicateVerbatim(ctx);
   char *err;
