@@ -1331,6 +1331,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
+
   RedisModule_Log(ctx, "verbose", "Loading RediSearch module!");
 
   const char *err;
