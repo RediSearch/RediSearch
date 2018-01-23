@@ -158,7 +158,7 @@ at EOF
 int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   UnionContext *ui = ctx;
 
-  //printf("UI %p skipto %d\n", ui, docId);
+  // printf("UI %p skipto %d\n", ui, docId);
 
   if (docId == 0) {
     return UI_Read(ctx, hit);
@@ -191,8 +191,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
         continue;
       }
-      if (res) 
-        ui->docIds[i] = res->docId;
+      if (res) ui->docIds[i] = res->docId;
 
     } else {
       // if the iterator is ahead of docId - we avoid reading the entry
@@ -203,11 +202,11 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
     // if we've read successfully, update the minimal docId we've found
     if (ui->docIds[i] && rc != INDEXREAD_EOF) {
-      if (ui->docIds[i] < minDocId || ! minResult) {
+      if (ui->docIds[i] < minDocId || !minResult) {
         minResult = res;
         minDocId = ui->docIds[i];
       }
-      //sminDocId = MIN(ui->docIds[i], minDocId);
+      // sminDocId = MIN(ui->docIds[i], minDocId);
     }
 
     // we found a hit - continue to all results matching the same docId
@@ -450,8 +449,8 @@ int II_Read(void *ctx, RSIndexResult **hit) {
         if (rc == INDEXREAD_EOF) goto eof;
         ic->docIds[i] = h->docId;
       }
-      
-       if (ic->docIds[i] > ic->lastDocId) {
+
+      if (ic->docIds[i] > ic->lastDocId) {
         ic->lastDocId = ic->docIds[i];
         break;
       }
@@ -461,7 +460,7 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       } else {
         ic->lastDocId++;
       }
-    } 
+    }
 
     if (nh == ic->num) {
       // printf("II %p HIT @ %d\n", ic, ic->current->docId);
@@ -536,6 +535,11 @@ void NI_Free(IndexIterator *it) {
 int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   NotContext *nc = ctx;
+
+  // do not skip beyond max doc id
+  if (docId > nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
   // If we don't have a child it means the sub iterator is of a meaningless expression.
   // So negating it means we will always return OK!
   if (!nc->child) {
