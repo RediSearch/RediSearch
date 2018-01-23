@@ -110,6 +110,15 @@ static inline RSValue *RS_NewValue(RSValueType t) {
   return v;
 }
 
+static RSValue RS_StaticValue(RSValueType t) {
+  RSValue v = (RSValue){
+      .t = t,
+      .refcount = 1,
+      .allocated = 0,
+  };
+  return v;
+}
+
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   *dst = (RSValue){
       .t = RSValue_Reference,

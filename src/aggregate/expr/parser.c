@@ -49,7 +49,7 @@
 **    YYACTIONTYPE       is the data type used for "action codes" - numbers
 **                       that indicate what to do in response to the next
 **                       token.
-**    exprTOKENTYPE     is the data type used for minor type for terminal
+**    RSExprParser_TOKENTYPE     is the data type used for minor type for terminal
 **                       symbols.  Background: A "minor type" is a semantic
 **                       value associated with a terminal or non-terminal
 **                       symbols.  For example, for an "ID" terminal symbol,
@@ -60,14 +60,14 @@
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
-**                       which is exprTOKENTYPE.  The entry in the union
+**                       which is RSExprParser_TOKENTYPE.  The entry in the union
 **                       for terminal symbols is called "yy0".
 **    YYSTACKDEPTH       is the maximum depth of the parser's stack.  If
 **                       zero the stack is dynamically sized using realloc()
-**    exprARG_SDECL     A static variable declaration for the %extra_argument
-**    exprARG_PDECL     A parameter declaration for the %extra_argument
-**    exprARG_STORE     Code to store %extra_argument into yypParser
-**    exprARG_FETCH     Code to extract %extra_argument from yypParser
+**    RSExprParser_ARG_SDECL     A static variable declaration for the %extra_argument
+**    RSExprParser_ARG_PDECL     A parameter declaration for the %extra_argument
+**    RSExprParser_ARG_STORE     Code to store %extra_argument into yypParser
+**    RSExprParser_ARG_FETCH     Code to extract %extra_argument from yypParser
 **    YYERRORSYMBOL      is the code number of the error symbol.  If not
 **                       defined, then do no error processing.
 **    YYNSTATE           the combined number of states.
@@ -207,7 +207,7 @@ struct yyParser {
 #ifndef YYNOERRORRECOVERY
   int yyerrcnt; /* Shifts left before out of the error */
 #endif
-  exprARG_SDECL /* A place to hold %extra_argument */
+  RSExprParser_ARG_SDECL /* A place to hold %extra_argument */
 #if YYSTACKDEPTH <= 0
       int yystksz;       /* Current side of the stack */
   yyStackEntry *yystack; /* The parser's stack */
@@ -243,7 +243,7 @@ static char *yyTracePrompt = 0;
 ** Outputs:
 ** None.
 */
-void exprTrace(FILE *TraceFILE, char *zTracePrompt) {
+void RSExprParser_Trace(FILE *TraceFILE, char *zTracePrompt) {
   yyTraceFILE = TraceFILE;
   yyTracePrompt = zTracePrompt;
   if (yyTraceFILE == 0)
@@ -299,7 +299,7 @@ static int yyGrowStack(yyParser *p) {
 #endif
 
 /* Datatype of the argument to the memory allocated passed as the
-** second argument to exprAlloc() below.  This can be changed by
+** second argument to RSExprParser_Alloc() below.  This can be changed by
 ** putting an appropriate #define in the %include section of the input
 ** grammar.
 */
@@ -309,7 +309,7 @@ static int yyGrowStack(yyParser *p) {
 
 /* Initialize a new parser that has already been allocated.
  */
-void exprInit(void *yypParser) {
+void RSExprParser_Init(void *yypParser) {
   yyParser *pParser = (yyParser *)yypParser;
 #ifdef YYTRACKMAXSTACKDEPTH
   pParser->yyhwm = 0;
@@ -334,7 +334,7 @@ void exprInit(void *yypParser) {
 #endif
 }
 
-#ifndef expr_ENGINEALWAYSONSTACK
+#ifndef RSExprParser__ENGINEALWAYSONSTACK
 /*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
@@ -345,15 +345,15 @@ void exprInit(void *yypParser) {
 **
 ** Outputs:
 ** A pointer to a parser.  This pointer is used in subsequent calls
-** to expr and exprFree.
+** to RSExprParser_ and RSExprParser_Free.
 */
-void *exprAlloc(void *(*mallocProc)(YYMALLOCARGTYPE)) {
+void *RSExprParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE)) {
   yyParser *pParser;
   pParser = (yyParser *)(*mallocProc)((YYMALLOCARGTYPE)sizeof(yyParser));
-  if (pParser) exprInit(pParser);
+  if (pParser) RSExprParser_Init(pParser);
   return pParser;
 }
-#endif /* expr_ENGINEALWAYSONSTACK */
+#endif /* RSExprParser__ENGINEALWAYSONSTACK */
 
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
@@ -366,7 +366,7 @@ static void yy_destructor(yyParser *yypParser,  /* The parser */
                           YYCODETYPE yymajor,   /* Type code for object to destroy */
                           YYMINORTYPE *yypminor /* The object to be destroyed */
 ) {
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
   switch (yymajor) {
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
@@ -407,7 +407,7 @@ static void yy_pop_parser_stack(yyParser *pParser) {
 /*
 ** Clear all secondary memory allocations from the parser
 */
-void exprFinalize(void *p) {
+void RSExprParser_Finalize(void *p) {
   yyParser *pParser = (yyParser *)p;
   while (pParser->yytos > pParser->yystack) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH <= 0
@@ -415,7 +415,7 @@ void exprFinalize(void *p) {
 #endif
 }
 
-#ifndef expr_ENGINEALWAYSONSTACK
+#ifndef RSExprParser__ENGINEALWAYSONSTACK
 /*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
@@ -424,22 +424,22 @@ void exprFinalize(void *p) {
 ** is defined in a %include section of the input grammar) then it is
 ** assumed that the input pointer is never NULL.
 */
-void exprFree(void *p,                 /* The parser to be deleted */
-               void (*freeProc)(void *) /* Function used to reclaim memory */
+void RSExprParser_Free(void *p,                 /* The parser to be deleted */
+                       void (*freeProc)(void *) /* Function used to reclaim memory */
 ) {
 #ifndef YYPARSEFREENEVERNULL
   if (p == 0) return;
 #endif
-  exprFinalize(p);
+  RSExprParser_Finalize(p);
   (*freeProc)(p);
 }
-#endif /* expr_ENGINEALWAYSONSTACK */
+#endif /* RSExprParser__ENGINEALWAYSONSTACK */
 
 /*
 ** Return the peak depth of the stack for a parser.
 */
 #ifdef YYTRACKMAXSTACKDEPTH
-int exprStackPeak(void *p) {
+int RSExprParser_StackPeak(void *p) {
   yyParser *pParser = (yyParser *)p;
   return pParser->yyhwm;
 }
@@ -463,7 +463,7 @@ static unsigned char yycoverage[YYNSTATE][YYNTOKEN];
 ** Return the number of missed state/lookahead combinations.
 */
 #if defined(YYCOVERAGE)
-int exprCoverage(FILE *out) {
+int RSExprParser_Coverage(FILE *out) {
   int stateno, iLookAhead, i;
   int nMissed = 0;
   for (stateno = 0; stateno < YYNSTATE; stateno++) {
@@ -579,7 +579,7 @@ static int yy_find_reduce_action(int stateno,          /* Current state number *
 ** The following routine is called if the stack overflows.
 */
 static void yyStackOverflow(yyParser *yypParser) {
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
 #ifndef NDEBUG
   if (yyTraceFILE) {
     fprintf(yyTraceFILE, "%sStack Overflow!\n", yyTracePrompt);
@@ -591,7 +591,7 @@ static void yyStackOverflow(yyParser *yypParser) {
   /******** Begin %stack_overflow code ******************************************/
   % %
       /******** End %stack_overflow code ********************************************/
-      exprARG_STORE; /* Suppress warning about unused %extra_argument var */
+      RSExprParser_ARG_STORE; /* Suppress warning about unused %extra_argument var */
 }
 
 /*
@@ -616,10 +616,10 @@ static void yyTraceShift(yyParser *yypParser, int yyNewState, const char *zTag) 
 /*
 ** Perform a shift action.
 */
-static void yy_shift(yyParser *yypParser,   /* The parser to be shifted */
-                     int yyNewState,        /* The new state to shift in */
-                     int yyMajor,           /* The major token to shift in */
-                     exprTOKENTYPE yyMinor /* The minor token to shift in */
+static void yy_shift(yyParser *yypParser,           /* The parser to be shifted */
+                     int yyNewState,                /* The new state to shift in */
+                     int yyMajor,                   /* The major token to shift in */
+                     RSExprParser_TOKENTYPE yyMinor /* The minor token to shift in */
 ) {
   yyStackEntry *yytos;
   yypParser->yytos++;
@@ -674,16 +674,16 @@ static void yy_accept(yyParser *); /* Forward Declaration */
 ** only called from one place, optimizing compilers will in-line it, which
 ** means that the extra parameters have no performance impact.
 */
-static void yy_reduce(yyParser *yypParser,            /* The parser */
-                      unsigned int yyruleno,          /* Number of the rule by which to reduce */
-                      int yyLookahead,                /* Lookahead token, or YYNOCODE if none */
-                      exprTOKENTYPE yyLookaheadToken /* Value of the lookahead token */
+static void yy_reduce(yyParser *yypParser,   /* The parser */
+                      unsigned int yyruleno, /* Number of the rule by which to reduce */
+                      int yyLookahead,       /* Lookahead token, or YYNOCODE if none */
+                      RSExprParser_TOKENTYPE yyLookaheadToken /* Value of the lookahead token */
 ) {
   int yygoto;          /* The next state */
   int yyact;           /* The next action */
   yyStackEntry *yymsp; /* The top of the parser's stack */
   int yysize;          /* Amount to pop the stack */
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
   (void)yyLookahead;
   (void)yyLookaheadToken;
   yymsp = yypParser->yytos;
@@ -763,7 +763,7 @@ static void yy_reduce(yyParser *yypParser,            /* The parser */
 #ifndef YYNOERRORRECOVERY
 static void yy_parse_failed(yyParser *yypParser /* The parser */
 ) {
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
 #ifndef NDEBUG
   if (yyTraceFILE) {
     fprintf(yyTraceFILE, "%sFail!\n", yyTracePrompt);
@@ -775,23 +775,23 @@ static void yy_parse_failed(yyParser *yypParser /* The parser */
   /************ Begin %parse_failure code ***************************************/
   % %
       /************ End %parse_failure code *****************************************/
-      exprARG_STORE; /* Suppress warning about unused %extra_argument variable */
+      RSExprParser_ARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 #endif /* YYNOERRORRECOVERY */
 
 /*
 ** The following code executes when a syntax error first occurs.
 */
-static void yy_syntax_error(yyParser *yypParser,   /* The parser */
-                            int yymajor,           /* The major type of the error token */
-                            exprTOKENTYPE yyminor /* The minor type of the error token */
+static void yy_syntax_error(yyParser *yypParser,           /* The parser */
+                            int yymajor,                   /* The major type of the error token */
+                            RSExprParser_TOKENTYPE yyminor /* The minor type of the error token */
 ) {
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
 #define TOKEN yyminor
   /************ Begin %syntax_error code ****************************************/
   % %
       /************ End %syntax_error code ******************************************/
-      exprARG_STORE; /* Suppress warning about unused %extra_argument variable */
+      RSExprParser_ARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 
 /*
@@ -799,7 +799,7 @@ static void yy_syntax_error(yyParser *yypParser,   /* The parser */
 */
 static void yy_accept(yyParser *yypParser /* The parser */
 ) {
-  exprARG_FETCH;
+  RSExprParser_ARG_FETCH;
 #ifndef NDEBUG
   if (yyTraceFILE) {
     fprintf(yyTraceFILE, "%sAccept!\n", yyTracePrompt);
@@ -814,12 +814,12 @@ static void yy_accept(yyParser *yypParser /* The parser */
   /*********** Begin %parse_accept code *****************************************/
   % %
       /*********** End %parse_accept code *******************************************/
-      exprARG_STORE; /* Suppress warning about unused %extra_argument variable */
+      RSExprParser_ARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }
 
 /* The main parser program.
 ** The first argument is a pointer to a structure obtained from
-** "exprAlloc" which describes the current state of the parser.
+** "RSExprParser_Alloc" which describes the current state of the parser.
 ** The second argument is the major token number.  The third is
 ** the minor token.  The fourth optional argument is whatever the
 ** user wants (and specified in the grammar) and is available for
@@ -836,10 +836,10 @@ static void yy_accept(yyParser *yypParser /* The parser */
 ** Outputs:
 ** None.
 */
-void expr(void *yyp,             /* The parser */
-           int yymajor,           /* The major token code number */
-           exprTOKENTYPE yyminor /* The value for the token */
-               exprARG_PDECL     /* Optional %extra_argument parameter */
+void RSExprParser_(void *yyp,                     /* The parser */
+                   int yymajor,                   /* The major token code number */
+                   RSExprParser_TOKENTYPE yyminor /* The value for the token */
+                       RSExprParser_ARG_PDECL     /* Optional %extra_argument parameter */
 ) {
   YYMINORTYPE yyminorunion;
   unsigned int yyact; /* The parser action. */
@@ -856,7 +856,7 @@ void expr(void *yyp,             /* The parser */
 #if !defined(YYERRORSYMBOL) && !defined(YYNOERRORRECOVERY)
   yyendofinput = (yymajor == 0);
 #endif
-  exprARG_STORE;
+  RSExprParser_ARG_STORE;
 
 #ifndef NDEBUG
   if (yyTraceFILE) {
@@ -997,235 +997,247 @@ void expr(void *yyp,             /* The parser */
   }
 #endif
   return;
-}#line 23 "expr.y"
+}
+#line 23 "parser.y"
 
 #include "token.h"
 #include "expr.h"
-#line 1006 "expr.c"
+#line 1006 "parser.c"
 #define YYCODETYPE unsigned char
 #define YYNOCODE 21
 #define YYACTIONTYPE unsigned char
-#define exprTOKENTYPE RSExprToken
+#define RSExprParser_TOKENTYPE RSExprToken
 typedef union {
   int yyinit;
-  exprTOKENTYPE yy0;
-  RSArgList * yy14;
+  RSExprParser_TOKENTYPE yy0;
+  RSArgList *yy14;
   double yy16;
-  RSexpr * yy27;
+  RSexpr *yy27;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
 #endif
-#define exprARG_SDECL
-#define exprARG_PDECL
-#define exprARG_FETCH
-#define exprARG_STORE
-#define YYNSTATE             19
-#define YYNRULE              16
-#define YY_MAX_SHIFT         18
-#define YY_MIN_SHIFTREDUCE   30
-#define YY_MAX_SHIFTREDUCE   45
-#define YY_MIN_REDUCE        46
-#define YY_MAX_REDUCE        61
-#define YY_ERROR_ACTION      62
-#define YY_ACCEPT_ACTION     63
-#define YY_NO_ACTION         64
+#define RSExprParser_ARG_SDECL
+#define RSExprParser_ARG_PDECL
+#define RSExprParser_ARG_FETCH
+#define RSExprParser_ARG_STORE
+#define YYNSTATE 19
+#define YYNRULE 16
+#define YY_MAX_SHIFT 18
+#define YY_MIN_SHIFTREDUCE 30
+#define YY_MAX_SHIFTREDUCE 45
+#define YY_MIN_REDUCE 46
+#define YY_MAX_REDUCE 61
+#define YY_ERROR_ACTION 62
+#define YY_ACCEPT_ACTION 63
+#define YY_NO_ACTION 64
 #define YY_ACTTAB_COUNT (57)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */     9,    5,    7,    6,    3,    4,   41,   31,   46,    9,
- /*    10 */     5,    7,    6,    3,    4,   18,   39,   43,   63,   11,
- /*    20 */     8,    1,   42,    2,   38,   40,   17,    9,    5,    7,
- /*    30 */     6,    3,    4,    7,    6,    3,    4,   39,   16,   39,
- /*    40 */    13,   39,   12,   39,   37,   39,   36,   39,   15,   39,
- /*    50 */    34,   39,   33,   39,   10,   48,   14,
+    /*     0 */ 9,  5,  7,  6,  3,  4,  41, 31, 46, 9,
+    /*    10 */ 5,  7,  6,  3,  4,  18, 39, 43, 63, 11,
+    /*    20 */ 8,  1,  42, 2,  38, 40, 17, 9,  5,  7,
+    /*    30 */ 6,  3,  4,  7,  6,  3,  4,  39, 16, 39,
+    /*    40 */ 13, 39, 12, 39, 37, 39, 36, 39, 15, 39,
+    /*    50 */ 34, 39, 33, 39, 10, 48, 14,
 };
 static const YYCODETYPE yy_lookahead[] = {
- /*     0 */     1,    2,    3,    4,    5,    6,   12,    8,    0,    1,
- /*    10 */     2,    3,    4,    5,    6,    2,   16,    8,   18,   19,
- /*    20 */     7,    7,    9,   14,   11,   12,   13,    1,    2,    3,
- /*    30 */     4,    5,    6,    3,    4,    5,    6,   16,   17,   16,
- /*    40 */    19,   16,   19,   16,   19,   16,   19,   16,   19,   16,
- /*    50 */    19,   16,   19,   16,   19,   20,   19,
+    /*     0 */ 1,  2,  3,  4,  5,  6,  12, 8,  0,  1,
+    /*    10 */ 2,  3,  4,  5,  6,  2,  16, 8,  18, 19,
+    /*    20 */ 7,  7,  9,  14, 11, 12, 13, 1,  2,  3,
+    /*    30 */ 4,  5,  6,  3,  4,  5,  6,  16, 17, 16,
+    /*    40 */ 19, 16, 19, 16, 19, 16, 19, 16, 19, 16,
+    /*    50 */ 19, 16, 19, 16, 19, 20, 19,
 };
 #define YY_SHIFT_USE_DFLT (57)
-#define YY_SHIFT_COUNT    (18)
-#define YY_SHIFT_MIN      (-6)
-#define YY_SHIFT_MAX      (30)
+#define YY_SHIFT_COUNT (18)
+#define YY_SHIFT_MIN (-6)
+#define YY_SHIFT_MAX (30)
 static const signed char yy_shift_ofst[] = {
- /*     0 */    13,   13,   13,   13,   13,   13,   13,   13,   13,   13,
- /*    10 */    -1,    8,   26,   26,   30,   30,    9,   14,   -6,
+    /*     0 */ 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    /*    10 */ -1, 8,  26, 26, 30, 30, 9,  14, -6,
 };
 #define YY_REDUCE_USE_DFLT (-1)
 #define YY_REDUCE_COUNT (9)
-#define YY_REDUCE_MIN   (0)
-#define YY_REDUCE_MAX   (37)
+#define YY_REDUCE_MIN (0)
+#define YY_REDUCE_MAX (37)
 static const signed char yy_reduce_ofst[] = {
- /*     0 */     0,   21,   23,   25,   27,   29,   31,   33,   35,   37,
+    /*     0 */ 0, 21, 23, 25, 27, 29, 31, 33, 35, 37,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */    62,   62,   62,   62,   62,   62,   62,   62,   62,   62,
- /*    10 */    62,   62,   61,   60,   48,   51,   62,   62,   62,
+    /*     0 */ 62, 62, 62, 62, 62, 62, 62, 62, 62, 62,
+    /*    10 */ 62, 62, 61, 60, 48, 51, 62, 62, 62,
 };
-  "$",             "PLUS",          "MINUS",         "DIVIDE",      
-  "TIMES",         "MOD",           "POW",           "LP",          
-  "RP",            "PROPERTY",      "FUNCTION",      "STRING",      
-  "NUMBER",        "FUNC",          "COMMA",         "error",       
-  "number",        "arglist",       "program",       "expr",        
- /*   0 */ "program ::= expr",
- /*   1 */ "expr ::= LP expr RP",
- /*   2 */ "expr ::= expr PLUS expr",
- /*   3 */ "expr ::= expr DIVIDE expr",
- /*   4 */ "expr ::= expr TIMES expr",
- /*   5 */ "expr ::= expr MINUS expr",
- /*   6 */ "expr ::= expr POW expr",
- /*   7 */ "expr ::= expr MOD expr",
- /*   8 */ "expr ::= STRING",
- /*   9 */ "expr ::= number",
- /*  10 */ "number ::= NUMBER",
- /*  11 */ "number ::= MINUS NUMBER",
- /*  12 */ "expr ::= PROPERTY",
- /*  13 */ "expr ::= FUNC LP arglist RP",
- /*  14 */ "arglist ::= expr",
- /*  15 */ "arglist ::= arglist COMMA expr",
-      /* Default NON-TERMINAL Destructor */
-    case 15: /* error */
-    case 18: /* program */
-    case 19: /* expr */
+"$", "PLUS", "MINUS", "DIVIDE", "TIMES", "MOD", "POW", "LP", "RP", "PROPERTY", "FUNCTION", "STRING",
+    "NUMBER", "FUNC", "COMMA", "error", "number", "arglist", "program", "expr",
+    /*   0 */ "program ::= expr",
+    /*   1 */ "expr ::= LP expr RP",
+    /*   2 */ "expr ::= expr PLUS expr",
+    /*   3 */ "expr ::= expr DIVIDE expr",
+    /*   4 */ "expr ::= expr TIMES expr",
+    /*   5 */ "expr ::= expr MINUS expr",
+    /*   6 */ "expr ::= expr POW expr",
+    /*   7 */ "expr ::= expr MOD expr",
+    /*   8 */ "expr ::= STRING",
+    /*   9 */ "expr ::= number",
+    /*  10 */ "number ::= NUMBER",
+    /*  11 */ "number ::= MINUS NUMBER",
+    /*  12 */ "expr ::= PROPERTY",
+    /*  13 */ "expr ::= FUNC LP arglist RP",
+    /*  14 */ "arglist ::= expr",
+    /*  15 */ "arglist ::= arglist COMMA expr",
+    /* Default NON-TERMINAL Destructor */
+    case 15 :                     /* error */
+              case 18 :           /* program */
+                        case 19 : /* expr */
 {
-#line 15 "expr.y"
-RSExpr_Free((yypminor->yy27)); 
-#line 1099 "expr.c"
+#line 15 "parser.y"
+  RSExpr_Free((yypminor->yy27));
+#line 1099 "parser.c"
 }
-      break;
-    case 16: /* number */
+break;
+case 16: /* number */
 {
-#line 18 "expr.y"
+#line 18 "parser.y"
 
-#line 1106 "expr.c"
-}
-      break;
-    case 17: /* arglist */
+#line 1106 "parser.c"
+} break;
+case 17: /* arglist */
 {
-#line 21 "expr.y"
-RSArgList_Free((yypminor->yy14)); 
-#line 1113 "expr.c"
+#line 21 "parser.y"
+  RSArgList_Free((yypminor->yy14));
+#line 1113 "parser.c"
+} break;
+  {18, 1}, {19, 3}, {19, 3}, {19, 3}, {19, 3}, {19, 3}, {19, 3}, {19, 3}, {19, 1}, {19, 1}, {16, 1},
+      {16, 2}, {19, 1}, {19, 4}, {17, 1}, {17, 3}, YYMINORTYPE yylhsminor;
+case 0: /* program ::= expr */
+#line 32 "parser.y"
+{
+  std::cout << yymsp[0].minor.yy27 << std::endl;
 }
-      break;
-  { 18, 1 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 3 },
-  { 19, 1 },
-  { 19, 1 },
-  { 16, 1 },
-  { 16, 2 },
-  { 19, 1 },
-  { 19, 4 },
-  { 17, 1 },
-  { 17, 3 },
-        YYMINORTYPE yylhsminor;
-      case 0: /* program ::= expr */
-#line 32 "expr.y"
-{ std::cout << yymsp[0].minor.yy27 << std::endl; }
-#line 1136 "expr.c"
-        break;
-      case 1: /* expr ::= LP expr RP */
-#line 34 "expr.y"
-{ yymsp[-2].minor.yy27 = yymsp[-1].minor.yy27; }
-#line 1141 "expr.c"
-        break;
-      case 2: /* expr ::= expr PLUS expr */
-#line 35 "expr.y"
-{ yylhsminor.yy27 = RS_NewOp('+', yymsp[-2].minor.yy27, yymsp[0].minor.yy27); }
-#line 1146 "expr.c"
+#line 1136 "parser.c"
+break;
+case 1: /* expr ::= LP expr RP */
+#line 34 "parser.y"
+{
+  yymsp[-2].minor.yy27 = yymsp[-1].minor.yy27;
+}
+#line 1141 "parser.c"
+break;
+case 2: /* expr ::= expr PLUS expr */
+#line 35 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('+', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1146 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 3: /* expr ::= expr DIVIDE expr */
-#line 36 "expr.y"
-{  yylhsminor.yy27 = RS_NewOp('/', yymsp[-2].minor.yy27, yymsp[0].minor.yy27); }
-#line 1152 "expr.c"
+  break;
+case 3: /* expr ::= expr DIVIDE expr */
+#line 36 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('/', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1152 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 4: /* expr ::= expr TIMES expr */
-#line 37 "expr.y"
-{  yylhsminor.yy27 = RS_NewOp('*', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);}
-#line 1158 "expr.c"
+  break;
+case 4: /* expr ::= expr TIMES expr */
+#line 37 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('*', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1158 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 5: /* expr ::= expr MINUS expr */
-#line 38 "expr.y"
-{  yylhsminor.yy27 = RS_NewOp('-', yymsp[-2].minor.yy27, yymsp[0].minor.yy27); }
-#line 1164 "expr.c"
+  break;
+case 5: /* expr ::= expr MINUS expr */
+#line 38 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('-', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1164 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 6: /* expr ::= expr POW expr */
-#line 39 "expr.y"
-{  yylhsminor.yy27 = RS_NewOp('^', yymsp[-2].minor.yy27, yymsp[0].minor.yy27); }
-#line 1170 "expr.c"
+  break;
+case 6: /* expr ::= expr POW expr */
+#line 39 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('^', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1170 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 7: /* expr ::= expr MOD expr */
-#line 40 "expr.y"
-{ yylhsminor.yy27 = RS_NewOp('%', yymsp[-2].minor.yy27, yymsp[0].minor.yy27); }
-#line 1176 "expr.c"
+  break;
+case 7: /* expr ::= expr MOD expr */
+#line 40 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewOp('%', yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
+}
+#line 1176 "parser.c"
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 8: /* expr ::= STRING */
-#line 42 "expr.y"
-{ yylhsminor.yy27 =  *RS_NewStringLiteral(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 1182 "expr.c"
+  break;
+case 8: /* expr ::= STRING */
+#line 42 "parser.y"
+{
+  yylhsminor.yy27 = *RS_NewStringLiteral(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+}
+#line 1182 "parser.c"
   yymsp[0].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 9: /* expr ::= number */
-#line 43 "expr.y"
-{ yylhsminor.yy27 = *RS_NewNumberLiteral(yymsp[0].minor.yy16); }
-#line 1188 "expr.c"
+  break;
+case 9: /* expr ::= number */
+#line 43 "parser.y"
+{
+  yylhsminor.yy27 = *RS_NewNumberLiteral(yymsp[0].minor.yy16);
+}
+#line 1188 "parser.c"
   yymsp[0].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 10: /* number ::= NUMBER */
-#line 44 "expr.y"
-{ yylhsminor.yy16 = yymsp[0].minor.yy0.numval; }
-#line 1194 "expr.c"
+  break;
+case 10: /* number ::= NUMBER */
+#line 44 "parser.y"
+{
+  yylhsminor.yy16 = yymsp[0].minor.yy0.numval;
+}
+#line 1194 "parser.c"
   yymsp[0].minor.yy16 = yylhsminor.yy16;
-        break;
-      case 11: /* number ::= MINUS NUMBER */
-#line 45 "expr.y"
-{ yymsp[-1].minor.yy16 = -yymsp[0].minor.yy0.numval; }
-#line 1200 "expr.c"
-        break;
-      case 12: /* expr ::= PROPERTY */
-#line 47 "expr.y"
-{ yylhsminor.yy27 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 1205 "expr.c"
-  yymsp[0].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 13: /* expr ::= FUNC LP arglist RP */
-#line 48 "expr.y"
-{ yylhsminor.yy27 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy14); }
-#line 1211 "expr.c"
-  yymsp[-3].minor.yy27 = yylhsminor.yy27;
-        break;
-      case 14: /* arglist ::= expr */
-#line 50 "expr.y"
-{ yylhsminor.yy14 = NewArgList(yymsp[0].minor.yy27); }
-#line 1217 "expr.c"
-  yymsp[0].minor.yy14 = yylhsminor.yy14;
-        break;
-      case 15: /* arglist ::= arglist COMMA expr */
-#line 51 "expr.y"
-{ 
-    yylhsminor.yy14 = ArgList_Append(yymsp[-2].minor.yy14, yymsp[0].minor.yy27);
+  break;
+case 11: /* number ::= MINUS NUMBER */
+#line 45 "parser.y"
+{
+  yymsp[-1].minor.yy16 = -yymsp[0].minor.yy0.numval;
 }
-#line 1225 "expr.c"
+#line 1200 "parser.c"
+break;
+case 12: /* expr ::= PROPERTY */
+#line 47 "parser.y"
+{
+  yylhsminor.yy27 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+}
+#line 1205 "parser.c"
+  yymsp[0].minor.yy27 = yylhsminor.yy27;
+  break;
+case 13: /* expr ::= FUNC LP arglist RP */
+#line 48 "parser.y"
+{
+  yylhsminor.yy27 =
+      RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy14);
+}
+#line 1211 "parser.c"
+  yymsp[-3].minor.yy27 = yylhsminor.yy27;
+  break;
+case 14: /* arglist ::= expr */
+#line 50 "parser.y"
+{
+  yylhsminor.yy14 = NewArgList(yymsp[0].minor.yy27);
+}
+#line 1217 "parser.c"
+  yymsp[0].minor.yy14 = yylhsminor.yy14;
+  break;
+case 15: /* arglist ::= arglist COMMA expr */
+#line 51 "parser.y"
+{
+  yylhsminor.yy14 = ArgList_Append(yymsp[-2].minor.yy14, yymsp[0].minor.yy27);
+}
+#line 1225 "parser.c"
   yymsp[-2].minor.yy14 = yylhsminor.yy14;
-        break;
-      default:
-        break;
-#line 28 "expr.y"
+  break;
+default:
+  break;
+#line 28 "parser.y"
 
   std::cout << "Syntax error." << std::endl;
-#line 1233 "expr.c"
+#line 1233 "parser.c"

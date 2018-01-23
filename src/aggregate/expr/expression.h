@@ -10,9 +10,12 @@ typedef enum {
   RSExpr_Function,
 } RSExprType;
 
-typedef unsigned char RSExprOp;
-
 struct RSExpr;
+typedef struct {
+  unsigned char op;
+  struct RSExpr *left;
+  struct RSExpr *right;
+} RSExprOp;
 
 typedef struct {
   size_t len;
@@ -36,8 +39,9 @@ typedef struct RSExpr {
 
 RSArgList *RS_NewArgList(RSExpr *e);
 RSExpr *RS_NewStringLiteral(char *str, size_t len);
-RSExpr *RS_NewNumberLiteral(char *str, size_t len);
-RSExpr *RS_NewOp(RSExprOp op, RSExpr *left, RSExpr *right);
+RSExpr *RS_NewNumberLiteral(double n);
+RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewFunc(char *str, size_t len, RSArgList *args);
 RSExpr *RS_NewProp(char *str, size_t len);
+void RSExpr_Free(RSExpr *expr);
 #endif
