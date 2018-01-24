@@ -11,7 +11,7 @@
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 
-typedef struct {
+typedef struct Buffer {
   char *data;
   size_t cap;
   size_t offset;

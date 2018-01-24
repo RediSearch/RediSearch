@@ -303,34 +303,48 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
 void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
+  Buffer tmpsBuf;
+  Buffer_Init(&tmpsBuf, 16);
+  char dblBuf[1024] = {0};
+
   for (int i = 1; i < t->size; i++) {
     const RSDocumentMetadata *dmd = t->docs + i;
-    RedisModuleString *ss = RedisModule_CreateStringPrintf(ctx, "%f", dmd->score);
+
+    // Should never be > 1024, but snprintf just in case
+    size_t dblLen = snprintf(dblBuf, sizeof(dblBuf), "%f", dmd->score);
+
     // dump payload if possible
     const char *payload = NULL;
     size_t payloadLen = 0;
-    char *byteOffsets = NULL;
+    size_t byteOffsetsPos = 0;
     size_t byteOffsetsLen = 0;
+    size_t svPos = 0;
+    size_t svLen = 0;
 
     if ((dmd->flags & Document_HasPayload) && dmd->payload) {
       payload = dmd->payload->data;
       payloadLen = dmd->payload->len;
     }
 
-    Buffer offsetsBuf = {0};
+    tmpsBuf.offset = 0;
+
     if ((dmd->flags & Document_HasOffsetVector) && dmd->byteOffsets) {
-      Buffer_Init(&offsetsBuf, 16);
-      RSByteOffsets_Serialize(dmd->byteOffsets, &offsetsBuf);
-      byteOffsets = offsetsBuf.data;
-      byteOffsetsLen = offsetsBuf.offset;
+      RSByteOffsets_Serialize(dmd->byteOffsets, &tmpsBuf);
+      byteOffsetsPos = 0;
+      byteOffsetsLen = tmpsBuf.offset;
     }
 
-    RedisModule_EmitAOF(aof, "FT.DTADD", "cblsbb", indexName, dmd->keyPtr, sdslen(dmd->keyPtr),
-                        dmd->flags, ss, payload, payloadLen, byteOffsets, byteOffsetsLen);
+    if ((dmd->flags & Document_HasOffsetVector) && dmd->sortVector) {
+      svPos = tmpsBuf.offset;
+      SortingVector_Serialize(dmd->sortVector, &tmpsBuf);
+      svLen = tmpsBuf.offset - byteOffsetsLen;
+    }
 
-    Buffer_Free(&offsetsBuf);
-    RedisModule_FreeString(ctx, ss);
+    RedisModule_EmitAOF(aof, "FT.DTADD", "cblbbbb", indexName, dmd->keyPtr, sdslen(dmd->keyPtr),
+                        dmd->flags, dblBuf, dblLen, payload, payloadLen,
+                        tmpsBuf.data + byteOffsetsPos, byteOffsetsLen, tmpsBuf.data + svPos, svLen);
   }
+  Buffer_Free(&tmpsBuf);
 }
 
 DocIdMap NewDocIdMap() {
