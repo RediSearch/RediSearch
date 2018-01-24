@@ -10,7 +10,7 @@
 #pragma pack(1)
 
 #define RS_SORTABLE_NUM 1
-#define RS_SORTABLE_EMBEDDED_STR 2
+// #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
