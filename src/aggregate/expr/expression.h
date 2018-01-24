@@ -2,6 +2,7 @@
 #define RS_AGG_EXPRESSION_H_
 #include <redisearch.h>
 #include <value.h>
+#include <result_processor.h>
 
 typedef enum {
   RSExpr_Literal,
@@ -36,6 +37,22 @@ typedef struct RSExpr {
   };
   RSExprType t;
 } RSExpr;
+
+typedef int (*RSFunctionCallback)(SearchResult *r, RSValue *argv, int argc, void *privdata);
+typedef struct {
+} RSFunctionRegistry;
+
+RSFunctionCallback RSFunctionRegistry_Get(const char *f);
+
+typedef struct {
+  SearchResult *r;
+  RSFunctionRegistry *fr;
+  RSSortingTable *sortables;
+} RSExprEvalCtx;
+
+#define EXPR_EVAL_ERR 1
+#define EXPR_EVAL_OK 0
+int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err);
 
 RSArgList *RS_NewArgList(RSExpr *e);
 RSExpr *RS_NewStringLiteral(char *str, size_t len);
