@@ -74,23 +74,7 @@ void RSExpr_Free(RSExpr *e) {
   }
 }
 
-typedef int (*RSFunctionCallback)(SearchResult *r, RSValue *argv, int argc, void *privdata);
-typedef struct {
-} RSFunctionRegistry;
-
-RSFunctionCallback RSFunctionRegistry_Get(const char *f);
-
-typedef struct {
-  SearchResult *r;
-  RSFunctionRegistry *fr;
-  RSSortingTable *sortables;
-} RSEexprCtx;
-
-#define EXPR_EVAL_ERR 1
-#define EXPR_EVAL_OK 0
-int RSExpr_Eval(RSEexprCtx *ctx, RSExpr *e, RSValue *result, char **err);
-
-static int evalFunc(RSEexprCtx *ctx, RSFunction *f, RSValue *result, char **err) {
+static int evalFunc(RSExprEvalCtx *ctx, RSFunction *f, RSValue *result, char **err) {
   RSFunctionCallback cb = RSFunctionRegistry_Get(f->name);
   if (!cb) {
     asprintf(err, "Could not find function '%s'", f->name);
@@ -112,7 +96,7 @@ static int evalFunc(RSEexprCtx *ctx, RSFunction *f, RSValue *result, char **err)
   return rc;
 }
 
-static int evalOp(RSEexprCtx *ctx, RSExprOp *op, RSValue *result, char **err) {
+static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err) {
 
   RSValue l, r;
   if (RSExpr_Eval(ctx, op->left, &l, err) == EXPR_EVAL_ERR) {
@@ -162,12 +146,12 @@ cleanup:
   return rc;
 }
 
-static int evalProperty(RSEexprCtx *ctx, RSKey *k, RSValue *result, char **err) {
+static int evalProperty(RSExprEvalCtx *ctx, RSKey *k, RSValue *result, char **err) {
   RSValue_MakeReference(result, SearchResult_GetValue(ctx->r, ctx->sortables, k));
   return EXPR_EVAL_OK;
 }
 
-int RSExpr_Eval(RSEexprCtx *ctx, RSExpr *e, RSValue *result, char **err) {
+int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
   switch (e->t) {
     case RSExpr_Function:
       return evalFunc(ctx, &e->func, result, err);
