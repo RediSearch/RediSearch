@@ -15,6 +15,9 @@
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
 
+// Maximum number of sortables
+#define RS_SORTABLES_MAX 255
+
 // TODO: Short strings will be embedded into 8 bytes
 typedef struct {
   unsigned char len;
@@ -59,7 +62,7 @@ typedef struct {
 
 void RSSortingKey_Free(RSSortingKey *k);
 
-/* Create a sorting table of a given length. Length can be up to 255 */
+/* Create a sorting table of a given length. Length can be up to RS_SORTABLES_MAX (255) */
 RSSortingTable *NewSortingTable(int len);
 
 /* Free a sorting table */

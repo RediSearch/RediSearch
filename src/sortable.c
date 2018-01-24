@@ -9,7 +9,7 @@
 
 /* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len) {
-  if (len > 255) {
+  if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
   RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSSortableValue)));
@@ -81,7 +81,7 @@ char *normalizeStr(const char *str) {
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
-  if (idx <= 255) {
+  if (idx <= RS_SORTABLES_MAX) {
     switch (type) {
       case RS_SORTABLE_NUM:
         tbl->values[idx].num = *(double *)p;
@@ -142,7 +142,7 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
-  if (len > 255 || len <= 0) {
+  if (len > RS_SORTABLES_MAX || len <= 0) {
     return NULL;
   }
   RSSortingVector *vec = NewSortingVector(len);
