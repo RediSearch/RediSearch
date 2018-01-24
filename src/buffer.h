@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1
@@ -105,6 +106,36 @@ static inline size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
   bw->pos += len;
   buf->offset += len;
   return len;
+}
+
+/**
+ * These are convenience functions for writing numbers to/from a network
+ */
+static inline size_t Buffer_WriteU32(BufferWriter *bw, uint32_t u) {
+  u = htonl(u);
+  return Buffer_Write(bw, &u, 4);
+}
+static inline size_t Buffer_WriteU16(BufferWriter *bw, uint16_t u) {
+  u = htons(u);
+  return Buffer_Write(bw, &u, 2);
+}
+static inline size_t Buffer_WriteU8(BufferWriter *bw, uint8_t u) {
+  return Buffer_Write(bw, &u, 1);
+}
+static inline uint32_t Buffer_ReadU32(BufferReader *r) {
+  uint32_t u;
+  Buffer_Read(r, &u, 4);
+  return ntohl(u);
+}
+static inline uint32_t Buffer_ReadU16(BufferReader *r) {
+  uint16_t u;
+  Buffer_Read(r, &u, 2);
+  return ntohl(u);
+}
+static inline uint32_t Buffer_ReadU8(BufferReader *r) {
+  uint8_t b;
+  Buffer_Read(r, &b, 1);
+  return b;
 }
 
 BufferWriter NewBufferWriter(Buffer *b);
