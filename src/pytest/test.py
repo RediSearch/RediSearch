@@ -985,22 +985,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertEqual(2, len(res))
             self.assertEqual(1, res[0])
 
-    def testDuplicateEntry(self):
-
-        with self.redis() as r:
-            r.flushdb()
-            self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric'))
-            for i in xrange(100):
-                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
-                                                'title', 'hello kitty', 'score', i, 'score', i, 'SCORE', i))
-
-            for _ in r.retry_with_rdb_reload():
-                res = r.execute_command('ft.search', 'idx', 'hello kitty @score:[0 100]', 'return', '1', 'score', 'limit', '0', '1')
-                self.assertEqual([100L, 'doc99', ['score', '99']], res)
-
-
-
     def testNumericRange(self):
 
         with self.redis() as r:
@@ -1507,6 +1491,53 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         # Should fail
         with self.assertResponseError():
             self.cmd('FT.CREATE', 'idx2', 'schema', 'txt', 'text')
+
+    def testDuplicateNonspecFields(self):
+        self.cmd('FT.CREATE', 'idx', 'schema', 'txt', 'text')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'fields',
+            'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3')
+
+        res = self.cmd('ft.get', 'idx', 'doc')
+        res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        self.assertTrue(res['f1'] in ('f1val', 'f1val2'))
+        self.assertEqual('f1Val3', res['F1'])
+
+    def testDuplicateFields(self):
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE')
+        for _ in self.retry_with_reload():
+            # Ensure the index assignment is correct after an rdb load
+            with self.assertResponseError():
+                self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
+                        'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
+
+            # Try add hash
+            self.cmd('HMSET', 'newDoc', 'txt', 'foo', 'Txt', 'bar', 'txT', 'baz')
+            # Get the actual value:
+
+            from redis import ResponseError
+            caught = False
+            try:
+                self.cmd('FT.ADDHASH', 'idx', 'newDoc', 1.0)
+            except ResponseError as err:
+                caught = True
+                self.assertTrue('twice' in err.message)
+            self.assertTrue(caught)
+
+            # Try with REPLACE
+            with self.assertResponseError():
+                self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE', 'FIELDS',
+                    'txt', 'foo', 'txt', 'bar')
+
+            # With replace partial
+            self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'num', 42)
+            with self.assertResponseError():
+                self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'num', 42, 'num', 32)
+
+
+    def testDuplicateSpec(self):
+        with self.assertResponseError():
+            self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

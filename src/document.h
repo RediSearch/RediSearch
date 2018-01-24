@@ -199,7 +199,7 @@ typedef struct RSAddDocumentCtx {
  *
  * When done, call AddDocumentCtx_Free
  */
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base);
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base, const char **err);
 
 /**
  * At this point the context will take over from the caller, and handle sending

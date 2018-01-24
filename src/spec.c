@@ -277,6 +277,8 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
 
     FieldSpec *fs = &spec->fields[spec->numFields++];
+    fs->index = spec->numFields - 1;
+
     if (!__parseFieldSpec(argv, &i, argc, fs, err)) {
       if (!*err) {
         *err = "Could not parse field spec";
@@ -305,6 +307,11 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     if (sortIdx > 255) {
       *err = "Too many sortable fields";
 
+      goto failure;
+    }
+
+    if (IndexSpec_GetField(spec, fs->name, strlen(fs->name)) != fs) {
+      *err = "Duplicate field in schema";
       goto failure;
     }
   }
@@ -645,6 +652,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
 
     __fieldSpec_rdbLoad(rdb, &sp->fields[i], encver);
+    sp->fields[i].index = i;
+
     /* keep track of sorting indexes to rebuild the table */
     if (sp->fields[i].sortIdx > maxSortIdx) {
       maxSortIdx = sp->fields[i].sortIdx;

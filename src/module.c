@@ -150,7 +150,12 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+  const char *err;
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &err);
+  if (aCtx == NULL) {
+    Document_FreeDetached(&doc, ctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
 
   // in partial mode
   uint32_t options = 0;
@@ -659,7 +664,14 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc);
+
+  const char *err;
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &err);
+  if (aCtx == NULL) {
+    Document_FreeDetached(&doc, ctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
+
   if (!isBlockable) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }
