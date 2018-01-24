@@ -117,6 +117,10 @@ void SortingVector_Free(RSSortingVector *v) {
 
 /* Save a sorting vector to rdb. This is called from the doc table */
 void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
+  if (!v) {
+    RedisModule_SaveUnsigned(rdb, 0);
+    return;
+  }
   RedisModule_SaveUnsigned(rdb, v->len);
   for (int i = 0; i < v->len; i++) {
     RSSortableValue *val = &v->values[i];
