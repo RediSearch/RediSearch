@@ -12,9 +12,8 @@ int testExpr() {
   char *err;
   int rc = RSExpr_Eval(NULL, op, &val, &err);
   ASSERT_EQUAL(EXPR_EVAL_OK, rc);
-  printf("Test result:");
-  RSValue_Print(&val);
-  printf("\n\n");
+  ASSERT_EQUAL(RSValue_Number, val.t);
+  ASSERT_EQUAL(4, val.numval);
 
   RETURN_TEST_SUCCESS;
 }
