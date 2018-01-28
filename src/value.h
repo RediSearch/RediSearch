@@ -8,7 +8,6 @@
 #include <math.h>
 #include <assert.h>
 #include "redisearch.h"
-#include "sortable.h"
 #include "util/fnv.h"
 #include "rmutil/cmdparse.h"
 

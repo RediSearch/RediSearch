@@ -1,9 +1,19 @@
 #include "expression.h"
 #include "result_processor.h"
+
+#define arglist_sizeof(l) (sizeof(RSArgList) + (l * sizeof(RSExpr *)))
+
 RSArgList *RS_NewArgList(RSExpr *e) {
-  RSArgList *ret = malloc(sizeof(*ret) + (e ? 1 : 0) * sizeof(RSExpr *));
+  RSArgList *ret = malloc(arglist_sizeof(e ? 1 : 0));
   ret->len = e ? 1 : 0;
   if (e) ret->args[0] = e;
+  return ret;
+}
+
+RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
+  l = realloc(l, arglist_sizeof(l->len + 1));
+  l->args[l->len++] = e;
+  return l;
 }
 
 static RSExpr *newExpr(RSExprType t) {
@@ -72,6 +82,10 @@ void RSExpr_Free(RSExpr *e) {
     case RSExpr_Property:
       free((char *)e->property.key);
   }
+}
+
+RSFunctionCallback RSFunctionRegistry_Get(const char *name) {
+  return NULL;
 }
 
 static int evalFunc(RSExprEvalCtx *ctx, RSFunction *f, RSValue *result, char **err) {
@@ -157,7 +171,7 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
       return evalFunc(ctx, &e->func, result, err);
     case RSExpr_Literal:
       RSValue_MakeReference(result, &e->literal);
-      return 1;
+      return EXPR_EVAL_OK;
     case RSExpr_Op:
       return evalOp(ctx, &e->op, result, err);
     case RSExpr_Property:

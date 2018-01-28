@@ -12,7 +12,7 @@ typedef struct {
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
 works iteratively and is not callback based.  */
 typedef struct {
-  const char *s;
+  char *s;
   int len;
   int pos;
   double numval;
