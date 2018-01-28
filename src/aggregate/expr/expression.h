@@ -55,6 +55,9 @@ typedef struct {
 int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err);
 
 RSArgList *RS_NewArgList(RSExpr *e);
+void RSArgList_Free(RSArgList *l);
+RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
+
 RSExpr *RS_NewStringLiteral(char *str, size_t len);
 RSExpr *RS_NewNumberLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
