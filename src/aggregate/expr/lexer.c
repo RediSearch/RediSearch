@@ -123,13 +123,14 @@ static const int expr_en_main = 6;
 
 
 
-RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
+RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, char **err) {
   RSExprParseCtx ctx = {
     .raw = expr,
     .len = len, 
     .errorMsg = NULL,
     .root = NULL,
     .ok = 1,
+    .funcs = funcs,
   };
   void *pParser = RSExprParser_ParseAlloc(malloc);
 
@@ -138,7 +139,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
   
-#line 142 "lexer.c"
+#line 143 "lexer.c"
 	{
 	cs = expr_start;
 	ts = 0;
@@ -146,7 +147,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
 	act = 0;
 	}
 
-#line 192 "lexer.rl"
+#line 193 "lexer.rl"
   RSExprToken tok = {.len = 0, .pos = 0, .s = 0, .numval = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -155,7 +156,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   const char* eof = pe;
   
   
-#line 159 "lexer.c"
+#line 160 "lexer.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -176,7 +177,7 @@ _resume:
 #line 1 "NONE"
 	{ts = p;}
 	break;
-#line 180 "lexer.c"
+#line 181 "lexer.c"
 		}
 	}
 
@@ -471,7 +472,7 @@ _eof_trans:
 	}
 	}
 	break;
-#line 475 "lexer.c"
+#line 476 "lexer.c"
 		}
 	}
 
@@ -484,7 +485,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 488 "lexer.c"
+#line 489 "lexer.c"
 		}
 	}
 
@@ -504,7 +505,7 @@ _again:
 	_out: {}
 	}
 
-#line 200 "lexer.rl"
+#line 201 "lexer.rl"
   
 
   if (ctx.ok) {

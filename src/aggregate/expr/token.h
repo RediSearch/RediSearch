@@ -12,6 +12,9 @@ typedef struct {
 
   RSExpr *root;
   int ok;
+
+  RSFunctionRegistry *funcs;
+
 } RSExprParseCtx;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it

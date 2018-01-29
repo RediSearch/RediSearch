@@ -46,13 +46,14 @@ RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
   return e;
 }
 
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args) {
+RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
   e->func.name = strndup(str, len);
-  // TODO: validate name and func
+  e->func.Call = cb;
   return e;
 }
+
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
@@ -109,16 +110,7 @@ void RSExpr_Print(RSExpr *e) {
   }
 }
 
-RSFunctionCallback RSFunctionRegistry_Get(const char *name) {
-  return NULL;
-}
-
-static int evalFunc(RSExprEvalCtx *ctx, RSFunction *f, RSValue *result, char **err) {
-  RSFunctionCallback cb = RSFunctionRegistry_Get(f->name);
-  if (!cb) {
-    asprintf(err, "Could not find function '%s'", f->name);
-    return EXPR_EVAL_ERR;
-  }
+static int evalFunc(RSExprEvalCtx *ctx, RSFunctionExpr *f, RSValue *result, char **err) {
 
   RSValue args[f->args->len];
   for (size_t i = 0; i < f->args->len; i++) {
@@ -128,7 +120,7 @@ static int evalFunc(RSExprEvalCtx *ctx, RSFunction *f, RSValue *result, char **e
     }
   }
 
-  int rc = cb(ctx->r, args, f->args->len, NULL);
+  int rc = f->Call(result, args, f->args->len, err);
   for (size_t i = 0; i < f->args->len; i++) {
     RSValue_Free(&args[i]);
   }

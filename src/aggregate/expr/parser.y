@@ -52,7 +52,16 @@ number(A) ::= NUMBER(B). { A = B.numval; }
 number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
-expr(A) ::= FUNC(B) LP arglist(C) RP. { A = RS_NewFunc(B.s, B.len, C); }
+expr(A) ::= FUNC(B) LP arglist(C) RP. {
+    RSFunction cb = RSFunctionRegistry_Get(ctx->funcs, B.s, B.len);
+    if (!cb) {
+        asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+        ctx->ok = 0;
+        A = NULL; 
+    } else {
+         A = RS_NewFunc(B.s, B.len, C, cb);
+    }
+}
 
 arglist(A) ::= expr(B) . [ARGLIST] { A = RS_NewArgList(B); }
 arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] { 
