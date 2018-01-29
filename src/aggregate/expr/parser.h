@@ -10,5 +10,6 @@
 #define FUNCTION                        10
 #define STRING                          11
 #define NUMBER                          12
-#define FUNC                            13
-#define COMMA                           14
+#define ARGLIST                         13
+#define FUNC                            14
+#define COMMA                           15

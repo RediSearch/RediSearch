@@ -58,10 +58,13 @@ RSArgList *RS_NewArgList(RSExpr *e);
 void RSArgList_Free(RSArgList *l);
 RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
 
-RSExpr *RS_NewStringLiteral(char *str, size_t len);
+RSExpr *RS_NewStringLiteral(const char *str, size_t len);
 RSExpr *RS_NewNumberLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
-RSExpr *RS_NewFunc(char *str, size_t len, RSArgList *args);
-RSExpr *RS_NewProp(char *str, size_t len);
+RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args);
+RSExpr *RS_NewProp(const char *str, size_t len);
 void RSExpr_Free(RSExpr *expr);
+void RSExpr_Print(RSExpr *expr);
+RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+
 #endif

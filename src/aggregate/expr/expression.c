@@ -21,7 +21,7 @@ static RSExpr *newExpr(RSExprType t) {
   e->t = t;
   return e;
 }
-RSExpr *RS_NewStringLiteral(char *str, size_t len) {
+RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
 
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);
@@ -46,14 +46,14 @@ RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
   return e;
 }
 
-RSExpr *RS_NewFunc(char *str, size_t len, RSArgList *args) {
+RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
   e->func.name = strndup(str, len);
   // TODO: validate name and func
   return e;
 }
-RSExpr *RS_NewProp(char *str, size_t len) {
+RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
   e->property.cachedIdx = RSKEY_UNCACHED;
@@ -81,6 +81,31 @@ void RSExpr_Free(RSExpr *e) {
       break;
     case RSExpr_Property:
       free((char *)e->property.key);
+  }
+}
+
+void RSExpr_Print(RSExpr *e) {
+  switch (e->t) {
+    case RSExpr_Literal:
+      RSValue_Print(&e->literal);
+      break;
+    case RSExpr_Function:
+      printf("%s(", e->func.name);
+      for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
+        RSExpr_Print(e->func.args->args[i]);
+        if (i < e->func.args->len - 1) printf(", ");
+      }
+      printf(")");
+      break;
+    case RSExpr_Op:
+      printf("(");
+      RSExpr_Print(e->op.left);
+      printf(" %c ", e->op.op);
+      RSExpr_Print(e->op.right);
+      printf(")");
+      break;
+    case RSExpr_Property:
+      printf("@%s", e->property.key);
   }
 }
 
@@ -112,11 +137,11 @@ static int evalFunc(RSExprEvalCtx *ctx, RSFunction *f, RSValue *result, char **e
 
 static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err) {
 
-  RSValue l, r;
+  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   if (RSExpr_Eval(ctx, op->left, &l, err) == EXPR_EVAL_ERR) {
     return EXPR_EVAL_ERR;
   }
-  if (RSExpr_Eval(ctx, op->left, &r, err) == EXPR_EVAL_ERR) {
+  if (RSExpr_Eval(ctx, op->right, &r, err) == EXPR_EVAL_ERR) {
     return EXPR_EVAL_ERR;
   }
 

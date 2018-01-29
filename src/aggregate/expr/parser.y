@@ -1,5 +1,5 @@
 
-%name RSExprParser_
+%name RSExprParser_Parse
 
 %left PLUS MINUS.
 %left DIVIDE TIMES MOD POW.
@@ -9,10 +9,11 @@
 %right FUNCTION.
 %left STRING.
 %left NUMBER.
+%right ARGLIST.
 
-%extra_argument { ExprParseCtx *ctx }
+%extra_argument { RSExprParseCtx *ctx }
 
-%token_type {RSExprToken}
+%token_type { RSExprToken }
 %default_type {RSExpr *}
 %default_destructor {RSExpr_Free($$); }
 
@@ -31,7 +32,7 @@
 
 %syntax_error {  
 
-    asprintf(ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 }   
    
@@ -53,7 +54,7 @@ number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= FUNC(B) LP arglist(C) RP. { A = RS_NewFunc(B.s, B.len, C); }
 
-arglist(A) ::= expr(B). { A = RS_NewArgList(B); }
-arglist(A) ::= arglist(B) COMMA expr(C). { 
+arglist(A) ::= expr(B) . [ARGLIST] { A = RS_NewArgList(B); }
+arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] { 
     A = RSArgList_Append(B, C);
 }
