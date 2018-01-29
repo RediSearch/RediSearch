@@ -713,6 +713,29 @@ static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
 }
 
+static void RSFieldMap_SetStatic(RSFieldMap **m, const char *key, RSValue *in) {
+  key = RSKEY(key);
+  for (uint16_t i = 0; i < (*m)->len; i++) {
+    if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
+
+      // avoid memory leaks...
+      RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
+      // assign the new field
+      FIELDMAP_FIELD(*m, i).val = *in;
+      FIELDMAP_FIELD(*m, i).val.allocated = 0;
+      FIELDMAP_FIELD(*m, i).val.refcount = 1;
+      return;
+    }
+  }
+  RSFieldMap_EnsureCap(m);
+
+  // not found - append a new field
+  FIELDMAP_FIELD(*m, (*m)->len) = (RSField){.key = key, .val = *in};
+  FIELDMAP_FIELD(*m, (*m)->len).val.allocated = 0;
+  FIELDMAP_FIELD(*m, (*m)->len).val.refcount = 1;
+  (*m)->len++;
+}
+
 static void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
   key = RSKEY(key);
   for (uint16_t i = 0; i < (*m)->len; i++) {

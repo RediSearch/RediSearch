@@ -1,11 +1,15 @@
 #include "aggregate.h"
 #include "reducer.h"
+#include "projections/project.h"
+
 #include <query.h>
 #include <result_processor.h>
 #include <rmutil/cmdparse.h>
 #include <search_request.h>
+#include "functions/function.h"
 
 static CmdSchemaNode *requestSchema = NULL;
+static RSFunctionRegistry functions_g = {0};
 
 // validator for property names
 int validatePropertyName(CmdArg *arg, void *p) {
@@ -37,10 +41,13 @@ void Aggregate_BuildSchema() {
         ...
       ]
       [SORTBY {nargs} {property} ... ]
-      [PROJECT {function} {nargs} {args} [AS {alias}]]
+      [APPLY {expression} [AS {alias}]]
       [LIMIT {count} {offset}]
       ...
       */
+  // Initialize math functions
+  RegisterMathFunctions(&functions_g);
+
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
   CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
                          CmdSchema_Required);
@@ -77,8 +84,7 @@ void Aggregate_BuildSchema() {
 
   CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "APPLY",
                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(prj, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddPostional(prj, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
+  CmdSchema_AddPostional(prj, "EXPR", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
 
   CmdSchema_AddNamed(requestSchema, "LIMIT",
@@ -151,18 +157,18 @@ ResultProcessor *buildSortBY(CmdArg *srt, ResultProcessor *upstream, char **err)
   return NewSorterByFields(keys, 1, mx, upstream);
 }
 
-ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, char **err) {
-  CmdArg *func = CmdArg_FirstOf(arg, "func");
-  if (!func || CMDARG_TYPE(func) != CmdArg_String) {
-    asprintf(err, "Missing or invalid projection function");
+ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, RedisSearchCtx *sctx,
+                                 char **err) {
+  CmdArg *expr = CmdArg_FirstOf(arg, "expr");
+  if (!expr || CMDARG_TYPE(expr) != CmdArg_String) {
+    asprintf(err, "Missing or invalid projection expression");
     return NULL;
   }
 
-  const char *fname = CMDARG_STRPTR(func);
-  CmdArg *args = CmdArg_FirstOf(arg, "args");
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
 
-  return GetProjector(upstream, fname, alias, args, err);
+  return NewProjector(sctx, &functions_g, upstream, alias, CMDARG_STRPTR(expr), CMDARG_STRLEN(expr),
+                      err);
 }
 
 ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
@@ -224,7 +230,7 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
     } else if (!strcasecmp(key, "SORTBY")) {
       next = buildSortBY(child, next, &err);
     } else if (!strcasecmp(key, "APPLY")) {
-      next = buildProjection(child, next, &err);
+      next = buildProjection(child, next, plan->ctx, &err);
     } else if (!strcasecmp(key, "LIMIT")) {
       next = addLimit(child, next, &err);
     }
@@ -239,6 +245,9 @@ fail:
   if (prev) {
     ResultProcessor_Free(prev);
   }
+
+  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate reuqest: %s", err);
+  free(err);
   // if (!*err) {
   //   *err = (char *)strdup("Could not parse aggregate request");
   // }
