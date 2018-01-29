@@ -4,7 +4,7 @@
 #include "expression.h"
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
-  const char *text;
+  const char *raw;
   size_t len;
   char *pos;
 
@@ -12,14 +12,15 @@ typedef struct {
 
   RSExpr *root;
   int ok;
-} ExprParseCtx;
+} RSExprParseCtx;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
 works iteratively and is not callback based.  */
 typedef struct {
-  char *s;
+  const char *s;
   int len;
   int pos;
   double numval;
 } RSExprToken;
+
 #endif

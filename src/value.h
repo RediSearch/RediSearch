@@ -31,11 +31,12 @@ typedef enum {
 
 } RSValueType;
 
+#define RSVALUE_STATIC ((RSValue){.allocated = 0})
 // Variant value union
 typedef struct rsvalue {
   RSValueType t : 8;
   int refcount : 23;
-  int allocated : 1;
+  uint8_t allocated : 1;
   union {
     // numeric value
     double numval;
@@ -521,7 +522,7 @@ static void RSValue_Print(RSValue *v) {
       printf("%s", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
-      printf("%f", v->numval);
+      printf("%g", v->numval);
       break;
     case RSValue_Null:
       printf("NULL");
