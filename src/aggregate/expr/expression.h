@@ -3,6 +3,13 @@
 #include <redisearch.h>
 #include <value.h>
 #include <result_processor.h>
+#include <aggregate/functions/function.h>
+
+typedef struct {
+  char *err;
+  int code;
+  int errAllocated;
+} RSError;
 
 typedef enum {
   RSExpr_Literal,
@@ -26,28 +33,24 @@ typedef struct {
 typedef struct {
   const char *name;
   RSArgList *args;
-} RSFunction;
+  RSFunction Call;
+} RSFunctionExpr;
 
 typedef struct RSExpr {
   union {
     RSExprOp op;
     RSValue literal;
-    RSFunction func;
+    RSFunctionExpr func;
     RSKey property;
   };
   RSExprType t;
 } RSExpr;
 
-typedef int (*RSFunctionCallback)(SearchResult *r, RSValue *argv, int argc, void *privdata);
-typedef struct {
-} RSFunctionRegistry;
-
-RSFunctionCallback RSFunctionRegistry_Get(const char *f);
-
 typedef struct {
   SearchResult *r;
   RSFunctionRegistry *fr;
   RSSortingTable *sortables;
+  RedisSearchCtx *sctx;
 } RSExprEvalCtx;
 
 #define EXPR_EVAL_ERR 1
@@ -61,10 +64,10 @@ RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
 RSExpr *RS_NewStringLiteral(const char *str, size_t len);
 RSExpr *RS_NewNumberLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args);
+RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
 RSExpr *RS_NewProp(const char *str, size_t len);
 void RSExpr_Free(RSExpr *expr);
 void RSExpr_Print(RSExpr *expr);
-RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, char **err);
 
 #endif

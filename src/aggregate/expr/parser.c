@@ -904,22 +904,31 @@ static void yy_reduce(
         break;
       case 13: /* expr ::= FUNC LP arglist RP */
 #line 55 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
-{ yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy4); }
-#line 909 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+{
+    RSFunction cb = RSFunctionRegistry_Get(ctx->funcs, yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
+    if (!cb) {
+        asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
+        ctx->ok = 0;
+        yylhsminor.yy19 = NULL; 
+    } else {
+         yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy4, cb);
+    }
+}
+#line 918 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
         break;
       case 14: /* arglist ::= expr */
-#line 57 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 66 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy4 = RS_NewArgList(yymsp[0].minor.yy19); }
-#line 915 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 924 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy4 = yylhsminor.yy4;
         break;
       case 15: /* arglist ::= arglist COMMA expr */
-#line 58 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 67 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
 { 
     yylhsminor.yy4 = RSArgList_Append(yymsp[-2].minor.yy4, yymsp[0].minor.yy19);
 }
-#line 923 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 932 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy4 = yylhsminor.yy4;
         break;
       default:
@@ -984,7 +993,7 @@ static void yy_syntax_error(
 
     asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
-#line 988 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 997 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
 /************ End %syntax_error code ******************************************/
   RSExprParser_ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }

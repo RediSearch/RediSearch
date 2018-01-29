@@ -32,6 +32,7 @@ typedef enum {
 } RSValueType;
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
+
 // Variant value union
 typedef struct rsvalue {
   RSValueType t : 8;
@@ -117,6 +118,23 @@ static RSValue RS_StaticValue(RSValueType t) {
       .allocated = 0,
   };
   return v;
+}
+
+static inline void RSValue_SetNumber(RSValue *v, double n) {
+  v->t = RSValue_Number;
+  v->numval = n;
+}
+
+static inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+  v->t = RSValue_String;
+  v->strval.len = len;
+  v->strval.str = str;
+}
+
+static inline void RSValue_SetConstString(RSValue *v, char *str, size_t len) {
+  v->t = RSValue_ConstString;
+  v->strval.len = len;
+  v->strval.str = str;
 }
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
