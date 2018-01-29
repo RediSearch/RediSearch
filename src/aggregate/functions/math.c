@@ -2,33 +2,38 @@
 #include <aggregate/expr/expression.h>
 #include <math.h>
 
-#define VALIDATE_ARGC(f, argc, len)                       \
-  {                                                       \
-    if (argc != len) {                                    \
-      *err = strdup("Invalid arguments for "__STRING(f)); \
-      return EXPR_EVAL_ERR;                               \
-    }                                                     \
+/* Template for single argument double to double math function */
+#define NUMERIC_SIMPLE_FUNCTION(f)                                                \
+  static int mathfunc_##f(RSValue *result, RSValue *argv, int argc, char **err) { \
+    if (argc != 1) {                                                              \
+      *err = strdup("Invalid number of arguments for function '" __STRING(f));    \
+    }                                                                             \
+    double d;                                                                     \
+    if (!RSValue_ToNumber(&argv[0], &d)) {                                        \
+      RSValue_SetNumber(result, NAN);                                             \
+      return EXPR_EVAL_OK;                                                        \
+    }                                                                             \
+    RSValue_SetNumber(result, f(d));                                              \
+    return EXPR_EVAL_OK;                                                          \
   }
 
-#define VALIDATE_ARG_TYPE(f, arg, typ)                           \
-  {                                                              \
-    if (arg.t != typ) {                                          \
-      *err = strdup("Invalid type for argument in "__STRING(f)); \
-      return EXPR_EVAL_ERR;                                      \
-    }                                                            \
-  }
+NUMERIC_SIMPLE_FUNCTION(log);
+NUMERIC_SIMPLE_FUNCTION(floor);
+NUMERIC_SIMPLE_FUNCTION(fabs);
+NUMERIC_SIMPLE_FUNCTION(ceil);
+NUMERIC_SIMPLE_FUNCTION(sqrt);
+NUMERIC_SIMPLE_FUNCTION(log2);
+NUMERIC_SIMPLE_FUNCTION(exp);
 
-int func_log(RSValue *result, RSValue *argv, int argc, char **err) {
-  VALIDATE_ARGC(log, argc, 1);
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d)) {
-    return EXPR_EVAL_ERR;
-  }
-
-  RSValue_SetNumber(result, log(d));
-  return EXPR_EVAL_OK;
-}
+#define REGISTER_MATHFUNC(reg, name, f) \
+  RSFunctionRegistry_RegisterFunction(reg, name, mathfunc_##f);
 
 void RegisterMathFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "log", func_log);
+  REGISTER_MATHFUNC(reg, "log", log);
+  REGISTER_MATHFUNC(reg, "floor", floor);
+  REGISTER_MATHFUNC(reg, "abs", fabs);
+  REGISTER_MATHFUNC(reg, "ceil", ceil);
+  REGISTER_MATHFUNC(reg, "sqrt", sqrt);
+  REGISTER_MATHFUNC(reg, "log2", log2);
+  REGISTER_MATHFUNC(reg, "exp", exp);
 }

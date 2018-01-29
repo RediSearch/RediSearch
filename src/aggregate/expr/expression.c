@@ -114,6 +114,7 @@ static int evalFunc(RSExprEvalCtx *ctx, RSFunctionExpr *f, RSValue *result, char
 
   RSValue args[f->args->len];
   for (size_t i = 0; i < f->args->len; i++) {
+    args[i] = RSVALUE_STATIC;
     if (RSExpr_Eval(ctx, f->args->args[i], &args[i], err) == EXPR_EVAL_ERR) {
       // TODO: Free other results
       return EXPR_EVAL_ERR;
