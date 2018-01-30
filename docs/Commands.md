@@ -105,7 +105,8 @@ Add a documet to the index.
 
 - **NOSAVE**: If set to true, we will not save the actual document in the index and only index it.
 
-- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. 
+- **REPLACE**: If set, we will do an UPSERT style insertion - and 
+ete an older version of the document if it exists. 
 
 - **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.
 
@@ -425,6 +426,12 @@ FT.DEL {index} {doc_id}
 Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
 After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
+
+!!! warning "FT.DEL does NOT delete the actual document!"
+        
+        Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
+        
+        If you want to delete the HASH storing the documents, a further **DEL {doc_id}** needs to be issued. You can run both of them in a MULTI transaction.
 
 ### Parameters
 
