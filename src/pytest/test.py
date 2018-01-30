@@ -1558,6 +1558,24 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
     def testDuplicateSpec(self):
         with self.assertResponseError():
             self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
+    
+    def testLuaAndMulti(self):
+        # Ensure we can work in Lua and Multi environments without crashing
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
+        self.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
+        self.cmd('HMSET', 'hashDoc2', 'f1', 'v1', 'n1', 5)
+
+        r = self.client
+
+        r.eval("return redis.call('ft.add', 'idx', 'doc1', 1.0, 'fields', 'f1', 'bar')", "0")
+        r.eval("return redis.call('ft.addhash', 'idx', 'hashDoc', 1.0)", 0)
+
+        # Try in a pipeline:
+        with r.pipeline(transaction=True) as pl:
+            pl.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields', 'f1', 'v3')
+            pl.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields', 'f1', 'v4')
+            pl.execute_command('ft.addhash', 'idx', 'hashdoc2', 1.0)
+        pl.execute()
 
 
 def grouper(iterable, n, fillvalue=None):

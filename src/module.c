@@ -717,9 +717,14 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithError(ctx, err);
   }
 
+  if (isBlockable) {
+    isBlockable = CheckConcurrentSupport(ctx);
+  }
+
   if (!isBlockable) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }
+
   AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
 
 cleanup:
