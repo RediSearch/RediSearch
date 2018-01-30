@@ -304,7 +304,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     if (FieldSpec_IsSortable(fs)) {
       fs->sortIdx = sortIdx++;
     }
-    if (sortIdx > 255) {
+    if (sortIdx > RS_SORTABLES_MAX) {
       *err = "Too many sortable fields";
 
       goto failure;

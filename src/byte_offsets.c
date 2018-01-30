@@ -30,39 +30,18 @@ void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
   memset(&w->buf, 0, sizeof w->buf);
 }
 
-static void write_u32(BufferWriter *w, uint32_t n) {
-  n = htonl(n);
-  Buffer_Write(w, &n, 4);
-}
-
-static uint32_t load_u32(BufferReader *r) {
-  uint32_t n;
-  Buffer_Read(r, &n, 4);
-  return ntohl(n);
-}
-
-static uint8_t load_u8(BufferReader *r) {
-  uint8_t n;
-  Buffer_Read(r, &n, 1);
-  return n;
-}
-
-static void write_u8(BufferWriter *w, uint8_t n) {
-  Buffer_Write(w, &n, 1);
-}
-
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
   BufferWriter w = NewBufferWriter(b);
 
-  write_u8(&w, offsets->numFields);
+  Buffer_WriteU8(&w, offsets->numFields);
 
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
-    write_u8(&w, offsets->fields[ii].fieldId);
-    write_u32(&w, offsets->fields[ii].firstTokPos);
-    write_u32(&w, offsets->fields[ii].lastTokPos);
+    Buffer_WriteU8(&w, offsets->fields[ii].fieldId);
+    Buffer_WriteU32(&w, offsets->fields[ii].firstTokPos);
+    Buffer_WriteU32(&w, offsets->fields[ii].lastTokPos);
   }
 
-  write_u32(&w, offsets->offsets.len);
+  Buffer_WriteU32(&w, offsets->offsets.len);
   Buffer_Write(&w, offsets->offsets.data, offsets->offsets.len);
 }
 
@@ -70,18 +49,18 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   BufferReader r = NewBufferReader(buf);
 
   RSByteOffsets *offsets = NewByteOffsets();
-  uint8_t numFields = load_u8(&r);
+  uint8_t numFields = Buffer_ReadU8(&r);
   RSByteOffsets_ReserveFields(offsets, numFields);
 
   for (size_t ii = 0; ii < numFields; ++ii) {
-    uint8_t fieldId = load_u8(&r);
-    uint32_t firstTok = load_u32(&r);
-    uint32_t lastTok = load_u32(&r);
+    uint8_t fieldId = Buffer_ReadU8(&r);
+    uint32_t firstTok = Buffer_ReadU32(&r);
+    uint32_t lastTok = Buffer_ReadU32(&r);
     RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok);
     fieldInfo->lastTokPos = lastTok;
   }
 
-  uint32_t offsetsLen = load_u32(&r);
+  uint32_t offsetsLen = Buffer_ReadU32(&r);
   offsets->offsets.len = offsetsLen;
   if (offsetsLen) {
     offsets->offsets.data = rm_malloc(offsetsLen);

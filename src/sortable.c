@@ -6,10 +6,11 @@
 #include "rmutil/strings.h"
 #include "rmalloc.h"
 #include "sortable.h"
+#include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len) {
-  if (len > 255) {
+  if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
   RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSSortableValue)));
@@ -81,7 +82,7 @@ char *normalizeStr(const char *str) {
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
-  if (idx <= 255) {
+  if (idx <= RS_SORTABLES_MAX) {
     switch (type) {
       case RS_SORTABLE_NUM:
         tbl->values[idx].num = *(double *)p;
@@ -116,6 +117,10 @@ void SortingVector_Free(RSSortingVector *v) {
 
 /* Save a sorting vector to rdb. This is called from the doc table */
 void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
+  if (!v) {
+    RedisModule_SaveUnsigned(rdb, 0);
+    return;
+  }
   RedisModule_SaveUnsigned(rdb, v->len);
   for (int i = 0; i < v->len; i++) {
     RSSortableValue *val = &v->values[i];
@@ -142,7 +147,7 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
-  if (len > 255 || len <= 0) {
+  if (len > RS_SORTABLES_MAX || len <= 0) {
     return NULL;
   }
   RSSortingVector *vec = NewSortingVector(len);
@@ -168,6 +173,109 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
   return vec;
+}
+
+// We know these won't change
+#define SV_SERIALIZED_STRING 1
+#define SV_SERIALIZED_NUMBER 2
+#define SV_SERIALIZED_NIL 4
+
+#define SV_SERIALIZED_UNKNOWN 0xff
+
+void SortingVector_Serialize(const RSSortingVector *sv, Buffer *out) {
+  // Write the number of sorting vectors in the table
+  BufferWriter bw = NewBufferWriter(out);
+  Buffer_WriteU32(&bw, sv->len);
+  for (size_t ii = 0; ii < sv->len; ++ii) {
+    const RSSortableValue *val = sv->values + ii;
+    char *buf, buf_s[1024];
+    size_t slen;
+
+    if (val->type == RS_SORTABLE_STR) {
+      Buffer_WriteU8(&bw, SV_SERIALIZED_STRING);
+      buf = val->str;
+      slen = strlen(val->str);
+    } else if (val->type == RS_SORTABLE_NUM) {
+      Buffer_WriteU8(&bw, SV_SERIALIZED_NUMBER);
+      buf = buf_s;
+      slen = sprintf(buf_s, "%lf", val->num);
+    } else if (val->type == RS_SORTABLE_NIL) {
+      Buffer_WriteU8(&bw, SV_SERIALIZED_NIL);
+      continue;
+
+    } else {
+      // wtf?
+      Buffer_WriteU8(&bw, SV_SERIALIZED_UNKNOWN);
+      continue;
+    }
+    Buffer_WriteU16(&bw, slen);
+    Buffer_Write(&bw, buf, slen);
+  }
+}
+
+RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
+  Buffer b = {.data = (void *)s, .offset = n};
+  BufferReader r = NewBufferReader(&b);
+  if (BufferReader_Offset(&r) < 4) {
+    return NULL;
+  }
+
+  // Read the length of sorting vectors
+  uint32_t len = Buffer_ReadU32(&r);
+  if (len > RS_SORTABLES_MAX) {
+    return NULL;
+  }
+
+  RSSortingVector *v = NewSortingVector(len);
+  for (size_t ii = 0; ii < len; ++ii) {
+    if (BufferReader_Offset(&r) < 1) {
+      // Need at least {type(1),len(2)}
+      goto error;
+    }
+
+    RSSortableValue *cur = v->values + ii;
+
+    uint8_t type = Buffer_ReadU8(&r);
+
+    if (type == SV_SERIALIZED_NIL) {
+      cur->type = RS_SORTABLE_NIL;
+      continue;
+    }
+
+    if (BufferReader_Offset(&r) < 2) {
+      goto error;
+    }
+
+    uint16_t len = Buffer_ReadU16(&r);
+    if (BufferReader_Offset(&r) < len) {
+      goto error;
+    }
+    if (type == SV_SERIALIZED_STRING) {
+      cur->type = RS_SORTABLE_STR;
+      cur->str = rm_malloc(len + 1);
+      cur->str[len] = 0;
+      Buffer_Read(&r, cur->str, len);
+    } else if (type == SV_SERIALIZED_NUMBER) {
+      cur->type = RS_SORTABLE_NUM;
+      char buf[1024];
+      if (len > sizeof(buf)) {
+        goto error;
+      }
+      if (sscanf(buf, "%lf", &cur->num) != 1) {
+        goto error;
+      }
+    } else {
+      // Unknown type!
+      goto error;
+    }
+  }
+  return v;
+
+error:
+  if (v) {
+    SortingVector_Free(v);
+  }
+  return NULL;
 }
 
 /* Create a new sorting table of a given length */

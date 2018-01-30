@@ -513,7 +513,9 @@ end:
  */
 int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc != 7) return RedisModule_WrongArity(ctx);
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -526,19 +528,40 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
   }
 
-  size_t payloadSize = 0, offsetsSize = 0;
+  size_t payloadSize = 0, offsetsSize = 0, svSize = 0;
+
   const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
   const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
+  const char *svBuf = argc > 8 ? RedisModule_StringPtrLen(argv[7], &svSize) : NULL;
+  RSSortingVector *sv = NULL;
+  RSByteOffsets *offsets = NULL;
+
+  if (flags & Document_HasSortVector) {
+    // Check if we're actually passed an SV
+    if (svBuf != NULL || (sv = SortingVector_LoadSerialized(svBuf, svSize)) == NULL) {
+      flags &= ~Document_HasSortVector;
+    }
+  }
+  if (flags & Document_HasOffsetVector) {
+    if (offsetsSize) {
+      Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
+      offsets = LoadByteOffsets(b);
+      free(b);
+    }
+    if (!offsets) {
+      flags &= ~Document_HasOffsetVector;
+    }
+  }
+
   t_docId d = DocTable_Put(&sp->docs, MakeDocKeyR(argv[2]), (float)score, (u_char)flags, payload,
                            payloadSize);
 
-  if (offsetsSize) {
-    Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
-    RSByteOffsets *offsets = LoadByteOffsets(b);
-    free(b);
-    if (offsets) {
-      DocTable_SetByteOffsets(&sp->docs, d, offsets);
-    }
+  if (offsets) {
+    DocTable_SetByteOffsets(&sp->docs, d, offsets);
+  }
+
+  if (sv) {
+    DocTable_SetSortingVector(&sp->docs, d, sv);
   }
 
   return RedisModule_ReplyWithLongLong(ctx, d);

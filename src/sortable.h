@@ -10,10 +10,13 @@
 #pragma pack(1)
 
 #define RS_SORTABLE_NUM 1
-#define RS_SORTABLE_EMBEDDED_STR 2
+// #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
+
+// Maximum number of sortables
+#define RS_SORTABLES_MAX 255
 
 // TODO: Short strings will be embedded into 8 bytes
 typedef struct {
@@ -59,7 +62,7 @@ typedef struct {
 
 void RSSortingKey_Free(RSSortingKey *k);
 
-/* Create a sorting table of a given length. Length can be up to 255 */
+/* Create a sorting table of a given length. Length can be up to RS_SORTABLES_MAX (255) */
 RSSortingTable *NewSortingTable(int len);
 
 /* Free a sorting table */
@@ -95,5 +98,9 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
 
 /* Load a sorting vector from RDB */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
+
+struct Buffer;
+void SortingVector_Serialize(const RSSortingVector *sv, struct Buffer *out);
+RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n);
 
 #endif

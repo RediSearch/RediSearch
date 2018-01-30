@@ -1371,6 +1371,27 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def testRawAof(self):
         self.aofTestCommon(lambda: self.cmd('debug loadaof'))
+    
+    def testRewriteAofSortables(self):
+        self.spawn_server(use_aof=True)
+        self.cmd('FT.CREATE', 'idx', 'schema', 'field1', 'TEXT', 'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
+        self.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'field1', 'Hello World')
+        self.restart_and_reload()
+        self.cmd('SAVE')
+
+        from random import randint
+
+        # Load some documents
+        for x in xrange(100):
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS',
+                'field1', 'txt{}'.format(random.random()),
+                'num1', random.random())
+        
+        cmd = ['FT.SEARCH', 'idx', 'txt', 'SORTBY', '2', 'field1', 'ASC', 'num1', 'DESC']
+        res = self.cmd(*cmd)
+        self.restart_and_reload()
+        res2 = self.cmd(*cmd)
+        self.assertEqual(res, res2)
 
     def testNoStem(self):
         self.cmd('ft.create', 'idx', 'schema', 'body', 'text', 'name', 'text', 'nostem')
