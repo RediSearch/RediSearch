@@ -2080,7 +2080,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 <p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the index and only index it.</p>
 </li>
 <li>
-<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists. </p>
+<p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and 
+ete an older version of the document if it exists. </p>
 </li>
 <li>
 <p><strong>PARTIAL</strong> (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.</p>
@@ -2359,8 +2360,11 @@ INTERSECT <span class="o">{</span>
 <h3 id="description_6">Description<a class="headerlink" href="#description_6" title="Permanent link">&para;</a></h3>
 <p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
 <p>After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.</p>
-<p><strong>NOTE</strong>: This does not actually delete the document from the index, just marks it as deleted. 
-Thus, deleting and re-inserting the same document over and over will inflate the index size with each re-insertion.</p>
+<div class="admonition warning">
+<p class="admonition-title">FT.DEL does NOT delete the actual document!<p>Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. </p>
+<p>If you want to delete the HASH storing the documents, a further <strong>DEL {doc_id}</strong> needs to be issued. You can run both of them in a MULTI transaction.</p>
+</p>
+</div>
 <h3 id="parameters_6">Parameters<a class="headerlink" href="#parameters_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
