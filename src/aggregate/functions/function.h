@@ -18,5 +18,6 @@ RSFunction RSFunctionRegistry_Get(RSFunctionRegistry *reg, const char *name, siz
 int RSFunctionRegistry_RegisterFunction(RSFunctionRegistry *ret, const char *name, RSFunction f);
 
 void RegisterMathFunctions(RSFunctionRegistry *reg);
+void RegisterStringFunctions(RSFunctionRegistry *reg);
 
 #endif

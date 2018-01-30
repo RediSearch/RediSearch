@@ -45,8 +45,10 @@ void Aggregate_BuildSchema() {
       [LIMIT {count} {offset}]
       ...
       */
-  // Initialize math functions
+
+  // Initialize projection functions registry
   RegisterMathFunctions(&functions_g);
+  RegisterStringFunctions(&functions_g);
 
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
   CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
