@@ -41,6 +41,23 @@
     sptmp;                                                                                  \
   })
 
+// Check if the current request can be executed in a threadb
+static int CheckConcurrentSupport(RedisModuleCtx *ctx) {
+  // See if this client should be concurrent
+  if (!RSGlobalConfig.concurrentMode) {
+    return 0;
+  }
+
+  // Redis cannot use blocked contexts in lua and/or multi commands. Concurrent
+  // search relies on blocking a client. In such cases, force non-concurrent
+  // search mode.
+  if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) &
+                                      (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI))) {
+    return 0;
+  }
+  return 1;
+}
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS
 <field>
@@ -93,6 +110,11 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
   int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
   int partial = RMUtil_ArgExists("PARTIAL", argv, argc, 1);
+
+  if (canBlock) {
+    canBlock = CheckConcurrentSupport(ctx);
+  }
+
   // printf("argc: %d, fieldsIdx: %d, argc - fieldsIdx: %d, nosave: %d\n", argc,
   // fieldsIdx,
   // argc-fieldsIdx, nosave);
@@ -783,7 +805,7 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // in concurrent mode - process the request in the thread pool
-  if (RSGlobalConfig.concurrentMode) {
+  if (CheckConcurrentSupport(ctx)) {
     int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
     SearchCtx_Free(sctx);
     return rc;
@@ -1216,6 +1238,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
       "Configuration: concurrent mode: %d, ext load: %s, min prefix: %d, max expansions: %d,",
       RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad, RSGlobalConfig.minTermPrefix,
       RSGlobalConfig.maxPrefixExpansions);
+
+  if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
+    RedisModule_Log(
+        ctx, "warning",
+        "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in MULTI or LUA will "
+        "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
+  }
 
   // Init extension mechanism
   Extensions_Init();
