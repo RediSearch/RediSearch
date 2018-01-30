@@ -31,7 +31,7 @@ jobs:
       - run:
           name: Package
           command: >-
-            ramp-packer -m /workspace/ramp.yml -o
+            ramp pack -m /workspace/ramp.yml -o
             /workspace/build/$PACKAGE_NAME.{os}-{architecture}.$CIRCLE_BRANCH.zip
             /workspace/$MODULE_ARTIFACT
       - persist_to_workspace:
@@ -49,13 +49,13 @@ jobs:
       - run:
           name: Package
           command: >-
-            ramp-packer -m /workspace/ramp.yml -o
+            ramp pack -m /workspace/ramp.yml -o
             /workspace/build/$PACKAGE_NAME.{os}-{architecture}.{semantic_version}.zip
             /workspace/$MODULE_ARTIFACT
       - run:
           name: Package
           command: >-
-            ramp-packer -m /workspace/ramp.yml -o
+            ramp pack -m /workspace/ramp.yml -o
             /workspace/build/$PACKAGE_NAME.{os}-{architecture}.latest.zip
             /workspace/$MODULE_ARTIFACT
       - persist_to_workspace:
