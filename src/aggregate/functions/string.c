@@ -7,22 +7,6 @@
 #include "function.h"
 #define STRING_BLOCK_SIZE 512
 
-#define VALIDATE_ARGS(fname, minargs, maxargs, err)              \
-  if (argc < minargs || argc > maxargs) {                        \
-    *err = strdup("Invalid arguments for function '" fname "'"); \
-    return EXPR_EVAL_ERR;                                        \
-  }
-
-#define VALIDATE_ARG_TYPE(fname, args, idx, type)                                             \
-  {                                                                                           \
-    RSValue *dref = RSValue_Dereference(&args[idx]);                                          \
-    if (dref->t != type) {                                                                    \
-                                                                                              \
-      asprintf(err, "Invalid type %d for argument %d in function '%s'", dref->t, idx, fname); \
-      printf("%s\n", *err);                                                                   \
-      return EXPR_EVAL_ERR;                                                                   \
-    }                                                                                         \
-  }
 
 /* lower(str) */
 static int stringfunc_tolower(RSValue *result, RSValue *argv, int argc, char **err) {
