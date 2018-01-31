@@ -152,8 +152,23 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual(53, int(float(row['stddev(price)'])))
         self.assertEqual(29, int(float(row['avgPrice'])))
 
-
-
+    def testParseTime(self):
+        cmd = ['FT.AGGREGATE', 'idx', '-@nonexist:nonexist',
+            'GROUPBY', '1', '@brand',
+            'REDUCE', 'COUNT', '0',
+            'APPLY', 'parse_time("%FT%TZ", time(1517417144))', 'as', 'now',
+            'LIMIT', '0', '10']
+        res = self.cmd(*cmd)
+        print res
+    
+    def testStringFormat(self):
+        cmd = ['FT.AGGREGATE', 'idx', '@brand:sony',
+            'GROUPBY', '1', '@title',
+            'REDUCE', 'COUNT', '0',
+            'APPLY', 'FORMAT("{{%s}} ==BY== {{%s}} (Hi: %s)", @title, @brand, "Mark")', 'as', 'titleBrand',
+            'LIMIT', '0', '10']
+        res = self.cmd(*cmd)
+        pprint.pprint(res)
 
 if __name__ == '__main__':
 
