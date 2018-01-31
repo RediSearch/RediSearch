@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include "expression.h"
 #include "result_processor.h"
 
@@ -21,12 +22,30 @@ static RSExpr *newExpr(RSExprType t) {
   e->t = t;
   return e;
 }
-RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
 
+// unquote and unescape a stirng literal, and return a cleaned copy of it
+char *unescpeStringDup(const char *s, size_t sz) {
+
+  char *dst = malloc(sz);
+  char *dstStart = dst;
+  char *src = (char *)s + 1;       // we start after the first quote
+  char *end = (char *)s + sz - 1;  // we end at the last quote
+  while (src < end) {
+    // unescape
+    if (*src == '\\' && src + 1 < end && (ispunct(*(src + 1)) || isspace(*(src + 1)))) {
+      ++src;
+      continue;
+    }
+    *dst++ = *src++;
+  }
+  *dst = '\0';
+  return dstStart;
+}
+RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.len = len;
-  e->literal.strval.str = strndup(str, len);
+  e->literal.strval.str = unescpeStringDup(str, len);
+  e->literal.strval.len = strlen(e->literal.strval.str);
   return e;
 }
 

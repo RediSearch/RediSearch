@@ -49,6 +49,7 @@ void Aggregate_BuildSchema() {
   // Initialize projection functions registry
   RegisterMathFunctions(&functions_g);
   RegisterStringFunctions(&functions_g);
+  RegisterDateFunctions(&functions_g);
 
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
   CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
@@ -61,8 +62,9 @@ void Aggregate_BuildSchema() {
       requestSchema, "LOAD",
       CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
       CmdSchema_Optional,
-      "Optionally load non-sortable properties from the HASH object. Do not unless as last resort, "
-      "this hurts performance badly.");
+      "Optionally load non-sortable properties from the HASH object. Do not use unless as last "
+      "resort, this hurts performance badly.");
+
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(grp, "by",
@@ -87,7 +89,7 @@ void Aggregate_BuildSchema() {
   CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "APPLY",
                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(prj, "EXPR", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
+  CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Required);
 
   CmdSchema_AddNamed(requestSchema, "LIMIT",
                      CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
