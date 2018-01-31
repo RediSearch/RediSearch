@@ -43,6 +43,7 @@ static int timeFormat(RSValue *result, RSValue *argv, int argc, char **err) {
   // BlkAlloc_Alloc(&tctx->alloc, rv, Max(rv, STRING_BLOCK_SIZE));
   // It will be released by releasing the result value and decreasing its refcount
   RSValue_SetString(result, buf, rv);
+  RSValue_Print(result);
   return EXPR_EVAL_OK;
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
@@ -53,8 +54,8 @@ err:
 
 static int parseTime(RSValue *result, RSValue *argv, int argc, char **err) {
   VALIDATE_ARGS("parse_time", 2, 2, err);
-  VALIDATE_ARG_TYPE("parse_time", argv, 1, RSValue_String);
-  VALIDATE_ARG_TYPE("parse_time", argv, 2, RSValue_String);
+  VALIDATE_ARG_ISSTRING("parse_time", argv, 0);
+  VALIDATE_ARG_ISSTRING("parse_time", argv, 1);
 
   char fmtbuf[1024] = {0};
   char valbuf[1024] = {0};
@@ -64,13 +65,16 @@ static int parseTime(RSValue *result, RSValue *argv, int argc, char **err) {
   if (fmtlen > sizeof(fmtbuf)) {
     goto err;
   }
+
   size_t vallen;
-  const char *origval = RSValue_StringPtrLen(&argv[0], &vallen);
+  const char *origval = RSValue_StringPtrLen(&argv[1], &vallen);
   if (vallen > sizeof(valbuf)) {
     goto err;
   }
+  memcpy(fmtbuf, origfmt, fmtlen);
+  memcpy(valbuf, origval, vallen);
 
-  struct tm tm;
+  struct tm tm = {0};
   char *rc = strptime(valbuf, fmtbuf, &tm);
   if (rc == NULL) {
     goto err;
