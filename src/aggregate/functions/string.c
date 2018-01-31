@@ -80,7 +80,7 @@ static int stringfunc_format(RSValue *result, RSValue *argv, int argc, char **er
     *err = strdup("Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
-  VALIDATE_ARG_TYPE("format", argv, 0, RSValue_String);
+  VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   Array arr = {NULL};
   Array_InitEx(&arr, ArrayAlloc_LibC);
@@ -88,6 +88,7 @@ static int stringfunc_format(RSValue *result, RSValue *argv, int argc, char **er
   size_t fmtsz;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
+
   for (size_t ii = 0; ii < fmtsz; ++ii) {
     if (fmt[ii] != '%') {
       continue;
@@ -100,8 +101,8 @@ static int stringfunc_format(RSValue *result, RSValue *argv, int argc, char **er
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    Array_Write(&arr, last, end - last);
-    last = fmt + 2;
+    Array_Write(&arr, last, (fmt + ii) - last);
+    last = fmt + ii + 2;
 
     char type = fmt[++ii];
     if (type == '%') {
