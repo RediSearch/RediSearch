@@ -6,7 +6,7 @@
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                \
   static int mathfunc_##f(RSValue *result, RSValue *argv, int argc, char **err) { \
     if (argc != 1) {                                                              \
-      *err = strdup("Invalid number of arguments for function '" __STRING(f));    \
+      *err = strdup("Invalid number of arguments for function '" #f);             \
     }                                                                             \
     double d;                                                                     \
     if (!RSValue_ToNumber(&argv[0], &d)) {                                        \
