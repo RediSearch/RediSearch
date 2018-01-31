@@ -51,6 +51,40 @@ err:
   return EXPR_EVAL_OK;
 }
 
+static int parseTime(RSValue *result, RSValue *argv, int argc, char **err) {
+  VALIDATE_ARGS("parse_time", 2, 2, err);
+  VALIDATE_ARG_TYPE("parse_time", argv, 1, RSValue_String);
+  VALIDATE_ARG_TYPE("parse_time", argv, 2, RSValue_String);
+
+  char fmtbuf[1024] = {0};
+  char valbuf[1024] = {0};
+  size_t fmtlen;
+
+  const char *origfmt = RSValue_StringPtrLen(&argv[0], &fmtlen);
+  if (fmtlen > sizeof(fmtbuf)) {
+    goto err;
+  }
+  size_t vallen;
+  const char *origval = RSValue_StringPtrLen(&argv[0], &vallen);
+  if (vallen > sizeof(valbuf)) {
+    goto err;
+  }
+
+  struct tm tm;
+  char *rc = strptime(valbuf, fmtbuf, &tm);
+  if (rc == NULL) {
+    goto err;
+  }
+  time_t rv = timegm(&tm);
+  RSValue_SetNumber(result, rv);
+  return EXPR_EVAL_OK;
+
+err:
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
 void RegisterDateFunctions(RSFunctionRegistry *reg) {
   RSFunctionRegistry_RegisterFunction(reg, "time", timeFormat);
+  RSFunctionRegistry_RegisterFunction(reg, "parse_time", parseTime);
 }
