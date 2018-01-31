@@ -9,16 +9,25 @@
     return EXPR_EVAL_ERR;                                        \
   }
 
-#define VALIDATE_ARG_TYPE(fname, args, idx, type)                                             \
-  {                                                                                           \
-    RSValue *dref = RSValue_Dereference(&args[idx]);                                          \
-    if (dref->t != type) {                                                                    \
-                                                                                              \
-      asprintf(err, "Invalid type %d for argument %d in function '%s'", dref->t, idx, fname); \
-      printf("%s\n", *err);                                                                   \
-      return EXPR_EVAL_ERR;                                                                   \
-    }                                                                                         \
+#define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                  \
+  {                                                                                             \
+    RSValue *dref = RSValue_Dereference(&args[idx]);                                            \
+    if (!verifier(dref, varg)) {                                                                \
+                                                                                                \
+      asprintf(err, "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", \
+               dref->t, idx, fname, #verifier, #varg);                                          \
+      printf("%s\n", *err);                                                                     \
+      return EXPR_EVAL_ERR;                                                                     \
+    }                                                                                           \
   }
+
+#define VALIDATE_ARG__TYPE(arg, t_) ((arg)->t == t_)
+#define VALIDATE_ARG_TYPE(fname, args, idx, t) \
+  VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
+
+#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsString(arg)
+#define VALIDATE_ARG_ISSTRING(fname, args, idx) \
+  VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 
 typedef int (*RSFunction)(RSValue *result, RSValue *argv, int argc, char **err);
 
