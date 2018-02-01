@@ -128,7 +128,10 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf) {
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
   GeoFilter *gf = malloc(sizeof(*gf));
   *gf = (GeoFilter){
-      .lon = lon, .lat = lat, .radius = radius, .unit = unit,
+      .lon = lon,
+      .lat = lat,
+      .radius = radius,
+      .unit = unit,
   };
   return gf;
 }

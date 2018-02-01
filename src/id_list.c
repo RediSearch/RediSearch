@@ -4,7 +4,7 @@
 #include "id_list.h"
 
 /* Read the next entry from the iterator, into hit *e.
-*  Returns INDEXREAD_EOF if at the end */
+ *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->size == 0) {
@@ -45,23 +45,21 @@ int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
 
   t_offset top = it->size - 1, bottom = it->offset;
   t_offset i = bottom;
-  t_offset newi;
 
-  while (bottom < top) {
+  while (bottom <= top) {
+
     t_docId did = it->docIds[i];
+
     if (did == docId) {
       break;
     }
-    if (docId <= did) {
-      top = i;
+    if (docId < did) {
+      if (i == 0) break;
+      top = i - 1;
     } else {
-      bottom = i;
+      bottom = i + 1;
     }
-    newi = (bottom + top) / 2;
-    if (newi == i) {
-      break;
-    }
-    i = newi;
+    i = (bottom + top) / 2;
   }
   it->offset = i + 1;
   if (it->offset == it->size) {
@@ -127,6 +125,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
 
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
+
   IdListIterator *it = rm_new(IdListIterator);
 
   it->size = num;
