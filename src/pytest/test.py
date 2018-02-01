@@ -1495,6 +1495,25 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(exp1, res1)
         self.assertEqual(exp2, res2)
 
+    def testCursor(self):
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        for x in range(100):
+            self.cmd('ft.add', 'idx', 'doc{}'.format(x), 1.0, 'fields', 'txt', 'hello')
+        
+        last_key = ''
+        total = 0
+        alldocs = set()
+        while True:
+            res = self.cmd('ft.search', 'idx', 'hello', 'cursor', last_key)
+            d = {res[i]: res[i + 1] for i in range(1, len(res), 2)}
+            alldocs = alldocs.union(d.keys())
+            total += len(d)
+            print res
+            if len(d) < 10:
+                break
+            last_key = res[-2]
+        self.assertEqual(100, len(alldocs))
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

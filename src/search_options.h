@@ -17,10 +17,12 @@ typedef enum {
 
   Search_WithSortKeys = 0x40,
   Search_AggregationQuery = 0x80,
-  Search_NoSort = 0x100
+  Search_NoSort = 0x100,
+  Search_CursorIterator = 0x200
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
+#define RS_CURSOR_INIT (size_t) - 1
 
 // maximum results you can get in one query
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
@@ -52,6 +54,7 @@ typedef struct {
   RSSortingKey *sortBy;
 
   /* Paging */
+  size_t cursor;
   size_t offset;
   size_t num;
 

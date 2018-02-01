@@ -174,6 +174,11 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
     return NULL;
   }
   plan->execCtx.rootFilter = plan->rootFilter;
+  if (opts->cursor && plan->rootFilter) {
+    RSIndexResult *dummy = NULL;
+    plan->rootFilter->SkipTo(plan->rootFilter->ctx, opts->cursor, &dummy);
+  }
+
   plan->rootProcessor = pcb(plan, chainBuilderContext, err);
   if (!plan->rootProcessor) {
     QueryPlan_Free(plan);

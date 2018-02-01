@@ -14,6 +14,39 @@
 #include <sys/param.h>
 #include <rmutil/cmdparse.h>
 
+static int parseCursor(RedisSearchCtx *ctx, RSSearchRequest *req, RedisModuleString **argv,
+                       int argc, char **errStr) {
+  int cursorIndex = RMUtil_ArgIndex("CURSOR", argv, argc);
+  if (cursorIndex < 0) {
+    return REDISMODULE_OK;
+  }
+
+  req->opts.flags |= Search_CursorIterator | Search_NoSort;
+  if (cursorIndex + 1 == argc) {
+    *errStr = "Cursor requires argument";
+    return REDISMODULE_ERR;
+  }
+
+  RedisModuleString *curkey = argv[cursorIndex + 1];
+
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(curkey, &n);
+  if (n == 0) {
+    req->opts.cursor = 0;
+    return REDISMODULE_OK;
+  }
+
+  // Look up in ID
+  t_docId id = DocTable_GetId(&ctx->spec->docs, (RSDocumentKey){.str = s, .len = n});
+  if (id == 0) {
+    *errStr = "Invalid cursor";
+    return REDISMODULE_ERR;
+  }
+
+  req->opts.cursor = id;
+  return REDISMODULE_OK;
+}
+
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
 
@@ -77,6 +110,10 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
   req->opts.offset = offset;
   req->opts.num = limit;
+
+  if (parseCursor(ctx, req, argv, argc, errStr) != REDISMODULE_OK) {
+    goto err;
+  }
 
   RedisModuleString **vargs;
   size_t nargs;

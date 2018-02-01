@@ -510,16 +510,20 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // not reached beginning of results
   if (pc->count < pc->offset) {
-    RSFieldMap_Free(r->fields, 0);
-    r->fields = NULL;
+    if (r->fields) {
+      RSFieldMap_Free(r->fields, 0);
+      r->fields = NULL;
+    }
 
     pc->count++;
     return RS_RESULT_QUEUED;
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
-    RSFieldMap_Free(r->fields, 0);
-    r->fields = NULL;
+    if (r->fields) {
+      RSFieldMap_Free(r->fields, 0);
+      r->fields = NULL;
+    }
     return RS_RESULT_EOF;
   }
   pc->count++;
