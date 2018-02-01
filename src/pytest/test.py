@@ -1483,6 +1483,18 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             res = self.cmd('ft.search', 'idx', 'match')
             self.assertEqual(res, [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']])
 
+    def testNoSort(self):
+        self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'world kjkjk k blah hi whatever irrelevant hello')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello world blah blah blha blah')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'fields', 'txt', 'hello world hello world hello world')
+        res1 = self.cmd('ft.search', 'idx', 'hello')
+        res2 = self.cmd('ft.search', 'idx', 'hello', 'nosort')
+        exp1 = [3L, 'doc3', ['txt', 'hello world hello world hello world'], 'doc1', ['txt', 'world kjkjk k blah hi whatever irrelevant hello'], 'doc2', ['txt', 'hello world blah blah blha blah']]
+        exp2 = [1L, 'doc1', ['txt', 'world kjkjk k blah hi whatever irrelevant hello'], 'doc2', ['txt', 'hello world blah blah blha blah'], 'doc3', ['txt', 'hello world hello world hello world']]
+        self.assertEqual(exp1, res1)
+        self.assertEqual(exp2, res2)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

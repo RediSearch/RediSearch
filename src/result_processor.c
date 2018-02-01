@@ -89,7 +89,6 @@ static void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
   // This won't affect anything if the result is null
-  IndexResult_Free(r->indexResult);
   if (r->fields) {
     RSFieldMap_Free(r->fields, 0);
   }
@@ -299,8 +298,6 @@ struct sorterCtx {
   // accumulation state - while this is true, any call to next() will yield QUEUED
   int accumulating;
 
-  int saveIndexResults;
-
   SortMode sortMode;
 };
 
@@ -370,7 +367,6 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (!sc->size || sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = NULL;
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -388,17 +384,11 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     // if needed - pop it and insert a new result
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
-      // copy the index result to make it thread safe - but only if it is pushed to the heap
-      h->indexResult = NULL;
-
       sc->pooledResult = mmh_pop_min(sc->pq);
-      sc->pooledResult->indexResult = NULL;
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
       sc->pooledResult = h;
-      // make sure we will not try to free the index result of the pooled result at the end
-      sc->pooledResult->indexResult = NULL;
     }
   }
 
@@ -451,7 +441,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 }
 
 ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
-                           ResultProcessor *upstream, int copyIndexResults) {
+                           ResultProcessor *upstream) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
   // select the sorting function by the sort mode
@@ -473,7 +463,6 @@ ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
   sc->offset = 0;
   sc->pooledResult = NULL;
   sc->accumulating = 1;
-  sc->saveIndexResults = copyIndexResults;
   sc->sortMode = sortMode;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
@@ -488,7 +477,7 @@ ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32
   c->ascendMap = ascendingMap;
   c->keys = mk;
 
-  return NewSorter(Sort_ByFields, c, size, upstream, 0);
+  return NewSorter(Sort_ByFields, c, size, upstream);
 }
 
 /*******************************************************************************************************************
@@ -521,8 +510,6 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // not reached beginning of results
   if (pc->count < pc->offset) {
-
-    IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
 
@@ -531,7 +518,6 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
-    IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
     return RS_RESULT_EOF;
@@ -598,6 +584,9 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     Array_Free(&fieldList);
   }
   // TODO: load should return strings, not redis strings
+  if (!r->fields) {
+    r->fields = RS_NewFieldMap(doc.numFields);
+  }
   for (int i = 0; i < doc.numFields; i++) {
     RSFieldMap_Set(&r->fields, doc.fields[i].name,
                    doc.fields[i].text ? RS_RedisStringVal(doc.fields[i].text) : RS_NullVal());
@@ -629,14 +618,18 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
 
-  // If we are not in SORTBY mode - add a scorer to the chain
-  if (q->opts.sortBy == NULL) {
-    next = NewScorer(q->opts.scorer, next, req);
-  }
+  // If no sorting (i.e. docid sorting) has been requested, don't create these
+  // intermediaries
+  if (!(q->opts.flags & Search_NoSort)) {
+    // If we are not in SORTBY mode - add a scorer to the chain
+    if (q->opts.sortBy == NULL) {
+      next = NewScorer(q->opts.scorer, next, req);
+    }
 
-  // The sorter sorts the top-N results
-  next = NewSorter(q->opts.sortBy ? Sort_BySortKey : Sort_ByScore, q->opts.sortBy,
-                   q->opts.offset + q->opts.num, next, req->fields.wantSummaries);
+    // The sorter sorts the top-N results
+    next = NewSorter(q->opts.sortBy ? Sort_BySortKey : Sort_ByScore, q->opts.sortBy,
+                     q->opts.offset + q->opts.num, next);
+  }
 
   // The pager pages over the results of the sorter
   next = NewPager(next, q->opts.offset, q->opts.num);

@@ -41,6 +41,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   // Parse NOSTOPWORDS argument
   if (RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3)) req->opts.flags |= Search_NoStopwrods;
 
+  if (RMUtil_ArgExists("NOSORT", argv, argc, 3)) req->opts.flags |= Search_NoSort;
+
   if (RMUtil_ArgExists("INORDER", argv, argc, 3)) {
     req->opts.flags |= Search_InOrder;
     // the slop will be parsed later, this is just the default when INORDER and no SLOP
