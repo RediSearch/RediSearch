@@ -1261,11 +1261,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     return REDISMODULE_ERR;
   }
-  RedisModule_Log(
-      ctx, "notice",
-      "Configuration: concurrent mode: %d, ext load: %s, min prefix: %d, max expansions: %d,",
-      RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad, RSGlobalConfig.minTermPrefix,
-      RSGlobalConfig.maxPrefixExpansions);
+  RedisModule_Log(ctx, "notice",
+                  "Configuration: concurrent mode: %d, ext load: %s, min prefix: %d, max "
+                  "expansions: %d, query timeout: %dms",
+                  RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad,
+                  RSGlobalConfig.minTermPrefix, RSGlobalConfig.maxPrefixExpansions,
+                  RSGlobalConfig.queryTimeoutMS);
 
   if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
     RedisModule_Log(
