@@ -9,7 +9,6 @@
  * created from a list of keys in the index */
 typedef struct idFilter {
   t_docId *ids;
-  RedisModuleString **keys;
   t_offset size;
 } IdFilter;
 

@@ -8,7 +8,7 @@
 IdFilter *NewIdFilter(RedisModuleString **args, int count, DocTable *dt) {
 
   IdFilter *ret = malloc(sizeof(*ret));
-  *ret = (IdFilter){.ids = NULL, .keys = args, .size = 0};
+  *ret = (IdFilter){.ids = NULL, .size = 0};
   if (count <= 0) {
     return ret;
   }
