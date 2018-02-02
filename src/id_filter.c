@@ -23,6 +23,17 @@ IdFilter *NewIdFilter(RedisModuleString **args, int count, DocTable *dt) {
   return ret;
 }
 
+IdFilter *NewSingleIdFilter(const char *key, size_t n, DocTable *dt) {
+  IdFilter *ret = malloc(sizeof(*ret));
+  ret->ids = malloc(sizeof(*ret->ids));
+  ret->size = 0;
+  t_docId did = DocTable_GetId(dt, MakeDocKey(key, n));
+  if (did) {
+    ret->ids[ret->size++] = did;
+  }
+  return ret;
+}
+
 void IdFilter_Free(IdFilter *f) {
   if (f->ids) {
     free(f->ids);

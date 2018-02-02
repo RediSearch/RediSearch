@@ -16,6 +16,11 @@ typedef struct idFilter {
  * be less than or equal to the length of args */
 IdFilter *NewIdFilter(RedisModuleString **args, int count, DocTable *dt);
 
+/**
+ * Create a new ID filter from a single ID
+ */
+IdFilter *NewSingleIdFilter(const char *key, size_t n, DocTable *dt);
+
 /* Free the filter's internal data, but not the filter itself, that is allocated on the stack */
 void IdFilter_Free(IdFilter *f);
 
