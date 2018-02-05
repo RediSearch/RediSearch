@@ -1408,6 +1408,31 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         
         self.assertEqual(res_exp, res_got)
 
+    def testAofRewriteTags(self):
+        self.spawn_server(use_aof=True)
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
+        self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+        self.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+        def to_dict(r):
+            return {r[i]: r[i+1] for i in range(0, len(r), 2)}
+        info_a = to_dict(self.cmd('FT.INFO', 'idx'))
+        self.restart_and_reload()
+        info_b = to_dict(self.cmd('FT.INFO', 'idx'))
+        self.assertEqual(info_a['fields'], info_b['fields'])
+
+        # Try to drop the schema
+        self.cmd('FT.DROP', 'idx')
+
+        # Try to create it again - should work!
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
+        self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+        self.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+        res = self.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
+            'RETURN', '1', 'foo', 'WITHSORTKEYS')
+        self.assertEqual([2L, '1', 'a', ['foo', 'A'], '2', 'b', ['foo', 'B']], res)
+
+
+
     def testNoStem(self):
         self.cmd('ft.create', 'idx', 'schema', 'body', 'text', 'name', 'text', 'nostem')
         for _ in self.retry_with_reload():

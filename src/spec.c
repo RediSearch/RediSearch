@@ -776,8 +776,14 @@ void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *valu
       case FIELD_GEO:
         __vpushStr(args, ctx, sp->fields[i].name);
         __vpushStr(args, ctx, GEO_STR);
+        break;
+      case FIELD_TAG:
+        __vpushStr(args, ctx, sp->fields[i].name);
+        __vpushStr(args, ctx, SPEC_TAG_STR);
+        break;
       default:
-
+        RedisModule_Log(ctx, "warning", "Could not save field(%s,%d) with aof)", sp->fields[i].name,
+                        sp->fields[i].type);
         break;
     }
     if (FieldSpec_IsSortable(&sp->fields[i])) {
