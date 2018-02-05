@@ -55,12 +55,14 @@ inline int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RS
  * allocated return string needs to be freed later */
 char *normalizeStr(const char *str) {
 
-  char *lower_buffer = rm_calloc(strlen(str) + 1, 1);
+  size_t buflen = 2 * strlen(str) + 1;
+  char *lower_buffer = rm_calloc(buflen, 1);
   char *lower = lower_buffer;
+  char *end = lower + buflen;
 
   const char *p = str;
   size_t off = 0;
-  while (*p != 0) {
+  while (*p != 0 && lower < end) {
     uint32_t in = 0;
     p = nu_utf8_read(p, &in);
     const char *lo = nu_tofold(in);
@@ -71,7 +73,7 @@ char *normalizeStr(const char *str) {
         lo = nu_casemap_read(lo, &u);
         if (u == 0) break;
         lower = nu_utf8_write(u, lower);
-      } while (u != 0);
+      } while (u != 0 && lower < end);
     } else {
       lower = nu_utf8_write(in, lower);
     }
