@@ -64,8 +64,8 @@ static int CheckConcurrentSupport(RedisModuleCtx *ctx) {
 int replicateAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModuleString **args;
   int alloc = 0;
-  RedisModuleString *statargs[argc - 1];
-  if (argc < 1024) {
+  static RedisModuleString *statargs[512];
+  if (argc < 512) {
     args = statargs;
   } else {
     alloc = 1;
