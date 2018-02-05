@@ -1392,6 +1392,21 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.restart_and_reload()
         res2 = self.cmd(*cmd)
         self.assertEqual(res, res2)
+    
+    def testAofRewriteSortkeys(self):
+        self.spawn_server(use_aof=True)
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
+        self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+        self.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+
+        res_exp = self.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
+            'RETURN', '1', 'foo', 'WITHSORTKEYS')
+
+        self.restart_and_reload()
+        res_got = self.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
+            'RETURN', '1', 'foo', 'WITHSORTKEYS')
+        
+        self.assertEqual(res_exp, res_got)
 
     def testNoStem(self):
         self.cmd('ft.create', 'idx', 'schema', 'body', 'text', 'name', 'text', 'nostem')

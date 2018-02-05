@@ -182,6 +182,8 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
 #define SV_SERIALIZED_UNKNOWN 0xff
 
+#define SV_MINSIZE 4  // Minimum size for serialized sort vector: This is 4 bytes
+
 void SortingVector_Serialize(const RSSortingVector *sv, Buffer *out) {
   // Write the number of sorting vectors in the table
   BufferWriter bw = NewBufferWriter(out);
@@ -214,11 +216,12 @@ void SortingVector_Serialize(const RSSortingVector *sv, Buffer *out) {
 }
 
 RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
-  Buffer b = {.data = (void *)s, .offset = n};
-  BufferReader r = NewBufferReader(&b);
-  if (BufferReader_Offset(&r) < 4) {
+  Buffer b = {.data = (void *)s, .cap = n, .offset = 0};
+  if (n < SV_MINSIZE) {
     return NULL;
   }
+
+  BufferReader r = NewBufferReader(&b);
 
   // Read the length of sorting vectors
   uint32_t len = Buffer_ReadU32(&r);
@@ -228,7 +231,7 @@ RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
 
   RSSortingVector *v = NewSortingVector(len);
   for (size_t ii = 0; ii < len; ++ii) {
-    if (BufferReader_Offset(&r) < 1) {
+    if (BufferReader_Remaining(&r) < 1) {
       // Need at least {type(1),len(2)}
       goto error;
     }
@@ -242,12 +245,12 @@ RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
       continue;
     }
 
-    if (BufferReader_Offset(&r) < 2) {
+    if (BufferReader_Remaining(&r) < 2) {
       goto error;
     }
 
     uint16_t len = Buffer_ReadU16(&r);
-    if (BufferReader_Offset(&r) < len) {
+    if (BufferReader_Remaining(&r) < len) {
       goto error;
     }
     if (type == SV_SERIALIZED_STRING) {
@@ -268,6 +271,11 @@ RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
       // Unknown type!
       goto error;
     }
+  }
+
+  if (r.pos != n) {
+    // Some bytes not consumed
+    goto error;
   }
   return v;
 

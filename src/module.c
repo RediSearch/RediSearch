@@ -558,13 +558,13 @@ int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
   const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
-  const char *svBuf = argc > 8 ? RedisModule_StringPtrLen(argv[7], &svSize) : NULL;
+  const char *svBuf = argc >= 8 ? RedisModule_StringPtrLen(argv[7], &svSize) : NULL;
   RSSortingVector *sv = NULL;
   RSByteOffsets *offsets = NULL;
 
   if (flags & Document_HasSortVector) {
     // Check if we're actually passed an SV
-    if (svBuf != NULL || (sv = SortingVector_LoadSerialized(svBuf, svSize)) == NULL) {
+    if (svBuf == NULL || (sv = SortingVector_LoadSerialized(svBuf, svSize)) == NULL) {
       flags &= ~Document_HasSortVector;
     }
   }

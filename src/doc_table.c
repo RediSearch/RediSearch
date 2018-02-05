@@ -337,12 +337,17 @@ void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof)
     if ((dmd->flags & Document_HasOffsetVector) && dmd->sortVector) {
       svPos = tmpsBuf.offset;
       SortingVector_Serialize(dmd->sortVector, &tmpsBuf);
-      svLen = tmpsBuf.offset - byteOffsetsLen;
+      svLen = tmpsBuf.offset - svPos;
     }
 
-    RedisModule_EmitAOF(aof, "FT.DTADD", "cblbbbb", indexName, dmd->keyPtr, sdslen(dmd->keyPtr),
-                        dmd->flags, dblBuf, dblLen, payload, payloadLen,
-                        tmpsBuf.data + byteOffsetsPos, byteOffsetsLen, tmpsBuf.data + svPos, svLen);
+    RedisModule_EmitAOF(aof, "FT.DTADD", "cblbbbb", indexName,          // c
+                        dmd->keyPtr, sdslen(dmd->keyPtr),               // b
+                        dmd->flags,                                     // l
+                        dblBuf, dblLen,                                 // b (#1)
+                        payload, payloadLen,                            // b (#2)
+                        tmpsBuf.data + byteOffsetsPos, byteOffsetsLen,  // b (#3)
+                        tmpsBuf.data + svPos, svLen                     // b (#4)
+    );
   }
   Buffer_Free(&tmpsBuf);
 }

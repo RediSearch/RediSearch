@@ -51,6 +51,10 @@ static inline size_t BufferReader_Offset(const BufferReader *br) {
   return br->pos;
 }
 
+static inline size_t BufferReader_Remaining(const BufferReader *br) {
+  return br->buf->cap - br->pos;
+}
+
 static inline size_t Buffer_Offset(const Buffer *ctx) {
   return ctx->offset;
 }
@@ -127,12 +131,12 @@ static inline uint32_t Buffer_ReadU32(BufferReader *r) {
   Buffer_Read(r, &u, 4);
   return ntohl(u);
 }
-static inline uint32_t Buffer_ReadU16(BufferReader *r) {
+static inline uint16_t Buffer_ReadU16(BufferReader *r) {
   uint16_t u;
   Buffer_Read(r, &u, 2);
-  return ntohl(u);
+  return ntohs(u);
 }
-static inline uint32_t Buffer_ReadU8(BufferReader *r) {
+static inline uint8_t Buffer_ReadU8(BufferReader *r) {
   uint8_t b;
   Buffer_Read(r, &b, 1);
   return b;
