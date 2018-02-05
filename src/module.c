@@ -58,6 +58,30 @@ static int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   return 1;
 }
 
+/* Replicate the ADD command as SAFEADD to the AOF/slave, by copying all the values to a new vector.
+ * This is done because of a rare crash, to make sure that the indexing process does not interfere
+ * with arguments in any way */
+int replicateAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModuleString **args;
+  int alloc = 0;
+  RedisModuleString *statargs[argc - 1];
+  if (argc < 1024) {
+    args = statargs;
+  } else {
+    alloc = 1;
+    args = calloc(argc - 1, sizeof(*args));
+  }
+  for (int i = 1; i < argc; i++) {
+    args[i - 1] = RedisModule_CreateStringFromString(ctx, argv[i]);
+  }
+  int rc = RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", args, (size_t)argc - 1);
+
+  if (alloc) {
+    free(args);
+  }
+  return rc;
+}
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS
 <field>
@@ -81,7 +105,8 @@ between 0.0 and 1.0.
     - NOSAVE: If set to true, we will not save the actual document in the index
 and only index it.
 
-    - REPLACE: If set, we will do an update and delete an older version of the document if it exists
+    - REPLACE: If set, we will do an update and delete an older version of the document if it
+exists
 
     - FIELDS: Following the FIELDS specifier, we are looking for pairs of
 <field> <text> to be
@@ -104,7 +129,6 @@ English.
 
 Returns OK on success, or an error if something went wrong.
 */
-
 static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
   int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
@@ -123,8 +147,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
   RedisModule_AutoMemory(ctx);
+
+  replicateAddCommand(ctx, argv, argc);
+
   // Load the document score
   double ds = 0;
   if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
@@ -362,8 +388,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
  * replace the internal representation of the documents.
  *
- * If referred docs are missing or not HASH keys, we simply reply with Null, but the result will be
- * an array the same size of the ids list
+ * If referred docs are missing or not HASH keys, we simply reply with Null, but the result will
+ * be an array the same size of the ids list
  */
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
@@ -1269,10 +1295,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                   RSGlobalConfig.queryTimeoutMS);
 
   if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
-    RedisModule_Log(
-        ctx, "warning",
-        "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in MULTI or LUA will "
-        "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
+    RedisModule_Log(ctx, "warning",
+                    "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in "
+                    "MULTI or LUA will "
+                    "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
   }
 
   // Init extension mechanism
