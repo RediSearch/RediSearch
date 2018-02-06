@@ -338,7 +338,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   free(req);
 }
 
-QueryParseCtx *parseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
+static QueryParseCtx *parseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
 
   QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
   RedisModuleCtx *ctx = sctx->redisCtx;
