@@ -1608,7 +1608,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         # order for the indexer to give it a sort vector
         self.cmd('ft.create', 'idx', 'SCHEMA', 'lastName', 'text', 'SORTABLE', 'firstName', 'text', 'SORTABLE')
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
-        self.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY", "firstName", "ASC", "lastName", "DESC","limit", 0, 100)
+        res = self.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY", "firstName", "ASC", "lastName", "DESC","limit", 0, 100)
+        self.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
 
     def testLuaAndMulti(self):
         # Ensure we can work in Lua and Multi environments without crashing

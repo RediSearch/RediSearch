@@ -826,11 +826,14 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   if (flags & Search_WithSortKeys) {
     ++count;
     const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->req->sortBy);
-    if (sortkey && sortkey->type != RS_SORTABLE_NIL) {
+    if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
         RedisModule_ReplyWithDouble(ctx, sortkey->num);
       } else if (sortkey->type == RS_SORTABLE_STR) {
         RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
+      } else {
+        // NIL, or any other type:
+        RedisModule_ReplyWithNull(ctx);
       }
     } else {
       RedisModule_ReplyWithNull(ctx);
