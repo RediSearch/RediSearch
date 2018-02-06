@@ -1247,6 +1247,10 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             _, pair = pair
             self.assertEqual(None, pair[1])
 
+        # Test that we don't crash if we're given the wrong number of fields
+        with self.assertResponseError():
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', 2, 'nonexist')
+
     def _test_create_options_real(self, *options):
         options = [x for x in options if x]
         has_offsets = 'NOOFFSETS' not in options

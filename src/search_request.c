@@ -178,6 +178,10 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
   // parse RETURN argument
   if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "RETURN", &nargs))) {
+    if (nargs == RMUTIL_VARARGS_BADARG) {
+      *errStr = "Bad argument for `RETURN`";
+      goto err;
+    }
     if (!nargs) {
       req->flags |= Search_NoContent;
     } else {
