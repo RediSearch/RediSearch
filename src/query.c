@@ -828,14 +828,20 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
     const RSSortableValue *sortkey = RSSortingVector_Get(r->sv, qex->req->sortBy);
     if (sortkey) {
       if (sortkey->type == RS_SORTABLE_NUM) {
-        RedisModule_ReplyWithDouble(ctx, sortkey->num);
+        /* Serialize double - by prepending "%" to the number, so the coordinator/client can tell
+         * it's a double and not just a numeric string value */
+        RedisModule_ReplyWithString(ctx,
+                                    RedisModule_CreateStringPrintf(ctx, "#%.17g", sortkey->num));
       } else if (sortkey->type == RS_SORTABLE_STR) {
-        RedisModule_ReplyWithStringBuffer(ctx, sortkey->str, strlen(sortkey->str));
+        /* Serialize string - by prepending "$" to it */
+        RedisModule_ReplyWithString(ctx, RedisModule_CreateStringPrintf(ctx, "$%s", sortkey->str));
       } else {
         // NIL, or any other type:
         RedisModule_ReplyWithNull(ctx);
       }
-    } else {
+    }
+
+    else {
       RedisModule_ReplyWithNull(ctx);
     }
   }
