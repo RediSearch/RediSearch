@@ -18,6 +18,13 @@ CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fP
 	-DREDISMODULE_EXPERIMENTAL_API 
 CFLAGS += $(DEBUGFLAGS)
 
+SQLITE_ROOT?=/usr/local/opt/sqlite3
+PKG_CONFIG_PATH=$(SQLITE_ROOT)/lib/pkgconfig
+export PKG_CONFIG_PATH
+
+CFLAGS+=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --cflags)
+LDFLAGS=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --libs)
+
 LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)

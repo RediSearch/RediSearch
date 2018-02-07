@@ -1246,6 +1246,8 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
+int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
@@ -1358,6 +1360,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, "FT.SQL", SQLRedisCommand, "write deny-oom", 1, 1, 1);
   return REDISMODULE_OK;
 }
 
