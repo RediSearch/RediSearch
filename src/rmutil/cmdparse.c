@@ -535,11 +535,11 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
       *i = arg->i;
     case CmdArg_String: {
       long long ii;
-      int rc =  parseInt(arg->s.str, &ii);
+      int rc = parseInt(arg->s.str, &ii);
       if (rc) *i = ii;
       return rc;
     }
-     
+
     default:
       return 0;
   }
@@ -690,7 +690,7 @@ static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdStr
   // if needed - validate the element
   if (elem->validator) {
     if (!elem->validator(*out, elem->validatorCtx)) {
-      asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos].str);
+      asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos - 1].str);
       return CMDPARSE_ERR;
     }
   }

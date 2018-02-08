@@ -67,7 +67,7 @@ void Aggregate_BuildSchema() {
 
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
                                               CmdSchema_Required | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(grp, "by",
+  CmdSchema_AddPostional(grp, "BY",
                          CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
                          CmdSchema_Required);
 
@@ -79,9 +79,7 @@ void Aggregate_BuildSchema() {
 
   CmdSchemaNode *sort = CmdSchema_AddSubSchema(requestSchema, "SORTBY",
                                                CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(sort, "by",
-                         CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
-                         CmdSchema_Required);
+  CmdSchema_AddPostional(sort, "by", CmdSchema_NewVector('s'), CmdSchema_Required);
   // SORT can have its own MAX limitation that speeds up things
   CmdSchema_AddNamed(sort, "MAX", CmdSchema_NewArgAnnotated('l', "num"),
                      CmdSchema_Optional | CmdSchema_Repeating);
@@ -149,16 +147,53 @@ ResultProcessor *buildSortBY(CmdArg *srt, ResultProcessor *upstream, char **err)
   CmdArg *by = CmdArg_FirstOf(srt, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
-  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
+  RSMultiKey *keys = RS_NewMultiKey(CMDARG_ARRLEN(by));
+  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
+  // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
+  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
+  int n = 0;
 
+  // since ASC/DESC are optional, we need a stateful parser
+  // state 0 means we are open only to property names
+  // state 1 means we are open to either a new property or ASC/DESC
+  int state = 0, i = 0;
+  for (i = 0; i < CMDARG_ARRLEN(by) && i < sizeof(ascMap) * 8; i++) {
+    const char *str = CMDARG_STRPTR(CMDARG_ARRELEM(by, i));
+    // New properties are accepted in either state
+    if (*str == '@') {
+      keys->keys[n++] = RS_KEY(RSKEY(str));
+      state = 1;
+    } else if (state == 0) {
+      // At state 0 we only accept properties, so we don't even need to see what this is
+      goto err;
+    } else if (!strcasecmp(str, "asc")) {
+      // For as - we put a 1 in the map. We don't actually need to, this is just for readability
+      ascMap |= 1 << (n - 1);
+      // switch back to state 0, ASC/DESC cannot follow ASC
+      state = 0;
+    } else if (!strcasecmp(str, "desc")) {
+      // We turn the current bit to 0 meaning desc for the Nth property
+      ascMap &= ~(1 << (n - 1));
+      // switch back to state 0, ASC/DESC cannot follow ASC
+      state = 0;
+    } else {
+      // Unkown token - neither a propperty nor ASC/DESC
+      goto err;
+    }
+  }
+
+  // Parse optional MAX
   CmdArg *max = CmdArg_FirstOf(srt, "MAX");
   long long mx = 0;
   if (max) {
     mx = CMDARG_INT(max);
     if (mx < 0) mx = 0;
   }
-
-  return NewSorterByFields(keys, 1, mx, upstream);
+  return NewSorterByFields(keys, ascMap, mx, upstream);
+err:
+  asprintf(err, "Invalid sortby arguments near '%s'", CMDARG_STRPTR(CMDARG_ARRELEM(by, i)));
+  if (keys) RSMultiKey_Free(keys);
+  return NULL;
 }
 
 ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, RedisSearchCtx *sctx,
