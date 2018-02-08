@@ -1495,6 +1495,9 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(exp1, res1)
         self.assertEqual(exp2, res2)
 
+        # Test nosort+nocontent
+        self.cmd('ft.search', 'idx', 'hello', 'nosort', 'nocontent')
+
     def testCursor(self):
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
         for x in range(100):
