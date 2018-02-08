@@ -508,7 +508,9 @@ size_t II_Len(void *ctx) {
 
 void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
-  nc->child->Abort(nc->child->ctx);
+  if (nc->child) {
+    nc->child->Abort(nc->child->ctx);
+  }
 }
 
 void NI_Rewind(void *ctx) {
@@ -750,7 +752,9 @@ int OI_HasNext(void *ctx) {
 
 void OI_Abort(void *ctx) {
   OptionalMatchContext *nc = ctx;
-  nc->child->Abort(nc->child->ctx);
+  if (nc->child) {
+    nc->child->Abort(nc->child->ctx);
+  }
 }
 
 /* Return the current hit */
