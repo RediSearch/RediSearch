@@ -203,7 +203,7 @@ void SearchResult_Free(void *p);
 
 struct QueryPlan;
 
-ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
+ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
                                    ResultProcessor *upstream);
 
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);

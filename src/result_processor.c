@@ -306,7 +306,10 @@ struct sorterCtx {
 
 struct fieldCmpCtx {
   RSMultiKey *keys;
-  int ascending;
+
+  // a bitmap where each bit corresponds to a variable in the keymap, specifying ascending (1) or
+  // descending (0)
+  uint64_t ascendMap;
 };
 
 /* Yield - pops the current top result from the heap */
@@ -429,7 +432,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const struct fieldCmpCtx *cc = udata;
 
   const SearchResult *h1 = e1, *h2 = e2;
-  for (size_t i = 0; i < cc->keys->len; i++) {
+  int ascending = 0;
+  for (size_t i = 0; i < cc->keys->len && i < sizeof(cc->ascendMap) * 8; i++) {
     RSValue *v1 = RSFieldMap_GetByKey(h1->fields, &cc->keys->keys[i]);
     RSValue *v2 = RSFieldMap_GetByKey(h2->fields, &cc->keys->keys[i]);
     if (!v1 || !v2) {
@@ -437,11 +441,13 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     }
 
     int rc = RSValue_Cmp(v1, v2);
-    if (rc != 0) return cc->ascending ? rc : -rc;
+    // take the ascending bit for this property from the ascending bitmap
+    ascending = cc->ascendMap & (1 << i) ? 1 : 0;
+    if (rc != 0) return ascending ? -rc : rc;
   }
 
   int rc = h1->docId < h2->docId ? -1 : 1;
-  return cc->ascending ? rc : -rc;
+  return ascending ? -rc : rc;
 }
 
 ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
@@ -476,10 +482,10 @@ ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
   return rp;
 }
 
-ResultProcessor *NewSorterByFields(RSMultiKey *mk, int ascending, uint32_t size,
+ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
                                    ResultProcessor *upstream) {
   struct fieldCmpCtx *c = malloc(sizeof(*c));
-  c->ascending = ascending;
+  c->ascendMap = ascendingMap;
   c->keys = mk;
 
   return NewSorter(Sort_ByFields, c, size, upstream, 0);
