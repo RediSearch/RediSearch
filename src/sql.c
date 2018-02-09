@@ -529,24 +529,6 @@ static sqlite3_module sqlModule = {.xConnect = sql_Connect,
 
 static sqlite3 *sqlite_db_g = NULL;
 
-typedef struct {
-  RedisModuleCtx *ctx;
-  size_t rowcount;
-} QueryCtx;
-
-static int queryCallback(void *ptr, int ncols, char **colVals, char **colNames) {
-  QueryCtx *ctx = ptr;
-
-  RedisModule_ReplyWithArray(ctx->ctx, ncols);
-
-  for (size_t ii = 0; ii < ncols; ++ii) {
-    RedisModule_ReplyWithSimpleString(ctx->ctx, colVals[ii]);
-  }
-
-  ctx->rowcount++;
-  return 0;
-}
-
 static int initDb(RedisModuleCtx *ctx) {
   RedisModuleCtx *ownCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_SelectDb(ownCtx, RedisModule_GetSelectedDb(ctx));
@@ -560,11 +542,38 @@ static int initDb(RedisModuleCtx *ctx) {
   return 0;
 }
 
+static void outputRow(sqlite3_stmt *stmt, size_t ncols, RedisModuleCtx *ctx) {
+  RedisModule_ReplyWithArray(ctx, ncols);
+  for (size_t ii = 0; ii < ncols; ++ii) {
+    switch (sqlite3_column_type(stmt, ii)) {
+      case SQLITE_BLOB:
+      case SQLITE_TEXT: {
+        const char *s = sqlite3_column_blob(stmt, ii);
+        size_t n = sqlite3_column_bytes(stmt, ii);
+        RedisModule_ReplyWithStringBuffer(ctx, s, n);
+        break;
+      }
+      case SQLITE_FLOAT:
+        RedisModule_ReplyWithDouble(ctx, sqlite3_column_double(stmt, ii));
+        break;
+      case SQLITE_INTEGER:
+        RedisModule_ReplyWithLongLong(ctx, sqlite3_column_int64(stmt, ii));
+        break;
+      case SQLITE_NULL:
+      default:
+        RedisModule_ReplyWithNull(ctx);
+        break;
+    }
+  }
+}
+
 int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Ensure that an SQL schema is created for each database
   if (!sqlite_db_g) {
     initDb(ctx);
   }
+
+  sqlite3 *db = sqlite_db_g;
 
   if (argc < 2) {
     return RedisModule_ReplyWithError(ctx, "Simply need SQL text to execute!");
@@ -574,15 +583,47 @@ int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t nsql;
   char *errmsg;
   const char *sql = RedisModule_StringPtrLen(argv[1], &nsql);
-  QueryCtx qctx = {.ctx = ctx, .rowcount = 0};
+
+  sqlite3_stmt *stmt = NULL;
+  int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+  if (rc != SQLITE_OK) {
+    printf("Prepare '%s': failed (%d, %s)\n", sql, rc, sqlite3_errmsg(db));
+    goto error;
+  }
+
+  for (size_t ii = 2; ii < argc; ++ii) {
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
+    int rc = sqlite3_bind_text(stmt, ii - 1, s, n, NULL);
+    if (rc != REDISMODULE_OK) {
+      goto error;
+    }
+  }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int rc = sqlite3_exec(sqlite_db_g, sql, queryCallback, &qctx, &errmsg);
-  if (rc != SQLITE_OK) {
-    printf("Couldn't execute SQL: %s\n", errmsg);
-    RedisModule_ReplySetArrayLength(ctx, 0);
-  } else {
-    RedisModule_ReplySetArrayLength(ctx, qctx.rowcount);
+
+  // Column header
+  size_t ncols = sqlite3_column_count(stmt);
+  RedisModule_ReplyWithArray(ctx, ncols);
+  for (size_t ii = 0; ii < ncols; ++ii) {
+    RedisModule_ReplyWithSimpleString(ctx, sqlite3_column_name(stmt, ii));
+  }
+
+  size_t rowcount = 0;
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    rowcount++;
+    outputRow(stmt, ncols, ctx);
+  }
+
+  // Add one to count for header
+  RedisModule_ReplySetArrayLength(ctx, rowcount + 1);
+  sqlite3_finalize(stmt);
+  return REDISMODULE_OK;
+
+error:
+  RedisModule_ReplyWithError(ctx, sqlite3_errmsg(db));
+  if (stmt) {
+    sqlite3_finalize(stmt);
   }
   return REDISMODULE_OK;
 }
