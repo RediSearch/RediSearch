@@ -579,7 +579,6 @@ int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Simply need SQL text to execute!");
   }
 
-  // Do this the lazy way of simply running the statement!
   size_t nsql;
   char *errmsg;
   const char *sql = RedisModule_StringPtrLen(argv[1], &nsql);
@@ -600,20 +599,44 @@ int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  rc = sqlite3_step(stmt);
+  if (rc != SQLITE_ROW) {
+    // Empty response?
+    RedisModule_ReplyWithArray(ctx, 0);
+    sqlite3_finalize(stmt);
+    return SQLITE_OK;
+  }
+
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // Column header
   size_t ncols = sqlite3_column_count(stmt);
-  RedisModule_ReplyWithArray(ctx, ncols);
+  RedisModule_ReplyWithArray(ctx, ncols * 2);
   for (size_t ii = 0; ii < ncols; ++ii) {
     RedisModule_ReplyWithSimpleString(ctx, sqlite3_column_name(stmt, ii));
+    switch (sqlite3_column_type(stmt, ii)) {
+      case SQLITE_BLOB:
+      case SQLITE_TEXT:
+        RedisModule_ReplyWithSimpleString(ctx, "$");
+        break;
+      case SQLITE_INTEGER:
+        RedisModule_ReplyWithSimpleString(ctx, "i");
+        break;
+      case SQLITE_FLOAT:
+        RedisModule_ReplyWithSimpleString(ctx, "f");
+        break;
+      case SQLITE_NULL:
+      default:
+        RedisModule_ReplyWithSimpleString(ctx, "-");
+        break;
+    }
   }
 
   size_t rowcount = 0;
-  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+  do {
     rowcount++;
     outputRow(stmt, ncols, ctx);
-  }
+  } while ((rc = sqlite3_step(stmt)) == SQLITE_ROW);
 
   // Add one to count for header
   RedisModule_ReplySetArrayLength(ctx, rowcount + 1);
