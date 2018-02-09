@@ -140,7 +140,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Parse the optional LANGUAGE flag
   const char *lang = NULL;
-  RMUtil_ParseArgsAfter("LANGUAGE", argv, argc, "c", &lang);
+  int langIdx = RMUtil_ArgIndex("LANGUAGE", argv, argc);
+  if (langIdx > 0 && langIdx < fieldsIdx - 1) {
+    lang = RedisModule_StringPtrLen(argv[langIdx + 1], NULL);
+  }
   if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
     RedisModule_ReplyWithError(ctx, "Unsupported Language");
     goto cleanup;

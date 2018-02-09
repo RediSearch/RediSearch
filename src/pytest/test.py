@@ -1689,6 +1689,17 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             pl.execute_command('ft.addhash', 'idx', 'hashdoc2', 1.0)
         pl.execute()
 
+    def testLanguageField(self):
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'language', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'language', 'gibberish')
+        res = self.cmd('FT.SEARCH', 'idx', 'gibberish')
+        self.assertEqual([1L, 'doc1', ['language', 'gibberish']], res)
+        # The only way I can verify that LANGUAGE is parsed twice is ensuring we
+        # provide a wrong language. This is much easier to test than trying to
+        # figure out how a given word is stemmed
+        with self.assertResponseError():
+            self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE', 'blah', 'FIELDS', 'language', 'gibber')
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
