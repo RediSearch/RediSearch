@@ -7,7 +7,8 @@
 #define STRING_BLOCK_SIZE 512
 
 /* lower(str) */
-static int stringfunc_tolower(RSValue *result, RSValue *argv, int argc, char **err) {
+static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                              char **err) {
 
   VALIDATE_ARGS("lower", 1, 1, err);
   RSValue *v = RSValue_IsString(&argv[0]) ? &argv[0] : RSValue_ToString(&argv[0]);
@@ -22,7 +23,8 @@ static int stringfunc_tolower(RSValue *result, RSValue *argv, int argc, char **e
 }
 
 /* uppert(str) */
-static int stringfunc_toupper(RSValue *result, RSValue *argv, int argc, char **err) {
+static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                              char **err) {
   VALIDATE_ARGS("upper", 1, 1, err);
 
   RSValue *v = RSValue_IsString(&argv[0]) ? &argv[0] : RSValue_ToString(&argv[0]);
@@ -37,7 +39,8 @@ static int stringfunc_toupper(RSValue *result, RSValue *argv, int argc, char **e
 }
 
 /* substr(str, offset, len) */
-static int stringfunc_substr(RSValue *result, RSValue *argv, int argc, char **err) {
+static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                             char **err) {
   VALIDATE_ARGS("substr", 3, 3, err);
   VALIDATE_ARG_TYPE("substr", argv, 1, RSValue_Number);
   VALIDATE_ARG_TYPE("substr", argv, 2, RSValue_Number);
@@ -60,9 +63,8 @@ static int stringfunc_substr(RSValue *result, RSValue *argv, int argc, char **er
     len = sz - offset;
   }
 
-  printf("sz %zd, offset %d, len %d\n", sz, offset, len);
-  char *dup = strndup(&str[offset], len);
-  RSValue_SetString(result, dup, len);
+  char *dup = RSFunction_Strndup(ctx, &str[offset], len);
+  RSValue_SetConstString(result, dup, len);
   return EXPR_EVAL_OK;
 }
 
@@ -75,7 +77,8 @@ static void write_strvalue(Array *arr, RSValue *val, int steal) {
   }
 }
 
-static int stringfunc_format(RSValue *result, RSValue *argv, int argc, char **err) {
+static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                             char **err) {
   if (argc < 1) {
     *err = strdup("Need at least one argument for format");
     return EXPR_EVAL_ERR;

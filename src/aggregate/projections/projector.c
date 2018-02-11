@@ -26,6 +26,7 @@ static ProjectorCtx *NewProjectorCtx(const char *alias) {
 void Projector_Free(ResultProcessor *p) {
   ProjectorCtx *pc = p->ctx.privdata;
 
+  RSFunctionEvalCtx_Free(pc->ctx.fctx);
   free(pc);
   free(p);
 }
@@ -54,6 +55,7 @@ ResultProcessor *NewProjector(RedisSearchCtx *sctx, RSFunctionRegistry *funcs,
   ctx->ctx.fr = funcs;
   ctx->ctx.sctx = sctx;
   ctx->ctx.sortables = sctx && sctx->spec ? sctx->spec->sortables : NULL;
+  ctx->ctx.fctx = RS_NewFunctionEvalCtx();
   ctx->exp = RSExpr_Parse(expr, len, funcs, err);
   if (!ctx->exp) {
     free(ctx);
