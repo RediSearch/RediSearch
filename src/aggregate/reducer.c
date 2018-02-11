@@ -54,17 +54,17 @@ static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const 
     *err = strdup("Invalid arguments for COUNT_DISTINCT");
     return NULL;
   }
-  return NewCountDistinct(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewCountDistinct(ctx, alias, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))));
 }
 
-static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                        char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
-    return NULL;
-  }
-  return NewCountDistinctish(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
-}
+// static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+//                                         char **err) {
+//   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
+//     *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
+//     return NULL;
+//   }
+//   return NewCountDistinctish(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+// }
 
 static Reducer *NewStddevArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
@@ -107,7 +107,7 @@ static struct {
     {"avg", NewAvgArgs},
     {"count", NewCountArgs},
     {"count_distinct", NewCountDistinctArgs},
-    {"count_distinctish", NewCountDistinctishArgs},
+    //{"count_distinctish", NewCountDistinctishArgs},
     {"tolist", NewToListArgs},
     {"quantile", NewQuantileArgs},
     {"stddev", NewStddevArgs},
