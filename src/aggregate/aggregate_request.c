@@ -1,6 +1,6 @@
 #include "aggregate.h"
 #include "reducer.h"
-#include "projections/project.h"
+#include "project.h"
 
 #include <query.h>
 #include <result_processor.h>
