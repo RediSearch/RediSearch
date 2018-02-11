@@ -10,7 +10,8 @@
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
 // TIME(propert, [fmt_string])
-static int timeFormat(RSValue *result, RSValue *argv, int argc, char **err) {
+static int timeFormat(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                      char **err) {
 
   VALIDATE_ARGS("time", 1, 2, err);
   const char *fmt = ISOFMT;
@@ -39,11 +40,11 @@ static int timeFormat(RSValue *result, RSValue *argv, int argc, char **err) {
   }
 
   // Finally, allocate a buffer to store the time!
-  char *buf = strndup(timebuf, rv);
-  // BlkAlloc_Alloc(&tctx->alloc, rv, Max(rv, STRING_BLOCK_SIZE));
-  // It will be released by releasing the result value and decreasing its refcount
-  RSValue_SetString(result, buf, rv);
-  RSValue_Print(result);
+  char *buf = RSFunction_Strndup(ctx, timebuf, rv);
+
+  // It will be released by the block allocator destruction, so we refer to it is a static string so
+  // the value ref counter will not release it
+  RSValue_SetConstString(result, buf, rv);
   return EXPR_EVAL_OK;
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
@@ -52,7 +53,7 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int parseTime(RSValue *result, RSValue *argv, int argc, char **err) {
+static int parseTime(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
   VALIDATE_ARGS("parse_time", 2, 2, err);
   VALIDATE_ARG_ISSTRING("parse_time", argv, 0);
   VALIDATE_ARG_ISSTRING("parse_time", argv, 1);

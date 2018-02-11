@@ -140,7 +140,7 @@ static inline int evalFunc(RSExprEvalCtx *ctx, RSFunctionExpr *f, RSValue *resul
     }
   }
 
-  int rc = f->Call(result, args, f->args->len, err);
+  int rc = f->Call(ctx->fctx, result, args, f->args->len, err);
   for (size_t i = 0; i < f->args->len; i++) {
     RSValue_Free(&args[i]);
   }

@@ -2,6 +2,7 @@
 #define RS_FUNCTION_H_
 
 #include <value.h>
+#include <util/block_alloc.h>
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)              \
   if (argc < minargs || argc > maxargs) {                        \
@@ -29,7 +30,19 @@
 #define VALIDATE_ARG_ISSTRING(fname, args, idx) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 
-typedef int (*RSFunction)(RSValue *result, RSValue *argv, int argc, char **err);
+typedef struct RSFunctionEvalCtx {
+  BlkAlloc alloc;
+} RSFunctionEvalCtx;
+
+RSFunctionEvalCtx *RS_NewFunctionEvalCtx();
+
+void RSFunctionEvalCtx_Free(RSFunctionEvalCtx *ctx);
+
+void *RSFunction_Alloc(RSFunctionEvalCtx *ctx, size_t sz);
+char *RSFunction_Strndup(RSFunctionEvalCtx *ctx, const char *str, size_t len);
+
+typedef int (*RSFunction)(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                          char **err);
 
 typedef struct {
   size_t len;

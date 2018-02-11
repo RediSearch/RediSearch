@@ -4,6 +4,7 @@
 #include <value.h>
 #include <result_processor.h>
 #include <aggregate/functions/function.h>
+#include <util/block_alloc.h>
 
 typedef struct {
   char *err;
@@ -51,6 +52,7 @@ typedef struct {
   RSFunctionRegistry *fr;
   RSSortingTable *sortables;
   RedisSearchCtx *sctx;
+  RSFunctionEvalCtx *fctx;
 } RSExprEvalCtx;
 
 #define EXPR_EVAL_ERR 1
