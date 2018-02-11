@@ -28,7 +28,7 @@ typedef struct {
     ret;                                \
   })
 
-const int khid = 33;
+static const int khid = 33;
 KHASH_MAP_INIT_INT64(khid, Group *);
 
 #define GROUP_CTX(g, i) (g->ctxs[i].ptr)
