@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <math.h>
 #include <assert.h>
+#include <rmutil/sds.h>
 #include "redisearch.h"
 #include "util/fnv.h"
 #include "rmutil/cmdparse.h"
@@ -23,6 +24,7 @@ typedef enum {
   RSValue_RedisString = 5,
   // NULL terminated C string that should not be freed with the value
   RSValue_ConstString = 7,
+  RSValue_SDS = 9,
 
   // An array of values, that can be of any type
   RSValue_Array = 6,
@@ -81,6 +83,8 @@ static inline void RSValue_Free(RSValue *v) {
       free(v->arrval.vals);
     } else if (v->t == RSValue_Reference) {
       RSValue_Free(v->ref);
+    } else if (v->t == RSValue_SDS) {
+      sdsfree(v->strval.str);
     }
     if (v->allocated) {
       free(v);
@@ -131,6 +135,11 @@ static inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->strval.str = str;
 }
 
+static inline void RSValue_SetSDS(RSValue *v, sds s) {
+  v->t = RSValue_SDS;
+  v->strval.len = sdslen(s);
+  v->strval.str = s;
+}
 static inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->t = RSValue_ConstString;
   v->strval.len = len;
@@ -195,7 +204,7 @@ static inline RSValue *RS_RedisStringVal(RedisModuleString *str) {
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
-                   value->t == RSValue_ConstString);
+                   value->t == RSValue_ConstString || value->t == RSValue_SDS);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets
@@ -204,6 +213,7 @@ static void RSValue_ToString(RSValue *dst, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
       RSValue_MakeReference(dst, v);
       break;
     case RSValue_RedisString: {
@@ -259,6 +269,8 @@ static inline int RSValue_ToNumber(RSValue *v, double *d) {
 
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
+
       // C strings - take the ptr and len
       p = v->strval.str;
       l = v->strval.len;
@@ -301,6 +313,7 @@ static inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
       return &value->numval;
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
 
       *outlen = value->strval.len;
       return value->strval.str;
@@ -320,6 +333,8 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
+
       return fnv_64a_buf(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
@@ -348,7 +363,7 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
 static inline const char *RSValue_StringPtrLen(RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
 
-  if (value->t == RSValue_String || value->t == RSValue_ConstString) {
+  if (value->t == RSValue_String || value->t == RSValue_ConstString || value->t == RSValue_SDS) {
     if (lenp) {
       *lenp = value->strval.len;
     }
@@ -475,6 +490,8 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
         return v1->numval > v2->numval ? v1->numval : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
       case RSValue_ConstString:
+      case RSValue_SDS:
+
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
       case RSValue_RedisString: {
         size_t l1, l2;
@@ -512,6 +529,8 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
+
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
     case RSValue_RedisString:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
@@ -539,6 +558,8 @@ static void RSValue_Print(RSValue *v) {
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
+    case RSValue_SDS:
+
       printf("%.*s", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
