@@ -84,15 +84,6 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   return EXPR_EVAL_OK;
 }
 
-static void write_strvalue(sds *str, RSValue *val, int steal) {
-  size_t argsz;
-  const char *arg = RSValue_StringPtrLen(val, &argsz);
-  *str = sdscatrepr(*str, arg, argsz);
-  if (steal) {
-    RSValue_DecrRef(val);
-  }
-}
-
 static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
   if (argc < 1) {
@@ -101,11 +92,11 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
-  sds out = sdsnew("");
   size_t argix = 1;
   size_t fmtsz;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
+  sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
 
   for (size_t ii = 0; ii < fmtsz; ++ii) {
     if (fmt[ii] != '%') {
@@ -167,9 +158,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     out = sdscatlen(out, last, end - last);
   }
 
-  // Array_ShrinkToSize(&arr);  // We're no longer allocating more memory for this string
-  RSValue_SetConstString(result, out, sdslen(out));
-  // No need to clear the array object. Its content has been 'stolen'!
+  RSValue_SetSDS(result, out);
   return EXPR_EVAL_OK;
 
 error:

@@ -2,7 +2,7 @@
 #include "expression.h"
 #include "result_processor.h"
 
-#define arglist_sizeof(l) (sizeof(RSArgList) + (l * sizeof(RSExpr *)))
+#define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
 RSArgList *RS_NewArgList(RSExpr *e) {
   RSArgList *ret = malloc(arglist_sizeof(e ? 1 : 0));
@@ -77,7 +77,6 @@ RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
   e->property.cachedIdx = RSKEY_NOCACHE;
-  printf("New property: %s, len %zd\n", e->property.key, len);
   return e;
 }
 void RSArgList_Free(RSArgList *l) {
