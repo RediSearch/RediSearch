@@ -1,5 +1,5 @@
 #include <util/minmax.h>
-#include <util/array.h>
+#include <rmutil/sds.h>
 #include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>
 #include <ctype.h>
@@ -11,30 +11,40 @@ static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
                               char **err) {
 
   VALIDATE_ARGS("lower", 1, 1, err);
-  RSValue *v = RSValue_IsString(&argv[0]) ? &argv[0] : RSValue_ToString(&argv[0]);
+  if (!RSValue_IsString(&argv[0])) {
+    RSValue_MakeReference(result, RS_NullVal());
+    return EXPR_EVAL_OK;
+  }
 
   size_t sz;
-  char *p = (char *)RSValue_StringPtrLen(v, &sz);
+  char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
+  char *np = RSFunction_Alloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
-    p[i] = tolower(p[i]);
+    np[i] = tolower(p[i]);
   }
-  RSValue_MakeReference(result, v);
+  np[sz] = '\0';
+  RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
 }
 
-/* uppert(str) */
+/* upper(str) */
 static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                               char **err) {
   VALIDATE_ARGS("upper", 1, 1, err);
 
-  RSValue *v = RSValue_IsString(&argv[0]) ? &argv[0] : RSValue_ToString(&argv[0]);
+  if (!RSValue_IsString(&argv[0])) {
+    RSValue_MakeReference(result, RS_NullVal());
+    return EXPR_EVAL_OK;
+  }
 
   size_t sz;
-  char *p = (char *)RSValue_StringPtrLen(v, &sz);
+  char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
+  char *np = RSFunction_Alloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
-    p[i] = toupper(p[i]);
+    np[i] = toupper(p[i]);
   }
-  RSValue_MakeReference(result, v);
+  np[sz] = '\0';
+  RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
 }
 
@@ -42,11 +52,17 @@ static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
 static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
   VALIDATE_ARGS("substr", 3, 3, err);
+
   VALIDATE_ARG_TYPE("substr", argv, 1, RSValue_Number);
   VALIDATE_ARG_TYPE("substr", argv, 2, RSValue_Number);
 
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
+  if (!str) {
+    *err = strdup("Invalid type for substr, expected string");
+    return EXPR_EVAL_ERR;
+  }
+
   int offset = (int)RSValue_Dereference(&argv[1])->numval;
   int len = (int)RSValue_Dereference(&argv[2])->numval;
 
@@ -68,10 +84,10 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   return EXPR_EVAL_OK;
 }
 
-static void write_strvalue(Array *arr, RSValue *val, int steal) {
+static void write_strvalue(sds *str, RSValue *val, int steal) {
   size_t argsz;
   const char *arg = RSValue_StringPtrLen(val, &argsz);
-  Array_Write(arr, arg, argsz);
+  *str = sdscatrepr(*str, arg, argsz);
   if (steal) {
     RSValue_DecrRef(val);
   }
@@ -85,8 +101,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
-  Array arr = {NULL};
-  Array_InitEx(&arr, ArrayAlloc_LibC);
+  sds out = sdsnew("");
   size_t argix = 1;
   size_t fmtsz;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
@@ -104,13 +119,13 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    Array_Write(&arr, last, (fmt + ii) - last);
+    out = sdscatlen(out, last, (fmt + ii) - last);
     last = fmt + ii + 2;
 
     char type = fmt[++ii];
     if (type == '%') {
       // Append literal '%'
-      Array_Write(&arr, &type, 1);
+      out = sdscat(out, "%");
       continue;
     }
 
@@ -122,36 +137,26 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     RSValue *arg = RSValue_Dereference(&argv[argix++]);
     if (type == 's') {
       if (arg->t == RSValue_Null) {
-        // Don't do anything
+        // write null value
+        out = sdscat(out, "(null)");
         continue;
       } else if (!RSValue_IsString(arg)) {
-        *err = strdup("argument for %s is not a string");
-        goto error;
+
+        RSValue strval = RSVALUE_STATIC;
+        RSValue_ToString(&strval, arg);
+        size_t sz;
+        const char *str = RSValue_StringPtrLen(&strval, &sz);
+        if (!str) {
+          out = sdscat(out, "(null)");
+        } else {
+          out = sdscatlen(out, str, sz);
+        }
+        RSValue_Free(&strval);
       } else {
-        write_strvalue(&arr, arg, 0);
+        size_t sz;
+        const char *str = RSValue_StringPtrLen(arg, &sz);
+        out = sdscatlen(out, str, sz);
       }
-    } else if (type == 'd') {
-      if (arg->t == RSValue_Number) {
-        char numbuf[64] = {0};
-        size_t n = snprintf(numbuf, sizeof numbuf, "%lld", (long long)arg->numval);
-        Array_Write(&arr, numbuf, n);
-      } else if (arg->t == RSValue_Null) {
-        Array_Write(&arr, "0", 1);
-      } else {
-        *err = strdup("argument for %d is not a number");
-        goto error;
-      }
-    } else if (type == 'f') {
-      if (arg->t == RSValue_Null) {
-        write_strvalue(&arr, RSValue_ToString(arg), 1);
-      } else if (arg->t == RSValue_Null) {
-        Array_Write(&arr, "0.0", 3);
-      } else {
-        *err = strdup("argument for %f is not a number");
-        goto error;
-      }
-    } else if (type == 'v') {
-      write_strvalue(&arr, RSValue_ToString(arg), 1);
     } else {
       *err = strdup("Unknown format specifier passed");
       goto error;
@@ -159,11 +164,11 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   }
 
   if (last && last < end) {
-    Array_Write(&arr, last, end - last);
+    out = sdscatlen(out, last, end - last);
   }
 
-  Array_ShrinkToSize(&arr);  // We're no longer allocating more memory for this string
-  RSValue_SetString(result, arr.data, arr.len);
+  // Array_ShrinkToSize(&arr);  // We're no longer allocating more memory for this string
+  RSValue_SetConstString(result, out, sdslen(out));
   // No need to clear the array object. Its content has been 'stolen'!
   return EXPR_EVAL_OK;
 
@@ -171,7 +176,7 @@ error:
   if (!*err) {
     *err = strdup("Error in format");
   }
-  Array_Free(&arr);
+  sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;
 }

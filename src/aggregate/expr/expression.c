@@ -77,6 +77,7 @@ RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
   e->property.cachedIdx = RSKEY_NOCACHE;
+  printf("New property: %s, len %zd\n", e->property.key, len);
   return e;
 }
 void RSArgList_Free(RSArgList *l) {

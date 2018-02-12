@@ -120,9 +120,9 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 4. Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. 
 
-## Wildcard Queries (As of 1.1.0)
+## Wildcard Queries
 
-As of 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`. 
+As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`. 
 
 This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. 
 
