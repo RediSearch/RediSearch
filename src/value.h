@@ -131,10 +131,10 @@ static inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->strval.str = str;
 }
 
-static inline void RSValue_SetConstString(RSValue *v, char *str, size_t len) {
+static inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->t = RSValue_ConstString;
   v->strval.len = len;
-  v->strval.str = str;
+  v->strval.str = (char *)str;
 }
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
@@ -200,27 +200,30 @@ static inline int RSValue_IsString(const RSValue *value) {
 
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
-static RSValue *RSValue_ToString(RSValue *v) {
+static void RSValue_ToString(RSValue *dst, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
-      return RSValue_IncrRef(v);
+      RSValue_MakeReference(dst, v);
+      break;
     case RSValue_RedisString: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
-      return RS_ConstStringVal((char *)str, sz);
+      RSValue_SetConstString(dst, str, sz);
+      break;
     }
     case RSValue_Number: {
       char *str;
-      asprintf(&str, "%f", v->numval);
-      return RS_StringValC(str);
+      asprintf(&str, "%g", v->numval);
+      RSValue_SetString(dst, str, strlen(str));
+      break;
     }
     case RSValue_Reference:
-      return RSValue_ToString(v->ref);
+      return RSValue_ToString(dst, v->ref);
 
     case RSValue_Null:
     default:
-      return RS_ConstStringVal("", 0);
+      return RSValue_SetConstString(dst, "", 0);
   }
 }
 
@@ -350,8 +353,10 @@ static inline const char *RSValue_StringPtrLen(RSValue *value, size_t *lenp) {
       *lenp = value->strval.len;
     }
     return value->strval.str;
-  } else {
+  } else if (value->t == RSValue_RedisString) {
     return RedisModule_StringPtrLen(value->rstrval, lenp);
+  } else {
+    return NULL;
   }
 }
 
