@@ -18,12 +18,16 @@ CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fP
 	-DREDISMODULE_EXPERIMENTAL_API 
 CFLAGS += $(DEBUGFLAGS)
 
-SQLITE_ROOT?=/usr/local/opt/sqlite3
-PKG_CONFIG_PATH=$(SQLITE_ROOT)/lib/pkgconfig
-export PKG_CONFIG_PATH
-
-CFLAGS+=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --cflags)
-LDFLAGS=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --libs)
+ifdef SQLITE_AMALGAMATED_DIR
+	CFLAGS += -I$(SQLITE_AMALGAMATED_DIR)/
+	LIBSQLITE_O = $(SQLITE_AMALGAMATED_DIR)/sqlite3.o
+else
+	SQLITE_ROOT?=/usr/local/opt/sqlite3
+	PKG_CONFIG_PATH=$(SQLITE_ROOT)/lib/pkgconfig
+	export PKG_CONFIG_PATH
+	CFLAGS+=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --cflags)
+	LDFLAGS=$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config sqlite3 --libs)
+endif
 
 LINKER=$(CC)
 # Compile flags for non-osx / osx
@@ -53,6 +57,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
 CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
+CC_OBJECTS += $(LIBSQLITE_O)
 
 # .d files for each c file. These make sure that changing a header file
 # will also change the dependent .c files of it
