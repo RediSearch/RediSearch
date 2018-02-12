@@ -11,20 +11,21 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
+
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
     ingested = False
 
     def ingest(self):
-        if self.ingested:
+        if self.__class__.ingested:
             return
         self.cmd('flushdb')
 
-        self.ingested = True
+        self.__class__.ingested = True
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'BRAND', 'TEXT',  'NOSTEM', 'SORTABLE',
                  'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE', 'categories', 'TAG')
         client = self.client
-        fp = open('games.json', 'r')
+        fp = bz2.BZ2File('games.json.bz2', 'r')
 
         for line in fp:
             obj = json.loads(line)
@@ -57,94 +58,95 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
     def testMinMax(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'count', '0',
-            'REDUCE', 'min', '1', '@price', 'as', 'minPrice',
-            'SORTBY', '1', '@minPrice']
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'count', '0',
+               'REDUCE', 'min', '1', '@price', 'as', 'minPrice',
+               'SORTBY', '2', '@minPrice', 'DESC']
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         row = to_dict(res[1])
+        # print row
         self.assertEqual(88, int(float(row['minPrice'])))
 
         cmd = ['ft.aggregate', 'idx', 'sony',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'count', '0',
-            'REDUCE', 'max', '1', '@price', 'as', 'maxPrice',
-            'SORTBY', '1', '@maxPrice']
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'count', '0',
+               'REDUCE', 'max', '1', '@price', 'as', 'maxPrice',
+               'SORTBY', '2', '@maxPrice', 'DESC']
         res = self.cmd(*cmd)
         row = to_dict(res[1])
         self.assertEqual(695, int(float(row['maxPrice'])))
 
     def testAvg(self):
         cmd = ['ft.aggregate', 'idx', 'sony',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'avg', '1', '@price',
-            'REDUCE', 'count', '0',
-            'SORTBY', '1', '@avg(price)',]
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'avg', '1', '@price', 'AS', 'avg_price',
+               'REDUCE', 'count', '0',
+               'SORTBY', '2', '@avg_price', 'DESC']
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         self.assertEqual(26, res[0])
         # Ensure the formatting actually exists
 
         first_row = to_dict(res[1])
-        self.assertEqual(109, int(float(first_row['avg(price)'])))
+        self.assertEqual(109, int(float(first_row['avg_price'])))
 
         for row in res[1:]:
             row = to_dict(row)
-            self.assertTrue('avg(price)' in row)
+            self.assertIn('avg_price', row)
 
         # Test aliasing
         cmd = ['FT.AGGREGATE', 'idx', 'sony', 'GROUPBY', '1', '@brand',
-            'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice']
+               'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice']
         res = self.cmd(*cmd)
         first_row = to_dict(res[1])
         self.assertEqual(17, int(float(first_row['avgPrice'])))
 
     def testCountDistinct(self):
-        cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'GROUPBY', '1', '@categories',
-            'REDUCE', 'COUNT_DISTINCT', '1', '@title',
-            'REDUCE', 'COUNT', '0'
-            ]
+        cmd = ['FT.AGGREGATE', 'idx', '*',
+               'GROUPBY', '1', '@categories',
+               'REDUCE', 'COUNT_DISTINCT', '1', '@title',
+               'REDUCE', 'COUNT', '0'
+               ]
         res = self.cmd(*cmd)[1:]
         row = to_dict(res[0])
         self.assertEqual(2207, int(row['count_distinct(title)']))
 
-        cmd = ['FT.AGGREGATE', 'idx', '-@brand:lkjdklsa',
-            'GROUPBY', '1', '@categories',
-            'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
-            'REDUCE', 'COUNT', '0'
-            ]
+        cmd = ['FT.AGGREGATE', 'idx', '*',
+               'GROUPBY', '1', '@categories',
+               'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
+               'REDUCE', 'COUNT', '0'
+               ]
         res = self.cmd(*cmd)[1:]
         row = to_dict(res[0])
-        self.assertEqual(2207, int(row['count_distinctish(title)']))
+        self.assertEqual(2144, int(row['count_distinctish(title)']))
 
     def testQuantile(self):
-        cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
-            'REDUCE', 'QUANTILE', '2', '@price', '0.90', 'AS', 'q90',
-            'REDUCE', 'QUANTILE', '2', '@price', '0.95', 'AS', 'q95',
-            'REDUCE', 'AVG', '1', '@price',
-            'REDUCE', 'COUNT', '0',
-            'SORTBY', '1', '@count',
-            'LIMIT', '0', '10']
+        cmd = ['FT.AGGREGATE', 'idx', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
+               'REDUCE', 'QUANTILE', '2', '@price', '0.90', 'AS', 'q90',
+               'REDUCE', 'QUANTILE', '2', '@price', '0.95', 'AS', 'q95',
+               'REDUCE', 'AVG', '1', '@price',
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count', 'DESC', 'MAX', '10',
+               'LIMIT', '0', '10']
 
         res = self.cmd(*cmd)
         row = to_dict(res[1])
         self.assertEqual('14.99', row['q50'])
         self.assertEqual(106, int(float(row['q90'])))
         self.assertEqual(99, int(float(row['q95'])))
-    
+
     def testStdDev(self):
-        cmd = ['FT.AGGREGATE', 'idx', '-@brand:aadsfgds',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'STDDEV', '1', '@price',
-            'REDUCE', 'AVG', '1', '@price', 'AS', 'avgPrice',
-            'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50Price',
-            'REDUCE', 'COUNT', '0',
-            'SORTBY', '1', '@count',
-            'LIMIT', '0', '10']
+        cmd = ['FT.AGGREGATE', 'idx', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'STDDEV', '1', '@price',
+               'REDUCE', 'AVG', '1', '@price', 'AS', 'avgPrice',
+               'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50Price',
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count', 'DESC',
+               'LIMIT', '0', '10']
         res = self.cmd(*cmd)
         row = to_dict(res[1])
 
@@ -153,22 +155,27 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual(29, int(float(row['avgPrice'])))
 
     def testParseTime(self):
-        cmd = ['FT.AGGREGATE', 'idx', '-@nonexist:nonexist',
-            'GROUPBY', '1', '@brand',
-            'REDUCE', 'COUNT', '0',
-            'APPLY', 'parse_time("%FT%TZ", time(1517417144))', 'as', 'now',
-            'LIMIT', '0', '10']
+        cmd = ['FT.AGGREGATE', 'idx', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'COUNT', '0',
+               'APPLY', 'parse_time("%FT%TZ", time(1517417144))', 'as', 'now',
+               'LIMIT', '0', '10']
         res = self.cmd(*cmd)
         print res
-    
+
     def testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'idx', '@brand:sony',
-            'GROUPBY', '1', '@title',
-            'REDUCE', 'COUNT', '0',
-            'APPLY', 'FORMAT("{{%s}} ==BY== {{%s}} (Hi: %s)", @title, @brand, "Mark")', 'as', 'titleBrand',
-            'LIMIT', '0', '10']
+               'GROUPBY', '2', '@title', '@brand',
+               'REDUCE', 'COUNT', '0',
+               'REDUCE', 'MAX', '1', 'PRICE', 'AS', 'price',
+               'APPLY', 'format("%s|%s|%s|%s", @title, @brand, "Mark", @price)', 'as', 'titleBrand',
+               'LIMIT', '0', '10']
         res = self.cmd(*cmd)
-        pprint.pprint(res)
+        for row in res[1:]:
+            row = to_dict(row)
+            expected = '%s|%s|%s|%g' % (
+                row['title'], row['brand'], 'Mark', float(row['price']))
+            self.assertEqual(expected, row['titleBrand'])
 
 if __name__ == '__main__':
 
