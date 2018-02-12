@@ -34,6 +34,8 @@ typedef enum {
 } RSValueType;
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
+#define RSVALUE_STATIC_INIT \
+  { .allocated = 0 }
 
 // Variant value union
 typedef struct rsvalue {
