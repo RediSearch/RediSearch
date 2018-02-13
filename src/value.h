@@ -224,7 +224,7 @@ static void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Number: {
       char *str;
-      asprintf(&str, "%g", v->numval);
+      asprintf(&str, "%.12g", v->numval);
       RSValue_SetString(dst, str, strlen(str));
       break;
     }
@@ -534,8 +534,11 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
     case RSValue_RedisString:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
-    case RSValue_Number:
-      return RedisModule_ReplyWithDouble(ctx, v->numval);
+    case RSValue_Number: {
+      static char buf[128];
+      snprintf(buf, sizeof(buf), "%.12g", v->numval);
+      return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+    }
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
     case RSValue_Array:
@@ -566,7 +569,7 @@ static void RSValue_Print(RSValue *v) {
       printf("%s", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
-      printf("%g", v->numval);
+      printf("%.12g", v->numval);
       break;
     case RSValue_Null:
       printf("NULL");

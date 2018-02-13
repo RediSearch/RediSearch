@@ -194,14 +194,14 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                'LIMIT', '0', '5'
                ]
         res = self.cmd(*cmd)
-        self.assertEqual([292L, ['brand', '', 'count', '1518', 'sum(price)', '44780.69000000001'],
-                          ['brand', 'mad catz', 'count', '43',
-                              'sum(price)', '3973.4799999999991'],
+        self.assertEqual([292L, ['brand', '', 'count', '1518', 'sum(price)', '44780.69'],
+                          ['brand', 'mad catz', 'count',
+                              '43', 'sum(price)', '3973.48'],
                           ['brand', 'razer', 'count', '26',
-                              'sum(price)', '2558.579999999999'],
-                          ['brand', 'logitech', 'count', '35',
-                           'sum(price)', '2329.2099999999996'],
-                          ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.1200000000003']], res)
+                              'sum(price)', '2558.58'],
+                          ['brand', 'logitech', 'count',
+                              '35', 'sum(price)', '2329.21'],
+                          ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.12']], res)
 
     def testToList(self):
 
@@ -220,10 +220,47 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
     def testSortBy(self):
 
-        pass
+        res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+                       'REDUCE', 'sum', 1, '@price', 'as', 'price',
+                       'SORTBY', 2, '@price', 'desc',
+                       'LIMIT', '0', '2')
+        self.assertListEqual([292L, ['brand', '', 'price', '44780.69'], [
+                             'brand', 'mad catz', 'price', '3973.48']], res)
+
+        res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+                       'REDUCE', 'sum', 1, '@price', 'as', 'price',
+                       'SORTBY', 2, '@price', 'asc',
+                       'LIMIT', '0', '2')
+        self.assertListEqual([292L, ['brand', 'crystal dynamics', 'price', '0.25'], [
+                             'brand', 'myiico', 'price', '0.23']], res)
+
+        # Test MAX with limit higher than it
+        res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+                       'REDUCE', 'sum', 1, '@price', 'as', 'price',
+                       'SORTBY', 2, '@price', 'asc', 'MAX', 2,
+                       'LIMIT', '0', '10')
+
+        self.assertListEqual([292L, ['brand', 'crystal dynamics', 'price', '0.25'], [
+                             'brand', 'myiico', 'price', '0.23']], res)
+
+        # Test Sorting by multiple properties
+        res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+                       'REDUCE', 'sum', 1, '@price', 'as', 'price',
+                       'APPLY', '(@price % 10)', 'AS', 'price',
+                       'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
+                       )
+        self.assertListEqual([292L, ['brand', 'kinesis', 'price', '0'], ['brand', 'cables to go', 'price', '0'], ['brand', 'unknown', 'price', '2'], ['brand', 'teamscorpion', 'price', '2'], ['brand', 'bbqbuy', 'price', '2'], [
+                             'brand', 'slickblue', 'price', '3'], ['brand', 'teknmotion', 'price', '4'], ['brand', 'memory upgrades', 'price', '4'], ['brand', 'kontrolfreek', 'price', '4'], ['brand', 'gen', 'price', '4']], res)
 
     def testExpressions(self):
         pass
+
+    def testNoGroup(self):
+        pass
+
+    def testLoad(self):
+        pass
+
 if __name__ == '__main__':
 
     unittest.main()
