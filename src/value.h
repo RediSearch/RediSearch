@@ -723,14 +723,16 @@ static void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue *val) {
  * value if needed, and appending a new one if needed */
 static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
   key = RSKEY(key);
-  for (uint16_t i = 0; i < (*m)->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
+  if (*m) {
+    for (uint16_t i = 0; i < (*m)->len; i++) {
+      if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
 
-      // avoid memory leaks...
-      RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
-      // assign the new field
-      RSValue_MakeReference(&FIELDMAP_FIELD(*m, i).val, val);
-      return;
+        // avoid memory leaks...
+        RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
+        // assign the new field
+        RSValue_MakeReference(&FIELDMAP_FIELD(*m, i).val, val);
+        return;
+      }
     }
   }
   RSFieldMap_EnsureCap(m);
@@ -741,16 +743,18 @@ static void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
 
 static void RSFieldMap_SetStatic(RSFieldMap **m, const char *key, RSValue *in) {
   key = RSKEY(key);
-  for (uint16_t i = 0; i < (*m)->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
+  if (*m) {
+    for (uint16_t i = 0; i < (*m)->len; i++) {
+      if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
 
-      // avoid memory leaks...
-      RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
-      // assign the new field
-      FIELDMAP_FIELD(*m, i).val = *in;
-      FIELDMAP_FIELD(*m, i).val.allocated = 0;
-      FIELDMAP_FIELD(*m, i).val.refcount = 1;
-      return;
+        // avoid memory leaks...
+        RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
+        // assign the new field
+        FIELDMAP_FIELD(*m, i).val = *in;
+        FIELDMAP_FIELD(*m, i).val.allocated = 0;
+        FIELDMAP_FIELD(*m, i).val.refcount = 1;
+        return;
+      }
     }
   }
   RSFieldMap_EnsureCap(m);
@@ -764,17 +768,19 @@ static void RSFieldMap_SetStatic(RSFieldMap **m, const char *key, RSValue *in) {
 
 static void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
   key = RSKEY(key);
-  for (uint16_t i = 0; i < (*m)->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
+  if (*m) {
+    for (uint16_t i = 0; i < (*m)->len; i++) {
+      if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
 
-      // avoid memory leaks...
-      RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
-      // assign the new field
-      FIELDMAP_FIELD(*m, i).val = (RSValue){
-          .t = RSValue_Number,
-          .numval = d,
-      };
-      return;
+        // avoid memory leaks...
+        RSValue_Free(&FIELDMAP_FIELD(*m, i).val);
+        // assign the new field
+        FIELDMAP_FIELD(*m, i).val = (RSValue){
+            .t = RSValue_Number,
+            .numval = d,
+        };
+        return;
+      }
     }
   }
   RSFieldMap_EnsureCap(m);
@@ -789,6 +795,7 @@ static void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
 
 /* Free the field map. If freeKeys is set to 1 we also free the keys */
 static void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
+  if (!m) return;
   for (uint16_t i = 0; i < m->len; i++) {
     RSValue_Free(&m->fields[i].val);
 
