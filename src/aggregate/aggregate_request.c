@@ -66,7 +66,7 @@ void Aggregate_BuildSchema() {
       "resort, this hurts performance badly.");
 
   CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
-                                              CmdSchema_Required | CmdSchema_Repeating, NULL);
+                                              CmdSchema_Optional | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(grp, "BY",
                          CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
                          CmdSchema_Required);

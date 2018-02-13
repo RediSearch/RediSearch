@@ -40,7 +40,6 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   int rc = RSExpr_Eval(&pc->ctx, pc->exp, &out, &err);
   if (rc == EXPR_EVAL_OK) {
     RSFieldMap_SetStatic(&res->fields, pc->alias, &out);
-    // we do not free out!!!
   } else {
     RSFieldMap_Set(&res->fields, pc->alias, RS_NullVal());
   }
