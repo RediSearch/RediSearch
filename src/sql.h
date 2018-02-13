@@ -2,7 +2,7 @@
 #include "spec.h"
 #include "index_iterator.h"
 #include "query.h"
-
+#include "sql-api.h"
 typedef enum {
   SQL_COLIDX_KEY = 0,  // Column for PK
   SQL_COLIDX_SCORE = 1,

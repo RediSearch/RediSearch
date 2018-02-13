@@ -1,5 +1,6 @@
 #include "sql.h"
 #include "spec.h"
+#include "rmutil/vector.h"
 #include <assert.h>
 
 #define RQL_SET_ERR(tbl, ...)                           \
@@ -528,18 +529,57 @@ static sqlite3_module sqlModule = {.xConnect = sql_Connect,
                                    .xRowid = cursor_Rowid};
 
 static sqlite3 *sqlite_db_g = NULL;
+static Vector *pending_g;
 
-static int initDb(RedisModuleCtx *ctx) {
-  RedisModuleCtx *ownCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_SelectDb(ownCtx, RedisModule_GetSelectedDb(ctx));
+static int maybeInitDb(RedisModuleCtx *ctx) {
+  if (!sqlite_db_g) {
+    RedisModuleCtx *ownCtx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_SelectDb(ownCtx, RedisModule_GetSelectedDb(ctx));
 
-  int rc = sqlite3_open(":memory:", &sqlite_db_g);
-  assert(rc == SQLITE_OK);
-  rc = sqlite3_enable_load_extension(sqlite_db_g, 1);
-  assert(rc == SQLITE_OK);
-  rc = sqlite3_create_module(sqlite_db_g, "FT", &sqlModule, ownCtx);
-  assert(rc == SQLITE_OK);
+    int rc = sqlite3_open(":memory:", &sqlite_db_g);
+    assert(rc == SQLITE_OK);
+    rc = sqlite3_enable_load_extension(sqlite_db_g, 1);
+    assert(rc == SQLITE_OK);
+    rc = sqlite3_create_module(sqlite_db_g, "FT", &sqlModule, ownCtx);
+    assert(rc == SQLITE_OK);
+  }
+  if (!pending_g) {
+    return 0;
+  }
+
+  char *pp;
+  while (Vector_Pop(pending_g, &pp)) {
+    SQLCreateTable(ctx, pp);
+    free(pp);
+  }
   return 0;
+}
+
+void SQLScheduleTableCreation(const char *idxname) {
+  // Schedule for a table to be created or destroyed upon creation
+  if (!pending_g) {
+    pending_g = NewVector(char *, 16);
+  }
+  Vector_Push(pending_g, strdup(idxname));
+}
+
+int SQLCreateTable(RedisModuleCtx *ctx, const char *idxname) {
+  maybeInitDb(ctx);
+
+  // Destroy it if it doesn't first exist
+  char *stmt_rm = sqlite3_mprintf("DROP TABLE %s", idxname);
+  sqlite3_exec(sqlite_db_g, stmt_rm, NULL, NULL, NULL);
+  sqlite3_free(stmt_rm);
+
+  char *stmt = sqlite3_mprintf("CREATE VIRTUAL TABLE %s USING FT", idxname);
+  char *err = NULL;
+  int rc = sqlite3_exec(sqlite_db_g, stmt, NULL, NULL, &err);
+  if (rc != SQLITE_OK) {
+    RedisModule_Log(ctx, "warning", "Couldn't create SQL table for %s: %s", idxname, err);
+    free(err);
+  }
+  free(stmt);
+  return rc == SQLITE_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 static void outputRow(sqlite3_stmt *stmt, size_t ncols, RedisModuleCtx *ctx) {
@@ -569,10 +609,7 @@ static void outputRow(sqlite3_stmt *stmt, size_t ncols, RedisModuleCtx *ctx) {
 
 int SQLRedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Ensure that an SQL schema is created for each database
-  if (!sqlite_db_g) {
-    initDb(ctx);
-  }
-
+  maybeInitDb(ctx);
   sqlite3 *db = sqlite_db_g;
 
   if (argc < 2) {
