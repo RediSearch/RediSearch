@@ -17,35 +17,40 @@ void *RSExprParser_ParseAlloc(void *(*mallocProc)(size_t));
 void RSExprParser_ParseFree(void *p, void (*freeProc)(void *));
 
 
-#line 171 "lexer.rl"
+#line 172 "lexer.rl"
 
 
 
 #line 25 "lexer.c"
 static const char _expr_actions[] = {
 	0, 1, 0, 1, 1, 1, 2, 1, 
-	7, 1, 8, 1, 9, 1, 10, 1, 
-	11, 1, 12, 1, 13, 1, 14, 1, 
-	15, 1, 16, 1, 17, 1, 18, 1, 
-	19, 1, 20, 1, 21, 1, 22, 1, 
-	23, 1, 24, 1, 25, 2, 2, 3, 
-	2, 2, 4, 2, 2, 5, 2, 2, 
-	6
+	9, 1, 10, 1, 11, 1, 12, 1, 
+	13, 1, 14, 1, 15, 1, 16, 1, 
+	17, 1, 18, 1, 19, 1, 20, 1, 
+	21, 1, 22, 1, 23, 1, 24, 1, 
+	25, 1, 26, 1, 27, 1, 28, 2, 
+	2, 3, 2, 2, 4, 2, 2, 5, 
+	2, 2, 6, 2, 2, 7, 2, 2, 
+	8
 };
 
 static const char _expr_key_offsets[] = {
-	0, 0, 2, 3, 4, 6, 16, 51, 
-	53, 54, 57, 60, 62, 72, 79, 87
+	0, 0, 3, 5, 8, 10, 14, 18, 
+	19, 20, 22, 32, 67, 70, 74, 77, 
+	78, 81, 84, 86, 96, 103, 111
 };
 
 static const char _expr_trans_keys[] = {
-	10, 34, 110, 102, 48, 57, 9, 13, 
+	10, 34, 92, 34, 92, 10, 39, 92, 
+	39, 92, 10, 39, 92, 110, 10, 39, 
+	92, 102, 110, 102, 48, 57, 9, 13, 
 	32, 47, 58, 64, 91, 96, 123, 126, 
 	32, 34, 37, 39, 40, 41, 42, 43, 
 	44, 45, 47, 64, 94, 105, 127, 0, 
 	8, 9, 13, 14, 31, 33, 46, 48, 
 	57, 58, 63, 65, 90, 91, 96, 97, 
-	122, 123, 126, 10, 34, 105, 105, 48, 
+	122, 123, 126, 10, 34, 92, 10, 39, 
+	92, 105, 10, 39, 92, 105, 105, 48, 
 	57, 46, 48, 57, 48, 57, 92, 96, 
 	0, 47, 58, 64, 91, 94, 123, 127, 
 	95, 48, 57, 65, 90, 97, 122, 95, 
@@ -54,72 +59,84 @@ static const char _expr_trans_keys[] = {
 };
 
 static const char _expr_single_lengths[] = {
-	0, 2, 1, 1, 0, 0, 15, 2, 
-	1, 1, 1, 0, 2, 1, 2, 1
+	0, 3, 2, 3, 2, 4, 4, 1, 
+	1, 0, 0, 15, 3, 4, 3, 1, 
+	1, 1, 0, 2, 1, 2, 1
 };
 
 static const char _expr_range_lengths[] = {
-	0, 0, 0, 0, 1, 5, 10, 0, 
-	0, 1, 1, 1, 4, 3, 3, 3
+	0, 0, 0, 0, 0, 0, 0, 0, 
+	0, 1, 5, 10, 0, 0, 0, 0, 
+	1, 1, 1, 4, 3, 3, 3
 };
 
 static const char _expr_index_offsets[] = {
-	0, 0, 3, 5, 7, 9, 15, 41, 
-	44, 46, 49, 52, 54, 61, 66, 72
+	0, 0, 4, 7, 11, 14, 19, 24, 
+	26, 28, 30, 36, 62, 66, 71, 75, 
+	77, 80, 83, 85, 92, 97, 103
 };
 
 static const char _expr_indicies[] = {
-	0, 2, 1, 4, 3, 5, 3, 7, 
-	6, 8, 8, 8, 8, 8, 3, 11, 
-	13, 14, 15, 16, 17, 18, 19, 20, 
-	21, 22, 24, 26, 27, 9, 9, 11, 
-	9, 12, 23, 12, 25, 12, 25, 12, 
-	10, 28, 2, 1, 29, 3, 29, 23, 
-	30, 32, 23, 31, 7, 31, 33, 3, 
-	3, 3, 3, 3, 8, 25, 25, 25, 
-	25, 34, 25, 35, 25, 25, 25, 34, 
-	25, 25, 25, 25, 34, 0
+	0, 2, 3, 1, 4, 3, 1, 0, 
+	2, 6, 5, 7, 6, 5, 8, 2, 
+	6, 9, 5, 8, 2, 6, 10, 5, 
+	11, 0, 12, 0, 14, 13, 15, 15, 
+	15, 15, 15, 0, 18, 20, 21, 22, 
+	23, 24, 25, 26, 27, 28, 29, 31, 
+	33, 34, 16, 16, 18, 16, 19, 30, 
+	19, 32, 19, 32, 19, 17, 0, 2, 
+	3, 1, 35, 2, 6, 36, 5, 0, 
+	2, 6, 5, 38, 37, 38, 30, 39, 
+	41, 30, 40, 14, 40, 42, 0, 0, 
+	0, 0, 0, 15, 32, 32, 32, 32, 
+	43, 32, 44, 32, 32, 32, 43, 32, 
+	32, 32, 32, 43, 0
 };
 
 static const char _expr_trans_targs[] = {
-	6, 1, 6, 6, 3, 6, 6, 11, 
-	12, 6, 0, 6, 6, 7, 6, 8, 
-	6, 6, 6, 8, 6, 9, 6, 10, 
-	12, 13, 6, 14, 6, 2, 6, 6, 
-	4, 5, 6, 15
+	11, 1, 11, 2, 12, 3, 4, 14, 
+	11, 6, 14, 8, 11, 11, 18, 19, 
+	11, 0, 11, 11, 12, 11, 13, 11, 
+	11, 11, 15, 11, 16, 11, 17, 19, 
+	20, 11, 21, 11, 5, 11, 7, 11, 
+	11, 9, 10, 11, 22
 };
 
 static const char _expr_trans_actions[] = {
-	41, 0, 23, 43, 0, 7, 39, 0, 
-	45, 29, 0, 25, 27, 5, 13, 54, 
-	9, 11, 19, 51, 21, 48, 17, 5, 
-	54, 0, 15, 0, 37, 0, 35, 31, 
-	0, 0, 33, 0
+	45, 0, 23, 0, 59, 0, 0, 59, 
+	43, 0, 50, 0, 7, 41, 0, 47, 
+	29, 0, 25, 27, 62, 13, 62, 9, 
+	11, 19, 56, 21, 53, 17, 5, 62, 
+	0, 15, 0, 39, 0, 37, 0, 35, 
+	31, 0, 0, 33, 0
 };
 
 static const char _expr_to_state_actions[] = {
-	0, 0, 0, 0, 0, 0, 1, 0, 
-	0, 0, 0, 0, 0, 0, 0, 0
+	0, 0, 0, 0, 0, 0, 0, 0, 
+	0, 0, 0, 1, 0, 0, 0, 0, 
+	0, 0, 0, 0, 0, 0, 0
 };
 
 static const char _expr_from_state_actions[] = {
-	0, 0, 0, 0, 0, 0, 3, 0, 
-	0, 0, 0, 0, 0, 0, 0, 0
+	0, 0, 0, 0, 0, 0, 0, 0, 
+	0, 0, 0, 3, 0, 0, 0, 0, 
+	0, 0, 0, 0, 0, 0, 0
 };
 
 static const char _expr_eof_trans[] = {
-	0, 1, 4, 4, 7, 4, 0, 29, 
-	4, 31, 32, 32, 4, 35, 35, 35
+	0, 1, 1, 1, 1, 9, 9, 1, 
+	1, 14, 1, 0, 1, 36, 1, 38, 
+	40, 41, 41, 1, 44, 44, 44
 };
 
-static const int expr_start = 6;
-static const int expr_first_final = 6;
+static const int expr_start = 11;
+static const int expr_first_final = 11;
 static const int expr_error = 0;
 
-static const int expr_en_main = 6;
+static const int expr_en_main = 11;
 
 
-#line 174 "lexer.rl"
+#line 175 "lexer.rl"
 
 
 
@@ -139,7 +156,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, ch
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
   
-#line 143 "lexer.c"
+#line 160 "lexer.c"
 	{
 	cs = expr_start;
 	ts = 0;
@@ -147,7 +164,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, ch
 	act = 0;
 	}
 
-#line 193 "lexer.rl"
+#line 194 "lexer.rl"
   RSExprToken tok = {.len = 0, .pos = 0, .s = 0, .numval = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -156,7 +173,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, ch
   const char* eof = pe;
   
   
-#line 160 "lexer.c"
+#line 177 "lexer.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -177,7 +194,7 @@ _resume:
 #line 1 "NONE"
 	{ts = p;}
 	break;
-#line 181 "lexer.c"
+#line 198 "lexer.c"
 		}
 	}
 
@@ -248,23 +265,31 @@ _eof_trans:
 	{te = p+1;}
 	break;
 	case 3:
-#line 55 "lexer.rl"
+#line 56 "lexer.rl"
 	{act = 2;}
 	break;
 	case 4:
-#line 102 "lexer.rl"
-	{act = 7;}
+#line 76 "lexer.rl"
+	{act = 4;}
 	break;
 	case 5:
-#line 110 "lexer.rl"
-	{act = 8;}
+#line 103 "lexer.rl"
+	{act = 7;}
 	break;
 	case 6:
-#line 168 "lexer.rl"
-	{act = 16;}
+#line 111 "lexer.rl"
+	{act = 8;}
 	break;
 	case 7:
-#line 75 "lexer.rl"
+#line 156 "lexer.rl"
+	{act = 14;}
+	break;
+	case 8:
+#line 169 "lexer.rl"
+	{act = 16;}
+	break;
+	case 9:
+#line 76 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     tok.s = ts;
@@ -277,8 +302,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 8:
-#line 87 "lexer.rl"
+	case 10:
+#line 88 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, LP, tok, &ctx);
@@ -287,8 +312,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 9:
-#line 94 "lexer.rl"
+	case 11:
+#line 95 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, RP, tok, &ctx);
@@ -297,8 +322,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 10:
-#line 117 "lexer.rl"
+	case 12:
+#line 118 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MOD, tok, &ctx);  
@@ -307,8 +332,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 11:
-#line 124 "lexer.rl"
+	case 13:
+#line 125 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, POW, tok, &ctx);  
@@ -317,8 +342,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 12:
-#line 131 "lexer.rl"
+	case 14:
+#line 132 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, DIVIDE, tok, &ctx);  
@@ -327,8 +352,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 13:
-#line 139 "lexer.rl"
+	case 15:
+#line 140 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, TIMES, tok, &ctx);    
@@ -337,8 +362,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 14:
-#line 146 "lexer.rl"
+	case 16:
+#line 147 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, COMMA, tok, &ctx);  
@@ -347,8 +372,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 15:
-#line 155 "lexer.rl"
+	case 17:
+#line 156 "lexer.rl"
 	{te = p+1;{
 
     tok.len = te-ts;
@@ -362,20 +387,20 @@ _eof_trans:
     }
   }}
 	break;
-	case 16:
-#line 167 "lexer.rl"
-	{te = p+1;}
-	break;
-	case 17:
+	case 18:
 #line 168 "lexer.rl"
 	{te = p+1;}
 	break;
-	case 18:
+	case 19:
 #line 169 "lexer.rl"
 	{te = p+1;}
 	break;
-	case 19:
-#line 42 "lexer.rl"
+	case 20:
+#line 170 "lexer.rl"
+	{te = p+1;}
+	break;
+	case 21:
+#line 43 "lexer.rl"
 	{te = p;p--;{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -389,8 +414,8 @@ _eof_trans:
     
   }}
 	break;
-	case 20:
-#line 65 "lexer.rl"
+	case 22:
+#line 66 "lexer.rl"
 	{te = p;p--;{
     tok.pos = ts-ctx.raw;
     tok.len = te - ts;
@@ -401,8 +426,8 @@ _eof_trans:
     }
   }}
 	break;
-	case 21:
-#line 102 "lexer.rl"
+	case 23:
+#line 103 "lexer.rl"
 	{te = p;p--;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MINUS, tok, &ctx);  
@@ -411,12 +436,22 @@ _eof_trans:
     }
   }}
 	break;
-	case 22:
-#line 168 "lexer.rl"
+	case 24:
+#line 111 "lexer.rl"
+	{te = p;p--;{ 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, PLUS, tok, &ctx);  
+    if (!ctx.ok) {
+      {p++; goto _out; }
+    }
+  }}
+	break;
+	case 25:
+#line 169 "lexer.rl"
 	{te = p;p--;}
 	break;
-	case 23:
-#line 42 "lexer.rl"
+	case 26:
+#line 43 "lexer.rl"
 	{{p = ((te))-1;}{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -430,11 +465,11 @@ _eof_trans:
     
   }}
 	break;
-	case 24:
-#line 168 "lexer.rl"
+	case 27:
+#line 169 "lexer.rl"
 	{{p = ((te))-1;}}
 	break;
-	case 25:
+	case 28:
 #line 1 "NONE"
 	{	switch( act ) {
 	case 2:
@@ -443,6 +478,19 @@ _eof_trans:
     tok.len = te - (ts + 1);
     tok.s = ts+1;
     RSExprParser_Parse(pParser, PROPERTY, tok, &ctx);
+    if (!ctx.ok) {
+      {p++; goto _out; }
+    }
+  }
+	break;
+	case 4:
+	{{p = ((te))-1;} 
+    tok.pos = ts-ctx.raw;
+    tok.s = ts;
+    tok.len = te-ts;
+    
+    tok.numval = *ts == '-' ? -INFINITY : INFINITY;
+    RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
     if (!ctx.ok) {
       {p++; goto _out; }
     }
@@ -466,13 +514,27 @@ _eof_trans:
     }
   }
 	break;
+	case 14:
+	{{p = ((te))-1;}
+
+    tok.len = te-ts;
+    tok.s = ts;
+    tok.numval = 0;
+    tok.pos = ts-ctx.raw;
+
+    RSExprParser_Parse(pParser, STRING, tok, &ctx);
+    if (!ctx.ok) {
+      {p++; goto _out; }
+    }
+  }
+	break;
 	default:
 	{{p = ((te))-1;}}
 	break;
 	}
 	}
 	break;
-#line 476 "lexer.c"
+#line 538 "lexer.c"
 		}
 	}
 
@@ -485,7 +547,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 489 "lexer.c"
+#line 551 "lexer.c"
 		}
 	}
 
@@ -505,7 +567,7 @@ _again:
 	_out: {}
 	}
 
-#line 201 "lexer.rl"
+#line 202 "lexer.rl"
   
 
   if (ctx.ok) {

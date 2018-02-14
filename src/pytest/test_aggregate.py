@@ -256,11 +256,20 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         pass
 
     def testNoGroup(self):
-        pass
+        res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
+                       'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
+                       'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
+                       )
+        self.assertListEqual([2265L, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
+                             'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']],
+                             res)
 
     def testLoad(self):
-        pass
-
+        res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '3', '@brand', '@price', '@nonexist',
+                       'LIMIT', 0, 5
+                       )
+        self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
+                             'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
 if __name__ == '__main__':
 
     unittest.main()
