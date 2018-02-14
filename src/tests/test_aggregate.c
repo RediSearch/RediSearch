@@ -18,7 +18,8 @@ int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   struct mockProcessorCtx *p = ctx->privdata;
   if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
 
-  p->res->docId = ++p->counter;
+  res->docId = ++p->counter;
+
   // printf("%s\n", p->values[p->counter % p->numvals]);
   RSFieldMap_SetRawValue(&res->fields, "value", RSValue_ConstString,
                          p->values[p->counter % p->numvals],
@@ -53,6 +54,8 @@ int testGroupBy() {
   TimeSampler_Start(&ts);
   while (ResultProcessor_Next(gp, res, 0) != RS_RESULT_EOF) {
     RSFieldMap_Print(res->fields);
+    res->fields->len = 0;
+    res->fields = NULL;
     printf("\n");
   }
   SearchResult_Free(res);
