@@ -674,7 +674,7 @@ static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
 /* Create a new field map with a given initial capacity */
 static RSFieldMap *RS_NewFieldMap(uint16_t cap) {
   if (!cap) cap = 1;
-  RSFieldMap *m = malloc(RSFieldMap_SizeOf(cap));
+  RSFieldMap *m = calloc(1, RSFieldMap_SizeOf(cap));
   *m = (RSFieldMap){.len = 0, .cap = cap};
   return m;
 }
@@ -834,6 +834,14 @@ static void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
   RSFieldMap_SetRawValue(m, key, RSValue_Number, d);
 }
 
+static inline void RSFieldMap_Reset(RSFieldMap *m) {
+  if (m) {
+    for (size_t i = 0; i < m->len; i++) {
+      RSValue_Free(&m->fields[i].val);
+    }
+    m->len = 0;
+  }
+}
 /* Free the field map. If freeKeys is set to 1 we also free the keys */
 static void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
   if (!m) return;
