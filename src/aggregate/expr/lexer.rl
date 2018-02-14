@@ -32,8 +32,9 @@ pow = '^';
 comma = ',';
 escape = '\\';
 quote = '"';
+squote = "'";
 escaped_character = escape (punct | space | escape);
-string_literal =	quote . (any - quote - '\n' )* . quote;
+string_literal =	(quote . ((any - quote - '\n' )|escaped_character)* . quote) | (squote . ((any - squote - '\n' )|escaped_character)* . squote);
 func = alpha.(alnum|'_')* $0;
 property = '@'.(((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $ 1;
 
