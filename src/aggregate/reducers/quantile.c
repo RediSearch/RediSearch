@@ -16,7 +16,7 @@ static void *quantile_NewInstance(ReducerCtx *ctx) {
   quantileCtx *qctx = calloc(1, sizeof(*qctx));
   qctx->params = ctx->privdata;
   qctx->strm = NewQuantileStream(&qctx->params->pct, 1, 500);
-  qctx->sortables = ctx->ctx->spec->sortables;
+  qctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return qctx;
 }
 
@@ -34,7 +34,7 @@ static int quantile_Add(void *ctx, SearchResult *res) {
 static int quantile_Finalize(void *ctx, const char *key, SearchResult *res) {
   quantileCtx *qctx = ctx;
   double value = QS_Query(qctx->strm, qctx->params->pct);
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(value));
+  RSFieldMap_SetNumber(&res->fields, key, value);
   return 1;
 }
 

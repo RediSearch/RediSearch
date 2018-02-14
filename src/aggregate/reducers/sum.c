@@ -12,7 +12,7 @@ void *sum_NewInstance(ReducerCtx *rctx) {
   struct sumCtx *ctx = malloc(sizeof(*ctx));
   ctx->count = 0;
   ctx->total = 0;
-  ctx->sortables = rctx->ctx->spec->sortables;
+  ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
   ctx->property = RS_KEY(rctx->property);
   ctx->isAvg = rctx->privdata != NULL;
   return ctx;
@@ -46,7 +46,7 @@ int sum_Finalize(void *ctx, const char *key, SearchResult *res) {
     v = ctr->total;
   }
 
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(v));
+  RSFieldMap_SetNumber(&res->fields, key, v);
   return 1;
 }
 

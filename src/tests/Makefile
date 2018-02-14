@@ -20,6 +20,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/hll/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files

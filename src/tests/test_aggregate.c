@@ -11,7 +11,7 @@ struct mockProcessorCtx {
   SearchResult *res;
 };
 
-#define NUM_RESULTS 10000000
+#define NUM_RESULTS 100000
 
 int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
@@ -20,10 +20,12 @@ int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   p->res->docId = ++p->counter;
   // printf("%s\n", p->values[p->counter % p->numvals]);
-  RSFieldMap_Set(&p->res->fields, "value", RS_CStringValStatic(p->values[p->counter % p->numvals]));
-  RSFieldMap_Set(&p->res->fields, "score", RS_NumVal((double)p->counter));
+  RSFieldMap_SetRawValue(&res->fields, "value", RSValue_ConstString,
+                         p->values[p->counter % p->numvals],
+                         strlen(p->values[p->counter % p->numvals]));
+  RSFieldMap_SetNumber(&res->fields, "score", (double)p->counter);
 
-  *res = *p->res;
+  //* res = * p->res;
   return RS_RESULT_OK;
 }
 
@@ -39,10 +41,11 @@ int testGroupBy() {
   ResultProcessor *mp = NewResultProcessor(NULL, &ctx);
   mp->Next = mock_Next;
   mp->Free = NULL;
+  RSMultiKey *keys = RS_NewMultiKeyVariadic(2, "value", "val");
 
-  Grouper *gr = NewGrouper("value", "val", NULL);
-  Grouper_AddReducer(gr, NewCounter("countie"));
-  Grouper_AddReducer(gr, NewSummer("score", NULL));
+  Grouper *gr = NewGrouper(keys, NULL);
+  Grouper_AddReducer(gr, NewCount(NULL, "countie"));
+  Grouper_AddReducer(gr, NewSum(NULL, "score", NULL));
 
   ResultProcessor *gp = NewGrouperProcessor(gr, mp);
   SearchResult *res = NewSearchResult();
@@ -51,9 +54,9 @@ int testGroupBy() {
   while (ResultProcessor_Next(gp, res, 0) != RS_RESULT_EOF) {
     RSFieldMap_Print(res->fields);
     printf("\n");
-    SearchResult_Free(res);
-    res = NewSearchResult();
   }
+  SearchResult_Free(res);
+  // res = NewSearchResult();
   TimeSampler_End(&ts);
   printf("%d iterations in %fms, %fns/iter", NUM_RESULTS, TimeSampler_DurationSec(&ts) * 1000,
          (double)(TimeSampler_DurationNS(&ts)) / (double)NUM_RESULTS);
