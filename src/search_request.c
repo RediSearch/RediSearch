@@ -344,5 +344,5 @@ QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, c
     return NULL;
   }
 
-  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req);
+  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req, err);
 }

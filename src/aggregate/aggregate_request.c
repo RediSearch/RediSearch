@@ -245,7 +245,7 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
   return ret;
 }
 
-ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
+static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
 
   CmdArg *cmd = ctx;
   // The base processor translates index results into search results
@@ -261,17 +261,16 @@ ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx) {
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
-  char *err = NULL;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     prev = next;
     if (!strcasecmp(key, "GROUPBY")) {
-      next = buildGroupBy(child, plan->ctx, next, &err);
+      next = buildGroupBy(child, plan->ctx, next, err);
     } else if (!strcasecmp(key, "SORTBY")) {
-      next = buildSortBY(child, next, &err);
+      next = buildSortBY(child, next, err);
     } else if (!strcasecmp(key, "APPLY")) {
-      next = buildProjection(child, next, plan->ctx, &err);
+      next = buildProjection(child, next, plan->ctx, err);
     } else if (!strcasecmp(key, "LIMIT")) {
-      next = addLimit(child, next, &err);
+      next = addLimit(child, next, err);
     }
     if (!next) {
       goto fail;
@@ -286,10 +285,6 @@ fail:
   }
 
   RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate reuqest: %s", err);
-  free(err);
-  // if (!*err) {
-  //   *err = (char *)strdup("Could not parse aggregate request");
-  // }
   return NULL;
 }
 
@@ -321,7 +316,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
   Query_Expand(q, opts.expander);
 
   // TODO: Pass err here
-  QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd);
+  QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd, &err);
   if (!plan || err != NULL) {
     Query_Free(q);
     CmdArg_Free(cmd);
@@ -334,8 +329,9 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
   int rc = QueryPlan_Run(plan, &err);
   if (rc == REDISMODULE_ERR) {
 
-    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
+    RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
   }
+  if (err) free(err);
   QueryPlan_Free(plan);
   Query_Free(q);
   CmdArg_Free(cmd);

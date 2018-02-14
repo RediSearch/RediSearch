@@ -31,13 +31,13 @@ typedef struct QueryPlan {
  * it off, resulting in the QueryParseCtx not performing context switches */
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
-typedef ResultProcessor *(*ProcessorChainBuilder)(QueryPlan *plan, void *privdata);
+typedef ResultProcessor *(*ProcessorChainBuilder)(QueryPlan *plan, void *privdata, char **err);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
 QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
-                           ProcessorChainBuilder pcb, void *chainBuilderContext);
+                           ProcessorChainBuilder pcb, void *chainBuilderContext, char **err);
 
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata);
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err);
 
 int QueryPlan_Run(QueryPlan *plan, char **err);
 
