@@ -11,7 +11,7 @@ typedef struct {
 static void *stddev_NewInstance(ReducerCtx *ctx) {
   devCtx *dctx = calloc(1, sizeof(*dctx));
   dctx->property = RS_KEY(ctx->property);
-  dctx->sortables = ctx->ctx->spec->sortables;
+  dctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return dctx;
 }
 
@@ -43,7 +43,7 @@ static int stddev_Finalize(void *ctx, const char *key, SearchResult *res) {
   devCtx *dctx = ctx;
   double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(stddev));
+  RSFieldMap_SetNumber(&res->fields, key, stddev);
   return 1;
 }
 

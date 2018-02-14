@@ -10,7 +10,7 @@ void *tolist_NewInstance(ReducerCtx *rctx) {
   struct tolistCtx *ctx = malloc(sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = RS_KEY(rctx->property);
-  ctx->sortables = rctx->ctx->spec->sortables;
+  ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
   return ctx;
 }
 

@@ -16,7 +16,7 @@ static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
   m->mode = mode;
   m->property = RS_KEY(ctx->property);
   m->numMatches = 0;
-  m->sortables = ctx->ctx->spec->sortables;
+  m->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   if (mode == Minmax_Min) {
     m->val = DBL_MAX;
   } else if (mode == Minmax_Max) {
@@ -54,7 +54,7 @@ static int minmax_Add(void *ctx, SearchResult *res) {
 
 static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
   struct minmaxCtx *ctx = base;
-  RSFieldMap_Set(&res->fields, key, RS_NumVal(ctx->numMatches ? ctx->val : 0));
+  RSFieldMap_SetNumber(&res->fields, key, ctx->numMatches ? ctx->val : 0);
   return 1;
 }
 

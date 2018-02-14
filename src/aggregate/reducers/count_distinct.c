@@ -23,7 +23,7 @@ static void *countDistinct_NewInstance(ReducerCtx *ctx) {
   ctr->count = 0;
   ctr->dedup = kh_init(khid);
   ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
-  ctr->sortables = ctx->ctx->spec->sortables;
+  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return ctr;
 }
 
@@ -89,7 +89,7 @@ static void *countDistinctish_NewInstance(ReducerCtx *ctx) {
       ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
   hll_init(&ctr->hll, HLL_PRECISION_BITS);
   ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
-  ctr->sortables = ctx->ctx->spec->sortables;
+  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return ctr;
 }
 
