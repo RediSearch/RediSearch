@@ -149,7 +149,7 @@ static int queryPlan_EvalQuery(QueryPlan *plan, QueryParseCtx *parsedQuery, RSSe
 }
 
 QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
-                           ProcessorChainBuilder pcb, void *chainBuilderContext) {
+                           ProcessorChainBuilder pcb, void *chainBuilderContext, char **err) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = ctx;
   plan->conc = opts->concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
@@ -174,7 +174,7 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
     return NULL;
   }
   plan->execCtx.rootFilter = plan->rootFilter;
-  plan->rootProcessor = pcb(plan, chainBuilderContext);
+  plan->rootProcessor = pcb(plan, chainBuilderContext, err);
   if (!plan->rootProcessor) {
     QueryPlan_Free(plan);
     return NULL;
