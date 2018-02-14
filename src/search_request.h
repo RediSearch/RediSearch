@@ -11,7 +11,7 @@
 typedef enum {
   Search_NoContent = 0x01,
   Search_Verbatim = 0x02,
-  Search_NoStopwrods = 0x04,
+  Search_NoStopwords = 0x04,
 
   Search_WithScores = 0x08,
   Search_WithPayloads = 0x10,
