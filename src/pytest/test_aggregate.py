@@ -5,6 +5,7 @@ import json
 import unittest
 import itertools
 import pprint
+import sys
 
 
 def to_dict(res):
@@ -14,14 +15,9 @@ def to_dict(res):
 
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
-    ingested = False
+    #ingested = False
 
     def ingest(self):
-        if self.__class__.ingested:
-            return
-        # self.cmd('flushdb')
-
-        self.__class__.ingested = True
         try:
             self.cmd('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'brand', 'TEXT',  'NOSTEM', 'SORTABLE',
                      'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE', 'categories', 'TAG')
@@ -46,7 +42,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
         self.ingest()
 
-    def testGroupBy(self):
+    def _testGroupBy(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
@@ -59,7 +55,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual([292L, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'], [
                          'brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'], ['brand', 'logitech', 'count', '35']], res)
 
-    def testMinMax(self):
+    def _testMinMax(self):
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
@@ -80,7 +76,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         row = to_dict(res[1])
         self.assertEqual(695, int(float(row['maxPrice'])))
 
-    def testAvg(self):
+    def _testAvg(self):
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'avg', '1', '@price', 'AS', 'avg_price',
@@ -105,7 +101,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         first_row = to_dict(res[1])
         self.assertEqual(17, int(float(first_row['avgPrice'])))
 
-    def testCountDistinct(self):
+    def _testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@categories',
                'REDUCE', 'COUNT_DISTINCT', '1', '@title',
@@ -124,7 +120,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         row = to_dict(res[0])
         self.assertEqual(2144, int(row['count_distinctish(title)']))
 
-    def testQuantile(self):
+    def _testQuantile(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
@@ -141,7 +137,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual(106, int(float(row['q90'])))
         self.assertEqual(99, int(float(row['q95'])))
 
-    def testStdDev(self):
+    def _testStdDev(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'STDDEV', '1', '@price',
@@ -157,7 +153,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual(53, int(float(row['stddev(price)'])))
         self.assertEqual(29, int(float(row['avgPrice'])))
 
-    def testParseTime(self):
+    def _testParseTime(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0',
@@ -169,7 +165,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertEqual(['brand', '', 'count', '1518', 'dt',
                           '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
 
-    def testStringFormat(self):
+    def _testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
                'GROUPBY', '2', '@title', '@brand',
                'REDUCE', 'COUNT', '0',
@@ -183,7 +179,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                 row['title'], row['brand'], 'Mark', float(row['price']))
             self.assertEqual(expected, row['titleBrand'])
 
-    def testSum(self):
+    def _testSum(self):
 
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -203,7 +199,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                               '35', 'sum(price)', '2329.21'],
                           ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.12']], res)
 
-    def testToList(self):
+    def _testToList(self):
 
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -218,7 +214,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
             row = to_dict(row)
             self.assertEqual(int(row['count']), len(row['prices']))
 
-    def testSortBy(self):
+    def _testSortBy(self):
 
         res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                        'REDUCE', 'sum', 1, '@price', 'as', 'price',
@@ -252,10 +248,10 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertListEqual([292L, ['brand', 'kinesis', 'price', '0'], ['brand', 'cables to go', 'price', '0'], ['brand', 'unknown', 'price', '2'], ['brand', 'teamscorpion', 'price', '2'], ['brand', 'bbqbuy', 'price', '2'], [
                              'brand', 'slickblue', 'price', '3'], ['brand', 'teknmotion', 'price', '4'], ['brand', 'memory upgrades', 'price', '4'], ['brand', 'kontrolfreek', 'price', '4'], ['brand', 'gen', 'price', '4']], res)
 
-    def testExpressions(self):
+    def _testExpressions(self):
         pass
 
-    def testNoGroup(self):
+    def _testNoGroup(self):
         res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
                        'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
                        'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
@@ -264,12 +260,20 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                              'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']],
                              res)
 
-    def testLoad(self):
+    def _testLoad(self):
         res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '3', '@brand', '@price', '@nonexist',
                        'LIMIT', 0, 5
                        )
         self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
                              'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
+
+    def testAll(self):
+        for name, f in self.__class__.__dict__.iteritems():
+            if name.startswith('_test'):
+                f(self)
+                sys.stdout.write('.')
+                sys.stdout.flush()
+
 if __name__ == '__main__':
 
     unittest.main()
