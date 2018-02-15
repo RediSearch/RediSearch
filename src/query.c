@@ -641,10 +641,13 @@ QueryParseCtx *NewQueryParseCtx(RSSearchRequest *req) {
   ctx->ok = 1;
   ctx->root = NULL;
   ctx->sctx = req->sctx;
-
-  ctx->stopwords = (ctx->sctx && ctx->sctx->spec && ctx->sctx->spec->stopwords)
-                       ? ctx->sctx->spec->stopwords
-                       : DefaultStopWordList();
+  if (req->flags & Search_NoStopwords) {
+    ctx->stopwords = EmptyStopWordList();
+  } else {
+    ctx->stopwords = (ctx->sctx && ctx->sctx->spec && ctx->sctx->spec->stopwords)
+                         ? ctx->sctx->spec->stopwords
+                         : DefaultStopWordList();
+  }
   ctx->language = req->language ? req->language : DEFAULT_LANGUAGE;
   ctx->tokenId = 1;
   ctx->errorMsg = NULL;

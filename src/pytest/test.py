@@ -331,6 +331,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(0, r1[0])
         self.assertEqual(1, r2[0])
 
+
+    def testNoStopwords(self):
+        # This test taken from Java's test suite
+        self.cmd('ft.create', 'idx', 'schema', 'title', 'text')
+        for i in range(100):
+            self.cmd('ft.add', 'idx', 'doc{}'.format(i), 1.0, 'fields',
+                'title', 'hello world' if i % 2 == 0 else 'hello worlds')
+
+        res = self.cmd('ft.search', 'idx', 'hello a world', 'NOCONTENT')
+        self.assertEqual(100, res[0])
+
+        res = self.cmd('ft.search', 'idx', 'hello a world', 'VERBATIM', 'NOCONTENT')
+        self.assertEqual(50, res[0])
+
+        res = self.cmd('ft.search', 'idx', 'hello a world', 'NOSTOPWORDS')
+        self.assertEqual(0, res[0])
+
     def testOptional(self):
         with self.redis() as r:
             r.flushdb()

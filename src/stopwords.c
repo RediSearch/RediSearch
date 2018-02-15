@@ -12,6 +12,7 @@ typedef struct StopWordList {
 } StopWordList;
 
 StopWordList *__default_stopwords = NULL;
+StopWordList *__empty_stopwords = NULL;
 
 StopWordList *DefaultStopWordList() {
   if (__default_stopwords == NULL) {
@@ -19,6 +20,13 @@ StopWordList *DefaultStopWordList() {
                                               sizeof(DEFAULT_STOPWORDS) / sizeof(const char *) - 1);
   }
   return __default_stopwords;
+}
+
+StopWordList *EmptyStopWordList() {
+  if (__empty_stopwords == NULL) {
+    __empty_stopwords = NewStopWordList(NULL, 0);
+  }
+  return __empty_stopwords;
 }
 
 /* Check if a stopword list contains a term. The term must be already lowercased */

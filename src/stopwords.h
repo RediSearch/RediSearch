@@ -19,6 +19,7 @@ struct StopWordList;
 int StopWordList_Contains(struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
+struct StopWordList *EmptyStopWordList();
 
 /* Create a new stopword list from a list of redis strings */
 struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);

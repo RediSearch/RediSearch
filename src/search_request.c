@@ -41,7 +41,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if (RMUtil_ArgExists("VERBATIM", argv, argc, 3)) req->flags |= Search_Verbatim;
 
   // Parse NOSTOPWORDS argument
-  if (RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3)) req->flags |= Search_NoStopwrods;
+  if (RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3)) req->flags |= Search_NoStopwords;
 
   if (RMUtil_ArgExists("INORDER", argv, argc, 3)) {
     req->flags |= Search_InOrder;
