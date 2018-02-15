@@ -43,7 +43,7 @@ class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
                        'SEPARATOR', '\r\n',
                        'FRAGS', 4, 'LEN', 3)
         self.assertEqual([1L, 'gen1', [
-                         'txt', 'with Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\nto Isaac,\r\n']], res)
+                         'txt', 'name Isaac: and\r\nwith Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\n']], res)
 
         # Attempt a query which doesn't have a corresponding matched term
         res = self.cmd('FT.SEARCH', 'idx', '-blah', 'SUMMARIZE', 'LEN', 3)
