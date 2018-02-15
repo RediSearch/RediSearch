@@ -2,6 +2,7 @@
 #include "../extension.h"
 #include "../rmutil/alloc.h"
 #include "../redisearch.h"
+#include "../search_request.h"
 #include "../query.h"
 #include "../stopwords.h"
 #include "../ext/default.h"
@@ -104,16 +105,14 @@ int testQueryExpander() {
 
   const char *qt = "hello world";
   char *err = NULL;
-  RSSearchRequest req = (RSSearchRequest){.flags = RS_DEFAULT_QUERY_FLAGS,
+  RSSearchOptions opt = (RSSearchOptions){.flags = RS_DEFAULT_QUERY_FLAGS,
                                           .fieldMask = RS_FIELDMASK_ALL,
                                           .indexName = "idx",
                                           .language = "en",
-                                          .rawQuery = (char *)qt,
-                                          .qlen = strlen(qt),
                                           .expander = "myExpander",
                                           .scorer = "myScore"};
 
-  QueryParseCtx *q = NewQueryParseCtx(&req);
+  QueryParseCtx *q = NewQueryParseCtx(NULL, qt, strlen(qt), &opt);
   // ASSERT(q->expander = myExpander);
   // ASSERT(q->expanderFree = myFreeFunc);
   // ASSERT(q->expCtx.privdata != NULL);
@@ -122,7 +121,7 @@ int testQueryExpander() {
   if (err) FAIL("Error parsing query: %s", err);
 
   ASSERT_EQUAL(q->numTokens, 2)
-  Query_Expand(q, req.expander);
+  Query_Expand(q, opt.expander);
   //__queryNode_Print(n, 0);
   ASSERT_EQUAL(q->numTokens, 4)
 

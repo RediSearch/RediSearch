@@ -11,7 +11,7 @@ struct mockProcessorCtx {
   SearchResult *res;
 };
 
-#define NUM_RESULTS 100000
+#define NUM_RESULTS 3000000
 
 int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
@@ -21,11 +21,8 @@ int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->docId = ++p->counter;
 
   // printf("%s\n", p->values[p->counter % p->numvals]);
-  RSFieldMap_SetRawValue(&res->fields, "value", RSValue_ConstString,
-                         p->values[p->counter % p->numvals],
-                         strlen(p->values[p->counter % p->numvals]));
-  RSFieldMap_SetNumber(&res->fields, "score", (double)p->counter);
-
+  RSFieldMap_Set(&res->fields, "value", RS_ConstStringValC(p->values[p->counter % p->numvals]));
+  RSFieldMap_Set(&res->fields, "score", RS_NumVal((double)p->counter));
   //* res = * p->res;
   return RS_RESULT_OK;
 }
@@ -50,12 +47,14 @@ int testGroupBy() {
 
   ResultProcessor *gp = NewGrouperProcessor(gr, mp);
   SearchResult *res = NewSearchResult();
+  res->fields = NULL;
   TimeSample ts;
   TimeSampler_Start(&ts);
   while (ResultProcessor_Next(gp, res, 0) != RS_RESULT_EOF) {
     RSFieldMap_Print(res->fields);
-    res->fields->len = 0;
-    res->fields = NULL;
+    RSFieldMap_Reset(res->fields);
+    // res->fields->len = 0;
+    // res->fields = NULL;
     printf("\n");
   }
   SearchResult_Free(res);

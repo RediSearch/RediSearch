@@ -92,9 +92,9 @@ int testPropertyFetch() {
   RETURN_TEST_SUCCESS;
 }
 TEST_MAIN({
-  // TESTFUNC(testExpr);
-  // TESTFUNC(testParser);
-  // TESTFUNC(testFunction);
+  TESTFUNC(testExpr);
+  TESTFUNC(testParser);
+  TESTFUNC(testFunction);
   TESTFUNC(testPropertyFetch);
 
 });

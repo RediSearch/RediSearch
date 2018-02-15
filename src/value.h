@@ -69,23 +69,31 @@ static void RSValue_Print(RSValue *v);
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 static inline void RSValue_Free(RSValue *v) {
+  if (!v) return;
   --v->refcount;
   // RSValue_Print(v);
-
   if (v->refcount <= 0) {
 
-    if (v->t == RSValue_String) {
-      free(v->strval.str);
-    } else if (v->t == RSValue_Array && v->allocated) {
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Free(v->arrval.vals[i]);
-      }
-      free(v->arrval.vals);
-    } else if (v->t == RSValue_Reference) {
-      RSValue_Free(v->ref);
-    } else if (v->t == RSValue_SDS) {
-      sdsfree(v->strval.str);
+    switch (v->t) {
+      case RSValue_String:
+        free(v->strval.str);
+        break;
+      case RSValue_Array:
+        for (uint32_t i = 0; i < v->arrval.len; i++) {
+          RSValue_Free(v->arrval.vals[i]);
+        }
+        if (v->allocated) free(v->arrval.vals);
+        break;
+      case RSValue_Reference:
+        RSValue_Free(v->ref);
+        break;
+      case RSValue_SDS:
+        sdsfree(v->strval.str);
+        break;
+      default:  // no free
+        break;
     }
+
     if (v->allocated) {
       free(v);
     }
@@ -154,8 +162,8 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
       .ref = RSValue_IncrRef(src),
   };
 }
-/* Create a special reference value to a value, but incrementing its ref count and returning a stack
- * allocated object that just holds a pointer to the other value */
+/* Create a special reference value to a value, but incrementing its ref count and returning a
+ * stack allocated object that just holds a pointer to the other value */
 static inline RSValue RSValue_StaticReference(RSValue *v) {
   RSValue ret;
   RSValue_MakeReference(&ret, v);

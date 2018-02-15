@@ -4,29 +4,27 @@
 #include "test_util.h"
 #include "time_sample.h"
 #include "../extension.h"
+#include "../search_request.h"
 #include "../ext/default.h"
 #include "../rmutil/alloc.h"
 #include <stdio.h>
 
 void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 
-#define SEARCH_REQUEST(q, ctx)         \
-  ((RSSearchRequest){                  \
-      .sctx = ctx,                     \
-      .flags = RS_DEFAULT_QUERY_FLAGS, \
-      .fieldMask = RS_FIELDMASK_ALL,   \
-      .indexName = "idx",              \
-      .language = "en",                \
-      .rawQuery = (char *)q,           \
-      .qlen = strlen(q),               \
-  })
+#define SEARCH_OPTS(ctx)                                                                \
+  (RSSearchOptions) {                                                                   \
+    .flags = RS_DEFAULT_QUERY_FLAGS, .fieldMask = RS_FIELDMASK_ALL, .indexName = "idx", \
+    .language = "en", .stopwords = DefaultStopWordList()                                \
+  }
+
+#define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
 int isValidQuery(char *qt, RedisSearchCtx ctx) {
   char *err = NULL;
 
-  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
 
-  QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) {
@@ -157,8 +155,8 @@ int testQueryParser() {
   IndexSpec_Free(ctx.spec);
 
   char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
-  RSSearchRequest req = SEARCH_REQUEST(qt, NULL);
-  QueryParseCtx *q = NewQueryParseCtx(&req);
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
 
   QueryNode *n = Query_Parse(q, &err);
 
@@ -214,10 +212,11 @@ int testPureNegative() {
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
 
   for (int i = 0; qs[i] != NULL; i++) {
-    RSSearchRequest req = SEARCH_REQUEST(qs[i], &ctx);
-    QueryParseCtx *q = NewQueryParseCtx(&req);
+    QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qs[i], opts);
+
     QueryNode *n = Query_Parse(q, &err);
 
     if (err) FAIL("Error parsing query: %s", err);
@@ -237,10 +236,11 @@ int testGeoQuery() {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  char *qt = "@title:(hello world) @loc:[31.52 32.1342 10.01 km]";
-  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
+  char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
 
-  QueryParseCtx *q = NewQueryParseCtx(&req);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
+
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
@@ -270,9 +270,9 @@ int testFieldSpec() {
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@title:hello world";
-  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
 
-  QueryParseCtx *q = NewQueryParseCtx(&req);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);
@@ -284,9 +284,7 @@ int testFieldSpec() {
   Query_Free(q);
 
   qt = "(@title:hello) (@body:world)";
-  req = SEARCH_REQUEST(qt, &ctx);
-
-  q = NewQueryParseCtx(&req);
+  q = QUERY_PARSE_CTX(ctx, qt, opts);
 
   n = Query_Parse(q, &err);
   if (err) {
@@ -306,8 +304,7 @@ int testFieldSpec() {
 
   // test field modifiers
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
-  req = SEARCH_REQUEST(qt, &ctx);
-  q = NewQueryParseCtx(&req);
+  q = QUERY_PARSE_CTX(ctx, qt, opts);
 
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
@@ -325,8 +322,7 @@ int testFieldSpec() {
 
   // test numeric ranges
   qt = "@num:[0.4 (500]";
-  req = SEARCH_REQUEST(qt, &ctx);
-  q = NewQueryParseCtx(&req);
+  q = QUERY_PARSE_CTX(ctx, qt, opts);
   n = Query_Parse(q, &err);
   if (err) FAIL("Error parsing query: %s", err);
   ASSERT(n != NULL);
@@ -349,9 +345,9 @@ int testTags() {
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
   char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
-  RSSearchRequest req = SEARCH_REQUEST(qt, &ctx);
 
-  QueryParseCtx *q = NewQueryParseCtx(&req);
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
   QueryNode *n = Query_Parse(q, &err);
 
   if (err) FAIL("Error parsing query: %s", err);

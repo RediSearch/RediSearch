@@ -2,23 +2,23 @@
 #include <value.h>
 
 int testValue() {
-  RSValue v = RS_NumVal(3);
-  ASSERT_EQUAL(3, v.numval);
-  ASSERT_EQUAL(RSValue_Number, v.t);
+  RSValue *v = RS_NumVal(3);
+  ASSERT_EQUAL(3, v->numval);
+  ASSERT_EQUAL(RSValue_Number, v->t);
 
   v = RS_NullVal();
-  ASSERT_EQUAL(RSValue_Null, v.t);
+  ASSERT_EQUAL(RSValue_Null, v->t);
 
   const char *str = "hello world";
-  v = RS_CStringVal(strdup(str));
-  ASSERT_EQUAL(RSValue_String, v.t);
-  ASSERT_EQUAL(strlen(str), v.strval.len);
-  ASSERT(!strcmp(str, v.strval.str));
-  RSValue_Free(&v);
+  v = RS_StringValC(strdup(str));
+  ASSERT_EQUAL(RSValue_String, v->t);
+  ASSERT_EQUAL(strlen(str), v->strval.len);
+  ASSERT(!strcmp(str, v->strval.str));
+  RSValue_Free(v);
 
   // cannot use redis strings in tests...
   v = RS_RedisStringVal(NULL);
-  ASSERT_EQUAL(RSValue_RedisString, v.t);
+  ASSERT_EQUAL(RSValue_RedisString, v->t);
   RETURN_TEST_SUCCESS;
 }
 
@@ -27,40 +27,42 @@ int testField() {
   RSField f = RS_NewField(k, RS_NumVal(3));
 
   ASSERT_STRING_EQ(f.key, k);
-  ASSERT_EQUAL(3, f.val.numval);
-  ASSERT_EQUAL(RSValue_Number, f.val.t);
+  ASSERT_EQUAL(RSValue_Reference, f.val.t);
+
+  ASSERT_EQUAL(3, f.val.ref->numval);
+  ASSERT_EQUAL(RSValue_Number, f.val.ref->t);
 
   RETURN_TEST_SUCCESS;
 }
 
 int testArray() {
 
-  RSValue arr = RS_VStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
-  ASSERT_EQUAL(3, arr.arrval.len);
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 0)->t);
-  ASSERT_STRING_EQ("foo", RSValue_ArrayItem(&arr, 0)->strval.str);
+  RSValue *arr = RS_VStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
+  ASSERT_EQUAL(3, arr->arrval.len);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 0)->t);
+  ASSERT_STRING_EQ("foo", RSValue_ArrayItem(arr, 0)->strval.str);
 
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 1)->t);
-  ASSERT_STRING_EQ("bar", RSValue_ArrayItem(&arr, 1)->strval.str);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 1)->t);
+  ASSERT_STRING_EQ("bar", RSValue_ArrayItem(arr, 1)->strval.str);
 
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 2)->t);
-  ASSERT_STRING_EQ("baz", RSValue_ArrayItem(&arr, 2)->strval.str);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 2)->t);
+  ASSERT_STRING_EQ("baz", RSValue_ArrayItem(arr, 2)->strval.str);
 
-  RSValue_Free(&arr);
+  RSValue_Free(arr);
 
   char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
   arr = RS_StringArray(strs, 3);
-  ASSERT_EQUAL(3, arr.arrval.len);
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 0)->t);
-  ASSERT_STRING_EQ("foo", RSValue_ArrayItem(&arr, 0)->strval.str);
+  ASSERT_EQUAL(3, arr->arrval.len);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 0)->t);
+  ASSERT_STRING_EQ("foo", RSValue_ArrayItem(arr, 0)->strval.str);
 
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 1)->t);
-  ASSERT_STRING_EQ("bar", RSValue_ArrayItem(&arr, 1)->strval.str);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 1)->t);
+  ASSERT_STRING_EQ("bar", RSValue_ArrayItem(arr, 1)->strval.str);
 
-  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(&arr, 2)->t);
-  ASSERT_STRING_EQ("baz", RSValue_ArrayItem(&arr, 2)->strval.str);
+  ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 2)->t);
+  ASSERT_STRING_EQ("baz", RSValue_ArrayItem(arr, 2)->strval.str);
 
-  RSValue_Free(&arr);
+  RSValue_Free(arr);
 
   RETURN_TEST_SUCCESS;
 }
