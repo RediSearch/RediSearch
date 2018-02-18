@@ -66,6 +66,26 @@ static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, con
   return NewCountDistinctish(ctx, alias, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))));
 }
 
+/* REDUCE FRIST_VALUE {nargs} @property [BY @property DESC|ASC] */
+static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+                                  char **err) {
+  char *prop = NULL;
+  char *by = NULL;
+  char *sortBy = NULL;
+  char *asc = NULL;
+  // Parse all and make sure we were valid
+  if (CMDPARSE_ERR == CmdArg_ArrayAssign(args, "s?sss", &prop, &by, &sortBy, &asc) ||
+      (by && strcasecmp(by, "BY")) || (asc && strcasecmp(asc, "ASC") && strcasecmp(asc, "DESC"))) {
+    *err = strdup("Invalid arguments for FIRST_VALUE");
+    return NULL;
+  }
+  // printf("prop: %s, by: %s, sortBy: %s, asc: %s\n", prop, by, sortBy, asc);
+  int ascend = 1;
+  if (asc && !strcasecmp(asc, "DESC")) ascend = 0;
+
+  return NewFirstValue(ctx, RSKEY(prop), RSKEY(sortBy), ascend, alias);
+}
+
 static Reducer *NewStddevArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
   if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
     *err = strdup("Invalid arguments for STDDEV");
@@ -111,6 +131,8 @@ static struct {
     {"tolist", NewToListArgs},
     {"quantile", NewQuantileArgs},
     {"stddev", NewStddevArgs},
+    {"first_value", NewFirstValueArgs},
+
     {NULL, NULL},
 };
 

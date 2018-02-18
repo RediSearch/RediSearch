@@ -495,7 +495,7 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
     switch (v1->t) {
       case RSValue_Number:
 
-        return v1->numval > v2->numval ? v1->numval : (v1->numval < v2->numval ? -1 : 0);
+        return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
       case RSValue_ConstString:
       case RSValue_SDS:
@@ -515,6 +515,14 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
     }
   }
 
+ // if one of the values is null, the other wins
+  if (v1->t == RSValue_Null) {
+    return -1;
+  }else if(v2->t == RSValue_Null) {
+    return 1;
+  }
+
+  // cast to strings and compare as strings
   static char buf1[100], buf2[100];
 
   size_t l1, l2;

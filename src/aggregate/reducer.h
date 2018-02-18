@@ -80,5 +80,7 @@ Reducer *NewQuantile(RedisSearchCtx *, const char *, const char *, double);
 Reducer *NewStddev(RedisSearchCtx *, const char *, const char *);
 Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
                     char **err);
+Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
+                       const char *alias);
 
 #endif

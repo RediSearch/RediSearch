@@ -177,7 +177,7 @@ ResultProcessor *buildSortBY(CmdArg *srt, ResultProcessor *upstream, char **err)
       // switch back to state 0, ASC/DESC cannot follow ASC
       state = 0;
     } else {
-      // Unkown token - neither a propperty nor ASC/DESC
+      // Unkown token - neither a property nor ASC/DESC
       goto err;
     }
   }
@@ -284,7 +284,7 @@ fail:
     ResultProcessor_Free(prev);
   }
 
-  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate reuqest: %s", err);
+  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate reuqest: %s", *err);
   return NULL;
 }
 

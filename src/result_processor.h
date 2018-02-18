@@ -98,6 +98,7 @@ typedef struct {
       .docId = 0, .score = 0, .sv = NULL, .md = NULL, .indexResult = NULL, .fields = NULL})
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
 static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl, RSKey *k) {
+  if (!k->key) goto noret;
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
     int idx = k->cachedIdx;
@@ -115,6 +116,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
   if (res->fields) {
     return RSFieldMap_GetByKey(res->fields, k);
   }
+noret:
   return RS_NullVal();
 }
 
