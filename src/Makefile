@@ -42,7 +42,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
-CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
+CC_OBJECTS = $(sort $(patsubst %.c, %.o, $(CC_SOURCES) ))
 
 # .d files for each c file. These make sure that changing a header file
 # will also change the dependent .c files of it

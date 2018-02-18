@@ -12,7 +12,7 @@ endif
 
 SOURCEDIR = .
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c)
-CC_OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES))
+CC_OBJECTS = $(sort $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o, $(CC_SOURCES)))
 
 .SUFFIXES: .c .cc .o
 
