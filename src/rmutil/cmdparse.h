@@ -310,6 +310,8 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 #define CMDARG_ARRLEN(arg) (arg->a.len)
 #define CMDARG_ARRELEM(arg, i) (arg->a.args[i])
 
+int CmdArg_ArrayAssign(CmdArray *arg, const char *fmt, ...);
+
 /* Advane an iterator. Return NULL if the no objects can be read from the iterator */
 CmdArg *CmdArgIterator_Next(CmdArgIterator *it, const char **key);
 

@@ -928,3 +928,78 @@ CmdArg *CmdArg_FirstOf(CmdArg *arg, const char *key) {
   }
   return NULL;
 }
+
+/*
+ *  - s: will be parsed as a string
+ *  - l: Will be parsed as a long integer
+ *  - d: Will be parsed as a double
+ *  - !: will be skipped
+ *  - ?: means evrything after is optional
+ */
+
+int CmdArg_ArrayAssign(CmdArray *arg, const char *fmt, ...) {
+
+  va_list ap;
+  va_start(ap, fmt);
+  const char *p = fmt;
+  size_t i = 0;
+  int optional = 0;
+  while (i < arg->len && *p) {
+    switch (*p) {
+      case 's': {
+        char **ptr = va_arg(ap, char **);
+        if (arg->args[i]->type != CmdArg_String) {
+          goto err;
+        }
+        *ptr = CMDARG_STRPTR(arg->args[i]);
+        break;
+      }
+      case 'l': {
+        long long *lp = va_arg(ap, long long *);
+        if (arg->args[i]->type != CmdArg_Integer) {
+          goto err;
+        }
+        *lp = CMDARG_INT(arg->args[i]);
+        break;
+      }
+      case 'd': {
+        double *dp = va_arg(ap, double *);
+        if (arg->args[i]->type != CmdArg_Double) {
+          goto err;
+        }
+        *dp = CMDARG_DOUBLE(arg->args[i]);
+        break;
+      }
+      case '!':
+        // do nothing...
+        break;
+      case '?':
+        optional = 1;
+        // reduce i because it will be incremented soon
+        i -= 1;
+        break;
+      default:
+        goto err;
+    }
+    ++i;
+    ++p;
+  }
+  // if we have stuff left to read in the format but we haven't gotten to the optional part -fail
+  if (*p && !optional && i < arg->len) {
+    printf("we have stuff left to read in the format but we haven't gotten to the optional part\n");
+    goto err;
+  }
+  // if we don't have anything left to read from the format but we haven't gotten to the array's
+  // end, fail
+  if (*p == 0 && i < arg->len) {
+    printf("we haven't read all the arguments\n");
+
+    goto err;
+  }
+
+  va_end(ap);
+  return CMDPARSE_OK;
+err:
+  va_end(ap);
+  return CMDPARSE_ERR;
+}
