@@ -15,6 +15,7 @@ DocTable NewDocTable(size_t cap) {
                     .cap = cap,
                     .maxDocId = 0,
                     .memsize = 0,
+                    .sortablesSize = 0,
                     .docs = rm_calloc(cap, sizeof(RSDocumentMetadata)),
                     .dim = NewDocIdMap()};
 }
@@ -82,6 +83,7 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
   dmd->flags |= Document_HasSortVector;
+  t->sortablesSize += RSSortingVector_GetMemorySize(v);
 
   return 1;
 }
@@ -170,6 +172,7 @@ void dmd_free(RSDocumentMetadata *md) {
     md->payload = NULL;
   }
   if (md->sortVector) {
+
     SortingVector_Free(md->sortVector);
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
@@ -282,6 +285,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     if (t->docs[i].flags & Document_HasSortVector) {
       t->docs[i].sortVector = SortingVector_RdbLoad(rdb, encver);
+      t->sortablesSize += RSSortingVector_GetMemorySize(t->docs[i].sortVector);
     }
 
     if (t->docs[i].flags & Document_HasOffsetVector) {

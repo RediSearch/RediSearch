@@ -67,6 +67,8 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
 
 RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
 
+size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
+
 /* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len);
 

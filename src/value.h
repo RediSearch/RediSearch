@@ -337,7 +337,7 @@ static inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
-
+  if (!v) return 0;
   switch (v->t) {
     case RSValue_String:
     case RSValue_ConstString:
@@ -515,10 +515,10 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
     }
   }
 
- // if one of the values is null, the other wins
+  // if one of the values is null, the other wins
   if (v1->t == RSValue_Null) {
     return -1;
-  }else if(v2->t == RSValue_Null) {
+  } else if (v2->t == RSValue_Null) {
     return 1;
   }
 

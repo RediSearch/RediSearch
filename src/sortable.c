@@ -17,7 +17,7 @@ RSSortingVector *NewSortingVector(int len) {
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret->values[i] = NULL;  // RSValue_IncrRef(RS_NullVal());
+    ret->values[i] = RSValue_IncrRef(RS_NullVal());
   }
   return ret;
 }
@@ -104,6 +104,10 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
   RedisModule_SaveUnsigned(rdb, v->len);
   for (int i = 0; i < v->len; i++) {
     RSValue *val = v->values[i];
+    if (!val) {
+      RedisModule_SaveUnsigned(rdb, RSValue_Null);
+      continue;
+    }
     RedisModule_SaveUnsigned(rdb, val->t);
     switch (val->t) {
       case RSValue_String:
@@ -153,123 +157,30 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
-        vec->values[i] = RSValue_IncrRef(RS_NullVal());
       default:
+        vec->values[i] = RSValue_IncrRef(RS_NullVal());
         break;
     }
   }
   return vec;
 }
 
-// We know these won't change
-#define SV_SERIALIZED_STRING 1
-#define SV_SERIALIZED_NUMBER 2
-#define SV_SERIALIZED_NIL 4
+size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
+  if (!v) return 0;
 
-#define SV_SERIALIZED_UNKNOWN 0xff
+  size_t sum = v->len * sizeof(RSValue *);
+  for (int i = 0; i < v->len; i++) {
+    if (!v->values[i]) continue;
+    sum += sizeof(RSValue);
 
-#define SV_MINSIZE 4  // Minimum size for serialized sort vector: This is 4 bytes
-
-void SortingVector_Serialize(const RSSortingVector *sv, Buffer *out) {
-  // Write the number of sorting vectors in the table
-  BufferWriter bw = NewBufferWriter(out);
-  Buffer_WriteU32(&bw, sv->len);
-  for (size_t ii = 0; ii < sv->len; ++ii) {
-    const RSSortableValue *val = sv->values + ii;
-    char *buf, buf_s[1024];
-    size_t slen;
-
-    if (val->type == RS_SORTABLE_STR) {
-      Buffer_WriteU8(&bw, SV_SERIALIZED_STRING);
-      buf = val->str;
-      slen = strlen(val->str);
-    } else if (val->type == RS_SORTABLE_NUM) {
-      Buffer_WriteU8(&bw, SV_SERIALIZED_NUMBER);
-      buf = buf_s;
-      slen = sprintf(buf_s, "%lf", val->num);
-    } else if (val->type == RS_SORTABLE_NIL) {
-      Buffer_WriteU8(&bw, SV_SERIALIZED_NIL);
-      continue;
-
-    } else {
-      // wtf?
-      Buffer_WriteU8(&bw, SV_SERIALIZED_UNKNOWN);
-      continue;
-    }
-    Buffer_WriteU16(&bw, slen);
-    Buffer_Write(&bw, buf, slen);
-  }
-}
-
-RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n) {
-  Buffer b = {.data = (void *)s, .cap = n, .offset = 0};
-  if (n < SV_MINSIZE) {
-    return NULL;
-  }
-
-  BufferReader r = NewBufferReader(&b);
-
-  // Read the length of sorting vectors
-  uint32_t len = Buffer_ReadU32(&r);
-  if (len > RS_SORTABLES_MAX) {
-    return NULL;
-  }
-
-  RSSortingVector *v = NewSortingVector(len);
-  for (size_t ii = 0; ii < len; ++ii) {
-    if (BufferReader_Remaining(&r) < 1) {
-      // Need at least {type(1),len(2)}
-      goto error;
-    }
-
-    RSSortableValue *cur = v->values + ii;
-
-    uint8_t type = Buffer_ReadU8(&r);
-
-    if (type == SV_SERIALIZED_NIL) {
-      cur->type = RS_SORTABLE_NIL;
-      continue;
-    }
-
-    if (BufferReader_Remaining(&r) < 2) {
-      goto error;
-    }
-
-    uint16_t len = Buffer_ReadU16(&r);
-    if (BufferReader_Remaining(&r) < len) {
-      goto error;
-    }
-    if (type == SV_SERIALIZED_STRING) {
-      cur->type = RS_SORTABLE_STR;
-      cur->str = rm_malloc(len + 1);
-      cur->str[len] = 0;
-      Buffer_Read(&r, cur->str, len);
-    } else if (type == SV_SERIALIZED_NUMBER) {
-      cur->type = RS_SORTABLE_NUM;
-      char buf[1024];
-      if (len > sizeof(buf)) {
-        goto error;
-      }
-      if (sscanf(buf, "%lf", &cur->num) != 1) {
-        goto error;
-      }
-    } else {
-      // Unknown type!
-      goto error;
+    RSValue *val = RSValue_Dereference(v->values[i]);
+    if (val && RSValue_IsString(val)) {
+      size_t sz;
+      RSValue_StringPtrLen(val, &sz);
+      sum += sz;
     }
   }
-
-  if (r.pos != n) {
-    // Some bytes not consumed
-    goto error;
-  }
-  return v;
-
-error:
-  if (v) {
-    SortingVector_Free(v);
-  }
-  return NULL;
+  return sum;
 }
 
 /* Create a new sorting table of a given length */
