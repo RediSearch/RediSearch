@@ -354,7 +354,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     }
 
     ctx.redisCtx = indexer->redisCtx;
-    ConcurrentSearch_SetKey(&indexer->concCtx, indexer->redisCtx, indexer->specKeyName, &ctx);
+    ConcurrentSearch_SetKey(&indexer->concCtx, indexer->specKeyName, &ctx);
     ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
     ConcurrentSearchCtx_Lock(&indexer->concCtx);
   } else {
@@ -523,7 +523,6 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  ConcurrentSearchCtx_Init(NULL, &indexer->concCtx);
   pthread_cond_init(&indexer->cond, NULL);
   pthread_mutex_init(&indexer->lock, NULL);
   static pthread_t dummyThr;
@@ -534,8 +533,8 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
   indexer->specKeyName =
       RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, indexer->name);
 
-  ConcurrentSearchCtx_InitEx(&indexer->concCtx, indexer->redisCtx,
-                             REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
+  ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx,
+                                 REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
 }
 

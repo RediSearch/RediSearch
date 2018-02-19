@@ -76,9 +76,6 @@ void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx) {
 
 /** Initialize a concurrent context */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
-  if (!rctx) {
-    ctx->ctx = NULL;
-  }
   ctx->ctx = rctx;
   ctx->isLocked = 0;
   ctx->numOpenKeys = 0;
@@ -86,8 +83,8 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
   ConcurrentSearchCtx_ResetClock(ctx);
 }
 
-void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, int mode,
-                                ConcurrentReopenCallback cb) {
+void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, int mode,
+                                    ConcurrentReopenCallback cb) {
   ctx->ctx = rctx;
   ctx->isLocked = 0;
   ctx->numOpenKeys = 1;
