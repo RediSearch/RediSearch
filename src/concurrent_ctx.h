@@ -144,7 +144,8 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
  * Initialize a concurrent context to contain a single key. This key can be swapped
  * out via SetKey()
  */
-void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentReopenCallback cb);
+void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, int mode,
+                                ConcurrentReopenCallback cb);
 
 /** Reset the clock variables in the concurrent search context */
 void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx);

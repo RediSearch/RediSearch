@@ -534,7 +534,8 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
   indexer->specKeyName =
       RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, indexer->name);
 
-  ConcurrentSearchCtx_InitEx(&indexer->concCtx, REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
+  ConcurrentSearchCtx_InitEx(&indexer->concCtx, indexer->redisCtx,
+                             REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
 }
 

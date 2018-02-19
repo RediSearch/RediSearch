@@ -27,7 +27,8 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
-    if (ctx->openKeys[i].key) {
+    if (ctx->openKeys[i].key &&  // if this is a shared key, don't do anything
+        !(ctx->openKeys[i].opts & ConcurrentKey_SharedKey)) {
       RedisModule_CloseKey(ctx->openKeys[i].key);
     }
   }
@@ -85,8 +86,9 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
   ConcurrentSearchCtx_ResetClock(ctx);
 }
 
-void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, int mode, ConcurrentReopenCallback cb) {
-  ctx->ctx = NULL;
+void ConcurrentSearchCtx_InitEx(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, int mode,
+                                ConcurrentReopenCallback cb) {
+  ctx->ctx = rctx;
   ctx->isLocked = 0;
   ctx->numOpenKeys = 1;
   ctx->openKeys = calloc(1, sizeof(*ctx->openKeys));
