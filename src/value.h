@@ -215,6 +215,13 @@ static inline int RSValue_IsString(const RSValue *value) {
                    value->t == RSValue_ConstString || value->t == RSValue_SDS);
 }
 
+/* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
+static inline int RSValue_IsNull(const RSValue *value) {
+  if (!value || value->t == RSValue_Null) return 1;
+  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
+  return 0;
+}
+
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 static void RSValue_ToString(RSValue *dst, RSValue *v) {

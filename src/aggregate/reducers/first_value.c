@@ -6,6 +6,7 @@ struct firstValueCtx {
   RSSortingTable *sortables;
   RSValue value;
   RSValue sortValue;
+  int ascending;
   int hasValue;
 };
 
@@ -24,6 +25,7 @@ static void *fv_NewInstance(ReducerCtx *ctx) {
   fv->sortBy = RS_KEY(RSKEY(params->sortProperty));
   fv->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   fv->hasValue = 0;
+  fv->ascending = params->ascending;
   RSValue_MakeReference(&fv->value, RS_NullVal());
   RSValue_MakeReference(&fv->sortValue, RS_NullVal());
 
@@ -34,7 +36,7 @@ static int fv_Add(void *ctx, SearchResult *res) {
   struct firstValueCtx *fvx = ctx;
   RSValue *sortval = SearchResult_GetValue(res, fvx->sortables, &fvx->sortBy);
   RSValue *val = SearchResult_GetValue(res, fvx->sortables, &fvx->property);
-  if (!sortval || sortval->t == RSValue_Null) {
+  if (RSValue_IsNull(sortval)) {
     if (!fvx->hasValue) {
       fvx->hasValue = 1;
       RSValue_MakeReference(&fvx->value, val ? val : RS_NullVal());
@@ -42,8 +44,10 @@ static int fv_Add(void *ctx, SearchResult *res) {
     return 1;
   }
 
-  int rc = RSValue_Cmp(sortval, &fvx->sortValue);
-  if (!fvx->hasValue || rc > 0) {
+  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(sortval, &fvx->sortValue);
+  int isnull = RSValue_IsNull(&fvx->sortValue);
+
+  if (!fvx->hasValue || (!isnull && rc > 0) || (isnull && rc < 0)) {
     RSValue_Free(&fvx->sortValue);
     RSValue_Free(&fvx->value);
     RSValue_MakeReference(&fvx->sortValue, sortval);
