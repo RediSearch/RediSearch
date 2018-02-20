@@ -227,8 +227,8 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                        'REDUCE', 'sum', 1, '@price', 'as', 'price',
                        'SORTBY', 2, '@price', 'asc',
                        'LIMIT', '0', '2')
-        self.assertListEqual([292L, ['brand', 'crystal dynamics', 'price', '0.25'], [
-                             'brand', 'myiico', 'price', '0.23']], res)
+        self.assertListEqual([292L, ['brand', 'myiico', 'price', '0.23'], [
+                             'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test MAX with limit higher than it
         res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
@@ -236,8 +236,8 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                        'SORTBY', 2, '@price', 'asc', 'MAX', 2,
                        'LIMIT', '0', '10')
 
-        self.assertListEqual([292L, ['brand', 'crystal dynamics', 'price', '0.25'], [
-                             'brand', 'myiico', 'price', '0.23']], res)
+        self.assertListEqual([292L, ['brand', 'myiico', 'price', '0.23'], [
+                             'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test Sorting by multiple properties
         res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
@@ -266,6 +266,22 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                        )
         self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
                              'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
+
+    def _testFirstValue(self):
+        res = self.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
+                       'GROUPBY', 1, '@brand',
+                       'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC', 'AS', 'top_item',
+                       'REDUCE', 'FIRST_VALUE', 4, '@price', 'BY', '@price', 'DESC', 'AS', 'top_price',
+                       'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'ASC', 'AS', 'bottom_item',
+                       'REDUCE', 'FIRST_VALUE', 4, '@price', 'BY', '@price', 'ASC', 'AS', 'bottom_price',
+                       'SORTBY', 2, '@top_price', 'DESC', 'MAX', 5
+                       )
+        self.assertListEqual([4L, ['brand', 'sony', 'top_item', 'sony psp slim &amp; lite 2000 console', 'top_price', '695.8', 'bottom_item', 'sony dlchd20p high speed hdmi cable for playstation 3', 'bottom_price', '5.88'],
+                              ['brand', 'matias', 'top_item', 'matias halfkeyboard usb', 'top_price',
+                                  '559.99', 'bottom_item', 'matias halfkeyboard usb', 'bottom_price', '559.99'],
+                              ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
+                                  'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
+                              ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']], res)
 
     def testAll(self):
         for name, f in self.__class__.__dict__.iteritems():
