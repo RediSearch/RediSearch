@@ -1042,11 +1042,11 @@ int testSortable() {
   char *masse = "Maße";
 
   double num = 3.141;
-  ASSERT(v->values[0] == NULL);
+  ASSERT(RSValue_IsNull(v->values[0]));
   RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
   ASSERT_EQUAL(v->values[0]->t, RSValue_ConstString);
-  ASSERT(v->values[1] == NULL);
-  ASSERT(v->values[1] == NULL);
+  ASSERT(RSValue_IsNull(v->values[1]));
+  ASSERT(RSValue_IsNull(v->values[2]));
   RSSortingVector_Put(v, 1, &num, RSValue_Number);
   ASSERT_EQUAL(v->values[1]->t, RS_SORTABLE_NUM);
 
