@@ -72,7 +72,7 @@ void Aggregate_BuildSchema() {
                          CmdSchema_Required);
 
   CmdSchemaNode *red =
-      CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Required | CmdSchema_Repeating, NULL);
+      CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Optional | CmdSchema_Repeating, NULL);
   CmdSchema_AddPostional(red, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
   CmdSchema_AddPostional(red, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
   CmdSchema_AddNamed(red, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
@@ -130,7 +130,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
   RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
   Grouper *g = NewGrouper(keys, sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
-  // Add reducerss
+  // Add reducers
   CMD_FOREACH_SELECT(grp, "REDUCE", {
     if (!parseReducer(sctx, g, result, err)) goto fail;
   });
@@ -138,7 +138,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
   return NewGrouperProcessor(g, upstream);
 
 fail:
-  RedisModule_Log(sctx->redisCtx, "warning", "Error paring GROUPBY: %s", *err);
+  RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s", *err);
   // TODO: Grouper_Free(g);
   return NULL;
 }
