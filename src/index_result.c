@@ -209,9 +209,8 @@ void IndexResult_Free(RSIndexResult *r) {
       }
     }
   }
-  if (r->type != RSResultType_Virtual) {
-    rm_free(r);
-  }
+
+  rm_free(r);
 }
 
 inline int RSIndexResult_IsAggregate(RSIndexResult *r) {

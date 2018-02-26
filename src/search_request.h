@@ -36,7 +36,9 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
                               char **errStr);
 
 void RSSearchRequest_Free(RSSearchRequest *req);
-QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, char **err);
+QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err);
+QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, QueryParseCtx *q,
+                                   char **err);
 ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
 
 // Remove any fields not explicitly requested by `RETURN`, iff any explicit

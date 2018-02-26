@@ -875,16 +875,25 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  char *err;
+  char *err = NULL;
+  RSSearchRequest *req = NULL;
+  QueryParseCtx *q = NULL;
+  QueryPlan *plan = NULL;
 
-  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, err);
+    goto end;
   }
 
-  QueryPlan *plan = SearchRequest_BuildPlan(sctx, req, &err);
+  q = SearchRequest_ParseQuery(sctx, req, &err);
+  if (!q) {
+    RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+    RedisModule_ReplyWithError(ctx, err);
+    goto end;
+  }
+
+  plan = SearchRequest_BuildPlan(sctx, req, q, &err);
   if (!plan) {
     if (err) {
       RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
@@ -895,8 +904,7 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithArray(ctx, 1);
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
-    RSSearchRequest_Free(req);
-    SearchCtx_Free(sctx);
+    goto end;
     return REDISMODULE_ERR;
   }
 
@@ -905,9 +913,13 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, err);
     free(err);
   }
-  QueryPlan_Free(plan);
-  SearchCtx_Free(sctx);
-  RSSearchRequest_Free(req);
+
+end:
+
+  if (plan) QueryPlan_Free(plan);
+  if (sctx) SearchCtx_Free(sctx);
+  if (req) RSSearchRequest_Free(req);
+  if (q) Query_Free(q);
   return REDISMODULE_OK;
 }
 
