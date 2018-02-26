@@ -571,7 +571,7 @@ static int parseTuple(CmdSchemaTuple *tup, CmdArg **current, CmdString *argv, in
   for (size_t i = 0; i < len; i++) {
     CmdArg *arg = NULL;
     if (CMDPARSE_ERR == typedParse(&arg, &argv[*pos], tup->fmt[i], err)) {
-      // TODO: Free until here
+      CmdArg_Free(t);
       return CMDPARSE_ERR;
     }
     CmdArray_Append(&t->a, arg);
@@ -604,7 +604,7 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
   for (size_t i = 0; i < vlen; i++) {
     CmdArg *n;
     if (CMDPARSE_ERR == typedParse(&n, &argv[*pos], vec->type, err)) {
-      // TODO: Free until here
+      CmdArg_Free(t);
       return CMDPARSE_ERR;
     }
     CmdArray_Append(&t->a, n);
@@ -628,6 +628,8 @@ static int parseVariadicVector(CmdSchemaVariadic *var, CmdArg **current, CmdStri
     for (int i = 0; i < len && *pos < argc; i++) {
       CmdArg *n;
       if (CMDPARSE_ERR == typedParse(&n, &argv[*pos], var->fmt[i], err)) {
+        if (elem) CmdArg_Free(elem);
+        CmdArg_Free(t);
         return CMDPARSE_ERR;
       }
       CmdArray_Append(elem ? &elem->a : &t->a, n);
@@ -729,11 +731,15 @@ static int cmdParser_Parse(CmdSchemaNode *node, CmdArg **parent, CmdString *argv
 
     // Parse the node value. This should consume tokens from the input array
     if (CMDPARSE_ERR == cmdParser_ProcessElement(node->val, &current, argv, argc, pos, err)) {
+      if (current) CmdArg_Free(current);
+
       return CMDPARSE_ERR;
     }
     // Add the current node to the parent
     if (current) {
       if (CMDPARSE_ERR == cmdArg_AddChild(*parent, node->name, current, err)) {
+        if (current) CmdArg_Free(current);
+
         return CMDPARSE_ERR;
       }
     }
@@ -745,6 +751,7 @@ static int cmdParser_Parse(CmdSchemaNode *node, CmdArg **parent, CmdString *argv
 
       // for sub-schemas - we append the schema to
       if (CMDPARSE_ERR == cmdArg_AddChild(*parent, node->name, current, err)) {
+        CmdArg_Free(current);
         return CMDPARSE_ERR;
       }
 
