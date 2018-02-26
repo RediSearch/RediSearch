@@ -1,0 +1,368 @@
+# RediSearch Aggregations
+
+
+
+Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics report, or to perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries. 
+
+For example, indexing a web-server's logs, we can create report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc. 
+
+
+
+## Core Concepts
+
+The basic idea of an aggregate query is this:
+
+* Perform a search query, filtering for records you with to process.
+* Build a pipeline of operations that transform the results by zero or more steps of:
+  * **Group and Reduce**: grouping by fields in the results, and applying reducer functions on each group.
+  * **Sort**: sort the results based on one or more fields.
+  * **Apply Transformations**: Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones
+  * **Limit**: limit the result, regardless of sorting the result. 
+
+The pipeline is dynamic and reentrant, and every operation can be repeated. For example you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
+
+TODO: Diagram of stages
+
+## Aggregate Request Format
+
+The aggregate request's syntax is defined as follows:
+
+```sql
+FT.AGGREGATE
+  {index_name:string}
+  {query_string:string}
+  [LOAD {nargs:integer} {property:string} ...]
+  [GROUPBY
+    {nargs:integer} {property:string} ...
+    REDUCE
+      {FUNC:string}
+      {nargs:integer} {arg:string} ...
+      [AS {name:string}]
+    ...
+  ] ...
+  [SORTBY
+    {nargs:integer} {string} ...
+    [MAX {num:integer}] ...
+  ] ...
+  [APPLY
+    {EXPR:string}
+    AS {name:string}
+  ] ...
+  [LIMIT {offset:integer} {num:integer} ] ...
+```
+
+#### Parameters In Detail
+
+* **index_name**: The index the query is executed again.
+
+* **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
+
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably, since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+
+* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them, or performing multiple aggregate operations (see below).
+  * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
+
+    The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
+
+* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
+
+  `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
+
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
+
+* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
+
+  However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+
+
+## Quick Example
+
+Let's assume we have log of visits to our website, each record containing the following fields/properties:
+
+* **url** (text, sortable)
+* **timestamp** (numeric, sortable) - unix timestamp of visit entry. 
+* **country** (tag, sortable)
+* **used_id** (text, sortable, not indexed)
+
+### Example 1: unique users by hour, ordered chronologically.
+
+First of all, we want _all_ records in the index, because why not. The first step is to determine the index name and the filtering query. A filter query of `*` means "get all records":
+
+```
+FT.AGGREGATE myIndex "*"
+```
+
+Now we want to group the results by hour. Since we have the visit times as unix timestamps in second resolution, we need to extract the hour component of the timestamp. So we first add an APPLY step, that strips the sub-hour information from the timestamp and stores is as a new property, `hour`:
+
+```
+FT.AGGREGATE myIndex "*"
+  APPLY "@timestamp - (@timestamp % 3600)" AS hour
+```
+
+Now we want to group the results by hour, and count the distinct user ids in each hour. This is done by a GROUPBY/REDUCE  step:
+
+```
+FT.AGGREGATE myIndex "*"
+  APPLY "@timestamp - (@timestamp % 3600)" AS hour
+  
+  GROUPBY 1 @hour
+  	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+```
+
+Now we'd like to sort the results by hour, ascending:
+
+```
+FT.AGGREGATE myIndex "*"
+  APPLY "@timestamp - (@timestamp % 3600)" AS hour
+  
+  GROUPBY 1 @hour
+  	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+  	
+  SORTBY 2 @hour ASC
+```
+
+And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function `time` that formats unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one  is equivalent to specifying `%FT%TZ` to `strftime`.
+
+```
+FT.AGGREGATE myIndex "*"
+  APPLY "@timestamp - (@timestamp % 3600)" AS hour
+  
+  GROUPBY 1 @hour
+  	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+  	
+  SORTBY 2 @hour ASC
+  
+  APPLY time(@hour) AS hour
+```
+
+
+
+### Example 2: Sort visits to a specific URL by day and country:
+
+In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending. 
+
+```
+FT.AGGREGATE myIndex "@url:\"about.html\""
+    APPLY "@timestamp - (@timestamp % 86400)" AS day
+    GROUPBY 2 @day @country
+    	REDUCE count 0 AS num_visits 
+    SORTBY 4 @day ASC @country DESC
+```
+
+
+
+## GROUPBY Reducers
+
+`GROUPBY` step work similarly to SQL `GROUP BY` clauses, and create groups of results based on one or more properties in each record. For each group, we return the "group keys", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more `REDUCE` clauses.
+
+Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` clauses. Reducers apply some accumulation function to each record in the group, and reduce them into a single record representing the group. When we are finished processing all the records upstream of the `GROUPBY` step, each group emits its reduced record. 
+
+For example, the simplest reducer is COUNT, which simply counts the number of records in each group. 
+
+If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its paramaters, e.g. `count_distinct(foo,bar)`.
+
+### Supported GROUPBY Reducers
+
+- #### COUNT
+
+  * **Format**: 
+
+    ```
+    REDUCE COUNT 0
+    ```
+
+  * **Description**:
+
+    Count the number of records in each group 
+
+- #### COUNT_DISTINCT
+
+  * **Format**: 
+
+    ````
+    REDUCE COUNT_DISTINCT 1 {property}
+    ````
+
+  * **Description**:
+
+    Count the number of distinct values for `property`. 
+
+    Note: the reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+
+- #### COUNT_DISTINCTISH
+
+  - **Format**: 
+
+    ```
+    REDUCE COUNT_DISTINCTISH 1 {property}
+    ```
+
+  - **Description**:
+
+    Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. 
+
+    **Note**: the reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
+
+- #### SUM
+
+  * **Format**:
+
+    ```
+    REDUCE SUM 1 {property}
+    ```
+
+  * **Description**:
+
+    Return the sum of all numeric values of a given property in a group. Non numeric values if the group are counted as 0.
+
+- #### MIN
+
+  * **Format**:
+
+    ```
+    REDUCE MIN 1 {property}
+    ```
+
+  * **Description**:
+
+    Return the minimal value of a property, whether it is a string, number or NULL.
+
+- #### MAX
+
+  - **Format**:
+
+    ```
+    REDUCE MAX 1 {property}
+    ```
+
+  - **Description**:
+
+    Return the maximal value of a property, whether it is a string, number or NULL.
+
+- #### AVG
+
+  - **Format**:
+
+    ```
+    REDUCE AVG 1 {property}
+    ```
+
+  - **Description**:
+
+    Return the average value of a numeric property. This is equivalent to reducing by sum and count, and later on applying the ratio of them as an APPLY step.
+
+- #### STDDEV
+
+  - **Format**:
+
+    ```
+    REDUCE STDDEV 1 {property}
+    ```
+
+  - **Description**:
+
+    Return the [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation) of a numeric property in the group.
+
+- #### QUANTILE
+
+  - **Format**:
+
+    ```
+    REDUCE QUANTILE 2 {property} {quantile}
+    ```
+
+  - **Description**:
+
+    Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median` .
+
+    If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99` 
+
+- #### TOLIST
+
+  * **Format**:
+
+    ```
+    REDUCE TOLIST 1 {property}
+    ```
+
+  * **Description**:
+
+    Merge all **distinct** values of a given property into a single array. 
+
+- #### FIRST_VALUE
+
+  * **Format**:
+
+    ```
+    REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]
+    ```
+
+  * **Description**:
+
+    Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:
+
+    ```
+    REDUCE FIRST_VALUE 4 @name BY @age DESC
+    ```
+
+    If no `BY` is specified, we return the first value we encounter in the group.
+
+    If you with to get the top or bottom value in the group sorted by the same value, you are better off using the `MIN/MAX` reducers, but the same effect will be achieved by doing `REDUCE FIRST_VALUE 4 @foo BY @foo DESC`.
+
+
+
+## APPLY Expressions
+
+`APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transforamtion. 
+
+The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and composable without limit. For example: `sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)` or simply `@foo/@bar`.
+
+If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result. 
+
+APPLY steps must have an explicit alias determined by the `AS` parameter.
+
+#### Literals inside expressions
+
+* Numbers are expressed as integers or floating point numbers, i.e. `2`, `3.141`, `-34`, etc. `inf` and `-inf` are acceptable as well.
+* Strings are quoted with either single or double quotes. Single quotes are acceptable inside strings quoted with double quotes and vice versa. Punctuation marks can be escaped with backslashes. e.g. `"foo's bar"` ,`'foo\'s bar'`, `"foo \"bar\""` .
+* Any literal or sub expression can be wrapped in parentheses to resolve ambiguities of operator precedence.
+
+##### Arithmetic Operations
+
+For numeric expressions and properties, we support addition (`+`), subtraction (`-`), multiplication (`*`), division (`/`), modulo (`%`) and power (`^`). We currently do not support bitwise logical operators.  
+
+Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.
+
+## List Of Numeric APPLY Functions
+
+| Function | Description                                                  | Example            |
+| -------- | ------------------------------------------------------------ | ------------------ |
+| log(x)   | Return the logarithm of a number, property or sub-expression | `log(@foo)`        |
+| abs(x)   | Return the absolute number of a numeric expression           | `abs(@foo-@bar)`   |
+| ceil(x)  | Round to the smallest value not less than x                  | `ceil(@foo/3.14)`  |
+| floor(x) | Round to largest value not greater than x                    | `floor(@foo/3.14)` |
+| log2(x)  | Return the  logarithm of x to base 2                         | `log2(2^@foo)`     |
+| exp(x)   | Return the exponent of x, i.e. `e^x`                         | `exp(@foo)`        |
+| sqrt(x)  | Return the square root of x                                  | `sqrt(@foo)`       |
+
+## List Of String Functions
+
+| Function                 |                                                              |                                                          |
+| ------------------------ | ------------------------------------------------------------ | -------------------------------------------------------- |
+| upper(s)                 | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
+| lower(s)                 | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
+| substr(s, offset, count) | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
+| format( fmt, ...)        | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
+
+
+
+## List Of Date/Time Functions
+
+​	
+
+| Function            | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| time(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
+| parsetime(x, [fmt]) | The opposite of time() - parse a time format using a given format string |
+|                     |                                                              |
+

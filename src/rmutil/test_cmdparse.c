@@ -131,7 +131,7 @@ int testVector() {
   CmdArgIterator it = CmdArg_Children(v);
   int i = 0;
   CmdArg *e = NULL;
-  while (NULL != (e = CmdArgIterator_Next(&it))) {
+  while (NULL != (e = CmdArgIterator_Next(&it, NULL))) {
     ASSERT_EQUAL(CmdArg_Integer, e->type);
     ASSERT_EQUAL(++i, e->i);
   }
@@ -353,7 +353,7 @@ int testRepeating() {
   CmdArgIterator it = CmdArg_Select(cmd, "bar");
   int i = 0;
   CmdArg *c = NULL;
-  while (NULL != (c = CmdArgIterator_Next(&it))) {
+  while (NULL != (c = CmdArgIterator_Next(&it, NULL))) {
     ASSERT_EQUAL(CmdArg_Integer, c->type);
     ASSERT_EQUAL(i++, c->i);
   }
@@ -421,7 +421,7 @@ int testVariadic() {
   CmdArg *c;
   int i = 0;
   const char *expected[] = {"one", "two", "three"};
-  while (NULL != (c = CmdArgIterator_Next(&it))) {
+  while (NULL != (c = CmdArgIterator_Next(&it, NULL))) {
     ASSERT_EQUAL(CmdArg_Array, c->type);
     ASSERT_EQUAL(2, c->a.len);
 
@@ -487,12 +487,11 @@ void exampleZadd() {
   CmdArgIterator it = CmdArg_Children(pairs);
   CmdArg *pair;
   // Walk the iterator
-  while (NULL != (pair = CmdArgIterator_Next(&it))) {
+  while (NULL != (pair = CmdArgIterator_Next(&it, NULL))) {
 
     // Accessing the sub elements is done in a similar way. Each element is an array in turn. Since
     // we know its size and it is typed, we can access the values directly
-    printf("Score: %f, element %s\n", CMDARRAY_ELEMENT(pair, 0)->d,
-           CMDARRAY_ELEMENT(pair, 1)->s.str);
+    printf("Score: %f, element %s\n", CMDARG_ARRELEM(pair, 0)->d, CMDARG_ARRELEM(pair, 1)->s.str);
   }
 }
 

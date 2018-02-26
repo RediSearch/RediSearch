@@ -185,7 +185,6 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
                'REDUCE', 'sum', 1, '@price',
-
                'SORTBY', 2, '@sum(price)', 'desc',
                'LIMIT', '0', '5'
                ]
