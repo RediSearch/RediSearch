@@ -185,6 +185,8 @@ static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err)
     case '^':
       res = pow(n1, n2);
       break;
+    default:
+      res =NAN;
   }
 
   result->refcount = 1;
@@ -215,4 +217,5 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
     case RSExpr_Op:
       return evalOp(ctx, &e->op, result, err);
   }
+  return EXPR_EVAL_ERR;
 }

@@ -16,7 +16,7 @@ static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
     return EXPR_EVAL_OK;
   }
 
-  size_t sz;
+  size_t sz = 0;
   char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
   char *np = RSFunction_Alloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
@@ -37,7 +37,7 @@ static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
     return EXPR_EVAL_OK;
   }
 
-  size_t sz;
+  size_t sz = 0;
   char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
   char *np = RSFunction_Alloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
@@ -93,7 +93,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   size_t argix = 1;
-  size_t fmtsz;
+  size_t fmtsz = 0;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
   sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
