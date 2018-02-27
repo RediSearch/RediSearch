@@ -22,16 +22,20 @@ typedef enum {
   RSValue_String = 3,
   RSValue_Null = 4,
   RSValue_RedisString = 5,
-  // NULL terminated C string that should not be freed with the value
-  RSValue_ConstString = 7,
-  RSValue_SDS = 9,
-
   // An array of values, that can be of any type
   RSValue_Array = 6,
   // Reference to another value
   RSValue_Reference = 8,
 
 } RSValueType;
+
+/* Enumerate sub-types of C strings, basically the free() strategy */
+typedef enum {
+  RSString_Const = 0x00,
+  RSString_Malloc = 0x01,
+  RSString_RMAlloc = 0x02,
+  RSString_SDS = 0x03,
+} RSStringType;
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
 
@@ -47,7 +51,9 @@ typedef struct rsvalue {
     // string value
     struct {
       char *str;
-      uint32_t len;
+      uint32_t len : 30;
+      // sub type for string
+      RSStringType stype : 2;
     } strval;
 
     // array value
@@ -76,7 +82,20 @@ static inline void RSValue_Free(RSValue *v) {
 
     switch (v->t) {
       case RSValue_String:
-        free(v->strval.str);
+        // free strings by allocation strategy
+        switch (v->strval.stype) {
+          case RSString_Malloc:
+            free(v->strval.str);
+            break;
+          case RSString_RMAlloc:
+            RedisModule_Free(v->strval.str);
+            break;
+          case RSString_SDS:
+            sdsfree(v->strval.str);
+            break;
+          case RSString_Const:
+            break;
+        }
         break;
       case RSValue_Array:
         for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -86,9 +105,6 @@ static inline void RSValue_Free(RSValue *v) {
         break;
       case RSValue_Reference:
         RSValue_Free(v->ref);
-        break;
-      case RSValue_SDS:
-        sdsfree(v->strval.str);
         break;
       default:  // no free
         break;
@@ -141,17 +157,19 @@ static inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->t = RSValue_String;
   v->strval.len = len;
   v->strval.str = str;
+  v->strval.stype = RSString_Malloc;
 }
 
 static inline void RSValue_SetSDS(RSValue *v, sds s) {
-  v->t = RSValue_SDS;
+  v->t = RSValue_String;
   v->strval.len = sdslen(s);
   v->strval.str = s;
 }
 static inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
-  v->t = RSValue_ConstString;
+  v->t = RSValue_String;
   v->strval.len = len;
   v->strval.str = (char *)str;
+  v->strval.stype = RSString_Const;
 }
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
@@ -178,17 +196,24 @@ static inline RSValue *RSValue_Dereference(RSValue *v) {
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
 static inline RSValue *RS_StringVal(char *str, uint32_t len) {
+  assert(len <= (UINT32_MAX >> 4));
   RSValue *v = RS_NewValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
+  v->strval.stype = RSString_Malloc;
   return v;
 }
 
-static inline RSValue *RS_ConstStringVal(char *str, uint32_t len) {
-  RSValue *v = RS_NewValue(RSValue_ConstString);
+/* Same as RS_StringVal but with explicit string type */
+static inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
+  RSValue *v = RS_NewValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
+  v->strval.stype = t;
   return v;
+}
+static inline RSValue *RS_ConstStringVal(char *str, uint32_t len) {
+  return RS_StringValT(str, len, RSString_Const);
 }
 
 /* Wrap a string with length into a value object, assuming the string is a null terminated C
@@ -199,7 +224,7 @@ static inline RSValue *RS_StringValC(char *str) {
 }
 
 static inline RSValue *RS_ConstStringValC(char *str) {
-  return RS_ConstStringVal(str, strlen(str));
+  return RS_StringValT(str, strlen(str), RSString_Const);
 }
 
 /* Wrap a redis string value */
@@ -211,8 +236,7 @@ static inline RSValue *RS_RedisStringVal(RedisModuleString *str) {
 
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
-  return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
-                   value->t == RSValue_ConstString || value->t == RSValue_SDS);
+  return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
 }
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
@@ -227,8 +251,6 @@ static inline int RSValue_IsNull(const RSValue *value) {
 static void RSValue_ToString(RSValue *dst, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
       RSValue_MakeReference(dst, v);
       break;
     case RSValue_RedisString: {
@@ -283,9 +305,6 @@ static inline int RSValue_ToNumber(RSValue *v, double *d) {
       return 1;
 
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
-
       // C strings - take the ptr and len
       p = v->strval.str;
       l = v->strval.len;
@@ -327,9 +346,6 @@ static inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
       *outlen = sizeof(value->numval);
       return &value->numval;
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
-
       *outlen = value->strval.len;
       return value->strval.str;
     case RSValue_RedisString:
@@ -347,8 +363,6 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
   if (!v) return 0;
   switch (v->t) {
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
 
       return fnv_64a_buf(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
@@ -378,15 +392,16 @@ static inline uint64_t RSValue_Hash(RSValue *v, uint64_t hval) {
 static inline const char *RSValue_StringPtrLen(RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
 
-  if (value->t == RSValue_String || value->t == RSValue_ConstString || value->t == RSValue_SDS) {
-    if (lenp) {
-      *lenp = value->strval.len;
-    }
-    return value->strval.str;
-  } else if (value->t == RSValue_RedisString) {
-    return RedisModule_StringPtrLen(value->rstrval, lenp);
-  } else {
-    return NULL;
+  switch (value->t) {
+    case RSValue_String:
+      if (lenp) {
+        *lenp = value->strval.len;
+      }
+      return value->strval.str;
+    case RSValue_RedisString:
+      return RedisModule_StringPtrLen(value->rstrval, lenp);
+    default:
+      return NULL;
   }
 }
 
@@ -504,9 +519,6 @@ static int RSValue_Cmp(RSValue *v1, RSValue *v2) {
 
         return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
-      case RSValue_ConstString:
-      case RSValue_SDS:
-
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
       case RSValue_RedisString: {
         size_t l1, l2;
@@ -551,9 +563,6 @@ static int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
 
   switch (v->t) {
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
-
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
     case RSValue_RedisString:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
@@ -583,9 +592,6 @@ static void RSValue_Print(RSValue *v) {
 
   switch (v->t) {
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
-
       printf("%.*s", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
@@ -786,8 +792,6 @@ static void setStaticValuevp(RSValue *v, RSValueType t, va_list ap) {
   v->refcount = 1;
   switch (t) {
     case RSValue_String:
-    case RSValue_ConstString:
-    case RSValue_SDS:
       v->strval.str = va_arg(ap, char *);
       v->strval.len = va_arg(ap, size_t);
 

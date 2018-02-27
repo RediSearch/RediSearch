@@ -12,7 +12,7 @@ ifeq ($(DEBUG), 1)
 endif
 
 # Default CFLAGS
-CFLAGS += -Wall -Wno-unused-function -Wfree-nonheap-object -Wno-unused-variable -Wno-unused-result -fPIC \
+CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fPIC \
 	-Werror=implicit-function-declaration \
  	-D_GNU_SOURCE -std=gnu99 -I"$(shell pwd)" -DREDIS_MODULE_TARGET \
 	-DREDISMODULE_EXPERIMENTAL_API 
@@ -22,6 +22,7 @@ LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
+	CFLAGS += -Wfree-nonheap-object
 else
 	LINKER = $(LD)
 	CFLAGS += -mmacosx-version-min=10.6

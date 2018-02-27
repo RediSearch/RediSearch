@@ -172,7 +172,6 @@ void dmd_free(RSDocumentMetadata *md) {
     md->payload = NULL;
   }
   if (md->sortVector) {
-    printf("Freeeing sort vector for doc %s\n", md->keyPtr);
     SortingVector_Free(md->sortVector);
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
