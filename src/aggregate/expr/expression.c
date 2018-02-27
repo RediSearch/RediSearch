@@ -46,6 +46,7 @@ RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   e->literal = RS_StaticValue(RSValue_String);
   e->literal.strval.str = unescpeStringDup(str, len);
   e->literal.strval.len = strlen(e->literal.strval.str);
+  e->literal.strval.stype = RSString_Malloc;
   return e;
 }
 
@@ -102,6 +103,7 @@ void RSExpr_Free(RSExpr *e) {
     case RSExpr_Property:
       free((char *)e->property.key);
   }
+  free(e);
 }
 
 void RSExpr_Print(RSExpr *e) {

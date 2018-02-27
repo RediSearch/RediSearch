@@ -164,6 +164,7 @@ static inline void RSValue_SetSDS(RSValue *v, sds s) {
   v->t = RSValue_String;
   v->strval.len = sdslen(s);
   v->strval.str = s;
+  v->strval.stype = RSString_SDS;
 }
 static inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->t = RSValue_String;

@@ -27,6 +27,7 @@ void Projector_Free(ResultProcessor *p) {
   ProjectorCtx *pc = p->ctx.privdata;
 
   RSFunctionEvalCtx_Free(pc->ctx.fctx);
+  RSExpr_Free(pc->exp);
   free(pc);
   free(p);
 }

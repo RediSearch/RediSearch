@@ -600,8 +600,12 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Set(&r->fields, doc.fields[i].name,
-                   doc.fields[i].text ? RS_RedisStringVal(doc.fields[i].text) : RS_NullVal());
+    if (doc.fields[i].text) {
+      RSFieldMap_SetRawValue(&r->fields, doc.fields[i].name, RSValue_RedisString, 
+                   doc.fields[i].text);
+    } else {
+      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());    
+    }
   }
   Document_Free(&doc);
 

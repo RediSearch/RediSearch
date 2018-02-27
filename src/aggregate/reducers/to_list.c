@@ -48,7 +48,7 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 void freeValues(void *ptr) {
   RSValue_Free(ptr);
-  free(ptr);
+  //free(ptr);
 }
 // Free just frees up the processor. If left as NULL we simply use free()
 void tolist_Free(Reducer *r) {

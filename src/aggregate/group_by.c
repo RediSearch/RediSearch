@@ -46,7 +46,6 @@ typedef struct Grouper {
   int sortKeyIdx;
   khiter_t iter;
   int hasIter;
-  int *skeyOffsets;
 
 } Grouper;
 
@@ -77,10 +76,9 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
 }
 
 static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
-  // Group *group = (Group *)ent;
-  // // for (size_t i = 0; i < group->len; i++) {
-  // //   group->ctxs[i].free(group->ctxs[i].ptr);
-  // // }
+  for (size_t i = 0; i < group->len; i++) {
+    group->ctxs[i].free(group->ctxs[i].ptr);
+  }
   group->len = 0;
   if (group->values) {
     RSFieldMap_Free(group->values, 0);
@@ -202,10 +200,6 @@ Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
   g->groups = kh_init(khid);
   g->sortTable = tbl;
   g->keys = keys;
-  g->skeyOffsets = calloc(keys->len, sizeof(int));
-  for (size_t i = 0; i < keys->len; i++) {
-    g->skeyOffsets[i] = -2;
-  }
   g->capReducers = 2;
   g->reducers = calloc(g->capReducers, sizeof(Reducer *));
   g->numReducers = 0;
