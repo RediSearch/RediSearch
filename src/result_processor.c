@@ -89,9 +89,13 @@ static void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
   // This won't affect anything if the result is null
-  IndexResult_Free(r->indexResult);
+  if (r->indexResult) {
+    IndexResult_Free(r->indexResult);
+    r->indexResult = NULL;
+  }
   if (r->fields) {
     RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
   }
 }
 
@@ -391,15 +395,14 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
       // copy the index result to make it thread safe - but only if it is pushed to the heap
       h->indexResult = NULL;
-
       sc->pooledResult = mmh_pop_min(sc->pq);
-      sc->pooledResult->indexResult = NULL;
+      SearchResult_FreeInternal(sc->pooledResult);
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
       sc->pooledResult = h;
       // make sure we will not try to free the index result of the pooled result at the end
-      sc->pooledResult->indexResult = NULL;
+      SearchResult_FreeInternal(sc->pooledResult);
     }
   }
 
