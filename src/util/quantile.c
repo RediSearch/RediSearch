@@ -302,6 +302,7 @@ void QS_Free(QuantStream *qs) {
     free(cur);
     cur = next;
   }
+  free(qs);
 }
 
 void QS_Dump(const QuantStream *stream, FILE *fp) {
