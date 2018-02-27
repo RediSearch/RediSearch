@@ -72,7 +72,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
         break;
       case RS_SORTABLE_STR:
 
-        tbl->values[idx] = RSValue_IncrRef(RS_ConstStringValC(normalizeStr((char *)p)));
+        tbl->values[idx] = RSValue_IncrRef(RS_StringValC(normalizeStr((char *)p)));
       case RS_SORTABLE_NIL:
       default:
         break;
@@ -147,8 +147,8 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RSValue_IncrRef(RS_StringVal(s, len - 1));
-
+        vec->values[i] = RSValue_IncrRef(RS_StringVal(strndup(s, len), len - 1));
+        RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
