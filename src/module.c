@@ -883,12 +883,13 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    RedisModule_ReplyWithError(ctx, err ? err : "Error parsing request");
     goto end;
   }
 
   q = SearchRequest_ParseQuery(sctx, req, &err);
-  if (!q) {
-    RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+  if (!q && err) {
+    RedisModule_Log(ctx, "warning", "Error parsing query: %s", err);
     RedisModule_ReplyWithError(ctx, err);
     goto end;
   }

@@ -58,6 +58,9 @@ typedef struct {
 
   char *scorer;
 
+  /* Does any stage in the query plan beyond the fiters nees the index results? Only scoring
+   * functions need them, so for aggregate queries it makes our lives simpler to not assign it */
+  int needIndexResult;
 } RSSearchOptions;
 
 #define RS_DEFAULT_SEARCHOPTS          \
@@ -74,6 +77,7 @@ typedef struct {
       .num = 10,                       \
       .expander = NULL,                \
       .scorer = NULL,                  \
+      .needIndexResult = 0,            \
   })
 
 typedef enum {

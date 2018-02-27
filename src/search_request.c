@@ -343,6 +343,6 @@ QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *r
 
 QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, QueryParseCtx *q,
                                    char **err) {
-
+  if (!q) return NULL;
   return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req, err);
 }
