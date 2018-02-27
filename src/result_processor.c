@@ -601,10 +601,10 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
     if (doc.fields[i].text) {
-      RSFieldMap_SetRawValue(&r->fields, doc.fields[i].name, RSValue_RedisString, 
-                   doc.fields[i].text);
+      RSFieldMap_SetRawValue(&r->fields, doc.fields[i].name, RSValue_RedisString,
+                             doc.fields[i].text);
     } else {
-      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());    
+      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());
     }
   }
   Document_Free(&doc);
@@ -643,7 +643,7 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **
 
   // The sorter sorts the top-N results
   next = NewSorter(q->opts.sortBy ? Sort_BySortKey : Sort_ByScore, q->opts.sortBy,
-                   q->opts.offset + q->opts.num, next, req->fields.wantSummaries);
+                   q->opts.offset + q->opts.num, next, req->opts.fields.wantSummaries);
 
   // The pager pages over the results of the sorter
   next = NewPager(next, q->opts.offset, q->opts.num);
@@ -651,8 +651,8 @@ ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
   if (!(q->opts.flags & Search_NoContent)) {
-    next = NewLoader(next, q->ctx, &req->fields);
-    if (req->fields.wantSummaries && (q->ctx->spec->flags & Index_StoreTermOffsets) != 0) {
+    next = NewLoader(next, q->ctx, &req->opts.fields);
+    if (req->opts.fields.wantSummaries && (q->ctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
     }
   }

@@ -50,7 +50,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   int sumIdx;
   if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
     size_t tmpOffset = sumIdx;
-    if (ParseSummarize(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+    if (ParseSummarize(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
       *errStr = "Couldn't parse `SUMMARIZE`";
       goto err;
     }
@@ -59,7 +59,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if ((sumIdx = RMUtil_ArgExists("HIGHLIGHT", argv, argc, 3)) > 0) {
     // Parse the highlighter spec
     size_t tmpOffset = sumIdx;
-    if (ParseHighlight(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+    if (ParseHighlight(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
       *errStr = "Couldn't parse `HIGHLIGHT`";
       goto err;
     }
@@ -185,20 +185,20 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     if (!nargs) {
       req->opts.flags |= Search_NoContent;
     } else {
-      req->fields.explicitReturn = 1;
+      req->opts.fields.explicitReturn = 1;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        ReturnedField *rf = FieldList_GetCreateField(&req->fields, vargs[ii]);
+        ReturnedField *rf = FieldList_GetCreateField(&req->opts.fields, vargs[ii]);
         rf->explicitReturn = 1;
       }
     }
   }
 
-  if (req->fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
+  if (req->opts.fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
     *errStr = "HIGHLIGHT and SUMMARIZE not supported for this index";
     goto err;
   }
 
-  FieldList_RestrictReturn(&req->fields);
+  FieldList_RestrictReturn(&req->opts.fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -215,7 +215,7 @@ static void ReturnedField_Free(ReturnedField *field) {
   free(field->name);
 }
 
-static void FieldList_Free(FieldList *fields) {
+void FieldList_Free(FieldList *fields) {
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     ReturnedField_Free(fields->fields + ii);
   }
@@ -298,7 +298,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
     Vector_Free(req->numericFilters);
   }
 
-  FieldList_Free(&req->fields);
+  FieldList_Free(&req->opts.fields);
 
   free(req);
 }

@@ -6,6 +6,54 @@
 #include <sortable.h>
 
 typedef enum {
+  // No summaries
+  SummarizeMode_None = 0x00,
+  SummarizeMode_Highlight = 0x01,
+  SummarizeMode_Synopsis = 0x02
+} SummarizeMode;
+
+#define SUMMARIZE_MODE_DEFAULT SummarizeMode_Synopsis
+#define SUMMARIZE_FRAGSIZE_DEFAULT 20
+#define SUMMARIZE_FRAGCOUNT_DEFAULT 3
+#define SUMMARIZE_DEFAULT_OPEN_TAG "<b>"
+#define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
+#define SUMMARIZE_DEFAULT_SEPARATOR "... "
+
+typedef struct {
+  uint32_t contextLen;
+  uint16_t numFrags;
+  char *separator;
+} SummarizeSettings;
+
+typedef struct {
+  char *openTag;
+  char *closeTag;
+} HighlightSettings;
+
+typedef struct {
+  char *name;
+  SummarizeSettings summarizeSettings;
+  HighlightSettings highlightSettings;
+  SummarizeMode mode;
+  // Whether this field was explicitly requested by `RETURN`
+  int explicitReturn;
+} ReturnedField;
+
+typedef struct {
+  ReturnedField defaultField;
+
+  // List of individual field specifications
+  ReturnedField *fields;
+  size_t numFields;
+  uint16_t wantSummaries;
+  // Whether this list contains fields explicitly selected by `RETURN`
+  uint16_t explicitReturn;
+} FieldList;
+
+ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
+void FieldList_Free(FieldList *fields);
+
+typedef enum {
   Search_NoContent = 0x01,
   Search_Verbatim = 0x02,
   Search_NoStopwrods = 0x04,
@@ -61,6 +109,8 @@ typedef struct {
   /* Does any stage in the query plan beyond the fiters nees the index results? Only scoring
    * functions need them, so for aggregate queries it makes our lives simpler to not assign it */
   int needIndexResult;
+
+  FieldList fields;
 } RSSearchOptions;
 
 #define RS_DEFAULT_SEARCHOPTS          \
@@ -78,51 +128,7 @@ typedef struct {
       .expander = NULL,                \
       .scorer = NULL,                  \
       .needIndexResult = 0,            \
+      .fields = (FieldList){},         \
   })
-
-typedef enum {
-  // No summaries
-  SummarizeMode_None = 0x00,
-  SummarizeMode_Highlight = 0x01,
-  SummarizeMode_Synopsis = 0x02
-} SummarizeMode;
-
-#define SUMMARIZE_MODE_DEFAULT SummarizeMode_Synopsis
-#define SUMMARIZE_FRAGSIZE_DEFAULT 20
-#define SUMMARIZE_FRAGCOUNT_DEFAULT 3
-#define SUMMARIZE_DEFAULT_OPEN_TAG "<b>"
-#define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
-#define SUMMARIZE_DEFAULT_SEPARATOR "... "
-
-typedef struct {
-  uint32_t contextLen;
-  uint16_t numFrags;
-  char *separator;
-} SummarizeSettings;
-
-typedef struct {
-  char *openTag;
-  char *closeTag;
-} HighlightSettings;
-
-typedef struct {
-  char *name;
-  SummarizeSettings summarizeSettings;
-  HighlightSettings highlightSettings;
-  SummarizeMode mode;
-  // Whether this field was explicitly requested by `RETURN`
-  int explicitReturn;
-} ReturnedField;
-
-typedef struct {
-  ReturnedField defaultField;
-
-  // List of individual field specifications
-  ReturnedField *fields;
-  size_t numFields;
-  uint16_t wantSummaries;
-  // Whether this list contains fields explicitly selected by `RETURN`
-  uint16_t explicitReturn;
-} FieldList;
 
 #endif

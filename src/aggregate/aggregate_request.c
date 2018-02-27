@@ -222,12 +222,11 @@ ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
   return NewPager(upstream, (uint32_t)offset, (uint32_t)limit);
 }
 
-FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
-  FieldList *ret = NULL;
+int getAggregateFields(FieldList *l, RedisModuleCtx *ctx, CmdArg *cmd) {
+  *l = (FieldList){};
   CmdArg *select = CmdArg_FirstOf(cmd, "LOAD");
   if (select) {
-    ret = calloc(1, sizeof(*ret));
-    ret->explicitReturn = 1;
+    l->explicitReturn = 1;
     CmdArgIterator it = CmdArg_Children(select);
     CmdArg *child;
     while (NULL != (child = CmdArgIterator_Next(&it, NULL))) {
@@ -237,12 +236,12 @@ FieldList *getAggregateFields(RedisModuleCtx *ctx, CmdArg *cmd) {
         k++;
         len--;
       }
-      ReturnedField *rf = FieldList_GetCreateField(ret, RedisModule_CreateString(ctx, k, len));
+      ReturnedField *rf = FieldList_GetCreateField(l, RedisModule_CreateString(ctx, k, len));
 
       rf->explicitReturn = 1;
     }
   }
-  return ret;
+  return l->numFields;
 }
 
 static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
@@ -252,9 +251,9 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
   ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
   ResultProcessor *prev = NULL;
   // Load LOAD based stuff from hash vals
-  FieldList *lst = getAggregateFields(plan->ctx->redisCtx, cmd);
-  if (lst != NULL) {
-    next = NewLoader(next, plan->ctx, lst);
+
+  if (getAggregateFields(&plan->opts.fields, plan->ctx->redisCtx, cmd)) {
+    next = NewLoader(next, plan->ctx, &plan->opts.fields);
   }
 
   // Walk the children and evaluate them
@@ -332,6 +331,10 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
     RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
   }
   if (err) free(err);
+
+  if (plan->opts.fields.numFields) {
+    FieldList_Free(&plan->opts.fields);
+  }
   QueryPlan_Free(plan);
   Query_Free(q);
   CmdArg_Free(cmd);

@@ -132,6 +132,7 @@ void QueryPlan_Free(QueryPlan *plan) {
     ConcurrentSearchCtx_Free(plan->conc);
     free(plan->conc);
   }
+
   free(plan);
 }
 

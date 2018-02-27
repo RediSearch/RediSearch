@@ -301,7 +301,7 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
   hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
-  hlpCtx->fields = &req->fields;
+  hlpCtx->fields = &req->opts.fields;
   if (req->opts.language && strcasecmp(req->opts.language, "chinese") == 0) {
     hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
