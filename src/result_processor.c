@@ -400,6 +400,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
+      h->indexResult = NULL;
       sc->pooledResult = h;
       // make sure we will not try to free the index result of the pooled result at the end
       SearchResult_FreeInternal(sc->pooledResult);
