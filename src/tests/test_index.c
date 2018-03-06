@@ -1044,7 +1044,9 @@ int testSortable() {
   double num = 3.141;
   ASSERT(RSValue_IsNull(v->values[0]));
   RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
-  ASSERT_EQUAL(v->values[0]->t, RSValue_ConstString);
+  ASSERT_EQUAL(v->values[0]->t, RSValue_String);
+  ASSERT_EQUAL(v->values[0]->strval.stype, RSString_RMAlloc);
+
   ASSERT(RSValue_IsNull(v->values[1]));
   ASSERT(RSValue_IsNull(v->values[2]));
   RSSortingVector_Put(v, 1, &num, RSValue_Number);
