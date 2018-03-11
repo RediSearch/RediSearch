@@ -630,10 +630,10 @@ typedef struct {
   int cachedIdx;
 } RSKey;
 
-#define RS_KEY(s)                  \
-  ((RSKey){                        \
-      .key = s,                    \
-      .cachedIdx = RSKEY_UNCACHED, \
+#define RS_KEY(s)                 \
+  ((RSKey){                       \
+      .key = s,                   \
+      .cachedIdx = RSKEY_NOCACHE, \
   })
 
 typedef struct {
