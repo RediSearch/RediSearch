@@ -149,7 +149,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      RSFieldMap_SetRawValue(&r->fields, fieldName, RSValue_String, summarized, docLen);
+      RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(summarized, docLen));
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -162,7 +162,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
-    RSFieldMap_SetRawValue(&r->fields, fieldName, RSValue_String, hlDoc, strlen(hlDoc));
+    RSFieldMap_Set(&r->fields, fieldName, RS_StringValC(hlDoc));
     FragmentList_Free(&frags);
     return;
   }
@@ -202,7 +202,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   // need to strndup it.
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
-  RSFieldMap_SetRawValue(&r->fields, fieldName, RSValue_String, hlText, hlLen);
+  RSFieldMap_Set(&r->fields, fieldName, RS_StringVal(hlText, hlLen));
 
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);

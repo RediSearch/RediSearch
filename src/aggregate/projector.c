@@ -36,12 +36,14 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 1);
   ProjectorCtx *pc = ctx->privdata;
   pc->ctx.r = res;
-  RSValue out = RSVALUE_STATIC;
+  RSValue *out = RS_NewValue(RSValue_Null);
   char *err;
-  int rc = RSExpr_Eval(&pc->ctx, pc->exp, &out, &err);
+  int rc = RSExpr_Eval(&pc->ctx, pc->exp, out, &err);
   if (rc == EXPR_EVAL_OK) {
-    RSFieldMap_SetStatic(&res->fields, pc->alias, &out);
+
+    RSFieldMap_Set(&res->fields, pc->alias, out);
   } else {
+    RSValue_Free(out);
     RSFieldMap_Set(&res->fields, pc->alias, RS_NullVal());
   }
   return RS_RESULT_OK;

@@ -77,7 +77,7 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
-  e->property.cachedIdx = RSKEY_NOCACHE;
+  e->property.cachedIdx = RSKEY_UNCACHED;
   return e;
 }
 void RSArgList_Free(RSArgList *l) {
@@ -188,7 +188,7 @@ static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err)
       res = pow(n1, n2);
       break;
     default:
-      res =NAN;
+      res = NAN;
   }
 
   result->refcount = 1;
@@ -202,7 +202,7 @@ cleanup:
 }
 
 static inline int evalProperty(RSExprEvalCtx *ctx, RSKey *k, RSValue *result, char **err) {
-  RSValue_MakeReference(result, SearchResult_GetValue(ctx->r, ctx->sortables, k));
+  result = RSValue_IncrRef(SearchResult_GetValue(ctx->r, ctx->sortables, k));
   return EXPR_EVAL_OK;
 }
 
@@ -211,7 +211,7 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
     case RSExpr_Property:
       return evalProperty(ctx, &e->property, result, err);
     case RSExpr_Literal:
-      RSValue_MakeReference(result, &e->literal);
+      result = RSValue_IncrRef(&e->literal);
       return EXPR_EVAL_OK;
     case RSExpr_Function:
       return evalFunc(ctx, &e->func, result, err);
