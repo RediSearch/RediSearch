@@ -1,6 +1,8 @@
 #define _RS_MEMPOOL_C_
 #include "mempool.h"
 #include <sys/param.h>
+#include <stdio.h>
+
 typedef struct mempool_t {
   void **entries;
   size_t top;
@@ -21,6 +23,7 @@ mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn free)
 
 void *mempool_get(mempool_t *p) {
   if (p->top > 0) {
+    // printf("Returning from pool with %zd entries\n", p->top);
     return p->entries[--p->top];
   }
   return p->alloc();

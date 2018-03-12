@@ -17,7 +17,7 @@ static void _valueFree(void *p) {
 
 RSValue *RS_NewValue(RSValueType t) {
   if (!valuePool_g) {
-    valuePool_g = mempool_new(100, _valueAlloc, _valueFree);
+    valuePool_g = mempool_new(1000, _valueAlloc, _valueFree);
   }
   RSValue *v = mempool_get(valuePool_g);
   v->t = t;
@@ -109,6 +109,9 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
 }
 
 inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+  if (src->t == RSValue_Reference) {
+    dst = RSValue_IncrRef(src);
+  }
   *dst = (RSValue){
       .t = RSValue_Reference,
       .refcount = 1,
@@ -205,7 +208,7 @@ int RSValue_ParseNumber(const char *p, size_t l, RSValue *v) {
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */
 inline int RSValue_ToNumber(RSValue *v, double *d) {
-  if (!v) return 0;
+  if (RSValue_IsNull(v)) return 0;
   v = RSValue_Dereference(v);
 
   const char *p = NULL;
@@ -467,7 +470,7 @@ void RSValue_Print(RSValue *v) {
   if (!v) {
     printf("nil");
   }
-
+  printf("{%d}", v->t);
   switch (v->t) {
     case RSValue_String:
       printf("%.*s", v->strval.len, v->strval.str);
