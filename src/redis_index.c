@@ -465,10 +465,14 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     }
   }
 
+  // Delete any dangling term keys
   RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
   const char *prefix = RedisModule_StringPtrLen(pf, NULL);
+  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
-  // // Delete the actual index sub keys
+  // Do the same with geo keys
+  pf = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, "*");
+  prefix = RedisModule_StringPtrLen(pf, NULL);
   Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
   // Delete the numeric and tag indexes which reside on separate keys

@@ -12,6 +12,8 @@ typedef struct geoIndex {
   const FieldSpec *sp;
 } GeoIndex;
 
+#define GEOINDEX_KEY_FMT "geo:%s/%s"
+
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat);
 
 typedef struct geoFilter {
