@@ -139,7 +139,8 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
 
 fail:
   RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s", *err);
-  // TODO: Grouper_Free(g);
+
+  Grouper_Free(g);
   return NULL;
 }
 

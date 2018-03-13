@@ -66,7 +66,6 @@ ResultProcessor *NewProjector(RedisSearchCtx *sctx, RSFunctionRegistry *funcs,
     free(ctx);
     return NULL;
   }
-  RSExpr_Print(ctx->exp);
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);
   proc->Next = Projector_Next;
   proc->Free = Projector_Free;

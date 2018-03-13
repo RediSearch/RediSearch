@@ -77,7 +77,8 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
-  e->property.cachedIdx = RSKEY_NOCACHE;
+  e->property.sortableIdx = RSKEY_UNCACHED;
+  e->property.fieldIdx = RSKEY_UNCACHED;
   return e;
 }
 void RSArgList_Free(RSArgList *l) {
@@ -162,10 +163,6 @@ static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err)
   double n1, n2;
   int rc = EXPR_EVAL_OK;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
-    RSValue_Print(&l);
-    printf(" %c ", op->op);
-    RSValue_Print(&r);
-    printf("\n");
 
     // asprintf(err, "Invalid values for op '%c'", op->op);
     rc = EXPR_EVAL_ERR;
@@ -196,7 +193,6 @@ static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err)
       res = NAN;
   }
 
-  result->refcount = 1;
   result->numval = res;
   result->t = RSValue_Number;
 

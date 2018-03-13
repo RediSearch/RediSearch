@@ -176,11 +176,7 @@ static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   return RS_RESULT_QUEUED;
 }
 
-// Free just frees up the processor. If left as NULL we simply use free()
-static void Grouper_Free(struct resultProcessor *p) {
-  Grouper *g = p->ctx.privdata;
-  // KHTable_FreeEx(&g->groups, NULL, gtGroupClean);
-
+void Grouper_Free(Grouper *g) {
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, baGroupClean, g, GROUP_BYTESIZE(g));
 
@@ -191,7 +187,12 @@ static void Grouper_Free(struct resultProcessor *p) {
 
   free(g->reducers);
   free(g);
-  free(p);
+}
+// Free just frees up the processor. If left as NULL we simply use free()
+static void Grouper_FreeProcessor(struct resultProcessor *p) {
+  Grouper *g = p->ctx.privdata;
+  Grouper_Free(g);
+  // KHTable_FreeEx(&g->groups, NULL, gtGroupClean);
 }
 
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
@@ -212,7 +213,7 @@ ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream) {
 
   ResultProcessor *p = NewResultProcessor(upstream, g);
   p->Next = Grouper_Next;
-  p->Free = Grouper_Free;
+  p->Free = Grouper_FreeProcessor;
   return p;
 }
 

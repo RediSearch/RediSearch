@@ -17,7 +17,7 @@ static void _valueFree(void *p) {
 
 RSValue *RS_NewValue(RSValueType t) {
   if (!valuePool_g) {
-    valuePool_g = mempool_new(1000, _valueAlloc, _valueFree);
+    valuePool_g = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
   }
   RSValue *v = mempool_get(valuePool_g);
   v->t = t;
@@ -106,18 +106,6 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->strval.len = len;
   v->strval.str = (char *)str;
   v->strval.stype = RSString_Const;
-}
-
-inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
-  if (src->t == RSValue_Reference) {
-    dst = RSValue_IncrRef(src);
-  }
-  *dst = (RSValue){
-      .t = RSValue_Reference,
-      .refcount = 1,
-      .allocated = 0,
-      .ref = RSValue_IncrRef(src),
-  };
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
@@ -567,21 +555,22 @@ void RSFieldMap_EnsureCap(RSFieldMap **m) {
 #define FIELDMAP_FIELD(m, i) (m)->fields[i]
 
 RSValue *RSFieldMap_GetByKey(RSFieldMap *m, RSKey *k) {
-  if (RSKEY_ISVALIDIDX(k->cachedIdx)) {
-    return RSValue_Dereference(FIELDMAP_FIELD(m, k->cachedIdx).val);
+  if (RSKEY_ISVALIDIDX(k->fieldIdx)) {
+    return RSValue_Dereference(FIELDMAP_FIELD(m, k->fieldIdx).val);
   }
 
   for (uint16_t i = 0; i < m->len; i++) {
     if (!strcmp(FIELDMAP_FIELD(m, i).key, (k->key))) {
-      if (k->cachedIdx != RSKEY_NOCACHE) {
-        k->cachedIdx = i;
+      if (k->fieldIdx != RSKEY_NOCACHE) {
+        k->fieldIdx = i;
       }
       return RSValue_Dereference(FIELDMAP_FIELD(m, i).val);
     }
   }
-  if (k->cachedIdx != RSKEY_NOCACHE) {
-    k->cachedIdx = RSKEY_NOTFOUND;
+  if (k->fieldIdx != RSKEY_NOCACHE) {
+    k->fieldIdx = RSKEY_NOTFOUND;
   }
+
   return RS_NullVal();
 }
 

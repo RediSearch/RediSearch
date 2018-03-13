@@ -102,15 +102,17 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
 
   if (res->fields) {
     RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
-    if (!RSValue_IsNull(ret)) return ret;
+    if (!RSValue_IsNull(ret)) {
+      return ret;
+    }
   }
   // First try to get the group value by sortables
   if (tbl && res->md && res->md->sortVector) {
-    int idx = k->cachedIdx;
+    int idx = k->sortableIdx;
     if (idx <= 0) {
       idx = RSSortingTable_GetFieldIdx(tbl, RSKEY(k->key));
-      if (k->cachedIdx != RSKEY_NOCACHE) {
-        k->cachedIdx = idx;
+      if (k->sortableIdx != RSKEY_NOCACHE) {
+        k->sortableIdx = idx;
       }
     }
     if (RSKEY_ISVALIDIDX(idx)) {

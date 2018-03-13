@@ -106,8 +106,18 @@ void RSValue_SetString(RSValue *v, char *str, size_t len);
 void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
-void RSValue_MakeReference(RSValue *dst, RSValue *src);
-
+static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+  if (src->t == RSValue_Reference) {
+    dst = RSValue_IncrRef(src);
+    return;
+  }
+  *dst = (RSValue){
+      .t = RSValue_Reference,
+      .refcount = 1,
+      .allocated = 0,
+      .ref = RSValue_IncrRef(src),
+  };
+}
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(RSValue *v) {
   return v->t == RSValue_Reference ? v->ref : v;
@@ -229,13 +239,15 @@ void RSValue_Print(RSValue *v);
 #define RSKEY_ISVALIDIDX(i) (i >= 0)
 typedef struct {
   const char *key;
-  int cachedIdx;
+  int fieldIdx;
+  int sortableIdx;
 } RSKey;
 
-#define RS_KEY(s)                 \
-  ((RSKey){                       \
-      .key = s,                   \
-      .cachedIdx = RSKEY_NOCACHE, \
+#define RS_KEY(s)                    \
+  ((RSKey){                          \
+      .key = s,                      \
+      .fieldIdx = RSKEY_UNCACHED,    \
+      .sortableIdx = RSKEY_UNCACHED, \
   })
 
 typedef struct {
