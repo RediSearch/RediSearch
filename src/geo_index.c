@@ -4,8 +4,6 @@
 #include "rmalloc.h"
 #include "id_list.h"
 
-#define GEOINDEX_KEY_FMT "geo:%s/%s"
-
 RedisModuleString *fmtGeoIndexKey(GeoIndex *gi) {
   return RedisModule_CreateStringPrintf(gi->ctx->redisCtx, GEOINDEX_KEY_FMT, gi->ctx->spec->name,
                                         gi->sp->name);

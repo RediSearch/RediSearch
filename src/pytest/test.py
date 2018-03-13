@@ -265,19 +265,19 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.redis() as r:
             r.flushdb()
             self.assertOk(r.execute_command(
-                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag'))
+                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
 
             for i in range(200):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                                'f', 'hello world', 'n', 666, 't', 'foo bar'))
-
+                                                'f', 'hello world', 'n', 666, 't', 'foo bar',
+                                                'g', '19.04,47.497'))
             keys = r.keys('*')
-            self.assertEqual(205, len(keys))
+            self.assertEqual(206, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
-
+    
     def testCustomStopwords(self):
         with self.redis() as r:
             r.flushdb()
