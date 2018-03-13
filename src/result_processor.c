@@ -85,7 +85,7 @@ SearchResult *NewSearchResult() {
 
 /* Free the search result's internal data but not the result itself - it may be allocated on the
  * stack */
-static void SearchResult_FreeInternal(SearchResult *r) {
+void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
   // This won't affect anything if the result is null

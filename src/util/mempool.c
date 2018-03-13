@@ -30,7 +30,6 @@ mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
 
 void *mempool_get(mempool_t *p) {
   if (p->top > 0) {
-    printf("Pulling from pool %zd\n", p->top);
     return p->entries[--p->top];
   }
   return p->alloc();
@@ -38,6 +37,7 @@ void *mempool_get(mempool_t *p) {
 
 void mempool_release(mempool_t *p, void *ptr) {
   if (p->top == p->cap) {
+
     // This is a limited pool, and we can't outgrow ourselves now, just free the ptr immediately
     if (p->max && p->max == p->top) {
       p->free(ptr);

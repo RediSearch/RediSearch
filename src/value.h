@@ -107,10 +107,7 @@ void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
-  if (src->t == RSValue_Reference) {
-    dst = RSValue_IncrRef(src);
-    return;
-  }
+
   *dst = (RSValue){
       .t = RSValue_Reference,
       .refcount = 1,

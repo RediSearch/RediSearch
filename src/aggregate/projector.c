@@ -15,6 +15,7 @@ typedef struct {
   const char *alias;
   RSSortingTable *sortables;
   RSExprEvalCtx ctx;
+  RSValue val;
 } ProjectorCtx;
 
 static ProjectorCtx *NewProjectorCtx(const char *alias) {
@@ -36,12 +37,11 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 1);
   ProjectorCtx *pc = ctx->privdata;
   pc->ctx.r = res;
-  RSValue out = RSVALUE_STATIC;
   char *err;
-  int rc = RSExpr_Eval(&pc->ctx, pc->exp, &out, &err);
+  int rc = RSExpr_Eval(&pc->ctx, pc->exp, &pc->val, &err);
   if (rc == EXPR_EVAL_OK) {
     RSValue *a = RS_NewValue(RSValue_Null);
-    *a = out;
+    *a = pc->val;
     a->allocated = 1;
     a->refcount = 0;
 

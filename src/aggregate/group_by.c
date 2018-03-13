@@ -172,6 +172,8 @@ static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   for (size_t i = 0; i < g->numReducers; i++) {
     g->reducers[i]->Add(GROUP_CTX(group, i), res);
   }
+  res->indexResult = NULL;
+  SearchResult_FreeInternal(res);
 
   return RS_RESULT_QUEUED;
 }

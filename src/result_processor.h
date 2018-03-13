@@ -205,7 +205,7 @@ void ResultProcessor_GenericFree(ResultProcessor *rp);
 SearchResult *NewSearchResult();
 
 void SearchResult_Free(void *p);
-
+void SearchResult_FreeInternal(SearchResult *r);
 struct QueryPlan;
 
 ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
