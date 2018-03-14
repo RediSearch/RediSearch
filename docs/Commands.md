@@ -360,28 +360,26 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 ---
 
-FT.AGGREGATE
-  {index_name:string}
-  {query_string:string}
-  [LOAD {nargs:integer} {property:string} ...]
-  [GROUPBY
-    {nargs:integer} {property:string} ...
-    REDUCE
-      {FUNC:string}
-      {nargs:integer} {arg:string} ...
-      [AS {name:string}]
+## FT.AGGREGATE 
+
+### Format 
+
+```
+FT.AGGREGATE  {index_name}
+  {query_string}
+  [LOAD {nargs} {property} ...]
+  [GROUPBY {nargs} {property} ...
+    REDUCE {func} {nargs} {arg} ... [AS {name:string}]
     ...
   ] ...
-  [SORTBY
-    {nargs:integer} {string} ...
-    [MAX {num:integer}] ...
-  ] ...
-  [APPLY
-    {EXPR:string}
-    AS {name:string}
-  ] ...
-  [LIMIT {offset:integer} {num:integer} ] ...
+  [SORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
+  [APPLY {expr} AS {alias}] ...
+  [LIMIT {offset} {num}] ...
 ```
+
+# Description
+
+Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc form them. See [the full documentation on aggregations](/Aggregations/) for further details.
 
 #### Parameters In Detail
 
@@ -393,8 +391,8 @@ FT.AGGREGATE
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them, or performing multiple aggregate operations (see below).
   * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
-
-    The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
+  
+  The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
 
 * **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
 
@@ -406,7 +404,63 @@ FT.AGGREGATE
 
   However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
+### Complexity
 
+Non Deterministic. Depends on the query and aggregations performed, but usually it is linear to the number of results returned. 
+
+### Returns
+
+Array Response. Each row is an array, and represents a single aggregate result.
+
+### Example Output
+
+Here we are counting github events by user (actor), to produce the most active users:
+
+```
+127.0.0.1:6379> FT.AGGREGATE gh "*" GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
+ 1) (integer) 284784
+ 2) 1) "actor"
+    2) "lombiqbot"
+    3) "num"
+    4) "22197"
+ 3) 1) "actor"
+    2) "codepipeline-test"
+    3) "num"
+    4) "17746"
+ 4) 1) "actor"
+    2) "direwolf-github"
+    3) "num"
+    4) "10683"
+ 5) 1) "actor"
+    2) "ogate"
+    3) "num"
+    4) "6449"
+ 6) 1) "actor"
+    2) "openlocalizationtest"
+    3) "num"
+    4) "4759"
+ 7) 1) "actor"
+    2) "digimatic"
+    3) "num"
+    4) "3809"
+ 8) 1) "actor"
+    2) "gugod"
+    3) "num"
+    4) "3512"
+ 9) 1) "actor"
+    2) "xdzou"
+    3) "num"
+    4) "3216"
+10) 1) "actor"
+    2) "opstest"
+    3) "num"
+    4) "2863"
+11) 1) "actor"
+    2) "jikker"
+    3) "num"
+    4) "2794"
+(0.59s)
+```
 ---
 
 ## FT.EXPLAIN
