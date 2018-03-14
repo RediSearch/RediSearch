@@ -244,8 +244,8 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                        'APPLY', '(@price % 10)', 'AS', 'price',
                        'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                        )
-        self.assertListEqual([292L, ['brand', 'kinesis', 'price', '0'], ['brand', 'cables to go', 'price', '0'], ['brand', 'unknown', 'price', '2'], ['brand', 'teamscorpion', 'price', '2'], ['brand', 'bbqbuy', 'price', '2'], [
-                             'brand', 'slickblue', 'price', '3'], ['brand', 'teknmotion', 'price', '4'], ['brand', 'memory upgrades', 'price', '4'], ['brand', 'kontrolfreek', 'price', '4'], ['brand', 'gen', 'price', '4']], res)
+        self.assertListEqual([292L, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
+                             'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
     def _testExpressions(self):
         pass

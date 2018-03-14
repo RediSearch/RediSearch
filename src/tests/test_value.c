@@ -27,10 +27,7 @@ int testField() {
   RSField f = RS_NewField(k, RS_NumVal(3));
 
   ASSERT_STRING_EQ(f.key, k);
-  ASSERT_EQUAL(RSValue_Reference, f.val.t);
-
-  ASSERT_EQUAL(3, f.val.ref->numval);
-  ASSERT_EQUAL(RSValue_Number, f.val.ref->t);
+  ASSERT_EQUAL(RSValue_Number, f.val->t);
 
   RETURN_TEST_SUCCESS;
 }
@@ -69,15 +66,15 @@ int testArray() {
 
 int testFieldMap() {
 
-  RSFieldMap *m = RS_NewFieldMap(1);
+  RSFieldMap *m = RS_NewFieldMap(8);
   ASSERT_EQUAL(0, m->len);
-  ASSERT_EQUAL(1, m->cap);
+  ASSERT_EQUAL(8, m->cap);
 
   RSFieldMap_Add(&m, "foo", RS_NumVal(1));
   RSFieldMap_Add(&m, "bar", RS_NumVal(2));
   RSFieldMap_Add(&m, "baz", RS_NumVal(3));
   ASSERT_EQUAL(3, m->len);
-  ASSERT_EQUAL(4, m->cap);
+  ASSERT_EQUAL(8, m->cap);
 
   RSValue *v = RSFieldMap_Item(m, 0);
   ASSERT_EQUAL(v->t, RSValue_Number);
