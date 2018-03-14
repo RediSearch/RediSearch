@@ -132,6 +132,9 @@ noret:
 // EOF - no results from this processor
 #define RS_RESULT_EOF 2
 
+// STOP - Abort processing immediately!
+#define RS_RESULT_STOP -1
+
 /* Context for a single result processor, including global shared state, upstream processor and
  * private data */
 typedef struct {
