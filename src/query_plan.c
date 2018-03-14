@@ -36,10 +36,33 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithSortKeys) {
     ++count;
-    RSValue *sortkey = RSSortingVector_Get(r->sv, qex->opts.sortBy);
+    const RSValue *sortkey = RSSortingVector_Get(r->sv, qex->opts.sortBy);
     if (sortkey) {
-      RSValue_SendReply(ctx, sortkey);
-    } else {
+      switch (sortkey->t) {
+        case RSValue_Number:
+          /* Serialize double - by prepending "%" to the number, so the coordinator/client can tell
+           * it's a double and not just a numeric string value */
+          RedisModule_ReplyWithString(
+              ctx, RedisModule_CreateStringPrintf(ctx, "#%.17g", sortkey->numval));
+          break;
+        case RSValue_String:
+          /* Serialize string - by prepending "$" to it */
+
+          RedisModule_ReplyWithString(ctx,
+                                      RedisModule_CreateStringPrintf(ctx, "$%s", sortkey->strval));
+          break;
+        case RSValue_RedisString:
+          RedisModule_ReplyWithString(
+              ctx, RedisModule_CreateStringPrintf(
+                       ctx, "$%s", RedisModule_StringPtrLen(sortkey->rstrval, NULL)));
+          break;
+        default:
+          // NIL, or any other type:
+          RedisModule_ReplyWithNull(ctx);
+      }
+    }
+
+    else {
       RedisModule_ReplyWithNull(ctx);
     }
   }
@@ -88,7 +111,8 @@ int Query_SerializeResults(QueryPlan *qex) {
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is
- * reopened. We protect against the case that the spec has been deleted during query execution */
+ * reopened. We protect against the case that the spec has been deleted during query execution
+ */
 void Query_OnReopen(RedisModuleKey *k, void *privdata) {
 
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);

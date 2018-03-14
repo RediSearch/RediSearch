@@ -7,6 +7,9 @@
  * A sortable field means that its data will get copied into an inline table inside the index. right
  * now we copy strings in full so you should be careful about string length of sortable fields*/
 
+// Maximum number of sortables
+#define RS_SORTABLES_MAX 255
+
 #pragma pack(1)
 
 #define RS_SORTABLE_NUM 1

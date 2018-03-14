@@ -310,7 +310,7 @@ int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int
     Query_Free(q);
     CmdArg_Free(cmd);
 
-    RedisModule_ReplyWithError(ctx, err ? err : "Unkonown Error");
+    RedisModule_ReplyWithError(ctx, err ? err : "Unknown Error");
     return REDISMODULE_ERR;
   }
   Query_Expand(q, opts.expander);

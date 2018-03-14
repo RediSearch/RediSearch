@@ -139,7 +139,13 @@ main := |*
       fbreak;
     }
   };
-
+ star => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, STAR, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
   lsqb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -157,6 +163,7 @@ main := |*
   space;
   punct;
   cntrl;
+  
   term => {
     tok.len = te-ts;
     tok.s = ts;
@@ -171,7 +178,7 @@ main := |*
       fbreak;
     }
   };
-  prefix => {
+    prefix => {
     tok.len = te-ts - 1;
     tok.s = ts;
     tok.numval = 0;
