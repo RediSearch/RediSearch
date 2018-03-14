@@ -531,9 +531,6 @@ end:
 int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // at least one field, and number of field/text args must be even
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
@@ -546,7 +543,11 @@ int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (RSGlobalConfig.concurrentMode) {
+
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (CheckConcurrentSupport(ctx)) {
     return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _AggregateCommand, ctx, argv,
                                                argc);
   } else {  // "safe" mode - process the request in the main thread
@@ -865,9 +866,6 @@ then pairs of
 */
 int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
@@ -925,6 +923,9 @@ end:
 }
 
 int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
   // in concurrent mode - process the request in the thread pool
   if (CheckConcurrentSupport(ctx)) {
     return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _SearchCommand, ctx, argv,
