@@ -3,6 +3,12 @@
 
 #include "redismodule.h"
 
+typedef enum {
+  TimeoutPolicy_Default = 0,  // Defer to global config
+  TimeoutPolicy_Return,       // Return what we have on timeout
+  TimeoutPolicy_Fail          // Just fail without returning anything
+} RSTimeoutPolicy;
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file, and
  * is initialized with user config options during module statrtup */
 typedef struct {
@@ -24,6 +30,8 @@ typedef struct {
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
+
+  RSTimeoutPolicy timeoutPolicy;
 } RSConfig;
 
 // global config extern reference
@@ -34,10 +42,10 @@ extern RSConfig RSGlobalConfig;
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
 // default configuration
-#define RS_DEFAULT_CONFIG                                                    \
-  (RSConfig) {                                                               \
-    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2, \
-    .maxPrefixExpansions = 200, .queryTimeoutMS = 500,                       \
+#define RS_DEFAULT_CONFIG                                                                    \
+  (RSConfig) {                                                                               \
+    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                 \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return \
   }
 ;
 
