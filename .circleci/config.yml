@@ -133,4 +133,4 @@ workflows:
       - deploy_docs:
           filters:
             branches:
-              only: master
+              only: __master__
