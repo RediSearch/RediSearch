@@ -1,4 +1,6 @@
 #include "result_processor.h"
+#include "search_request.h"
+#include "highlight.h"
 #include "fragmenter.h"
 #include "value.h"
 #include "util/minmax.h"
@@ -160,7 +162,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
-    RSFieldMap_Set(&r->fields, fieldName, RS_CStringVal(hlDoc));
+    RSFieldMap_Set(&r->fields, fieldName, RS_StringValC(hlDoc));
     FragmentList_Free(&frags);
     return;
   }
@@ -299,8 +301,8 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
   hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
-  hlpCtx->fields = &req->fields;
-  if (req->language && strcasecmp(req->language, "chinese") == 0) {
+  hlpCtx->fields = &req->opts.fields;
+  if (req->opts.language && strcasecmp(req->opts.language, "chinese") == 0) {
     hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
   ResultProcessor *rp = NewResultProcessor(parent, hlpCtx);

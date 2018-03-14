@@ -17,7 +17,7 @@ void *RSQuery_ParseAlloc(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
 
-#line 188 "lexer.rl"
+#line 195 "lexer.rl"
 
 
 
@@ -29,38 +29,39 @@ static const char _query_actions[] = {
 	17, 1, 18, 1, 19, 1, 20, 1, 
 	21, 1, 22, 1, 23, 1, 24, 1, 
 	25, 1, 26, 1, 27, 1, 28, 1, 
-	29, 2, 2, 3, 2, 2, 4, 2, 
-	2, 5, 2, 2, 6, 2, 2, 7, 
-	2, 2, 8
+	29, 1, 30, 2, 2, 3, 2, 2, 
+	4, 2, 2, 5, 2, 2, 6, 2, 
+	2, 7, 2, 2, 8
 };
 
 static const char _query_key_offsets[] = {
-	0, 10, 11, 12, 14, 24, 57, 68, 
-	69, 72, 75, 77, 91, 101, 111, 123
+	0, 10, 11, 12, 14, 24, 58, 69, 
+	70, 73, 76, 78, 92, 102, 112, 124
 };
 
 static const char _query_trans_keys[] = {
 	9, 13, 32, 47, 58, 64, 91, 96, 
 	123, 126, 110, 102, 48, 57, 9, 13, 
 	32, 47, 58, 64, 91, 96, 123, 126, 
-	32, 34, 39, 40, 41, 43, 45, 58, 
-	64, 91, 92, 93, 95, 105, 123, 124, 
-	125, 126, 127, 0, 8, 9, 13, 14, 
-	31, 33, 47, 48, 57, 59, 63, 94, 
-	96, 42, 92, 96, 0, 47, 58, 64, 
-	91, 94, 123, 127, 105, 105, 48, 57, 
-	46, 48, 57, 48, 57, 42, 46, 92, 
-	96, 0, 47, 48, 57, 58, 64, 91, 
-	94, 123, 127, 92, 96, 0, 47, 58, 
-	64, 91, 94, 123, 127, 9, 13, 32, 
-	47, 58, 64, 91, 96, 123, 126, 42, 
-	92, 96, 110, 0, 47, 58, 64, 91, 
-	94, 123, 127, 42, 92, 96, 102, 0, 
-	47, 58, 64, 91, 94, 123, 127, 0
+	32, 34, 39, 40, 41, 42, 43, 45, 
+	58, 64, 91, 92, 93, 95, 105, 123, 
+	124, 125, 126, 127, 0, 8, 9, 13, 
+	14, 31, 33, 47, 48, 57, 59, 63, 
+	94, 96, 42, 92, 96, 0, 47, 58, 
+	64, 91, 94, 123, 127, 105, 105, 48, 
+	57, 46, 48, 57, 48, 57, 42, 46, 
+	92, 96, 0, 47, 48, 57, 58, 64, 
+	91, 94, 123, 127, 92, 96, 0, 47, 
+	58, 64, 91, 94, 123, 127, 9, 13, 
+	32, 47, 58, 64, 91, 96, 123, 126, 
+	42, 92, 96, 110, 0, 47, 58, 64, 
+	91, 94, 123, 127, 42, 92, 96, 102, 
+	0, 47, 58, 64, 91, 94, 123, 127, 
+	0
 };
 
 static const char _query_single_lengths[] = {
-	0, 1, 1, 0, 0, 19, 3, 1, 
+	0, 1, 1, 0, 0, 20, 3, 1, 
 	1, 1, 0, 4, 2, 0, 4, 4
 };
 
@@ -70,41 +71,41 @@ static const char _query_range_lengths[] = {
 };
 
 static const char _query_index_offsets[] = {
-	0, 6, 8, 10, 12, 18, 45, 53, 
-	55, 58, 61, 63, 73, 80, 86, 95
+	0, 6, 8, 10, 12, 18, 46, 54, 
+	56, 59, 62, 64, 74, 81, 87, 96
 };
 
 static const char _query_indicies[] = {
 	1, 1, 1, 1, 1, 0, 2, 0, 
 	3, 0, 5, 4, 6, 6, 6, 6, 
-	6, 0, 8, 10, 11, 12, 13, 11, 
-	14, 16, 17, 18, 19, 20, 21, 22, 
-	23, 24, 25, 26, 7, 7, 8, 7, 
-	9, 15, 9, 9, 1, 27, 28, 0, 
-	0, 0, 0, 0, 1, 30, 29, 30, 
-	32, 31, 34, 32, 33, 5, 33, 27, 
-	34, 28, 33, 33, 15, 33, 33, 33, 
-	1, 35, 0, 0, 0, 0, 0, 6, 
-	1, 1, 1, 1, 1, 29, 27, 28, 
-	36, 37, 36, 36, 36, 36, 1, 27, 
-	28, 36, 38, 36, 36, 36, 36, 1, 
-	0
+	6, 0, 8, 10, 11, 12, 13, 14, 
+	11, 15, 17, 18, 19, 20, 21, 22, 
+	23, 24, 25, 26, 27, 7, 7, 8, 
+	7, 9, 16, 9, 9, 1, 28, 29, 
+	0, 0, 0, 0, 0, 1, 31, 30, 
+	31, 33, 32, 35, 33, 34, 5, 34, 
+	28, 35, 29, 34, 34, 16, 34, 34, 
+	34, 1, 36, 0, 0, 0, 0, 0, 
+	6, 1, 1, 1, 1, 1, 30, 28, 
+	29, 37, 38, 37, 37, 37, 37, 1, 
+	28, 29, 37, 39, 37, 37, 37, 37, 
+	1, 0
 };
 
 static const char _query_trans_targs[] = {
 	5, 6, 2, 5, 5, 10, 12, 5, 
-	5, 5, 5, 7, 5, 5, 8, 11, 
-	5, 12, 5, 13, 5, 6, 14, 5, 
-	5, 5, 5, 5, 0, 5, 1, 5, 
-	9, 5, 3, 4, 5, 15, 6
+	5, 5, 5, 7, 5, 5, 5, 8, 
+	11, 5, 12, 5, 13, 5, 6, 14, 
+	5, 5, 5, 5, 5, 0, 5, 1, 
+	5, 9, 5, 3, 4, 5, 15, 6
 };
 
 static const char _query_trans_actions[] = {
-	47, 64, 0, 7, 45, 0, 52, 33, 
-	29, 31, 9, 61, 13, 15, 58, 49, 
-	21, 61, 25, 0, 27, 61, 64, 17, 
-	11, 19, 23, 35, 0, 41, 0, 39, 
-	5, 37, 0, 0, 43, 64, 55
+	49, 66, 0, 7, 47, 0, 54, 35, 
+	31, 33, 9, 63, 13, 15, 25, 60, 
+	51, 21, 63, 27, 0, 29, 63, 66, 
+	17, 11, 19, 23, 37, 0, 43, 0, 
+	41, 5, 39, 0, 0, 45, 66, 57
 };
 
 static const char _query_to_state_actions[] = {
@@ -118,8 +119,8 @@ static const char _query_from_state_actions[] = {
 };
 
 static const char _query_eof_trans[] = {
-	1, 1, 1, 5, 1, 0, 1, 30, 
-	32, 34, 34, 34, 1, 30, 37, 37
+	1, 1, 1, 5, 1, 0, 1, 31, 
+	33, 35, 35, 35, 1, 31, 38, 38
 };
 
 static const int query_start = 5;
@@ -129,7 +130,7 @@ static const int query_error = -1;
 static const int query_en_main = 5;
 
 
-#line 191 "lexer.rl"
+#line 198 "lexer.rl"
 
 
 
@@ -141,7 +142,7 @@ QueryNode *Query_Parse(QueryParseCtx *q, char **err) {
   const char* ts = q->raw;
   const char* te = q->raw + q->len;
   
-#line 145 "lexer.c"
+#line 146 "lexer.c"
 	{
 	cs = query_start;
 	ts = 0;
@@ -149,7 +150,7 @@ QueryNode *Query_Parse(QueryParseCtx *q, char **err) {
 	act = 0;
 	}
 
-#line 202 "lexer.rl"
+#line 209 "lexer.rl"
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -158,7 +159,7 @@ QueryNode *Query_Parse(QueryParseCtx *q, char **err) {
   const char* eof = pe;
   
   
-#line 162 "lexer.c"
+#line 163 "lexer.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -177,7 +178,7 @@ _resume:
 #line 1 "NONE"
 	{ts = p;}
 	break;
-#line 181 "lexer.c"
+#line 182 "lexer.c"
 		}
 	}
 
@@ -264,12 +265,12 @@ _eof_trans:
 	{act = 11;}
 	break;
 	case 7:
-#line 158 "lexer.rl"
-	{act = 16;}
+#line 164 "lexer.rl"
+	{act = 17;}
 	break;
 	case 8:
-#line 160 "lexer.rl"
-	{act = 18;}
+#line 167 "lexer.rl"
+	{act = 19;}
 	break;
 	case 9:
 #line 65 "lexer.rl"
@@ -366,7 +367,17 @@ _eof_trans:
   }}
 	break;
 	case 18:
-#line 143 "lexer.rl"
+#line 142 "lexer.rl"
+	{te = p+1;{
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, STAR, tok, q);
+    if (!q->ok) {
+      {p++; goto _out; }
+    }
+  }}
+	break;
+	case 19:
+#line 149 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -375,8 +386,8 @@ _eof_trans:
     }  
   }}
 	break;
-	case 19:
-#line 150 "lexer.rl"
+	case 20:
+#line 156 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RSQB, tok, q);   
@@ -385,20 +396,20 @@ _eof_trans:
     } 
   }}
 	break;
-	case 20:
-#line 157 "lexer.rl"
-	{te = p+1;}
-	break;
 	case 21:
-#line 158 "lexer.rl"
+#line 163 "lexer.rl"
 	{te = p+1;}
 	break;
 	case 22:
-#line 159 "lexer.rl"
+#line 164 "lexer.rl"
 	{te = p+1;}
 	break;
 	case 23:
-#line 174 "lexer.rl"
+#line 165 "lexer.rl"
+	{te = p+1;}
+	break;
+	case 24:
+#line 181 "lexer.rl"
 	{te = p+1;{
     tok.len = te-ts - 1;
     tok.s = ts;
@@ -412,7 +423,7 @@ _eof_trans:
     }
   }}
 	break;
-	case 24:
+	case 25:
 #line 44 "lexer.rl"
 	{te = p;p--;{ 
     tok.s = ts;
@@ -427,7 +438,7 @@ _eof_trans:
     
   }}
 	break;
-	case 25:
+	case 26:
 #line 128 "lexer.rl"
 	{te = p;p--;{ 
     tok.pos = ts-q->raw;
@@ -437,18 +448,18 @@ _eof_trans:
     }
   }}
 	break;
-	case 26:
-#line 158 "lexer.rl"
+	case 27:
+#line 164 "lexer.rl"
 	{te = p;p--;}
 	break;
-	case 27:
-#line 160 "lexer.rl"
+	case 28:
+#line 167 "lexer.rl"
 	{te = p;p--;{
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
+    if (!StopWordList_Contains(q->opts.stopwords, tok.s, tok.len)) {
       RSQuery_Parse(pParser, TERM, tok, q);
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
@@ -458,7 +469,7 @@ _eof_trans:
     }
   }}
 	break;
-	case 28:
+	case 29:
 #line 44 "lexer.rl"
 	{{p = ((te))-1;}{ 
     tok.s = ts;
@@ -473,7 +484,7 @@ _eof_trans:
     
   }}
 	break;
-	case 29:
+	case 30:
 #line 1 "NONE"
 	{	switch( act ) {
 	case 1:
@@ -523,13 +534,13 @@ _eof_trans:
     }
   }
 	break;
-	case 18:
+	case 19:
 	{{p = ((te))-1;}
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
+    if (!StopWordList_Contains(q->opts.stopwords, tok.s, tok.len)) {
       RSQuery_Parse(pParser, TERM, tok, q);
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
@@ -545,7 +556,7 @@ _eof_trans:
 	}
 	}
 	break;
-#line 549 "lexer.c"
+#line 560 "lexer.c"
 		}
 	}
 
@@ -558,7 +569,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 562 "lexer.c"
+#line 573 "lexer.c"
 		}
 	}
 
@@ -576,7 +587,7 @@ _again:
 	_out: {}
 	}
 
-#line 210 "lexer.rl"
+#line 217 "lexer.rl"
   
 
   if (q->ok) {

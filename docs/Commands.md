@@ -360,6 +360,109 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 ---
 
+## FT.AGGREGATE 
+
+### Format 
+
+```
+FT.AGGREGATE  {index_name}
+  {query_string}
+  [LOAD {nargs} {property} ...]
+  [GROUPBY {nargs} {property} ...
+    REDUCE {func} {nargs} {arg} ... [AS {name:string}]
+    ...
+  ] ...
+  [SORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
+  [APPLY {expr} AS {alias}] ...
+  [LIMIT {offset} {num}] ...
+```
+
+### Description
+
+Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc form them. See [the full documentation on aggregations](/Aggregations/) for further details.
+
+### Parameters
+
+* **index_name**: The index the query is executed again.
+
+* **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
+
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably, since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+
+* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them, or performing multiple aggregate operations (see below).
+    * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
+    
+          The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
+
+* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
+
+    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
+
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
+
+* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
+
+    However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+
+### Complexity
+
+Non Deterministic. Depends on the query and aggregations performed, but usually it is linear to the number of results returned. 
+
+### Returns
+
+Array Response. Each row is an array, and represents a single aggregate result.
+
+### Example Output
+
+Here we are counting github events by user (actor), to produce the most active users:
+
+```
+127.0.0.1:6379> FT.AGGREGATE gh "*" GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
+ 1) (integer) 284784
+ 2) 1) "actor"
+    2) "lombiqbot"
+    3) "num"
+    4) "22197"
+ 3) 1) "actor"
+    2) "codepipeline-test"
+    3) "num"
+    4) "17746"
+ 4) 1) "actor"
+    2) "direwolf-github"
+    3) "num"
+    4) "10683"
+ 5) 1) "actor"
+    2) "ogate"
+    3) "num"
+    4) "6449"
+ 6) 1) "actor"
+    2) "openlocalizationtest"
+    3) "num"
+    4) "4759"
+ 7) 1) "actor"
+    2) "digimatic"
+    3) "num"
+    4) "3809"
+ 8) 1) "actor"
+    2) "gugod"
+    3) "num"
+    4) "3512"
+ 9) 1) "actor"
+    2) "xdzou"
+    3) "num"
+    4) "3216"
+10) 1) "actor"
+    2) "opstest"
+    3) "num"
+    4) "2863"
+11) 1) "actor"
+    2) "jikker"
+    3) "num"
+    4) "2794"
+(0.59s)
+```
+---
+
 ## FT.EXPLAIN
 
 ### Format

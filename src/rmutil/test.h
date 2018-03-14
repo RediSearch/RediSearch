@@ -33,7 +33,12 @@ static int numAsserts = 0;
   }                                                                                       \
   numAsserts++;
 
-#define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
+#define ASSERT_STRING_EQ(s1, s2)                    \
+  if (strcmp(s1, s2)) {                             \
+    fprintf(stderr, "%s:%d: ", __FILE__, __LINE__); \
+    fprintf(stderr, "'%s' != '%s'\n", s1, s2);      \
+    return -1;                                      \
+  }
 
 #define ASSERT_EQUAL(x, y, ...)                                           \
   if (x != y) {                                                           \

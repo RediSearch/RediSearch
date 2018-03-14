@@ -58,7 +58,7 @@ int testTokenize() {
     ASSERT(t.pos > 0);
 
     if (t.stem) {
-      printf("Stem: %.*s, num=%lu, orig=%.*s\n", (int)t.stemLen, t.stem, tx->num, (int)t.tokLen,
+      printf("Stem: %.*s, num=%d, orig=%.*s\n", (int)t.stemLen, t.stem, tx->num, (int)t.tokLen,
              t.tok);
       ASSERT(tx->expectedStems[tx->num]);
       ASSERT(strlen(tx->expectedStems[tx->num]) == t.stemLen);

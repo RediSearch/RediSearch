@@ -30,6 +30,7 @@
 #include "search_request.h"
 #include "config.h"
 #include "gc.h"
+#include "aggregate/aggregate.h"
 #include "rmalloc.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
@@ -343,6 +344,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   //  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+  REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
+
   REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   REPLY_KVNUM(n, "records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
@@ -449,9 +452,8 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, err);
   }
-  req->sctx = sctx;
 
-  QueryParseCtx *q = NewQueryParseCtx(req);
+  QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
   if (!q) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
@@ -471,8 +473,8 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
     goto end;
   }
-  if (!(req->flags & Search_Verbatim)) {
-    Query_Expand(q, req->expander);
+  if (!(req->opts.flags & Search_Verbatim)) {
+    Query_Expand(q, req->opts.expander);
   }
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
@@ -504,6 +506,53 @@ end:
   Query_Free(q);
   RSSearchRequest_Free(req);
   return REDISMODULE_OK;
+}
+
+/*
+  FT.AGGREGATE
+  {idx:string}
+  {FILTER:string}
+  SELECT {nargs:integer} {string} ...
+  GROUPBY
+    {nargs:integer} {string} ...
+    [AS {AS:string}]
+    REDUCE
+      {FUNC:string}
+      {nargs:integer} {string} ...
+      [AS {AS:string}]
+
+
+  [SORTBY {nargs:integer} {string} ...]
+  [PROJECT
+    {FUNC:string}
+    {nargs:integer} {string} ...
+    [AS {AS:string}]
+  ] */
+int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  // at least one field, and number of field/text args must be even
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  char *err;
+  return Aggregate_ProcessRequest(sctx, argv, argc);
+}
+
+int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (CheckConcurrentSupport(ctx)) {
+    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _AggregateCommand, ctx, argv,
+                                               argc);
+  } else {  // "safe" mode - process the request in the main thread
+    return _AggregateCommand(ctx, argv, argc);
+  }
 }
 
 /* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
@@ -815,11 +864,8 @@ and
 then pairs of
     document id, and a nested array of field/value, unless NOCONTENT was given
 */
-int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
@@ -827,22 +873,65 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  char *err;
+  char *err = NULL;
+  RSSearchRequest *req = NULL;
+  QueryParseCtx *q = NULL;
+  QueryPlan *plan = NULL;
 
-  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, err);
+    RedisModule_ReplyWithError(ctx, err ? err : "Error parsing request");
+    goto end;
   }
 
+  q = SearchRequest_ParseQuery(sctx, req, &err);
+  if (!q && err) {
+    RedisModule_Log(ctx, "warning", "Error parsing query: %s", err);
+    RedisModule_ReplyWithError(ctx, err);
+    goto end;
+  }
+
+  plan = SearchRequest_BuildPlan(sctx, req, q, &err);
+  if (!plan) {
+    if (err) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+      RedisModule_ReplyWithError(ctx, err);
+      free(err);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    goto end;
+    return REDISMODULE_ERR;
+  }
+
+  int rc = QueryPlan_Run(plan, &err);
+  if (err) {
+    RedisModule_ReplyWithError(ctx, err);
+    free(err);
+  }
+
+end:
+
+  if (plan) QueryPlan_Free(plan);
+  if (sctx) SearchCtx_Free(sctx);
+  if (req) RSSearchRequest_Free(req);
+  if (q) Query_Free(q);
+  return REDISMODULE_OK;
+}
+
+int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
   // in concurrent mode - process the request in the thread pool
   if (CheckConcurrentSupport(ctx)) {
-    int rc = RSSearchRequest_ProcessInThreadpool(ctx, req);
-    SearchCtx_Free(sctx);
-    return rc;
+    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _SearchCommand, ctx, argv,
+                                               argc);
   } else {  // "safe" mode - process the request in the main thread
-    return RSSearchRequest_ProcessMainThread(sctx, req);
+    return _SearchCommand(ctx, argv, argc);
   }
 }
 
@@ -1258,6 +1347,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
+
   RedisModule_Log(ctx, "verbose", "Loading RediSearch module!");
 
   const char *err;
@@ -1283,6 +1373,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   Extensions_Init();
 
   ConcurrentSearch_ThreadPoolStart();
+
+  // Init Schemata
+  Aggregate_BuildSchema();
+
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
   /* Load extensions if needed */
@@ -1336,6 +1430,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, AggregateCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
 

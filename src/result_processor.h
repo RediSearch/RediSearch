@@ -5,8 +5,9 @@
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
-#include "search_request.h"
-
+#include "search_ctx.h"
+#include "index_iterator.h"
+#include "search_options.h"
 /********************************************************************************
  * Result Processor Chain
  *
@@ -58,6 +59,11 @@ typedef struct {
 
 } QueryProcessingCtx;
 
+static inline RSSortingTable *QueryProcessingCtx_GetSortingTable(QueryProcessingCtx *c) {
+  if (c->sctx && c->sctx->spec) return c->sctx->spec->sortables;
+  return NULL;
+}
+
 /*
  * SearchResult - the object all the processing chain is working on.
  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
@@ -86,6 +92,36 @@ typedef struct {
   // dynamic fields
   RSFieldMap *fields;
 } SearchResult;
+
+#define SEARCH_RESULT_INIT \
+  ((SearchResult){         \
+      .docId = 0, .score = 0, .sv = NULL, .md = NULL, .indexResult = NULL, .fields = NULL})
+/* Get a value by name from the result, either from its sorting table or from its loaded values */
+static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl, RSKey *k) {
+  if (!k->key) goto noret;
+
+  if (res->fields) {
+    RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
+    if (!RSValue_IsNull(ret)) {
+      return ret;
+    }
+  }
+  // First try to get the group value by sortables
+  if (tbl && res->md && res->md->sortVector) {
+    int idx = k->sortableIdx;
+    if (idx <= 0) {
+      idx = RSSortingTable_GetFieldIdx(tbl, RSKEY(k->key));
+      if (k->sortableIdx != RSKEY_NOCACHE) {
+        k->sortableIdx = idx;
+      }
+    }
+    if (RSKEY_ISVALIDIDX(idx)) {
+      return (res->md->sortVector->values[idx]);
+    }
+  }
+noret:
+  return RS_NullVal();
+}
 
 /* Result processor return codes */
 
@@ -138,6 +174,15 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
  * */
 int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
 
+/* Shortcut macro - call ResultProcessor_Next and return EOF if it returned EOF - otherwise it has
+ * to return OK */
+#define RESULTPROCESSOR_MAYBE_RET_EOF(proc, res, allowSwitch)                     \
+  {                                                                               \
+    if (RS_RESULT_EOF == ResultProcessor_Next(ctx->upstream, res, allowSwitch)) { \
+      return RS_RESULT_EOF;                                                       \
+    }                                                                             \
+  }
+
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
  * chain until we find a processor with a Total callback. This allows processors to avoid
@@ -159,8 +204,16 @@ void ResultProcessor_GenericFree(ResultProcessor *rp);
 
 SearchResult *NewSearchResult();
 
-void SearchResult_FreeInternal(SearchResult *r);
 void SearchResult_Free(void *p);
+void SearchResult_FreeInternal(SearchResult *r);
+struct QueryPlan;
 
-ResultProcessor *NewHighlightProcessor(ResultProcessor *upstream, RSSearchRequest *req);
+ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
+                                   ResultProcessor *upstream);
+
+ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);
+
+ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
+ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit);
+
 #endif  // !RS_RESULT_PROCESSOR_H_

@@ -1,4 +1,5 @@
 #include "search_request.h"
+#include "aggregate/aggregate.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "stemmer.h"
@@ -9,50 +10,47 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "summarize_spec.h"
+#include "query_plan.h"
 #include <sys/param.h>
+#include <rmutil/cmdparse.h>
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
 
   RSSearchRequest *req = calloc(1, sizeof(*req));
-  *req = (RSSearchRequest){.sctx = NULL,
-                           .indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL)),
-                           .bc = NULL,
-                           .offset = 0,
-                           .num = 10,
-                           .flags = RS_DEFAULT_QUERY_FLAGS,
-                           .slop = -1,
-                           .fieldMask = RS_FIELDMASK_ALL,
-                           .sortBy = NULL};
+  *req = (RSSearchRequest){
+      .opts = RS_DEFAULT_SEARCHOPTS,
+  };
+  req->opts.indexName = strdup(RedisModule_StringPtrLen(argv[1], NULL));
 
   // Detect "NOCONTENT"
-  if (RMUtil_ArgExists("NOCONTENT", argv, argc, 3)) req->flags |= Search_NoContent;
+  if (RMUtil_ArgExists("NOCONTENT", argv, argc, 3)) req->opts.flags |= Search_NoContent;
 
   // parse WISTHSCORES
-  if (RMUtil_ArgExists("WITHSCORES", argv, argc, 3)) req->flags |= Search_WithScores;
+  if (RMUtil_ArgExists("WITHSCORES", argv, argc, 3)) req->opts.flags |= Search_WithScores;
 
   // parse WITHPAYLOADS
-  if (RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3)) req->flags |= Search_WithPayloads;
+  if (RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3)) req->opts.flags |= Search_WithPayloads;
 
   // parse WITHSORTKEYS
-  if (RMUtil_ArgExists("WITHSORTKEYS", argv, argc, 3)) req->flags |= Search_WithSortKeys;
+  if (RMUtil_ArgExists("WITHSORTKEYS", argv, argc, 3)) req->opts.flags |= Search_WithSortKeys;
 
   // Parse VERBATIM and LANGUAGE arguments
-  if (RMUtil_ArgExists("VERBATIM", argv, argc, 3)) req->flags |= Search_Verbatim;
+  if (RMUtil_ArgExists("VERBATIM", argv, argc, 3)) req->opts.flags |= Search_Verbatim;
 
   // Parse NOSTOPWORDS argument
-  if (RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3)) req->flags |= Search_NoStopwords;
+  if (RMUtil_ArgExists("NOSTOPWORDS", argv, argc, 3)) req->opts.flags |= Search_NoStopwrods;
 
   if (RMUtil_ArgExists("INORDER", argv, argc, 3)) {
-    req->flags |= Search_InOrder;
+    req->opts.flags |= Search_InOrder;
     // the slop will be parsed later, this is just the default when INORDER and no SLOP
-    req->slop = __INT_MAX__;
+    req->opts.slop = __INT_MAX__;
   }
 
   int sumIdx;
   if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
     size_t tmpOffset = sumIdx;
-    if (ParseSummarize(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+    if (ParseSummarize(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
       *errStr = "Couldn't parse `SUMMARIZE`";
       goto err;
     }
@@ -61,7 +59,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if ((sumIdx = RMUtil_ArgExists("HIGHLIGHT", argv, argc, 3)) > 0) {
     // Parse the highlighter spec
     size_t tmpOffset = sumIdx;
-    if (ParseHighlight(argv, argc, &tmpOffset, &req->fields) != REDISMODULE_OK) {
+    if (ParseHighlight(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
       *errStr = "Couldn't parse `HIGHLIGHT`";
       goto err;
     }
@@ -75,21 +73,21 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
       goto err;
     }
   }
-  req->offset = offset;
-  req->num = limit;
+  req->opts.offset = offset;
+  req->opts.num = limit;
 
   RedisModuleString **vargs;
   size_t nargs;
 
   // if INFIELDS exists, parse the field mask
-  req->fieldMask = RS_FIELDMASK_ALL;
+  req->opts.fieldMask = RS_FIELDMASK_ALL;
   if ((vargs = RMUtil_ParseVarArgs(argv, argc, 3, "INFIELDS", &nargs))) {
     if (nargs == RMUTIL_VARARGS_BADARG) {
       *errStr = "Bad argument for `INFIELDS`";
       goto err;
     }
-    req->fieldMask = IndexSpec_ParseFieldMask(ctx->spec, vargs, nargs);
-    RedisModule_Log(ctx->redisCtx, "debug", "Parsed field mask: 0x%x", req->fieldMask);
+    req->opts.fieldMask = IndexSpec_ParseFieldMask(ctx->spec, vargs, nargs);
+    RedisModule_Log(ctx->redisCtx, "debug", "Parsed field mask: 0x%x", req->opts.fieldMask);
   }
 
   // Parse numeric filter. currently only one supported
@@ -112,27 +110,28 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     }
   }
 
-  RMUtil_ParseArgsAfter("SLOP", argv, argc, "l", &req->slop);
+  RMUtil_ParseArgsAfter("SLOP", argv, argc, "l", &req->opts.slop);
 
   // make sure we search for "language" only after the query
   if (argc > 3) {
-    RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &req->language);
-    if (req->language && !IsSupportedLanguage(req->language, strlen(req->language))) {
+    RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &req->opts.language);
+    if (req->opts.language &&
+        !IsSupportedLanguage(req->opts.language, strlen(req->opts.language))) {
       *errStr = "Unsupported Stemmer Language";
-      req->language = NULL;
+      req->opts.language = NULL;
       goto err;
     }
-    if (req->language) req->language = strdup(req->language);
+    if (req->opts.language) req->opts.language = strdup(req->opts.language);
   }
 
   // parse the optional expander argument
   if (argc > 3) {
-    RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &req->expander);
+    RMUtil_ParseArgsAfter("EXPANDER", &argv[2], argc - 2, "c", &req->opts.expander);
   }
-  if (!req->expander) {
-    req->expander = DEFAULT_EXPANDER_NAME;
+  if (!req->opts.expander) {
+    req->opts.expander = DEFAULT_EXPANDER_NAME;
   }
-  req->expander = strdup(req->expander);
+  req->opts.expander = strdup(req->opts.expander);
 
   // IF a payload exists, init it
   req->payload = (RSPayload){.data = NULL, .len = 0};
@@ -145,15 +144,16 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
       const char *data = RedisModule_StringPtrLen(ps, &req->payload.len);
       req->payload.data = malloc(req->payload.len);
       memcpy(req->payload.data, data, req->payload.len);
+      req->opts.payload = &req->payload;
     }
   }
 
   // parse SCORER argument
 
-  RMUtil_ParseArgsAfter("SCORER", &argv[3], argc - 3, "c", &req->scorer);
-  if (req->scorer) {
-    req->scorer = strdup(req->scorer);
-    if (Extensions_GetScoringFunction(NULL, req->scorer) == NULL) {
+  RMUtil_ParseArgsAfter("SCORER", &argv[3], argc - 3, "c", &req->opts.scorer);
+  if (req->opts.scorer) {
+    req->opts.scorer = strdup(req->opts.scorer);
+    if (Extensions_GetScoringFunction(NULL, req->opts.scorer) == NULL) {
       *errStr = "Invalid scorer name";
       goto err;
     }
@@ -163,8 +163,8 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   RSSortingKey sortKey;
   if (ctx->spec->sortables != NULL &&
       RSSortingTable_ParseKey(ctx->spec->sortables, &sortKey, &argv[3], argc - 3)) {
-    req->sortBy = malloc(sizeof(RSSortingKey));
-    *req->sortBy = sortKey;
+    req->opts.sortBy = malloc(sizeof(RSSortingKey));
+    *req->opts.sortBy = sortKey;
   }
 
   // parse the id filter arguments
@@ -183,22 +183,22 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
       goto err;
     }
     if (!nargs) {
-      req->flags |= Search_NoContent;
+      req->opts.flags |= Search_NoContent;
     } else {
-      req->fields.explicitReturn = 1;
+      req->opts.fields.explicitReturn = 1;
       for (size_t ii = 0; ii < nargs; ++ii) {
-        ReturnedField *rf = FieldList_GetCreateField(&req->fields, vargs[ii]);
+        ReturnedField *rf = FieldList_GetCreateField(&req->opts.fields, vargs[ii]);
         rf->explicitReturn = 1;
       }
     }
   }
 
-  if (req->fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
+  if (req->opts.fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
     *errStr = "HIGHLIGHT and SUMMARIZE not supported for this index";
     goto err;
   }
 
-  FieldList_RestrictReturn(&req->fields);
+  FieldList_RestrictReturn(&req->opts.fields);
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
   req->rawQuery = strndup(req->rawQuery, req->qlen);
   return req;
@@ -215,7 +215,7 @@ static void ReturnedField_Free(ReturnedField *field) {
   free(field->name);
 }
 
-static void FieldList_Free(FieldList *fields) {
+void FieldList_Free(FieldList *fields) {
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     ReturnedField_Free(fields->fields + ii);
   }
@@ -259,13 +259,13 @@ void FieldList_RestrictReturn(FieldList *fields) {
 
 void RSSearchRequest_Free(RSSearchRequest *req) {
 
-  if (req->indexName) free(req->indexName);
+  if (req->opts.indexName) free(req->opts.indexName);
 
-  if (req->expander) free(req->expander);
+  if (req->opts.expander) free(req->opts.expander);
 
-  if (req->scorer) free(req->scorer);
+  if (req->opts.scorer) free(req->opts.scorer);
 
-  if (req->language) free(req->language);
+  if (req->opts.language) free((char *)req->opts.language);
 
   if (req->rawQuery) free(req->rawQuery);
 
@@ -281,9 +281,9 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
     free(req->payload.data);
   }
 
-  if (req->sortBy) {
+  if (req->opts.sortBy) {
 
-    RSSortingKey_Free(req->sortBy);
+    RSSortingKey_Free(req->opts.sortBy);
   }
 
   if (req->numericFilters) {
@@ -298,37 +298,22 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
     Vector_Free(req->numericFilters);
   }
 
-  FieldList_Free(&req->fields);
-
-  if (req->sctx) {
-    SearchCtx_Free(req->sctx);
-  }
+  FieldList_Free(&req->opts.fields);
 
   free(req);
 }
 
-int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
+QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
 
-  QueryParseCtx *q = NewQueryParseCtx(req);
-  RedisModuleCtx *ctx = req->sctx->redisCtx;
+  QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
+  RedisModuleCtx *ctx = sctx->redisCtx;
 
-  char *err;
-  if (!Query_Parse(q, &err)) {
-
-    if (err) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
-      RedisModule_ReplyWithError(ctx, err);
-      free(err);
-    } else {
-      /* Simulate an empty response - this means an empty query */
-      RedisModule_ReplyWithArray(ctx, 1);
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
+  if (!Query_Parse(q, err)) {
     Query_Free(q);
-    return REDISMODULE_ERR;
+    return NULL;
   }
-  if (!(req->flags & Search_Verbatim)) {
-    Query_Expand(q, req->expander);
+  if (!(req->opts.flags & Search_Verbatim)) {
+    Query_Expand(q, req->opts.expander);
   }
 
   if (req->geoFilter) {
@@ -353,56 +338,11 @@ int runQueryGeneric(RSSearchRequest *req, int concurrentMode) {
     Vector_Free(req->numericFilters);
     req->numericFilters = NULL;
   }
-
-  QueryPlan *plan = Query_BuildPlan(q, req, concurrentMode);
-  // Execute the query
-  // const char *err;
-  int rc = QueryPlan_Execute(plan, (const char **)&err);
-  if (rc == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, QUERY_ERROR_INTERNAL_STR);
-  }
-  QueryPlan_Free(plan);
-  Query_Free(q);
-
-  return rc;
+  return q;
 }
 
-// process the query in the thread pool - thread pool callback
-void threadProcessQuery(void *p) {
-  RSSearchRequest *req = p;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(req->bc);
-  RedisModule_AutoMemory(ctx);
-
-  RedisModule_ThreadSafeContextLock(ctx);
-  req->sctx =
-      NewSearchCtx(ctx, RedisModule_CreateString(ctx, req->indexName, strlen(req->indexName)));
-
-  if (!req->sctx) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  } else {
-    runQueryGeneric(req, 1);
-  }
-
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_UnblockClient(req->bc, NULL);
-  RSSearchRequest_Free(req);
-  RedisModule_FreeThreadSafeContext(ctx);
-
-  return;
-  //  return REDISMODULE_OK;
-}
-
-int RSSearchRequest_ProcessInThreadpool(RedisModuleCtx *ctx, RSSearchRequest *req) {
-  req->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  ConcurrentSearch_ThreadPoolRun(threadProcessQuery, req, CONCURRENT_POOL_SEARCH);
-  return REDISMODULE_OK;
-}
-
-int RSSearchRequest_ProcessMainThread(RedisSearchCtx *sctx, RSSearchRequest *req) {
-  req->sctx = sctx;
-  req->bc = NULL;
-
-  int rc = runQueryGeneric(req, 0);
-  RSSearchRequest_Free(req);
-  return rc;
+QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, QueryParseCtx *q,
+                                   char **err) {
+  if (!q) return NULL;
+  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req, err);
 }

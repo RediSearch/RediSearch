@@ -838,6 +838,9 @@ int WI_Read(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   nc->res->docId = nc->current++;
+  if (hit) {
+    *hit = nc->res;
+  }
   return INDEXREAD_OK;
 }
 
@@ -854,7 +857,9 @@ int WI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   nc->current = docId;
   nc->res->docId = docId;
-
+  if (hit) {
+    *hit = nc->res;
+  }
   return INDEXREAD_OK;
 }
 

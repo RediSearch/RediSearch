@@ -1,5 +1,5 @@
-#ifndef __REDISEARCH_H__
-#define __REDISEARCH_H__
+#ifndef REDISEARCH_H__
+#define REDISEARCH_H__
 
 #include <stdint.h>
 #include <stdlib.h>

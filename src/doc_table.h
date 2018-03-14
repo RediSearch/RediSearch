@@ -71,6 +71,8 @@ typedef struct {
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
+  size_t sortablesSize;
+
   RSDocumentMetadata *docs;
   DocIdMap dim;
 

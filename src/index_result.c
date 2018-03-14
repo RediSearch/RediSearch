@@ -106,8 +106,6 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   return ret;
 }
 
-
-
 void IndexResult_Print(RSIndexResult *r, int depth) {
   for (int i = 0; i < depth; i++) printf("  ");
 
@@ -188,8 +186,6 @@ int RSIndexResult_HasOffsets(RSIndexResult *res) {
   }
 }
 
-
-
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
@@ -213,6 +209,7 @@ void IndexResult_Free(RSIndexResult *r) {
       }
     }
   }
+
   rm_free(r);
 }
 

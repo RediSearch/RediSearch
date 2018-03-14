@@ -22,6 +22,7 @@ LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
+	CFLAGS += -Wfree-nonheap-object
 else
 	LINKER = $(LD)
 	CFLAGS += -mmacosx-version-min=10.6
@@ -38,7 +39,10 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/hll/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
@@ -58,9 +62,11 @@ LIBNU=dep/libnu/libnu.a
 LIBSTEMMER=dep/snowball/libstemmer.o
 LIBFRISO=dep/friso/libfriso.a
 LIBMINIZ=dep/miniz/libminiz.a
+LIBBLOOM=dep/bloom/libbloom.a
 
 # Compilation deps for the module
-LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER)
+LIBS=$(LIBTRIE) $(LIBTRIEMAP) $(LIBRMUTIL) $(LIBNU) $(LIBFRISO) $(LIBSTEMMER) \
+	 $(LIBBLOOM)
 # TODO: make conditional on chinese support
 LIBS += $(LIBMINIZ)
 MODULE=$(CC_OBJECTS) $(LIBS)
@@ -98,6 +104,8 @@ $(LIBFRISO):
 	$(MAKE) -C dep/friso -f Makefile.RediSearch
 $(LIBMINIZ):
 	$(MAKE) -C dep/miniz
+$(LIBBLOOM):
+	$(MAKE) -C dep/bloom
 
 # Compile query parse .y and .rl files. 
 # This is not included in the usual make target!

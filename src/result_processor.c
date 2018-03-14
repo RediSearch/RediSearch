@@ -4,6 +4,8 @@
 #include "util/minmax_heap.h"
 #include "ext/default.h"
 #include "util/array.h"
+#include "query_plan.h"
+#include "highlight.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -31,12 +33,12 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
  * */
 inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
   int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc->conc;
+  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
 
   do {
 
     // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching) {
+    if (allowSwitching && cxc) {
       CONCURRENT_CTX_TICK(cxc);
       // need to abort - return EOF
       if (rp->ctx.qxc->state == QueryState_Aborted) {
@@ -83,13 +85,18 @@ SearchResult *NewSearchResult() {
 
 /* Free the search result's internal data but not the result itself - it may be allocated on the
  * stack */
-inline void SearchResult_FreeInternal(SearchResult *r) {
+void SearchResult_FreeInternal(SearchResult *r) {
 
   if (!r) return;
   // This won't affect anything if the result is null
-  IndexResult_Free(r->indexResult);
-
-  RSFieldMap_Free(r->fields, 0);
+  if (r->indexResult) {
+    IndexResult_Free(r->indexResult);
+    r->indexResult = NULL;
+  }
+  if (r->fields) {
+    RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
+  }
 }
 
 /* Free the search result object including the object itself */
@@ -159,10 +166,14 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   // the index result of the search result is not thread safe. It will be copied by the sorter later
   // on if we need it to be thread safe
-  res->indexResult = r;
+  res->indexResult = q->opts.needIndexResult ? r : NULL;
+
   res->score = 0;
   res->sv = dmd->sortVector;
   res->md = dmd;
+  if (res->fields != NULL) {
+    res->fields->len = 0;
+  }
 
   return RS_RESULT_OK;
 }
@@ -234,7 +245,7 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
   sc->scorerFree = scx->ff;
   sc->scorerCtx.payload = req->payload;
   // Initialize scorer stats
-  IndexSpec_GetStats(req->sctx->spec, &sc->scorerCtx.indexStats);
+  IndexSpec_GetStats(upstream->ctx.qxc->sctx->spec, &sc->scorerCtx.indexStats);
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = scorerProcessor_Next;
@@ -264,10 +275,16 @@ ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSear
  * finding the top N results
  ********************************************************************************************************************/
 
+typedef enum {
+  Sort_ByScore,
+  Sort_BySortKey,
+  Sort_ByFields,
+} SortMode;
 /* Sorter's private context */
 struct sorterCtx {
 
   // The desired size of the heap - top N results
+  // If set to 0 this is a growing heap
   uint32_t size;
 
   // The offset - used when popping result after we're done
@@ -288,13 +305,23 @@ struct sorterCtx {
   int accumulating;
 
   int saveIndexResults;
+
+  SortMode sortMode;
+};
+
+struct fieldCmpCtx {
+  RSMultiKey *keys;
+
+  // a bitmap where each bit corresponds to a variable in the keymap, specifying ascending (1) or
+  // descending (0)
+  uint64_t ascendMap;
 };
 
 /* Yield - pops the current top result from the heap */
 int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
 
-  // make sure we don't overshoot the heap size
-  if (sc->pq->count > 0 && sc->offset++ < sc->size) {
+  // make sure we don't overshoot the heap size, unless the heap size is dynamic
+  if (sc->pq->count > 0 && (!sc->size || sc->offset++ < sc->size)) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
     free(sr);
@@ -308,6 +335,14 @@ void sorter_Free(ResultProcessor *rp) {
   if (sc->pooledResult) {
     SearchResult_Free(sc->pooledResult);
   }
+  if (sc->cmpCtx) {
+    if (sc->sortMode == Sort_ByFields) {
+      struct fieldCmpCtx *fcc = sc->cmpCtx;
+      RSMultiKey_Free(fcc->keys);
+      free(fcc);
+    }
+  }
+
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(sc->pq);
   free(sc);
@@ -323,7 +358,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   if (sc->pooledResult == NULL) {
     sc->pooledResult = NewSearchResult();
-  } else {
+  } else if (sc->pooledResult->fields) {
     sc->pooledResult->fields->len = 0;
   }
   SearchResult *h = sc->pooledResult;
@@ -336,7 +371,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  if (sc->pq->count + 1 < sc->pq->size) {
+  // If the pool size is 0 we always do that, letting the heap grow dynamically
+  if (!sc->size || sc->pq->count + 1 < sc->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
@@ -359,15 +395,15 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     if (sc->cmp(h, minh, sc->cmpCtx) > 0) {
       // copy the index result to make it thread safe - but only if it is pushed to the heap
       h->indexResult = NULL;
-
       sc->pooledResult = mmh_pop_min(sc->pq);
-      sc->pooledResult->indexResult = NULL;
+      SearchResult_FreeInternal(sc->pooledResult);
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
+      h->indexResult = NULL;
       sc->pooledResult = h;
       // make sure we will not try to free the index result of the pooled result at the end
-      sc->pooledResult->indexResult = NULL;
+      SearchResult_FreeInternal(sc->pooledResult);
     }
   }
 
@@ -396,18 +432,46 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
 }
 
-ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *upstream,
-                           int copyIndexResults) {
+/* Compare results for the heap by sorting key */
+static int cmpByFields(const void *e1, const void *e2, const void *udata) {
+  const struct fieldCmpCtx *cc = udata;
+
+  const SearchResult *h1 = e1, *h2 = e2;
+  int ascending = 0;
+  for (size_t i = 0; i < cc->keys->len && i < sizeof(cc->ascendMap) * 8; i++) {
+    RSValue *v1 = RSFieldMap_GetByKey(h1->fields, &cc->keys->keys[i]);
+    RSValue *v2 = RSFieldMap_GetByKey(h2->fields, &cc->keys->keys[i]);
+    if (!v1 || !v2) {
+      break;
+    }
+
+    int rc = RSValue_Cmp(v1, v2);
+    // take the ascending bit for this property from the ascending bitmap
+    ascending = cc->ascendMap & (1 << i) ? 1 : 0;
+    if (rc != 0) return ascending ? -rc : rc;
+  }
+
+  int rc = h1->docId < h2->docId ? -1 : 1;
+  return ascending ? -rc : rc;
+}
+
+ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
+                           ResultProcessor *upstream, int copyIndexResults) {
 
   struct sorterCtx *sc = malloc(sizeof(*sc));
-
-  if (sk) {
-    sc->cmp = cmpBySortKey;
-    sc->cmpCtx = sk;
-  } else {
-    sc->cmp = cmpByScore;
-    sc->cmpCtx = NULL;
+  // select the sorting function by the sort mode
+  switch (sortMode) {
+    case Sort_ByScore:
+      sc->cmp = cmpByScore;
+      break;
+    case Sort_ByFields:
+      sc->cmp = cmpByFields;
+      break;
+    case Sort_BySortKey:
+      sc->cmp = cmpBySortKey;
+      break;
   }
+  sc->cmpCtx = sortCtx;
 
   sc->pq = mmh_init_with_size(size + 1, sc->cmp, sc->cmpCtx, SearchResult_Free);
   sc->size = size;
@@ -415,11 +479,21 @@ ResultProcessor *NewSorter(RSSortingKey *sk, uint32_t size, ResultProcessor *ups
   sc->pooledResult = NULL;
   sc->accumulating = 1;
   sc->saveIndexResults = copyIndexResults;
+  sc->sortMode = sortMode;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
   rp->Next = sorter_Next;
   rp->Free = sorter_Free;
   return rp;
+}
+
+ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
+                                   ResultProcessor *upstream) {
+  struct fieldCmpCtx *c = malloc(sizeof(*c));
+  c->ascendMap = ascendingMap;
+  c->keys = mk;
+
+  return NewSorter(Sort_ByFields, c, size, upstream, 0);
 }
 
 /*******************************************************************************************************************
@@ -454,12 +528,17 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (pc->count < pc->offset) {
 
     IndexResult_Free(r->indexResult);
-    free(r->fields);
+    RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
+
     pc->count++;
     return RS_RESULT_QUEUED;
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
+    IndexResult_Free(r->indexResult);
+    RSFieldMap_Free(r->fields, 0);
+    r->fields = NULL;
     return RS_RESULT_EOF;
   }
   pc->count++;
@@ -472,6 +551,7 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
   pc->offset = offset;
   pc->limit = limit;
   pc->count = 0;
+
   ResultProcessor *rp = NewResultProcessor(upstream, pc);
 
   rp->Next = pager_Next;
@@ -524,18 +604,22 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Add(&r->fields, doc.fields[i].name,
-                   doc.fields[i].text ? RS_RedisStringVal(doc.fields[i].text) : RS_NullVal());
+    if (doc.fields[i].text) {
+      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
+    } else {
+      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());
+    }
   }
   Document_Free(&doc);
 
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
+ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields) {
   struct loaderCtx *sc = malloc(sizeof(*sc));
-  sc->ctx = r->sctx;
-  sc->fields = &r->fields;
+
+  sc->ctx = sctx;
+  sc->fields = fields;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
@@ -547,28 +631,31 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RSSearchRequest *r) {
 /*******************************************************************************************************************
  * Building the processor chaing based on the processors available and the request parameters
  *******************************************************************************************************************/
-
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, RSSearchRequest *req) {
-
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err) {
+  *err = NULL;
+  RSSearchRequest *req = privdata;
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);
 
   // If we are not in SORTBY mode - add a scorer to the chain
-  if (req->sortBy == NULL) {
-    next = NewScorer(req->scorer, next, req);
+  if (q->opts.sortBy == NULL) {
+    next = NewScorer(q->opts.scorer, next, req);
+    // Scorers usually need the index results, let's tell the query plan that
+    q->opts.needIndexResult = 1;
   }
 
   // The sorter sorts the top-N results
-  next = NewSorter(req->sortBy, req->offset + req->num, next, req->fields.wantSummaries);
+  next = NewSorter(q->opts.sortBy ? Sort_BySortKey : Sort_ByScore, q->opts.sortBy,
+                   q->opts.offset + q->opts.num, next, req->opts.fields.wantSummaries);
 
   // The pager pages over the results of the sorter
-  next = NewPager(next, req->offset, req->num);
+  next = NewPager(next, q->opts.offset, q->opts.num);
 
   // The loader loads the documents from redis
   // If we do not need to return any fields - we do not need the loader in the loop
-  if (!(req->flags & Search_NoContent)) {
-    next = NewLoader(next, req);
-    if (req->fields.wantSummaries && (req->sctx->spec->flags & Index_StoreTermOffsets) != 0) {
+  if (!(q->opts.flags & Search_NoContent)) {
+    next = NewLoader(next, q->ctx, &req->opts.fields);
+    if (req->opts.fields.wantSummaries && (q->ctx->spec->flags & Index_StoreTermOffsets) != 0) {
       next = NewHighlightProcessor(next, req);
     }
   }

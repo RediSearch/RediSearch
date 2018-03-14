@@ -2,7 +2,7 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-CFLAGS = -g -O3 -fPIC -D_GNU_SOURCE -std=gnu99 -I./  -Werror=implicit-function-declaration
+CFLAGS = -g -ggdb -O0 -fPIC -D_GNU_SOURCE -std=gnu99 -I./  -Werror=implicit-function-declaration
 CFLAGS += -I$(RM_INCLUDE_DIR)
 %.c: %.y
 
@@ -15,14 +15,17 @@ SOURCEDIR=$(abspath $(shell pwd -P)/../)
 CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/query_parser/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/ext/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/util/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/trie/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
+CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/hll/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
 
 # Convert all sources to .o files
-DEP_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES) )
-CC_DEPS = $(patsubst %.c, %.d, $(CC_SOURCES) )
+DEP_OBJECTS := $(patsubst %.c, %.o, $(CC_SOURCES) )
+CC_DEPS := $(patsubst %.c, %.d, $(CC_SOURCES) )
 
 
 TEST_SOURCES = $(abspath $(wildcard test_*.c))
@@ -33,7 +36,7 @@ TEST_DEPS = $(patsubst %.c, %.d,$(TEST_SOURCES))
 # Library dependencies
 DEP_LIBS = ../rmutil/librmutil.a ../trie/libtrie.a ../dep/triemap/libtriemap.a \
 		   ../dep/libnu/libnu.a ../dep/snowball/libstemmer.o ../dep/friso/libfriso.a \
-		   ../dep/miniz/libminiz.a
+		   ../dep/miniz/libminiz.a ../dep/bloom/libbloom.a
 DEPS = $(DEP_OBJECTS) $(DEP_LIBS)
 SRCDIR := $(shell pwd)
 LDFLAGS :=  -lc -lm -ldl -lpthread

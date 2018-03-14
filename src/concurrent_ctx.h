@@ -156,6 +156,9 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
+int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,
+                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
  */

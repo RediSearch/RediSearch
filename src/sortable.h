@@ -1,11 +1,14 @@
 #ifndef __RS_SORTABLE_H__
 #define __RS_SORTABLE_H__
 #include "redismodule.h"
-
+#include "value.h"
 /* Sortables - embedded sorting fields. When creating a schema we can specify fields that will be
  * sortable.
  * A sortable field means that its data will get copied into an inline table inside the index. right
  * now we copy strings in full so you should be careful about string length of sortable fields*/
+
+// Maximum number of sortables
+#define RS_SORTABLES_MAX 255
 
 #pragma pack(1)
 
@@ -15,31 +18,11 @@
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
 
-// Maximum number of sortables
-#define RS_SORTABLES_MAX 255
-
-// TODO: Short strings will be embedded into 8 bytes
-typedef struct {
-  unsigned char len;
-  char data[7];
-} RSEmbeddedStr;
-
-/* Sortable value is a value in a document's sorting vector. It can be either a number or a string.
- * Either can be NIL, meaning that the document doesn't contain this field */
-typedef struct {
-  union {
-    // RSEmbeddedStr embstr;
-    char *str;
-    double num;
-  };
-  int type : 8;
-} RSSortableValue;
-
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */
 typedef struct RSSortingVector {
   unsigned int len : 8;
-  RSSortableValue values[];
+  RSValue *values[];
 } RSSortingVector;
 
 #pragma pack()
@@ -85,7 +68,9 @@ int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSorting
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
 
-RSSortableValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
+RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
+
+size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
 /* Create a sorting vector of a given length for a document */
 RSSortingVector *NewSortingVector(int len);

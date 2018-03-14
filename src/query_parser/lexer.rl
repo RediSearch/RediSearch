@@ -139,7 +139,13 @@ main := |*
       fbreak;
     }
   };
-
+ star => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, STAR, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
   lsqb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -157,12 +163,13 @@ main := |*
   space;
   punct;
   cntrl;
+  
   term => {
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    if (!StopWordList_Contains(q->stopwords, tok.s, tok.len)) {
+    if (!StopWordList_Contains(q->opts.stopwords, tok.s, tok.len)) {
       RSQuery_Parse(pParser, TERM, tok, q);
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
@@ -171,7 +178,7 @@ main := |*
       fbreak;
     }
   };
-  prefix => {
+    prefix => {
     tok.len = te-ts - 1;
     tok.s = ts;
     tok.numval = 0;
