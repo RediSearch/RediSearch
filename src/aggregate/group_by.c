@@ -194,6 +194,7 @@ void Grouper_Free(Grouper *g) {
 static void Grouper_FreeProcessor(struct resultProcessor *p) {
   Grouper *g = p->ctx.privdata;
   Grouper_Free(g);
+  free(p);
   // KHTable_FreeEx(&g->groups, NULL, gtGroupClean);
 }
 
