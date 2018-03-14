@@ -638,8 +638,11 @@ static void assignSearchOpts(RSSearchOptions *tgt, const RSSearchOptions *src,
   } else {
     *tgt = RS_DEFAULT_SEARCHOPTS;
   }
-  if (!(tgt->flags & Search_NoStopwrods) && tgt->stopwords == NULL && ctx && ctx->spec) {
-    tgt->stopwords = ctx->spec->stopwords;
+  if (tgt->flags & Search_NoStopwrods) {
+    tgt->stopwords = EmptyStopWordList();
+  } else {
+    tgt->stopwords =
+        (ctx && ctx->spec && ctx->spec->stopwords) ? ctx->spec->stopwords : DefaultStopWordList();
   }
 }
 

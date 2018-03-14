@@ -17,7 +17,7 @@ void *RSQuery_ParseAlloc(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
 
-#line 196 "lexer.rl"
+#line 195 "lexer.rl"
 
 
 
@@ -130,7 +130,7 @@ static const int query_error = -1;
 static const int query_en_main = 5;
 
 
-#line 199 "lexer.rl"
+#line 198 "lexer.rl"
 
 
 
@@ -150,7 +150,7 @@ QueryNode *Query_Parse(QueryParseCtx *q, char **err) {
 	act = 0;
 	}
 
-#line 210 "lexer.rl"
+#line 209 "lexer.rl"
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -265,11 +265,11 @@ _eof_trans:
 	{act = 11;}
 	break;
 	case 7:
-#line 165 "lexer.rl"
+#line 164 "lexer.rl"
 	{act = 17;}
 	break;
 	case 8:
-#line 168 "lexer.rl"
+#line 167 "lexer.rl"
 	{act = 19;}
 	break;
 	case 9:
@@ -369,7 +369,6 @@ _eof_trans:
 	case 18:
 #line 142 "lexer.rl"
 	{te = p+1;{
-    printf("STAR!\n");
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, STAR, tok, q);
     if (!q->ok) {
@@ -378,7 +377,7 @@ _eof_trans:
   }}
 	break;
 	case 19:
-#line 150 "lexer.rl"
+#line 149 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -388,7 +387,7 @@ _eof_trans:
   }}
 	break;
 	case 20:
-#line 157 "lexer.rl"
+#line 156 "lexer.rl"
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RSQB, tok, q);   
@@ -398,19 +397,19 @@ _eof_trans:
   }}
 	break;
 	case 21:
-#line 164 "lexer.rl"
+#line 163 "lexer.rl"
 	{te = p+1;}
 	break;
 	case 22:
-#line 165 "lexer.rl"
+#line 164 "lexer.rl"
 	{te = p+1;}
 	break;
 	case 23:
-#line 166 "lexer.rl"
+#line 165 "lexer.rl"
 	{te = p+1;}
 	break;
 	case 24:
-#line 182 "lexer.rl"
+#line 181 "lexer.rl"
 	{te = p+1;{
     tok.len = te-ts - 1;
     tok.s = ts;
@@ -450,11 +449,11 @@ _eof_trans:
   }}
 	break;
 	case 27:
-#line 165 "lexer.rl"
+#line 164 "lexer.rl"
 	{te = p;p--;}
 	break;
 	case 28:
-#line 168 "lexer.rl"
+#line 167 "lexer.rl"
 	{te = p;p--;{
     tok.len = te-ts;
     tok.s = ts;
@@ -557,7 +556,7 @@ _eof_trans:
 	}
 	}
 	break;
-#line 561 "lexer.c"
+#line 560 "lexer.c"
 		}
 	}
 
@@ -570,7 +569,7 @@ _again:
 #line 1 "NONE"
 	{ts = 0;}
 	break;
-#line 574 "lexer.c"
+#line 573 "lexer.c"
 		}
 	}
 
@@ -588,7 +587,7 @@ _again:
 	_out: {}
 	}
 
-#line 218 "lexer.rl"
+#line 217 "lexer.rl"
   
 
   if (q->ok) {
