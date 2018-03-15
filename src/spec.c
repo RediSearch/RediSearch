@@ -2,6 +2,7 @@
 #include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
+#include "util/misc.h"
 #include "rmutil/vector.h"
 #include "trie/trie_type.h"
 #include <math.h>
@@ -344,10 +345,6 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
     sp->stats.termsSize += len;
   }
   return isNew;
-}
-
-void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score) {
-  Trie_InsertStringBuffer(sp->terms, (char *)term, len, score, 0, NULL);
 }
 
 /// given an array of random weights, return the a weighted random selection, as the index in the
@@ -707,108 +704,16 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 }
 
-static void rewriteAofTerms(RedisModuleIO *io, const char *indexName, TrieNode *root) {
-  TrieIterator *iter = TrieNode_Iterate(root, NULL, NULL, NULL);
-  rune *runeStr;
-  t_len runeStrLen;
-  RSPayload *payload;
-  float score;
-
-  while (TrieIterator_Next(iter, &runeStr, &runeStrLen, NULL, &score, NULL)) {
-    size_t bufLen;
-    char *buf = runesToStr(runeStr, runeStrLen, &bufLen);
-
-    char floatBuf[32] = {0};
-    sprintf(floatBuf, "%f", score);
-
-    RedisModule_EmitAOF(io, "FT.TERMADD", "ccc", indexName, buf, floatBuf);
-    free(buf);
-  }
-
-  TrieIterator_Free(iter);
-}
-
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 #define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
 
-void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  IndexSpec *sp = value;
-  Vector *args = NewVector(RedisModuleString *, 4 + 4 * sp->numFields);
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
-
-  // printf("sp->fags:%x\n", sp->flags);
-  // serialize flags
-  if (!(sp->flags & Index_StoreTermOffsets)) {
-    __vpushStr(args, ctx, SPEC_NOOFFSETS_STR);
-  }
-  if (!(sp->flags & Index_StoreByteOffsets)) {
-    __vpushStr(args, ctx, SPEC_NOHL_STR);
-  }
-  if (!(sp->flags & Index_StoreFieldFlags)) {
-    __vpushStr(args, ctx, SPEC_NOFIELDS_STR);
-  }
-
-  // write SCHEMA keyword
-  __vpushStr(args, ctx, SPEC_SCHEMA_STR);
-
-  // serialize schema
-  for (int i = 0; i < sp->numFields; i++) {
-
-    switch (sp->fields[i].type) {
-      case FIELD_FULLTEXT:
-        __vpushStr(args, ctx, sp->fields[i].name);
-        __vpushStr(args, ctx, SPEC_TEXT_STR);
-        if (sp->fields[i].textOpts.weight != 1.0) {
-          __vpushStr(args, ctx, SPEC_WEIGHT_STR);
-          Vector_Push(args,
-                      RedisModule_CreateStringPrintf(ctx, "%f", sp->fields[i].textOpts.weight));
-        }
-        if (FieldSpec_IsNoStem(&sp->fields[i])) {
-          __vpushStr(args, ctx, SPEC_NOSTEM_STR);
-        }
-        break;
-      case FIELD_NUMERIC:
-        __vpushStr(args, ctx, sp->fields[i].name);
-        __vpushStr(args, ctx, NUMERIC_STR);
-        break;
-      case FIELD_GEO:
-        __vpushStr(args, ctx, sp->fields[i].name);
-        __vpushStr(args, ctx, GEO_STR);
-        break;
-      case FIELD_TAG:
-        __vpushStr(args, ctx, sp->fields[i].name);
-        __vpushStr(args, ctx, SPEC_TAG_STR);
-        break;
-      default:
-        RedisModule_Log(ctx, "warning", "Could not save field(%s,%d) with aof)", sp->fields[i].name,
-                        sp->fields[i].type);
-        break;
-    }
-    if (FieldSpec_IsSortable(&sp->fields[i])) {
-      __vpushStr(args, ctx, SPEC_SORTABLE_STR);
-    }
-  }
-
-  size_t offset = strlen(INDEX_SPEC_KEY_PREFIX);
-  const char *indexName = RedisModule_StringPtrLen(key, NULL);
-  indexName += offset;
-
-  RedisModule_EmitAOF(aof, "FT.CREATE", "cv", indexName, (RedisModuleString *)args->data,
-                      Vector_Size(args));
-
-  DocTable_AOFRewrite(&sp->docs, indexName, aof);
-  rewriteAofTerms(aof, indexName, sp->terms->root);
-
-  Vector_Free(args);
-}
-
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = IndexSpec_RdbLoad,
                                .rdb_save = IndexSpec_RdbSave,
-                               .aof_rewrite = IndexSpec_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = IndexSpec_Free};
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);

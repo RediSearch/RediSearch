@@ -1430,7 +1430,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                     self.assertTrue(option in opts)
 
     def aofTestCommon(self, reloadfn):
-        self.spawn_server(use_aof=True)
+        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
+        self.spawn_server(**kwargs)
 
         # TODO: Change this attribute in rmtest
         if self.server._is_external:
@@ -1455,7 +1456,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.aofTestCommon(lambda: self.cmd('debug loadaof'))
 
     def testRewriteAofSortables(self):
-        self.spawn_server(use_aof=True)
+        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
+        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'schema', 'field1', 'TEXT',
                  'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
         self.cmd('FT.ADD', 'idx', 'doc', 1.0,
@@ -1479,7 +1481,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(res, res2)
 
     def testAofRewriteSortkeys(self):
-        self.spawn_server(use_aof=True)
+        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
+        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo',
                  'TEXT', 'SORTABLE', 'bar', 'TAG')
         self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
@@ -1495,7 +1498,8 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(res_exp, res_got)
 
     def testAofRewriteTags(self):
-        self.spawn_server(use_aof=True)
+        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
+        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo',
                  'TEXT', 'SORTABLE', 'bar', 'TAG')
         self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')

@@ -99,7 +99,6 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname, Redis
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
-void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
 void NumericIndexType_Free(void *value);
 #endif

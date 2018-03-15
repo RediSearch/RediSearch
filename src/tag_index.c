@@ -4,6 +4,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
+#include "util/misc.h"
 #include <assert.h>
 
 /* See tag_index.h for documentation  */
@@ -270,10 +271,6 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 void TagIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-void TagIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  RMUtil_DefaultAofRewrite(aof, key, value);
-}
-
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
   TrieMap_Free(idx->values, InvertedIndex_Free);
@@ -300,7 +297,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TagIndex_RdbLoad,
                                .rdb_save = TagIndex_RdbSave,
-                               .aof_rewrite = TagIndex_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = TagIndex_Free,
                                .mem_usage = TagIndex_MemUsage};
 

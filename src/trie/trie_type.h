@@ -50,7 +50,6 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
 void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
-void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
 void TrieType_Free(void *value);
 

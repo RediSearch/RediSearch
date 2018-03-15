@@ -555,103 +555,7 @@ int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 }
 
-/* FT.DTADD {index} {key} {flags} {score} {payload} {byteOffsets}
- *
- *  **WARNING**:  Do NOT use this command, it is for internal use in AOF rewriting only!!!!
- *
- *  This command is used only for AOF rewrite and makes sure the document table is rebuilt in the
- *  same order as as in memory
- *
- *  Returns the docId on success or 0 on failure
- */
-int DTAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
-  if (argc < 7) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
-  long long flags;
-  double score;
-  if (RMUtil_ParseArgs(argv, argc, 3, "ld", &flags, &score) == REDISMODULE_ERR) {
-    return RedisModule_ReplyWithError(ctx, "Could not parse flags and score");
-  }
-
-  size_t payloadSize = 0, offsetsSize = 0, svSize = 0;
-
-  const char *payload = RedisModule_StringPtrLen(argv[5], &payloadSize);
-  const char *serOffsets = RedisModule_StringPtrLen(argv[6], &offsetsSize);
-  const char *svBuf = argc >= 8 ? RedisModule_StringPtrLen(argv[7], &svSize) : NULL;
-  RSSortingVector *sv = NULL;
-  RSByteOffsets *offsets = NULL;
-
-  if (flags & Document_HasSortVector) {
-    // Check if we're actually passed an SV
-    if (svBuf == NULL || (sv = SortingVector_LoadSerialized(svBuf, svSize)) == NULL) {
-      flags &= ~Document_HasSortVector;
-    }
-  }
-  if (flags & Document_HasOffsetVector) {
-    if (offsetsSize) {
-      Buffer *b = Buffer_Wrap((char *)serOffsets, offsetsSize);
-      offsets = LoadByteOffsets(b);
-      free(b);
-    }
-    if (!offsets) {
-      flags &= ~Document_HasOffsetVector;
-    }
-  }
-
-  t_docId d = DocTable_Put(&sp->docs, MakeDocKeyR(argv[2]), (float)score, (u_char)flags, payload,
-                           payloadSize);
-
-  if (offsets) {
-    DocTable_SetByteOffsets(&sp->docs, d, offsets);
-  }
-
-  if (sv) {
-    DocTable_SetSortingVector(&sp->docs, d, sv);
-  }
-
-  return RedisModule_ReplyWithLongLong(ctx, d);
-}
-
-/**
- * FT.TERMADD {index} {term} {score}
- *
- * **WARNING** Do NOT use this command. It is for internal AOF rewriting only
- *
- * This command is used to incrementally transfer terms (for prefix expansion)
- * over to the trie.
- *
- * This might change once the internal structure of the trie changes
- */
-int TermAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
-  if (argc != 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  IndexSpec *sp = LOAD_INDEX(ctx, argv[1], 1);
-
-  // Add the term to the spec
-  size_t termLen = 0;
-  const char *termStr = RedisModule_StringPtrLen(argv[2], &termLen);
-
-  double score;
-  if (RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "ERR bad score");
-  }
-
-  IndexSpec_RestoreTerm(sp, termStr, termLen, score);
-  return REDISMODULE_OK;
-}
-
-/* FT.DEL {index} {doc_id} [DD]
+/* FT.DEL {index} {doc_id}
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
@@ -1362,6 +1266,45 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
+/**
+ * Check if we can run under the current AOF configuration. Returns true
+ * or false
+ */
+static int validateAofSettings(RedisModuleCtx *ctx) {
+  int rc = 1;
+
+  if (RedisModule_GetContextFlags == NULL) {
+    RedisModule_Log(ctx, "warning",
+                    "Could not determine if AOF is in use. AOF Rewrite will crash!");
+    return 1;
+  }
+
+  if ((RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_AOF) == 0) {
+    // AOF disabled. All is OK, and no further checks needed
+    return rc;
+  }
+
+  // Can't exexcute commands on the loading context, so make a new one
+  RedisModuleCtx *confCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCallReply *reply =
+      RedisModule_Call(confCtx, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
+  assert(reply);
+  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+  assert(RedisModule_CallReplyLength(reply) == 2);
+  const char *value =
+      RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
+
+  // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
+  // embedded newline in them
+  if (tolower(*value) == 'n') {
+    RedisModule_Log(ctx, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
+    rc = 0;
+  }
+  RedisModule_FreeCallReply(reply);
+  RedisModule_FreeThreadSafeContext(confCtx);
+  return rc;
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
@@ -1392,6 +1335,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in "
                     "MULTI or LUA will "
                     "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
+  }
+
+  if (!validateAofSettings(ctx)) {
+    return REDISMODULE_ERR;
   }
 
   // Init extension mechanism
@@ -1447,10 +1394,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, SafeAddHashCommand, "write deny-oom",
          1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DTADD_CMD, DTAddCommand, "write deny-oom", 1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDTERM_CMD, TermAddCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 

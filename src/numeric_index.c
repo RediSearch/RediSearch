@@ -6,6 +6,7 @@
 #include "index.h"
 #include <math.h>
 #include "redismodule.h"
+#include "util/misc.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -440,7 +441,7 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = NumericIndexType_RdbLoad,
                                .rdb_save = NumericIndexType_RdbSave,
-                               .aof_rewrite = NumericIndexType_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = NumericIndexType_Free,
                                .mem_usage = NumericIndexType_MemUsage};
 
@@ -523,10 +524,6 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
   struct __niRdbSaveCtx ctx = {rdb, 0};
 
   NumericRangeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
-}
-
-void NumericIndexType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  RMUtil_DefaultAofRewrite(aof, key, value);
 }
 
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {

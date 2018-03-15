@@ -304,57 +304,6 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   }
 }
 
-void DocTable_AOFRewrite(DocTable *t, const char *indexName, RedisModuleIO *aof) {
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(aof);
-  Buffer tmpsBuf;
-  Buffer_Init(&tmpsBuf, 16);
-  char dblBuf[1024] = {0};
-
-  for (int i = 1; i < t->size; i++) {
-    const RSDocumentMetadata *dmd = t->docs + i;
-
-    // Should never be > 1024, but snprintf just in case
-    size_t dblLen = snprintf(dblBuf, sizeof(dblBuf), "%f", dmd->score);
-
-    // dump payload if possible
-    const char *payload = NULL;
-    size_t payloadLen = 0;
-    size_t byteOffsetsPos = 0;
-    size_t byteOffsetsLen = 0;
-    size_t svPos = 0;
-    size_t svLen = 0;
-
-    if ((dmd->flags & Document_HasPayload) && dmd->payload) {
-      payload = dmd->payload->data;
-      payloadLen = dmd->payload->len;
-    }
-
-    tmpsBuf.offset = 0;
-
-    if ((dmd->flags & Document_HasOffsetVector) && dmd->byteOffsets) {
-      RSByteOffsets_Serialize(dmd->byteOffsets, &tmpsBuf);
-      byteOffsetsPos = 0;
-      byteOffsetsLen = tmpsBuf.offset;
-    }
-
-    if ((dmd->flags & Document_HasOffsetVector) && dmd->sortVector) {
-      svPos = tmpsBuf.offset;
-      SortingVector_Serialize(dmd->sortVector, &tmpsBuf);
-      svLen = tmpsBuf.offset - svPos;
-    }
-
-    RedisModule_EmitAOF(aof, "FT.DTADD", "cblbbbb", indexName,          // c
-                        dmd->keyPtr, sdslen(dmd->keyPtr),               // b
-                        dmd->flags,                                     // l
-                        dblBuf, dblLen,                                 // b (#1)
-                        payload, payloadLen,                            // b (#2)
-                        tmpsBuf.data + byteOffsetsPos, byteOffsetsLen,  // b (#3)
-                        tmpsBuf.data + svPos, svLen                     // b (#4)
-    );
-  }
-  Buffer_Free(&tmpsBuf);
-}
-
 DocIdMap NewDocIdMap() {
 
   TrieMap *m = NewTrieMap();
