@@ -84,9 +84,8 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
  * Returns true if the query has timed out and the user has requested
  * that we do not drain partial results.
  */
-static int hasNoDrainTimeout(const QueryPlan *qex) {
-  return qex->execCtx.state == QueryState_TimedOut && qex->opts.timeoutPolicy == TimeoutPolicy_Fail;
-}
+#define HAS_TIMEOUT_FAILURE(qex) \
+  ((qex)->execCtx.state == QueryState_TimedOut && (qex)->opts.timeoutPolicy == TimeoutPolicy_Fail)
 
 int Query_SerializeResults(QueryPlan *qex) {
   int rc;
@@ -101,7 +100,7 @@ int Query_SerializeResults(QueryPlan *qex) {
       break;
     }
 
-    if (hasNoDrainTimeout(qex)) {
+    if (HAS_TIMEOUT_FAILURE(qex)) {
       RSFieldMap_Free(r.fields, 0);
       break;
     }
@@ -120,7 +119,7 @@ int Query_SerializeResults(QueryPlan *qex) {
   } while (rc != RS_RESULT_EOF);
 
   if (count == 0) {
-    if (hasNoDrainTimeout(qex)) {
+    if (HAS_TIMEOUT_FAILURE(qex)) {
       return RedisModule_ReplyWithError(ctx, "Command timed out");
     }
 
@@ -162,7 +161,6 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
     // printf("Elapsed: %zdms\n", durationNS / 1000000);
     // Abort on timeout
     if (durationNS > q->opts.timeoutMS * 1000000) {
-      printf("Setting timed out state!\n");
       q->execCtx.state = QueryState_TimedOut;
     }
   }
@@ -209,8 +207,6 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   if (plan->opts.timeoutPolicy == TimeoutPolicy_Default) {
     plan->opts.timeoutPolicy = RSGlobalConfig.timeoutPolicy;
   }
-
-  // printf("Timeout policy: %d\n", plan->opts.timeoutPolicy);
 
   plan->execCtx = (QueryProcessingCtx){
       .errorString = NULL,

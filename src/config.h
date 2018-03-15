@@ -9,6 +9,17 @@ typedef enum {
   TimeoutPolicy_Fail          // Just fail without returning anything
 } RSTimeoutPolicy;
 
+static inline const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
+  switch (policy) {
+    case TimeoutPolicy_Return:
+      return "return";
+    case TimeoutPolicy_Fail:
+      return "fail";
+    default:
+      return "huh?";
+  }
+}
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file, and
  * is initialized with user config options during module statrtup */
 typedef struct {

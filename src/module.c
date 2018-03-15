@@ -1325,10 +1325,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
   RedisModule_Log(ctx, "notice",
                   "Configuration: concurrent mode: %d, ext load: %s, min prefix: %d, max "
-                  "expansions: %d, query timeout: %dms",
+                  "expansions: %d, query timeout: %dms, timeout policy: %s",
                   RSGlobalConfig.concurrentMode, RSGlobalConfig.extLoad,
                   RSGlobalConfig.minTermPrefix, RSGlobalConfig.maxPrefixExpansions,
-                  RSGlobalConfig.queryTimeoutMS);
+                  RSGlobalConfig.queryTimeoutMS,
+                  TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
 
   if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
     RedisModule_Log(ctx, "warning",
