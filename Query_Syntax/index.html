@@ -375,6 +375,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wildcard"_"queries" title="Wildcard Queries" class="md-nav__link">
+    Wildcard Queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
@@ -412,6 +419,18 @@
   <li class="md-nav__item">
     <a href="../Stopwords/" title="Stop-Words" class="md-nav__link">
       Stop-Words
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Aggregations/" title="Aggregations (NEW!)" class="md-nav__link">
+      Aggregations (NEW!)
     </a>
   </li>
 
@@ -750,6 +769,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wildcard"_"queries" title="Wildcard Queries" class="md-nav__link">
+    Wildcard Queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
@@ -795,6 +821,7 @@
 <li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
 <li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>. As of version 0.19.3, purely negative queries (i.e. <code>-foo</code> or <code>-@title:(foo|bar)</code>) are supported. </li>
 <li>Prefix matches (all terms starting with a prefix) are expressed with a <code>*</code> following a 3-letter or longer prefix.</li>
+<li>A special "wildcard query" that returns all results in the index - <code>*</code> (cannot be combined with anything else).</li>
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
 <li>Geo radius matches on geo fields with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code></li>
@@ -894,6 +921,9 @@ e.g.
 <p>Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. </p>
 </li>
 </ol>
+<h2 id="wildcard&quot;_&quot;queries">Wildcard Queries<a class="headerlink" href="#wildcard&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
+<p>As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. <code>FT.SEARCH myIndex *</code>. </p>
+<p>This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. </p>
 <h2 id="a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples">A Few Query Examples<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
