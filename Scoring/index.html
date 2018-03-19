@@ -413,6 +413,13 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#hamming" title="HAMMING" class="md-nav__link">
+    HAMMING
+  </a>
+  
+</li>
+      
       
       
     </ul>
@@ -674,6 +681,13 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#hamming" title="HAMMING" class="md-nav__link">
+    HAMMING
+  </a>
+  
+</li>
+      
       
       
     </ul>
@@ -764,6 +778,36 @@
 <h2 id="docscore">DOCSCORE<a class="headerlink" href="#docscore" title="Permanent link">&para;</a></h2>
 <p>A scoring function that just returns the a priory score of the document without applying any calculations to it. Since document scores can be updates, this can be useful if you'd like to use an external score and nothing further.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER DOCSCORE
+</pre></div>
+
+
+<h2 id="hamming">HAMMING<a class="headerlink" href="#hamming" title="Permanent link">&para;</a></h2>
+<p>Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the <strong>nearest</strong> neighbors, we inverse the hamming distance (<code>1/(1+d)</code>) so that a distance of 0 gives a perfect score of 1 and is the highest rank. </p>
+<p>This works only if:</p>
+<ol>
+<li>The document has a payload.</li>
+<li>The query has a payload.</li>
+<li>Both are <strong>exactly the same length</strong>.</li>
+</ol>
+<p>Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results. </p>
+<p>Example:</p>
+<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE idx SCHEMA foo TEXT
+OK
+127.0.0.1:6379&gt; FT.ADD idx 1 1 PAYLOAD &quot;aaaabbbb&quot; FIELDS foo hello
+OK
+127.0.0.1:6379&gt; FT.ADD idx 2 1 PAYLOAD &quot;aaaacccc&quot; FIELDS foo bar
+OK
+
+127.0.0.1:6379&gt; FT.SEARCH idx &quot;*&quot; PAYLOAD &quot;aaaabbbc&quot; SCORER HAMMING WITHSCORES
+1) (integer) 2
+2) &quot;1&quot;
+3) &quot;0.5&quot; // hamming distance of 1 --&gt; 1/(1+1) == 0.5
+4) 1) &quot;foo&quot;
+   2) &quot;hello&quot;
+5) &quot;2&quot;
+6) &quot;0.25&quot; // hamming distance of 3 --&gt; 1/(1+3) == 0.25
+7) 1) &quot;foo&quot;
+   2) &quot;bar&quot;
 </pre></div>
                 
                   
