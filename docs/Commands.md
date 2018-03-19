@@ -618,12 +618,14 @@ Array Reply: An array with exactly the same number of elements as the number of 
 ### Format
 
 ```
-FT.DROP {index}
+FT.DROP {index} [KEEPDOCS]
 ```
 
 ### Description
 
 Deletes all the keys associated with the index. 
+
+By default DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 
 If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
@@ -631,6 +633,7 @@ that the index specification is not deleted.
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **KEEPDOCS**: IF set, the drop operation will not delete the actual document hashes.
 
 ### Returns
 
