@@ -275,17 +275,33 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             self.assertOk(r.execute_command(
                 'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
 
-            for i in range(200):
+            for i in range(100):
                 self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                                 'f', 'hello world', 'n', 666, 't', 'foo bar',
                                                 'g', '19.04,47.497'))
             keys = r.keys('*')
-            self.assertEqual(206, len(keys))
+            self.assertEqual(106, len(keys))
 
             self.assertOk(r.execute_command('ft.drop', 'idx'))
             keys = r.keys('*')
             self.assertEqual(0, len(keys))
-    
+
+            # Now do the same with KEEPDOCS
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
+
+            for i in range(100):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                                'f', 'hello world', 'n', 666, 't', 'foo bar',
+                                                'g', '19.04,47.497'))
+            keys = r.keys('*')
+            self.assertEqual(106, len(keys))
+
+            self.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
+            keys = r.keys('*')
+            self.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
+                                  'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+
     def testCustomStopwords(self):
         with self.redis() as r:
             r.flushdb()

@@ -990,15 +990,16 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 /*
- * FT.DROP <index>
+ * FT.DROP <index> [KEEPDOCS]
  * Deletes all the keys associated with the index.
  * If no other data is on the redis instance, this is equivalent to FLUSHDB,
- * apart from the fact
- * that the index specification is not deleted.
+ * apart from the fact that the index specification is not deleted.
+ *
+ * If KEEPDOCS exists, we do not delete the actual docs
  */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
-  if (argc != 2) {
+  if (argc < 2 || argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
   RedisModule_ReplicateVerbatim(ctx);
@@ -1010,8 +1011,14 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  // Optional KEEPDOCS
+  int delDocs = 1;
+  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+    delDocs = 0;
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, 1);
+  Redis_DropIndex(&sctx, delDocs);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
