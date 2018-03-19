@@ -12,19 +12,26 @@ class ScorersTestCase(ModuleTestCase('../redisearch.so')):
         with self.redis() as r:
             r.flushdb()
 
-        self.assertOk(r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text'))
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text'))
 
-        for i in range(16):
-            self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1,
-                                            'payload', ('%x' % i) * 8,
-                                            'fields', 'title', 'hello world '))
-        for i in range(16):
-            res = r.execute_command('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
-                                    'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS', 'LIMIT 1')
-            print res
-            self.assertEqual(res[1], 'doc%d' % i)
-            self.assertEqual(res[2], '1')
+            for i in range(16):
+                self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1,
+                                                'payload', ('%x' % i) * 8,
+                                                'fields', 'title', 'hello world'))
+            for i in range(16):
+                res = r.execute_command('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
+                                        'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                self.assertEqual(res[1], 'doc%d' % i)
+                self.assertEqual(res[2], '1')
+                # test with payload of different lenght
+                res = r.execute_command('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 7,
+                                        'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                self.assertEqual(res[2], '0')
+                # test with no payload
+                res = r.execute_command('ft.search', 'idx', '*',
+                                        'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                self.assertEqual(res[2], '0')
 
     def testTagIndex(self):
         with self.redis() as r:
