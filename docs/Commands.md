@@ -418,7 +418,7 @@ String Response. A string representing the execution plan (see above example).
 ### Format
 
 ```
-FT.DEL {index} {doc_id}
+FT.DEL {index} {doc_id} [DD]
 ```
 
 ### Description
@@ -427,11 +427,13 @@ Delete a document from the index. Returns 1 if the document was in the index, or
 
 After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
 
-!!! warning "FT.DEL does NOT delete the actual document!"
+!!! warning "FT.DEL does not delete the actual document By default!"
         
-        Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
+        Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
+
+        Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
         
-        If you want to delete the HASH storing the documents, a further **DEL {doc_id}** needs to be issued. You can run both of them in a MULTI transaction.
+        Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
 
 ### Parameters
 

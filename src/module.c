@@ -602,15 +602,16 @@ int TermAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-/* FT.DEL {index} {doc_id}
+/* FT.DEL {index} {doc_id} [DD]
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
+ * If DD (Delete Document) is set, we also delete the document.
  */
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
-  if (argc != 3) return RedisModule_WrongArity(ctx);
+  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
@@ -618,9 +619,26 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  int delDoc = 0;
+  if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {
+    delDoc = 1;
+  }
   int rc = DocTable_Delete(&sp->docs, MakeDocKeyR(argv[2]));
   if (rc == 1) {
     sp->stats.numDocuments--;
+
+    // If needed - delete the actual doc
+    if (delDoc) {
+
+      RedisModuleKey *dk = RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE);
+      if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
+        RedisModule_DeleteKey(dk);
+      } else {
+        RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
+                        RedisModule_StringPtrLen(argv[2], NULL));
+      }
+    }
+
     // Increment the index's garbage collector's scanning frequency after document deletions
     GC_OnDelete(sp->gc);
   }
