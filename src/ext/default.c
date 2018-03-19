@@ -173,17 +173,17 @@ double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocu
   size_t ret = 0;
   size_t len = ctx->payload.len;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
-  if (ctx->payload.len % sizeof(uint64_t) != 0) {
+  if (ctx->payload.len % sizeof(unsigned long) != 0) {
     const char *a = ctx->payload.data;
     const char *b = dmd->payload->data;
     for (size_t i = 0; i < len; i++) {
       ret += __builtin_popcount(a[i] ^ b[i]);
     }
   } else {
-    len /= sizeof(uint64_t);
+    len /= sizeof(unsigned long);
     // calculate in chunks of 64 bit
-    const uint64_t *a = (const uint64_t *)ctx->payload.data;
-    const uint64_t *b = (const uint64_t *)dmd->payload->data;
+    const unsigned long *a = (const unsigned long *)ctx->payload.data;
+    const unsigned long *b = (const unsigned long *)dmd->payload->data;
     for (size_t i = 0; i < len; i++) {
       ret += __builtin_popcountl(a[i] ^ b[i]);
     }
