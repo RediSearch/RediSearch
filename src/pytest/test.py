@@ -191,12 +191,20 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                                                 'f', 'hello world'))
 
             for i in range(100):
+                # the doc hash should exist now
+                self.assertTrue(r.exists('doc%d' % i))
+                # Delete the actual docs only half of the time
                 self.assertEqual(1, r.execute_command(
-                    'ft.del', 'idx', 'doc%d' % i))
+                    'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
                 # second delete should return 0
                 self.assertEqual(0, r.execute_command(
                     'ft.del', 'idx', 'doc%d' % i))
 
+                # After del with DD the doc hash should not exist
+                if i % 2 == 0:
+                    self.assertFalse(r.exists('doc%d' % i))
+                else:
+                    self.assertTrue(r.exists('doc%d' % i))
                 res = r.execute_command(
                     'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
                 self.assertNotIn('doc%d' % i, res)
@@ -331,18 +339,18 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(0, r1[0])
         self.assertEqual(1, r2[0])
 
-
     def testNoStopwords(self):
         # This test taken from Java's test suite
         self.cmd('ft.create', 'idx', 'schema', 'title', 'text')
         for i in range(100):
             self.cmd('ft.add', 'idx', 'doc{}'.format(i), 1.0, 'fields',
-                'title', 'hello world' if i % 2 == 0 else 'hello worlds')
+                     'title', 'hello world' if i % 2 == 0 else 'hello worlds')
 
         res = self.cmd('ft.search', 'idx', 'hello a world', 'NOCONTENT')
         self.assertEqual(100, res[0])
 
-        res = self.cmd('ft.search', 'idx', 'hello a world', 'VERBATIM', 'NOCONTENT')
+        res = self.cmd('ft.search', 'idx', 'hello a world',
+                       'VERBATIM', 'NOCONTENT')
         self.assertEqual(50, res[0])
 
         res = self.cmd('ft.search', 'idx', 'hello a world', 'NOSTOPWORDS')
@@ -449,7 +457,7 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
             res = r.execute_command(
                 'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
             self.assertLess(float(res[2]), 1)
-            #self.assertListEqual([1L, 'doc1'], res)
+            # self.assertListEqual([1L, 'doc1'], res)
             self.assertOk(r.execute_command('ft.add', 'idx',
                                             'doc1', '1.0', 'replace', 'partial', 'fields'))
             res = r.execute_command(
@@ -1708,14 +1716,16 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
 
     def testLanguageField(self):
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'language', 'TEXT')
-        self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'language', 'gibberish')
+        self.cmd('FT.ADD', 'idx', 'doc1', 1.0,
+                 'FIELDS', 'language', 'gibberish')
         res = self.cmd('FT.SEARCH', 'idx', 'gibberish')
         self.assertEqual([1L, 'doc1', ['language', 'gibberish']], res)
         # The only way I can verify that LANGUAGE is parsed twice is ensuring we
         # provide a wrong language. This is much easier to test than trying to
         # figure out how a given word is stemmed
         with self.assertResponseError():
-            self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE', 'blah', 'FIELDS', 'language', 'gibber')
+            self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE',
+                     'blah', 'FIELDS', 'language', 'gibber')
 
 
 def grouper(iterable, n, fillvalue=None):
