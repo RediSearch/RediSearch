@@ -86,3 +86,37 @@ A scoring function that just returns the a priory score of the document without 
 ```
 FT.SEARCH myIndex "foo" SCORER DOCSCORE
 ```
+
+## HAMMING
+
+Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the **nearest** neighbors, we inverse the hamming distance (`1/(1+d)`) so that a distance of 0 gives a perfect score of 1 and is the highest rank. 
+
+This works only if:
+
+1. The document has a payload.
+2. The query has a payload.
+3. Both are **exactly the same length**.
+
+Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results. 
+
+Example:
+
+```
+127.0.0.1:6379> FT.CREATE idx SCHEMA foo TEXT
+OK
+127.0.0.1:6379> FT.ADD idx 1 1 PAYLOAD "aaaabbbb" FIELDS foo hello
+OK
+127.0.0.1:6379> FT.ADD idx 2 1 PAYLOAD "aaaacccc" FIELDS foo bar
+OK
+
+127.0.0.1:6379> FT.SEARCH idx "*" PAYLOAD "aaaabbbc" SCORER HAMMING WITHSCORES
+1) (integer) 2
+2) "1"
+3) "0.5" // hamming distance of 1 --> 1/(1+1) == 0.5
+4) 1) "foo"
+   2) "hello"
+5) "2"
+6) "0.25" // hamming distance of 3 --> 1/(1+3) == 0.25
+7) 1) "foo"
+   2) "bar"
+```
