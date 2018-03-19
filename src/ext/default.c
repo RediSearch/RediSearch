@@ -162,6 +162,36 @@ double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetad
   return _dismaxRecursive(h);
 }
 
+/* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
+ * works if both have the payloads the same length */
+double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+                             double minScore) {
+  // the strings must be of the same length > 0
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->payload.len) {
+    return 0;
+  }
+  size_t ret = 0;
+  size_t len = ctx->payload.len;
+  // if the strings are not aligned to 64 bit - calculate the diff byte by
+  if (ctx->payload.len % sizeof(uint64_t) != 0) {
+    const char *a = ctx->payload.data;
+    const char *b = dmd->payload->data;
+    for (size_t i = 0; i < len; i++) {
+      ret += __builtin_popcount(a[i] ^ b[i]);
+    }
+  } else {
+    len /= sizeof(uint64_t);
+    // calculate in chunks of 64 bit
+    const uint64_t *a = (const uint64_t *)ctx->payload.data;
+    const uint64_t *b = (const uint64_t *)dmd->payload->data;
+    for (size_t i = 0; i < len; i++) {
+      ret += __builtin_popcountl(a[i] ^ b[i]);
+    }
+  }
+  // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
+  return 1.0 / (double)(ret + 1);
+}
+
 typedef struct {
   int isCn;
   union {
@@ -302,6 +332,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
+  /* Register HAMMING scorer */
+  if (ctx->RegisterScoringFunction(HAMMINGDISTANCE_SCORER, HammingDistanceScorer, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
   /* Register TFIDF.DOCNORM */
   if (ctx->RegisterScoringFunction(TFIDF_DOCNORM_SCORER_NAME, TFIDFNormDocLenScorer, NULL, NULL) ==
       REDISEARCH_ERR) {

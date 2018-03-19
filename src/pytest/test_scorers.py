@@ -8,6 +8,24 @@ class ScorersTestCase(ModuleTestCase('../redisearch.so')):
     def search(self, r, *args):
         return r.execute_command('ft.search', *args)
 
+    def testHammingScorer(self):
+        with self.redis() as r:
+            r.flushdb()
+
+        self.assertOk(r.execute_command(
+            'ft.create', 'idx', 'schema', 'title', 'text'))
+
+        for i in range(16):
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1,
+                                            'payload', ('%x' % i) * 8,
+                                            'fields', 'title', 'hello world '))
+        for i in range(16):
+            res = r.execute_command('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
+                                    'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS', 'LIMIT 1')
+            print res
+            self.assertEqual(res[1], 'doc%d' % i)
+            self.assertEqual(res[2], '1')
+
     def testTagIndex(self):
         with self.redis() as r:
             r.flushdb()
@@ -54,6 +72,7 @@ class ScorersTestCase(ModuleTestCase('../redisearch.so')):
                            2 == 1 else x for j, x in enumerate(res)]
                     #print res
                     self.assertListEqual(results[i], res)
+
 
 if __name__ == '__main__':
 
