@@ -139,7 +139,13 @@ main := |*
       fbreak;
     }
   };
-
+ star => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, STAR, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
   lsqb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  

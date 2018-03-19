@@ -22,6 +22,7 @@ class ScorersTestCase(ModuleTestCase('../redisearch.so')):
             for i in range(16):
                 res = r.execute_command('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
                                         'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+
                 self.assertEqual(res[1], 'doc%d' % i)
                 self.assertEqual(res[2], '1')
                 # test with payload of different lenght

@@ -7,6 +7,7 @@ We support a simple syntax for complex queries with the following rules:
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported. 
 * Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
+* A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`

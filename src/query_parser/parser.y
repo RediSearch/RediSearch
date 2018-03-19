@@ -129,6 +129,12 @@ query ::= expr(A) . {
     ctx->root = A;
  
 }
+
+/* A special wildcard query */
+query ::= STAR . {
+    ctx->root = NewWildcardNode();
+}
+
 query ::= . {
     ctx->root = NULL;
 }
