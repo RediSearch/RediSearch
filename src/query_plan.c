@@ -87,10 +87,9 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 #define HAS_TIMEOUT_FAILURE(qex) \
   ((qex)->execCtx.state == QueryState_TimedOut && (qex)->opts.timeoutPolicy == TimeoutPolicy_Fail)
 
-int Query_SerializeResults(QueryPlan *qex) {
+static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
   int count = 0;
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
 
   do {
     SearchResult r = SEARCH_RESULT_INIT;
@@ -107,8 +106,8 @@ int Query_SerializeResults(QueryPlan *qex) {
 
     // printf("Read result %d, rc %d\n", r.docId, rc);
     if (count == 0) {
-      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-      RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
+      RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
+      RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
     count += serializeResult(qex, &r, qex->opts.flags);
@@ -117,19 +116,20 @@ int Query_SerializeResults(QueryPlan *qex) {
     RSFieldMap_Free(r.fields, 0);
     r.fields = NULL;
   } while (rc != RS_RESULT_EOF);
+  qex->done = 1;
 
   if (count == 0) {
     if (HAS_TIMEOUT_FAILURE(qex)) {
-      return RedisModule_ReplyWithError(ctx, "Command timed out");
+      RedisModule_ReplyWithError(output, "Command timed out");
+      return;
     }
 
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
+    RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
     count++;
   }
 
-  RedisModule_ReplySetArrayLength(ctx, count);
-  return REDISMODULE_OK;
+  RedisModule_ReplySetArrayLength(output, count);
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is
@@ -235,12 +235,6 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   return plan;
 }
 
-int QueryPlan_Run(QueryPlan *plan, char **err) {
-  plan->bc = NULL;
-
-  *err = NULL;
-  RedisModuleCtx *ctx = plan->ctx->redisCtx;
-  int rc = Query_SerializeResults(plan);
-  *err = plan->execCtx.errorString;
-  return rc;
+void QueryPlan_Run(QueryPlan *plan, RedisModuleCtx *outputCtx) {
+  Query_SerializeResults(plan, outputCtx);
 }

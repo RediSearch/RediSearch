@@ -288,57 +288,76 @@ fail:
   return NULL;
 }
 
-int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
-  CmdArg *cmd = Aggregate_ParseRequest(argv, argc, &err);
-  if (!cmd) {
-    return RedisModule_ReplyWithError(sctx->redisCtx,
-                                      err ? err : "Could not parse aggregate request");
+int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
+                           int argc, const char **err) {
+#define MAYBE_SET_ERR(s) \
+  if (!*err) {           \
+    *err = s;            \
+  }
+  req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
+  if (!req->args) {
+    MAYBE_SET_ERR("Could not parse aggregate request");
+    return REDISMODULE_ERR;
   }
 
   RedisModuleCtx *ctx = sctx->redisCtx;
 
-  CmdString *str = &CMDARG_STR(CmdArg_FirstOf(cmd, "query"));
+  CmdString *str = &CMDARG_STR(CmdArg_FirstOf(req->args, "query"));
 
   RSSearchOptions opts = RS_DEFAULT_SEARCHOPTS;
   // mark the query as an aggregation query
   opts.flags |= Search_AggregationQuery;
 
-  QueryParseCtx *q = NewQueryParseCtx(sctx, str->str, str->len, &opts);
+  req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
-  if (!Query_Parse(q, &err)) {
-    Query_Free(q);
-    CmdArg_Free(cmd);
-
-    RedisModule_ReplyWithError(ctx, err ? err : "Unknown Error");
+  if (!Query_Parse(req->parseCtx, (char **)err)) {
+    MAYBE_SET_ERR("Unknown error");
     return REDISMODULE_ERR;
   }
-  Query_Expand(q, opts.expander);
+
+  Query_Expand(req->parseCtx, opts.expander);
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, req->args,
+                              (char **)&err);
+  if (!req->plan) {
+    printf("Don't have a plan! Sad!\n");
+    MAYBE_SET_ERR(QUERY_ERROR_INTERNAL_STR);
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
+void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx) {
+  QueryPlan_Run(req->plan, outCtx);
+}
+
+void AggregateRequest_Free(AggregateRequest *req) {
+  if (req->plan) {
+    if (req->plan->opts.fields.numFields) {
+      FieldList_Free(&req->plan->opts.fields);
+    }
+    QueryPlan_Free(req->plan);
+  }
+  if (req->parseCtx) {
+    Query_Free(req->parseCtx);
+  }
+  if (req->args) {
+    CmdArg_Free(req->args);
+  }
+}
+
+int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc) {
+  const char *err = NULL;
 
   // TODO: Pass err here
-  QueryPlan *plan = Query_BuildPlan(sctx, q, &opts, Aggregate_BuildProcessorChain, cmd, &err);
-  if (!plan || err != NULL) {
-    Query_Free(q);
-    CmdArg_Free(cmd);
-
-    RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
-    free(err);
-    return REDISMODULE_ERR;
-  }
   // Execute the query
-  int rc = QueryPlan_Run(plan, &err);
-  if (rc == REDISMODULE_ERR) {
-
-    RedisModule_ReplyWithError(ctx, err ? err : QUERY_ERROR_INTERNAL_STR);
+  AggregateRequest req = {NULL};
+  if (AggregateRequest_Start(&req, sctx, argv, argc, &err) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(sctx->redisCtx, err);
+  } else {
+    AggregateRequest_Run(&req, sctx->redisCtx);
   }
-  if (err) free(err);
-
-  if (plan->opts.fields.numFields) {
-    FieldList_Free(&plan->opts.fields);
-  }
-  QueryPlan_Free(plan);
-  Query_Free(q);
-  CmdArg_Free(cmd);
+  AggregateRequest_Free(&req);
   SearchCtx_Free(sctx);
-  return rc;
+  return REDISMODULE_OK;
 }

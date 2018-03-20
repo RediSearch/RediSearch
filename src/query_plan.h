@@ -14,7 +14,7 @@
 
 typedef struct QueryPlan {
   RedisSearchCtx *ctx;
-  RedisModuleBlockedClient *bc;
+
   IndexIterator *rootFilter;
 
   ResultProcessor *rootProcessor;
@@ -25,6 +25,7 @@ typedef struct QueryPlan {
 
   RSSearchOptions opts;
 
+  int done;  // Whether we've received an EOF from the processor
 } QueryPlan;
 
 /* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn
@@ -39,7 +40,8 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err);
 
-int QueryPlan_Run(QueryPlan *plan, char **err);
+/** Run the query plan, */
+void QueryPlan_Run(QueryPlan *plan, RedisModuleCtx *outputCtx);
 
 void QueryPlan_Free(QueryPlan *plan);
 

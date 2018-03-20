@@ -829,7 +829,7 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  int rc = QueryPlan_Run(plan, &err);
+  QueryPlan_Run(plan, ctx);
   if (err) {
     RedisModule_ReplyWithError(ctx, err);
     free(err);
