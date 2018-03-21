@@ -509,8 +509,10 @@ end:
   return REDISMODULE_OK;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, uint32_t timeout) {
+static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uint32_t timeout) {
   AggregateRequest *req = cursor->execState;
+  req->plan->opts.chunksize = num;
+
   AggregateRequest_Run(req, outputCtx);
   if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
     goto delcursor;
@@ -536,15 +538,31 @@ delcursor:
   Cursor_Free(cursor);
 }
 
+#define GEN_CONCURRENT_WRAPPER(name, argcond, target, pooltype)                      \
+  static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {         \
+    if (!(argcond)) {                                                                \
+      return RedisModule_WrongArity(ctx);                                            \
+    }                                                                                \
+    if (CheckConcurrentSupport(ctx)) {                                               \
+      return ConcurrentSearch_HandleRedisCommand(pooltype, target, ctx, argv, argc); \
+    } else {                                                                         \
+      target(ctx, argv, argc, NULL);                                                 \
+      return REDISMODULE_OK;                                                         \
+    }                                                                                \
+  }
+
+/**
+ * FT.CURREAD {CID} {ROWCOUNT} [MAXIDLE]
+ */
 static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                struct ConcurrentCmdCtx *cmdCtx) {
-  if (argc < 2 || argc > 3) {
+  if (argc < 4) {
     RedisModule_WrongArity(ctx);
     return;
   }
-  // Find the cursor ID
-  long long cid, timeout = 0;
-  if (RMUtil_ParseArgs(argv, argc, 1, "ll", &cid, &timeout) != REDISMODULE_OK) {
+
+  long long cid, num, timeout = 0;
+  if (RMUtil_ParseArgs(argv, argc, 1, "lll", &cid, &num, &timeout) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Couldn't parse arguments");
     return;
   }
@@ -554,27 +572,26 @@ static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  runCursor(ctx, cursor, timeout);
+  runCursor(ctx, cursor, num, timeout);
 }
 
-static void _CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 struct ConcurrentCmdCtx *cmdCtx) {
+GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc > 3, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
+
+static int CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
-    RedisModule_WrongArity(ctx);
-    return;
+    return RedisModule_WrongArity(ctx);
   }
 
   long long cid = 0;
   if (RedisModule_StringToLongLong(argv[1], &cid) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    return;
+    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
   int rc = Cursors_Purge(&RSCursors, cid);
   if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+    return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
 
@@ -616,7 +633,8 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (AggregateRequest_Start(req, sctx, argv, argc, &err) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, err);
   } else {
-    if (CmdArg_FirstOf(req->args, "WITHCURSOR")) {
+    CmdArg *curarg = CmdArg_FirstOf(req->args, "WITHCURSOR");
+    if (curarg) {
       // Using a cursor here!
       Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, &err);
 
@@ -628,8 +646,9 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
       CmdArg *tmoarg = CmdArg_FirstOf(req->args, "MAXIDLE");
       uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : 0;
+      uint32_t num = CMDARG_INT(curarg);
       req->plan->opts.flags |= Search_IsCursor;
-      runCursor(ctx, cursor, timeout);
+      runCursor(ctx, cursor, num, timeout);
       return;
     }
 
@@ -641,19 +660,7 @@ done:
   SearchCtx_Free(sctx);
 }
 
-int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  if (CheckConcurrentSupport(ctx)) {
-    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _AggregateCommand, ctx, argv,
-                                               argc);
-  } else {  // "safe" mode - process the request in the main thread
-    _AggregateCommand(ctx, argv, argc, NULL);
-    return REDISMODULE_OK;
-  }
-}
+GEN_CONCURRENT_WRAPPER(AggregateCommand, argc >= 3, _AggregateCommand, CONCURRENT_POOL_SEARCH);
 
 /* FT.DEL {index} {doc_id}
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
@@ -944,19 +951,7 @@ end:
   if (q) Query_Free(q);
 }
 
-int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  // in concurrent mode - process the request in the thread pool
-  if (CheckConcurrentSupport(ctx)) {
-    return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _SearchCommand, ctx, argv,
-                                               argc);
-  } else {  // "safe" mode - process the request in the main thread
-    _SearchCommand(ctx, argv, argc, NULL);
-    return REDISMODULE_OK;
-  }
-}
+GEN_CONCURRENT_WRAPPER(SearchCommand, argc >= 3, _SearchCommand, CONCURRENT_POOL_SEARCH)
 
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
@@ -1529,6 +1524,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, SuggestLenCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURREAD_CMD, CursorReadCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURDEL_CMD, CursorDeleteCommand, "readonly", 1, 1, 1);
 
   return REDISMODULE_OK;
 }
