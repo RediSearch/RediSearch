@@ -41,7 +41,7 @@ inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allo
     if (allowSwitching && cxc) {
       CONCURRENT_CTX_TICK(cxc);
       // need to abort - return EOF
-      if (rp->ctx.qxc->state == QueryState_Aborted) {
+      if (rp->ctx.qxc->state == QPState_Aborted) {
         return RS_RESULT_EOF;
       }
     }
@@ -128,7 +128,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     return RS_RESULT_EOF;
   }
   // if we've timed out - abort the root processor and return EOF
-  if (q->execCtx.state == QueryState_TimedOut) {
+  if (q->execCtx.state == QPState_TimedOut) {
     q->rootFilter->Abort(q->rootFilter->ctx);
     return RS_RESULT_EOF;
   }

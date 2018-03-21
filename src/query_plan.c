@@ -85,7 +85,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
  * that we do not drain partial results.
  */
 #define HAS_TIMEOUT_FAILURE(qex) \
-  ((qex)->execCtx.state == QueryState_TimedOut && (qex)->opts.timeoutPolicy == TimeoutPolicy_Fail)
+  ((qex)->execCtx.state == QPState_TimedOut && (qex)->opts.timeoutPolicy == TimeoutPolicy_Fail)
 
 static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
@@ -147,7 +147,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
 
-    q->execCtx.state = QueryState_Aborted;
+    q->execCtx.state = QPState_Aborted;
     q->ctx->spec = NULL;
     return;
   }
@@ -165,7 +165,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
     // printf("Elapsed: %zdms\n", durationNS / 1000000);
     // Abort on timeout
     if (durationNS > q->opts.timeoutMS * 1000000) {
-      q->execCtx.state = QueryState_TimedOut;
+      q->execCtx.state = QPState_TimedOut;
     }
   }
   // q->docTable = &sp->docs;
@@ -216,7 +216,7 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
       .errorString = NULL,
       .minScore = 0,
       .totalResults = 0,
-      .state = QueryState_OK,
+      .state = QPState_Running,
       .sctx = plan->ctx,
       .conc = plan->conc,
   };
