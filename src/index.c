@@ -582,7 +582,6 @@ ok:
 /* Read from a NOT iterator. This is applicable only if the only or leftmost node of a query is a
  * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
 int NI_Read(void *ctx, RSIndexResult **hit) {
-  printf("NI READ!\n");
   NotContext *nc = ctx;
   if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
 
