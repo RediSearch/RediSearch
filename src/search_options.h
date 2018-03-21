@@ -66,6 +66,7 @@ typedef enum {
 
   Search_WithSortKeys = 0x40,
   Search_AggregationQuery = 0x80,
+  Search_IsCursor = 0x100
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00

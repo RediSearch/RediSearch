@@ -90,18 +90,33 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
   int count = 0;
-  size_t limit = qex->opts.chunksize, nrows = 0;
+  const int isCursor = qex->opts.flags & Search_IsCursor;
+  size_t limit = 0, nrows = 0;
+
+  if (isCursor) {
+    if ((limit = qex->opts.chunksize) == 0) {
+      /* Always set limit if we're a cursor */
+      limit = -1;
+    }
+
+    /* Reset per-chunk variables */
+    qex->pause = 0;
+    qex->count = 0;
+    qex->outputFlags = 0;
+  }
 
   do {
     SearchResult r = SEARCH_RESULT_INIT;
     rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
 
     if (rc == RS_RESULT_EOF) {
+      qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
       break;
     }
 
     if (HAS_TIMEOUT_FAILURE(qex)) {
       RSFieldMap_Free(r.fields, 0);
+      qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
       break;
     }
 
@@ -116,15 +131,18 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     // IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
     r.fields = NULL;
-  } while (rc != RS_RESULT_EOF && (!limit || (++nrows < limit)));
 
-  if (rc == RS_RESULT_EOF) {
-    qex->done = 1;
-  }
+    if (limit) {
+      if (++nrows < limit || qex->pause) {
+        break;
+      }
+    }
+  } while (1);
 
   if (count == 0) {
     if (HAS_TIMEOUT_FAILURE(qex)) {
       RedisModule_ReplyWithError(output, "Command timed out");
+      qex->outputFlags |= QP_OUTPUT_FLAG_ERROR;
       return;
     }
 
@@ -133,7 +151,11 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     count++;
   }
 
-  RedisModule_ReplySetArrayLength(output, count);
+  if (!isCursor) {
+    RedisModule_ReplySetArrayLength(output, count);
+  } else {
+    qex->count = count;
+  }
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is
@@ -155,6 +177,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // The spec might have changed while we were sleeping - for example a realloc of the doc table
   q->ctx->spec = sp;
 
+  // FIXME: Per-query!!
   if (RSGlobalConfig.queryTimeoutMS > 0) {
     // Check the elapsed processing time
     static struct timespec now;
@@ -165,7 +188,11 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
     // printf("Elapsed: %zdms\n", durationNS / 1000000);
     // Abort on timeout
     if (durationNS > q->opts.timeoutMS * 1000000) {
-      q->execCtx.state = QPState_TimedOut;
+      if (q->opts.flags & Search_IsCursor) {
+        q->pause = 1;
+      } else {
+        q->execCtx.state = QPState_TimedOut;
+      }
     }
   }
   // q->docTable = &sp->docs;

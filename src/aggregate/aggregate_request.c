@@ -93,6 +93,10 @@ void Aggregate_BuildSchema() {
                      CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
                      CmdSchema_Optional | CmdSchema_Repeating);
 
+  CmdSchema_AddFlag(requestSchema, "WITHCURSOR");
+  CmdSchema_AddNamed(requestSchema, "MAXIDLE", CmdSchema_NewArgAnnotated('l', "idle_timeout"),
+                     CmdSchema_Optional);
+
   CmdSchema_Print(requestSchema);
 }
 

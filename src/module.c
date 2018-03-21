@@ -32,6 +32,7 @@
 #include "gc.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
+#include "cursor.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -508,6 +509,75 @@ end:
   return REDISMODULE_OK;
 }
 
+static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, uint32_t timeout) {
+  AggregateRequest *req = cursor->execState;
+  AggregateRequest_Run(req, outputCtx);
+  if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
+    goto delcursor;
+  }
+
+  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+    // Write the count!
+    RedisModule_ReplyWithLongLong(outputCtx, 0);
+  } else {
+    RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
+  }
+
+  RedisModule_ReplySetArrayLength(outputCtx, req->plan->count + 1);
+  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+    goto delcursor;
+  } else {
+    // Update the idle timeout
+    Cursor_Pause(cursor, timeout);
+  }
+
+delcursor:
+  AggregateRequest_Free(req);
+  Cursor_Free(cursor);
+}
+
+static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               struct ConcurrentCmdCtx *cmdCtx) {
+  if (argc < 2 || argc > 3) {
+    RedisModule_WrongArity(ctx);
+    return;
+  }
+  // Find the cursor ID
+  long long cid, timeout = 0;
+  if (RMUtil_ParseArgs(argv, argc, 1, "ll", &cid, &timeout) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Couldn't parse arguments");
+    return;
+  }
+
+  Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
+  if (cursor == NULL) {
+    RedisModule_ReplyWithError(ctx, "Cursor not found");
+    return;
+  }
+  runCursor(ctx, cursor, timeout);
+}
+
+static void _CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 struct ConcurrentCmdCtx *cmdCtx) {
+  if (argc != 2) {
+    RedisModule_WrongArity(ctx);
+    return;
+  }
+
+  long long cid = 0;
+  if (RedisModule_StringToLongLong(argv[1], &cid) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    return;
+  }
+
+  int rc = Cursors_Purge(&RSCursors, cid);
+  if (rc != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+}
+
 /*
   FT.AGGREGATE
   {idx:string}
@@ -540,14 +610,34 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   const char *err = NULL;
-  AggregateRequest req = {NULL};
+  AggregateRequest req_s = {NULL}, *req = &req_s;
+  int hasCursor = 0;
 
-  if (AggregateRequest_Start(&req, sctx, argv, argc, &err) != REDISMODULE_OK) {
+  if (AggregateRequest_Start(req, sctx, argv, argc, &err) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, err);
   } else {
-    AggregateRequest_Run(&req, sctx->redisCtx);
+    if (CmdArg_FirstOf(req->args, "WITHCURSOR")) {
+      // Using a cursor here!
+      Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, &err);
+
+      hasCursor = 1;
+      if (!cursor) {
+        RedisModule_ReplyWithError(ctx, err);
+        goto done;
+      }
+
+      CmdArg *tmoarg = CmdArg_FirstOf(req->args, "MAXIDLE");
+      uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : 0;
+      req->plan->opts.flags |= Search_IsCursor;
+      runCursor(ctx, cursor, timeout);
+      return;
+    }
+
+    AggregateRequest_Run(req, sctx->redisCtx);
   }
-  AggregateRequest_Free(&req);
+
+done:
+  AggregateRequest_Free(req);
   SearchCtx_Free(sctx);
 }
 
