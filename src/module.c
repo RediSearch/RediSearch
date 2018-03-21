@@ -528,14 +528,15 @@ end:
     {nargs:integer} {string} ...
     [AS {AS:string}]
   ] */
-int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                       struct ConcurrentCmdCtx *cmdCtx) {
 
   // at least one field, and number of field/text args must be even
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
   const char *err = NULL;
@@ -548,7 +549,6 @@ int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   AggregateRequest_Free(&req);
   SearchCtx_Free(sctx);
-  return REDISMODULE_OK;
 }
 
 int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -560,7 +560,8 @@ int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _AggregateCommand, ctx, argv,
                                                argc);
   } else {  // "safe" mode - process the request in the main thread
-    return _AggregateCommand(ctx, argv, argc);
+    _AggregateCommand(ctx, argv, argc, NULL);
+    return REDISMODULE_OK;
   }
 }
 
@@ -795,13 +796,15 @@ and
 then pairs of
     document id, and a nested array of field/value, unless NOCONTENT was given
 */
-int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                    struct ConcurrentCmdCtx *cmdCtx) {
   // at least one field, and number of field/text args must be even
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    return;
   }
 
   char *err = NULL;
@@ -835,7 +838,6 @@ int _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
     goto end;
-    return REDISMODULE_ERR;
   }
 
   QueryPlan_Run(plan, ctx);
@@ -850,7 +852,6 @@ end:
   if (sctx) SearchCtx_Free(sctx);
   if (req) RSSearchRequest_Free(req);
   if (q) Query_Free(q);
-  return REDISMODULE_OK;
 }
 
 int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -862,7 +863,8 @@ int SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ConcurrentSearch_HandleRedisCommand(CONCURRENT_POOL_SEARCH, _SearchCommand, ctx, argv,
                                                argc);
   } else {  // "safe" mode - process the request in the main thread
-    return _SearchCommand(ctx, argv, argc);
+    _SearchCommand(ctx, argv, argc, NULL);
+    return REDISMODULE_OK;
   }
 }
 

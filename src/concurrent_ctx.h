@@ -156,7 +156,24 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
-int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,
+struct ConcurrentCmdCtx;
+typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
+                                     struct ConcurrentCmdCtx *);
+
+/**
+ * Take ownership of the underlying Redis command context. Once ownership is
+ * claimed, the context needs to be freed (at some point in the future) via
+ * RM_FreeThreadSafeContext()
+ *
+ * TODO/FIXME:
+ * The context is tied to a BlockedCLient, but it shouldn't actually utilize it.
+ * Need to add an API to Redis to better manage a thread safe context, or to
+ * otherwise 'detach' it from the Client so that trying to perform I/O on it
+ * would result in an error rather than simply using a dangling pointer.
+ */
+void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
+
+int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /** This macro is called by concurrent executors (currently the query only).

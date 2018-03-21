@@ -17,13 +17,16 @@ void ConcurrentSearch_ThreadPoolStart() {
   }
 }
 
-struct ConcurrentSearchCommandCtx {
+#define CMDCTX_KEEP_RCTX 0x01
+
+typedef struct ConcurrentCmdCtx {
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *ctx;
-  RedisModuleCmdFunc handler;
-  int argc;
+  ConcurrentCmdHandler handler;
   RedisModuleString **argv;
-};
+  int argc;
+  int options;
+} ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
@@ -33,19 +36,23 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 }
 
 static void threadHandleCommand(void *p) {
-  struct ConcurrentSearchCommandCtx *ctx = p;
+  ConcurrentCmdCtx *ctx = p;
   RedisModule_ThreadSafeContextLock(ctx->ctx);
-  ctx->handler(ctx->ctx, ctx->argv, ctx->argc);
+  ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
-  RedisModule_FreeThreadSafeContext(ctx->ctx);
+
+  if (!ctx->options & CMDCTX_KEEP_RCTX) {
+    RedisModule_FreeThreadSafeContext(ctx->ctx);
+  }
+
   RedisModule_UnblockClient(ctx->bc, NULL);
   free(ctx->argv);
   free(p);
 }
 
-int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,
+int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  struct ConcurrentSearchCommandCtx *cmdCtx = malloc(sizeof(*cmdCtx));
+  ConcurrentCmdCtx *cmdCtx = malloc(sizeof(*cmdCtx));
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
