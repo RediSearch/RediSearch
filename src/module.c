@@ -538,8 +538,17 @@ int _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  char *err;
-  return Aggregate_ProcessRequest(sctx, argv, argc);
+  const char *err = NULL;
+  AggregateRequest req = {NULL};
+
+  if (AggregateRequest_Start(&req, sctx, argv, argc, &err) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(sctx->redisCtx, err);
+  } else {
+    AggregateRequest_Run(&req, sctx->redisCtx);
+  }
+  AggregateRequest_Free(&req);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
 }
 
 int AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

@@ -18,8 +18,6 @@ typedef struct {
 
 void Aggregate_BuildSchema();
 
-int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc);
-
 /**
  * Note that this does not initialize the structure; use
  */

@@ -345,19 +345,3 @@ void AggregateRequest_Free(AggregateRequest *req) {
     CmdArg_Free(req->args);
   }
 }
-
-int Aggregate_ProcessRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc) {
-  const char *err = NULL;
-
-  // TODO: Pass err here
-  // Execute the query
-  AggregateRequest req = {NULL};
-  if (AggregateRequest_Start(&req, sctx, argv, argc, &err) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(sctx->redisCtx, err);
-  } else {
-    AggregateRequest_Run(&req, sctx->redisCtx);
-  }
-  AggregateRequest_Free(&req);
-  SearchCtx_Free(sctx);
-  return REDISMODULE_OK;
-}
