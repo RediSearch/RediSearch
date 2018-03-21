@@ -103,6 +103,9 @@ typedef struct {
   size_t offset;
   size_t num;
 
+  /* Cursor read limit */
+  size_t chunksize;
+
   char *expander;
 
   char *scorer;

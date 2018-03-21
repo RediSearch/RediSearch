@@ -90,6 +90,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
   int count = 0;
+  size_t limit = qex->opts.chunksize, nrows = 0;
 
   do {
     SearchResult r = SEARCH_RESULT_INIT;
@@ -115,8 +116,11 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     // IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
     r.fields = NULL;
-  } while (rc != RS_RESULT_EOF);
-  qex->done = 1;
+  } while (rc != RS_RESULT_EOF && (!limit || (++nrows < limit)));
+
+  if (rc == RS_RESULT_EOF) {
+    qex->done = 1;
+  }
 
   if (count == 0) {
     if (HAS_TIMEOUT_FAILURE(qex)) {
