@@ -1451,6 +1451,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Init Schemata
   Aggregate_BuildSchema();
 
+  // Init cursors mechanism
+  CursorList_Init(&RSCursors);
+
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
   /* Load extensions if needed */

@@ -10,6 +10,7 @@
 #include <assert.h>
 #include "rmalloc.h"
 #include "config.h"
+#include "cursor.h"
 
 RedisModuleType *IndexSpecType;
 
@@ -79,9 +80,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name),
-                          REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
 
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
@@ -96,6 +96,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+
+  CursorList_AddSpec(&RSCursors, RedisModule_StringPtrLen(keyString, NULL),
+                     RSCURSORS_DEFAULT_CAPACITY);
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
@@ -678,6 +681,10 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  CursorList_AddSpec(&RSCursors, RedisModule_StringPtrLen(specKey, NULL),
+                     RSCURSORS_DEFAULT_CAPACITY);
+  RedisModule_FreeString(ctx, specKey);
   return sp;
 }
 
