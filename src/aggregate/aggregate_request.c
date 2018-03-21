@@ -344,4 +344,15 @@ void AggregateRequest_Free(AggregateRequest *req) {
   if (req->args) {
     CmdArg_Free(req->args);
   }
+
+  if (req->isHeapAlloc) {
+    rm_free(req);
+  }
+}
+
+AggregateRequest *AggregateRequest_Persist(AggregateRequest *req) {
+  AggregateRequest *ret = rm_malloc(sizeof(*ret));
+  *ret = *req;
+  ret->isHeapAlloc = 1;
+  return ret;
 }

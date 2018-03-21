@@ -14,6 +14,12 @@ typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;
   CmdArg *args;
+
+  /**
+   * If this pointer is heap allocated, in which case the pointer itself is
+   * freed during AR_Free()
+   */
+  int isHeapAlloc;
 } AggregateRequest;
 
 void Aggregate_BuildSchema();
@@ -25,6 +31,15 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
                            int argc, const char **err);
 void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx);
 void AggregateRequest_Free(AggregateRequest *req);
+
+/**
+ * Persist the request. This safely converts a stack allocated request to
+ * one allocated on the heap. This assumes that `req` lives on the stack.
+ *
+ * The current implementation simply does a malloc and memcpy, but this is
+ * abstracted in case the request's own members contain references to it.
+ */
+AggregateRequest *AggregateRequest_Persist(AggregateRequest *req);
 
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl);
 void Grouper_Free(Grouper *p);
