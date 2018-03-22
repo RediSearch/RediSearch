@@ -512,7 +512,6 @@ end:
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uint32_t timeout) {
   AggregateRequest *req = cursor->execState;
   req->plan->opts.chunksize = num;
-
   AggregateRequest_Run(req, outputCtx);
   if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
     goto delcursor;
@@ -531,6 +530,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uin
   } else {
     // Update the idle timeout
     Cursor_Pause(cursor, timeout);
+    return;
   }
 
 delcursor:
@@ -556,15 +556,22 @@ delcursor:
  */
 static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                struct ConcurrentCmdCtx *cmdCtx) {
-  if (argc < 4) {
+  if (argc < 3) {
     RedisModule_WrongArity(ctx);
     return;
   }
 
   long long cid, num, timeout = 0;
-  if (RMUtil_ParseArgs(argv, argc, 1, "lll", &cid, &num, &timeout) != REDISMODULE_OK) {
+  if (RMUtil_ParseArgs(argv, argc, 1, "ll", &cid, &num) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Couldn't parse arguments");
     return;
+  }
+
+  if (argc > 3) {
+    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, "Bad value for timeout");
+      return;
+    }
   }
 
   Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
@@ -575,7 +582,7 @@ static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   runCursor(ctx, cursor, num, timeout);
 }
 
-GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc > 3, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
+GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc >= 3, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
 
 static int CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
@@ -632,28 +639,31 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   if (AggregateRequest_Start(req, sctx, argv, argc, &err) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, err);
-  } else {
-    CmdArg *curarg = CmdArg_FirstOf(req->args, "WITHCURSOR");
-    if (curarg) {
-      // Using a cursor here!
-      Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, &err);
+    goto done;
+  }
 
-      hasCursor = 1;
-      if (!cursor) {
-        RedisModule_ReplyWithError(ctx, err);
-        goto done;
-      }
-
-      CmdArg *tmoarg = CmdArg_FirstOf(req->args, "MAXIDLE");
-      uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : 0;
-      uint32_t num = CMDARG_INT(curarg);
-      req->plan->opts.flags |= Search_IsCursor;
-      runCursor(ctx, cursor, num, timeout);
-      return;
+  CmdArg *curarg = CmdArg_FirstOf(req->args, "WITHCURSOR");
+  if (curarg) {
+    // Using a cursor here!
+    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, &err);
+    if (!cursor) {
+      RedisModule_ReplyWithError(ctx, err);
+      goto done;
     }
 
-    AggregateRequest_Run(req, sctx->redisCtx);
+    CmdArg *tmoarg = CmdArg_FirstOf(req->args, "MAXIDLE");
+    uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : 0;
+    uint32_t num = CMDARG_INT(curarg);
+    req = AggregateRequest_Persist(req);
+    req->plan->opts.flags |= Search_IsCursor;
+    cursor->execState = req;
+    /* Don't let the context get removed from under our feet */
+    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    runCursor(ctx, cursor, num, timeout);
+    return;
   }
+
+  AggregateRequest_Run(req, sctx->redisCtx);
 
 done:
   AggregateRequest_Free(req);

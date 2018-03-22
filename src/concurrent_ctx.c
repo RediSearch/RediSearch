@@ -50,6 +50,10 @@ static void threadHandleCommand(void *p) {
   free(p);
 }
 
+void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
+  cctx->options |= CMDCTX_KEEP_RCTX;
+}
+
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ConcurrentCmdCtx *cmdCtx = malloc(sizeof(*cmdCtx));
