@@ -224,8 +224,13 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
   int rc;
   khiter_t iter = kh_get(cursors, cl->lookup, cid);
   if (iter != kh_end(cl->lookup)) {
-    Cursor_FreeInternal(kh_value(cl->lookup, iter), iter);
+    Cursor *cur = kh_value(cl->lookup, iter);
+    if (Cursor_IsIdle(cur)) {
+      Cursor_RemoveFromIdle(cur);
+    }
+    Cursor_FreeInternal(cur, iter);
     rc = REDISMODULE_OK;
+
   } else {
     rc = REDISMODULE_ERR;
   }
