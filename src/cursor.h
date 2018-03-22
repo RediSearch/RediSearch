@@ -153,4 +153,6 @@ int Cursor_Free(Cursor *cl);
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
+int Cursors_CollectIdle(CursorList *cl);
+
 #endif

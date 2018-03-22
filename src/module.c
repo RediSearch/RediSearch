@@ -602,6 +602,20 @@ static int CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 }
 
+/**
+ * FT.CURGC
+ * Collect all idle cursors. Returns the number of cursors collected. Internal
+ * command useful for debugging and maintenance
+ */
+static int CursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  int rc = Cursors_CollectIdle(&RSCursors);
+  RedisModule_ReplyWithLongLong(ctx, rc);
+  return REDISMODULE_OK;
+}
+
 /*
   FT.AGGREGATE
   {idx:string}
@@ -1539,6 +1553,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURDEL_CMD, CursorDeleteCommand, "readonly", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURGC_CMD, CursorGCCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }
 
