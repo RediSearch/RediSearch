@@ -66,10 +66,28 @@ class TagsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
             for _ in r.retry_with_rdb_reload():
 
-                for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}','@tags:{x}'):
+                for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
                     res = self.search(r, 'idx', q)
                     self.assertEqual(
                         1, res[0], msg='Error trying {}'.format(q))
+
+            r.flushdb()
+
+    def testTagPrefix(self):
+        with self.redis() as r:
+            r.flushdb()
+
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
+
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                            'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
+            for _ in r.retry_with_rdb_reload():
+
+                for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
+                    res = self.search(r, 'idx', q)
+                    self.assertEqual(
+                        res[0], 1, msg='Error trying {}, got {}'.format(q, res))
 
             r.flushdb()
 
@@ -107,7 +125,7 @@ class TagsTestCase(ModuleTestCase('../redisearch.so')):
             for _ in r.retry_with_rdb_reload():
                 res = r.execute_command('ft.tagvals', 'idx', 'tags')
                 self.assertEqual(N * 2 + 1, len(res))
-                
+
                 self.assertSetEqual(alltags, set(res))
 
                 res = r.execute_command('ft.tagvals', 'idx', 'othertags')

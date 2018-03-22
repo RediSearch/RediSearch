@@ -479,6 +479,52 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
+/* Evaluate a tag prefix by expanding it with a lookup on the tag index */
+static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
+                                              RedisModuleKey *k, RedisModuleString *kn) {
+  if (qn->type != QN_PREFX) {
+    return NULL;
+  }
+
+  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
+    return NULL;
+  }
+  if (!idx || !idx->values) return NULL;
+
+  TrieMapIterator *it = TrieMap_Iterate(idx->values, qn->pfx.str, qn->pfx.len);
+  if (!it) return NULL;
+
+  size_t itsSz = 0, itsCap = 8;
+  IndexIterator **its = calloc(itsCap, sizeof(*its));
+
+  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+  char *s;
+  tm_len_t sl;
+  void *ptr;
+  // Find all completions of the prefix
+  while (TrieMapIterator_Next(it, &s, &sl, &ptr) && itsSz < RSGlobalConfig.maxPrefixExpansions) {
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, q->conc, k, kn);
+    if (!ret) continue;
+
+    // Add the reader to the iterator array
+    its[itsSz++] = ret;
+    if (itsSz == itsCap) {
+      itsCap *= 2;
+      its = realloc(its, itsCap * sizeof(*its));
+    }
+  }
+
+  TrieMapIterator_Free(it);
+
+  // printf("Expanded %d terms!\n", itsSz);
+  if (itsSz == 0) {
+    free(its);
+    return NULL;
+  }
+  return NewUnionIterator(its, itsSz, q->docTable, 1);
+}
+
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               RedisModuleKey *k, RedisModuleString *kn) {
 
@@ -488,6 +534,9 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                          ConcurrentSearchCtx *csx, RedisModuleKey *k,
                                          RedisModuleString *keyName);*/
       return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn);
+    case QN_PREFX:
+      return Query_EvalTagPrefixNode(q, idx, n, k, kn);
+
     case QN_PHRASE: {
       char *terms[n->pn.numChildren];
       for (int i = 0; i < n->pn.numChildren; i++) {
@@ -519,7 +568,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RedisModuleString *str = TagIndex_FormatName(q->sctx, node->fieldName);
   TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, str, 0, &k);
   if (!idx) return NULL;
-
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
     return query_EvalSingleTagNode(q, idx, node->children[0], k, str);
@@ -625,7 +673,8 @@ void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t nu
 
   tn->children = realloc(tn->children, sizeof(QueryNode *) * (tn->numChildren + num));
   for (size_t i = 0; i < num; i++) {
-    if (children[i] && (children[i]->type == QN_TOKEN || children[i]->type == QN_PHRASE)) {
+    if (children[i] && (children[i]->type == QN_TOKEN || children[i]->type == QN_PHRASE ||
+                        children[i]->type == QN_PREFX)) {
       tn->children[tn->numChildren++] = children[i];
     }
   }

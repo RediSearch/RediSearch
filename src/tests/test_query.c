@@ -135,6 +135,11 @@ int testQueryParser() {
   assertValidQuery("@tags:{foo}", ctx);
   assertValidQuery("@tags:{foo|bar baz|boo}", ctx);
   assertValidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
+  assertValidQuery("@tags:{foo*}", ctx);
+  assertValidQuery("@tags:{foo\\-*}", ctx);
+  assertValidQuery("@tags:{bar | foo*}", ctx);
+  assertValidQuery("@tags:{bar* | foo}", ctx);
+  assertValidQuery("@tags:{bar* | foo*}", ctx);
 
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
