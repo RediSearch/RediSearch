@@ -155,4 +155,6 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
+void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+
 #endif

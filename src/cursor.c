@@ -236,3 +236,32 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 int Cursor_Free(Cursor *cur) {
   return Cursors_Purge(cur->parent, cur->id);
 }
+
+void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
+  CursorList_Lock(cl);
+  CursorSpecInfo *info = findInfo(cl, name);
+  size_t n = 0;
+
+  /** Output total information */
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSimpleString(ctx, "global_idle");
+  RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+  n += 2;
+
+  RedisModule_ReplyWithSimpleString(ctx, "global_total");
+  RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
+  n += 2;
+
+  if (info) {
+    RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
+    RedisModule_ReplyWithLongLong(ctx, info->cap);
+    n += 2;
+
+    RedisModule_ReplyWithSimpleString(ctx, "index_total");
+    RedisModule_ReplyWithLongLong(ctx, info->used);
+    n += 2;
+  }
+
+  RedisModule_ReplySetArrayLength(ctx, n);
+  CursorList_Unlock(cl);
+}

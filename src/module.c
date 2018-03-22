@@ -361,6 +361,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   GC_RenderStats(ctx, sp->gc);
   n += 2;
 
+  RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
+  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  Cursors_RenderStats(&RSCursors, RedisModule_StringPtrLen(specKey, NULL), ctx);
+  n += 2;
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
