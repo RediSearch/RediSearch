@@ -8,10 +8,9 @@
  *   processors
  ******************************************************************************************************/
 
-static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags) {
+static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags,
+                              RedisModuleCtx *ctx) {
   size_t count = 0;
-
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
   if (r->md && !(qex->opts.flags & Search_AggregationQuery)) {
     size_t klen;
     const char *k = DMD_KeyPtrLen(r->md, &klen);
@@ -126,14 +125,14 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
       RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
-    count += serializeResult(qex, &r, qex->opts.flags);
+    count += serializeResult(qex, &r, qex->opts.flags, output);
 
     // IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
     r.fields = NULL;
 
     if (limit) {
-      if (++nrows < limit || qex->pause) {
+      if (++nrows >= limit || qex->pause) {
         break;
       }
     }
