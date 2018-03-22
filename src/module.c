@@ -517,6 +517,8 @@ end:
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uint32_t timeout) {
   AggregateRequest *req = cursor->execState;
   req->plan->opts.chunksize = num;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
+
   AggregateRequest_Run(req, outputCtx);
   if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
     goto delcursor;
