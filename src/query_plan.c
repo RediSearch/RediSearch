@@ -150,11 +150,7 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     count++;
   }
 
-  if (!isCursor) {
-    RedisModule_ReplySetArrayLength(output, count);
-  } else {
-    qex->count = count;
-  }
+  RedisModule_ReplySetArrayLength(output, count);
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is

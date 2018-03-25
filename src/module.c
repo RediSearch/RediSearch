@@ -519,8 +519,10 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uin
   req->plan->opts.chunksize = num;
   clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
 
+  RedisModule_ReplyWithArray(outputCtx, 2);
   AggregateRequest_Run(req, outputCtx);
   if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
+    RedisModule_ReplyWithLongLong(outputCtx, 0);
     goto delcursor;
   }
 
@@ -531,7 +533,6 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uin
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
   }
 
-  RedisModule_ReplySetArrayLength(outputCtx, req->plan->count + 1);
   if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
     goto delcursor;
   } else {
@@ -563,19 +564,19 @@ delcursor:
  */
 static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                struct ConcurrentCmdCtx *cmdCtx) {
-  if (argc < 3) {
+  if (argc < 4) {
     RedisModule_WrongArity(ctx);
     return;
   }
 
   long long cid, num, timeout = 0;
-  if (RMUtil_ParseArgs(argv, argc, 1, "ll", &cid, &num) != REDISMODULE_OK) {
+  if (RMUtil_ParseArgs(argv, argc, 2, "ll", &cid, &num) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Couldn't parse arguments");
     return;
   }
 
-  if (argc > 3) {
-    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+  if (argc > 4) {
+    if (RedisModule_StringToLongLong(argv[4], &timeout) != REDISMODULE_OK) {
       RedisModule_ReplyWithError(ctx, "Bad value for timeout");
       return;
     }
@@ -589,7 +590,7 @@ static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   runCursor(ctx, cursor, num, timeout);
 }
 
-GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc >= 3, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
+GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc >= 4, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
 
 static int CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
