@@ -2,6 +2,7 @@
 #include "mempool.h"
 #include <sys/param.h>
 #include <stdio.h>
+#include <pthread.h>
 
 typedef struct mempool_t {
   void **entries;
@@ -10,6 +11,7 @@ typedef struct mempool_t {
   size_t max;  // max size for pool
   mempool_alloc_fn alloc;
   mempool_free_fn free;
+  pthread_mutex_t lock;
 } mempool_t;
 
 mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn freefn) {
@@ -25,22 +27,36 @@ mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
   p->cap = cap;
   p->max = max;
   p->top = 0;
+  pthread_mutex_init(&p->lock, NULL);
   return p;
 }
 
 void *mempool_get(mempool_t *p) {
+  pthread_mutex_lock(&p->lock);
+  void *ret = NULL;
   if (p->top > 0) {
-    return p->entries[--p->top];
+    ret = p->entries[--p->top];
+    pthread_mutex_unlock(&p->lock);
+
+  } else {
+    pthread_mutex_unlock(&p->lock);
+
+    ret = p->alloc();
   }
-  return p->alloc();
+  return ret;
 }
 
 void mempool_release(mempool_t *p, void *ptr) {
+  pthread_mutex_lock(&p->lock);
+
   if (p->top == p->cap) {
 
     // This is a limited pool, and we can't outgrow ourselves now, just free the ptr immediately
     if (p->max && p->max == p->top) {
+      pthread_mutex_unlock(&p->lock);
+
       p->free(ptr);
+
       return;
     }
     // grow the pool
@@ -48,9 +64,11 @@ void mempool_release(mempool_t *p, void *ptr) {
     p->entries = realloc(p->entries, p->cap * sizeof(void *));
   }
   p->entries[p->top++] = ptr;
+  pthread_mutex_unlock(&p->lock);
 }
 
 void mempool_destroy(mempool_t *p) {
+  pthread_mutex_destroy(&p->lock);
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);
   }
