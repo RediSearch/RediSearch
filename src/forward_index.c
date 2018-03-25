@@ -38,7 +38,7 @@ static KHTableEntry *allocBucketEntry(void *ptr) {
 }
 
 static uint32_t hashKey(const void *s, size_t n) {
-  return fnv_32a_buf((void *)s, n, 0);
+  return rs_fnv_32a_buf((void *)s, n, 0);
 }
 
 #define CHARS_PER_TERM 5
