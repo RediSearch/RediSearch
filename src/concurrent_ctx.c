@@ -41,7 +41,7 @@ static void threadHandleCommand(void *p) {
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
 
-  if (!ctx->options & CMDCTX_KEEP_RCTX) {
+  if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
   }
 
