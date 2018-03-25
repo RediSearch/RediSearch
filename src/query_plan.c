@@ -245,10 +245,12 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
   if (plan->conc) {
     ConcurrentSearchCtx_Init(ctx->redisCtx, plan->conc);
-    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
+    if (plan->ctx->key) {
+      ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
+                              Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
+    }
   }
-  if (!queryPlan_EvalQuery(plan, parsedQuery, opts)) {
+  if (parsedQuery && !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
     QueryPlan_Free(plan);
     return NULL;
   }

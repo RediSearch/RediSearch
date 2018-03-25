@@ -57,7 +57,7 @@ inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allo
  * implementing it if they have no calculations to add to Total (such as deeted/ignored results)
  * */
 size_t ResultProcessor_Total(ResultProcessor *rp) {
-  return rp->ctx.qxc->totalResults;
+  return rp->ctx.qxc ? rp->ctx.qxc->totalResults : 0;
 }
 
 /* Free a result processor - recursively freeing its upstream as well. If the processor does not
