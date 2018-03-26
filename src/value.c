@@ -19,7 +19,7 @@ RSValue *RS_NewValue(RSValueType t) {
   if (!valuePool_g) {
     valuePool_g = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
   }
-  RSValue *v = mempool_get(valuePool_g);
+  RSValue *v = mempool_safe_get(valuePool_g);
   v->t = t;
   v->refcount = 0;
   v->allocated = 1;
@@ -64,7 +64,7 @@ inline void RSValue_Free(RSValue *v) {
     }
 
     if (v->allocated) {
-      mempool_release(valuePool_g, v);
+      mempool_safe_release(valuePool_g, v);
     }
   }
 }
@@ -546,7 +546,7 @@ RSFieldMap *RS_NewFieldMap(uint16_t cap) {
     fieldmapPool_g = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
   }
   if (!cap) cap = 1;
-  RSFieldMap *m = mempool_get(fieldmapPool_g);
+  RSFieldMap *m = mempool_safe_get(fieldmapPool_g);
   m->len = 0;
   return m;
 }
@@ -635,7 +635,7 @@ void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
     if (freeKeys) free((void *)m->fields[i].key);
   }
   m->len = 0;
-  mempool_release(fieldmapPool_g, m);
+  mempool_safe_release(fieldmapPool_g, m);
   // free(m);
 }
 
