@@ -93,9 +93,13 @@ void Aggregate_BuildSchema() {
                      CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
                      CmdSchema_Optional | CmdSchema_Repeating);
 
-  CmdSchema_AddNamed(requestSchema, "WITHCURSOR", CmdSchema_NewArgAnnotated('l', "row_count"),
+  CmdSchemaNode *cursorSchema =
+      CmdSchema_AddSubSchema(requestSchema, "WITHCURSOR", CmdSchema_Optional, "Use cursor");
+
+  CmdSchema_AddNamed(cursorSchema, "COUNT", CmdSchema_NewArgAnnotated('l', "row_count"),
                      CmdSchema_Optional);
-  CmdSchema_AddNamed(requestSchema, "MAXIDLE", CmdSchema_NewArgAnnotated('l', "idle_timeout"),
+
+  CmdSchema_AddNamed(cursorSchema, "MAXIDLE", CmdSchema_NewArgAnnotated('l', "idle_timeout"),
                      CmdSchema_Optional);
 
   CmdSchema_Print(requestSchema);

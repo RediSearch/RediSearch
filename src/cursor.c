@@ -46,7 +46,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   }
 
   Array_Resize(idle, sizeof(Cursor *) * (n - 1));
-  if (cur->timeout == cur->parent->nextIdleTimeout) {
+  if (cur->nextTimeout == cur->parent->nextIdleTimeout) {
     cur->parent->nextIdleTimeout = 0;
   }
   cur->pos = -1;
@@ -89,7 +89,7 @@ static int Cursors_GCInternal(CursorList *cl) {
   cl->lastCollect = now;
   for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
     Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
-    if (cur->timeout <= now) {
+    if (cur->nextTimeout <= now) {
       /* Remove it */
       Cursor_RemoveFromIdle(cur);
       Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
@@ -137,7 +137,7 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char **err) {
+Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval, const char **err) {
   const char *keyName = RedisModule_StringPtrLen(sctx->keyName, NULL);
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -165,6 +165,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char **err) 
   cur->sctx = sctx;
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
+  cur->timeoutInterval = interval;
 
   int dummy;
   khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
@@ -178,18 +179,15 @@ done:
   return cur;
 }
 
-int Cursor_Pause(Cursor *cur, uint32_t maxIdleMs) {
+int Cursor_Pause(Cursor *cur) {
   CursorList *cl = cur->parent;
-  if (!maxIdleMs) {
-    maxIdleMs = RSCURSORS_DEFAULT_MAXIDLE_SEC * 1000;
-  }
-  cur->timeout = curTime() + (maxIdleMs * 1000000);
+  cur->nextTimeout = curTime() + (cur->timeoutInterval * 1000000);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  if (cur->timeout < cl->nextIdleTimeout || cl->nextIdleTimeout == 0) {
-    cl->nextIdleTimeout = cur->timeout;
+  if (cur->nextTimeout < cl->nextIdleTimeout || cl->nextIdleTimeout == 0) {
+    cl->nextIdleTimeout = cur->nextTimeout;
   }
 
   /* Add to idle list */

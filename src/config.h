@@ -42,6 +42,13 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
+  // Number of rows to read from a cursor if not specified
+  long long cursorReadSize;
+
+  // Maximum idle time for a cursor. Users can use shorter lifespans, but never
+  // longer ones
+  long long cursorMaxIdle;
+
   RSTimeoutPolicy timeoutPolicy;
 } RSConfig;
 
@@ -53,10 +60,11 @@ extern RSConfig RSGlobalConfig;
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
 // default configuration
-#define RS_DEFAULT_CONFIG                                                                    \
-  (RSConfig) {                                                                               \
-    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                 \
-    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return \
+#define RS_DEFAULT_CONFIG                                                                     \
+  (RSConfig) {                                                                                \
+    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                  \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return, \
+    .cursorReadSize = 1000, .cursorMaxIdle = 300000                                           \
   }
 ;
 

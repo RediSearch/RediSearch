@@ -514,8 +514,11 @@ end:
   return REDISMODULE_OK;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uint32_t timeout) {
+static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AggregateRequest *req = cursor->execState;
+  if (!num) {
+    num = RSGlobalConfig.cursorReadSize;
+  }
   req->plan->opts.chunksize = num;
   clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
 
@@ -537,7 +540,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num, uin
     goto delcursor;
   } else {
     // Update the idle timeout
-    Cursor_Pause(cursor, timeout);
+    Cursor_Pause(cursor);
     return;
   }
 
@@ -560,28 +563,11 @@ delcursor:
   }
 
 /**
- * FT.CURREAD {CID} {ROWCOUNT} [MAXIDLE]
+ * FT.CURSOR READ {index} {CID} {ROWCOUNT} [MAXIDLE]
+ * FT.CURSOR DEL {index} {CID}
+ * FT.CURSOR GC {index}
  */
-static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               struct ConcurrentCmdCtx *cmdCtx) {
-  if (argc < 4) {
-    RedisModule_WrongArity(ctx);
-    return;
-  }
-
-  long long cid, num, timeout = 0;
-  if (RMUtil_ParseArgs(argv, argc, 2, "ll", &cid, &num) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Couldn't parse arguments");
-    return;
-  }
-
-  if (argc > 4) {
-    if (RedisModule_StringToLongLong(argv[4], &timeout) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, "Bad value for timeout");
-      return;
-    }
-  }
-
+static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
@@ -589,42 +575,59 @@ static void _CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   AggregateRequest *req = cursor->execState;
   ConcurrentSearchCtx_ReopenKeys(req->plan->conc);
-  runCursor(ctx, cursor, num, timeout);
+  runCursor(ctx, cursor, count);
 }
 
-GEN_CONCURRENT_WRAPPER(CursorReadCommand, argc >= 4, _CursorReadCommand, CONCURRENT_POOL_SEARCH)
-
-static int CursorDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
+static void _CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                           struct ConcurrentCmdCtx *unused) {
+  if (argc < 3) {
+    RedisModule_WrongArity(ctx);
+    return;
   }
 
+  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
   long long cid = 0;
-  if (RedisModule_StringToLongLong(argv[1], &cid) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+  // argv[1] - FT.CURSOR
+  // argv[1] - subcommand
+  // argv[2] - index
+  // argv[3] - cursor ID
+
+  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    return;
   }
 
-  int rc = Cursors_Purge(&RSCursors, cid);
-  if (rc != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+  char cmdc = toupper(*cmd);
+
+  if (cmdc == 'R') {
+    long long count = 0;
+    if (argc > 5) {
+      // e.g. 'COUNT <timeout>'
+      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
+        return;
+      }
+    }
+    cursorRead(ctx, cid, count);
+
+  } else if (cmdc == 'D') {
+    int rc = Cursors_Purge(&RSCursors, cid);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+    } else {
+      RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+
+  } else if (cmdc == 'G') {
+    int rc = Cursors_CollectIdle(&RSCursors);
+    RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    printf("Unknow command %s\n", cmd);
+    RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
 }
 
-/**
- * FT.CURGC
- * Collect all idle cursors. Returns the number of cursors collected. Internal
- * command useful for debugging and maintenance
- */
-static int CursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 1) {
-    return RedisModule_WrongArity(ctx);
-  }
-  int rc = Cursors_CollectIdle(&RSCursors);
-  RedisModule_ReplyWithLongLong(ctx, rc);
-  return REDISMODULE_OK;
-}
+GEN_CONCURRENT_WRAPPER(CursorCommand, argc >= 4, _CursorCommand, CONCURRENT_POOL_SEARCH)
 
 /*
   FT.AGGREGATE
@@ -668,22 +671,27 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   CmdArg *curarg = CmdArg_FirstOf(req->args, "WITHCURSOR");
   if (curarg) {
+    CmdArg *tmoarg = CmdArg_FirstOf(curarg, "MAXIDLE");
+    CmdArg *countarg = CmdArg_FirstOf(curarg, "COUNT");
+    uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : RSGlobalConfig.cursorMaxIdle;
+    if (timeout > RSGlobalConfig.cursorMaxIdle) {
+      timeout = RSGlobalConfig.cursorMaxIdle;
+    }
+    uint32_t count = countarg ? CMDARG_INT(countarg) : 0;
+
     // Using a cursor here!
-    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, &err);
+    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, timeout, &err);
     if (!cursor) {
       RedisModule_ReplyWithError(ctx, err);
       goto done;
     }
 
-    CmdArg *tmoarg = CmdArg_FirstOf(req->args, "MAXIDLE");
-    uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : 0;
-    uint32_t num = CMDARG_INT(curarg);
     req = AggregateRequest_Persist(req);
     req->plan->opts.flags |= Search_IsCursor;
     cursor->execState = req;
     /* Don't let the context get removed from under our feet */
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-    runCursor(ctx, cursor, num, timeout);
+    runCursor(ctx, cursor, count);
     return;
   }
 
@@ -1559,11 +1567,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURREAD_CMD, CursorReadCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, CursorCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURDEL_CMD, CursorDeleteCommand, "readonly", 1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURGC_CMD, CursorGCCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }
 

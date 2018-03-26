@@ -33,10 +33,13 @@ typedef struct Cursor {
   void *execState;
 
   /** Time when this cursor will no longer be valid, in nanos */
-  uint64_t timeout;
+  uint64_t nextTimeout;
 
   /** ID of this cursor */
   uint64_t id;
+
+  /** Initial timeout interval */
+  unsigned timeoutInterval;
 
   /** Position within idle list */
   int pos;
@@ -114,7 +117,6 @@ extern CursorList RSCursors;
 void CursorList_Init(CursorList *cl);
 
 #define RSCURSORS_DEFAULT_CAPACITY 128
-#define RSCURSORS_DEFAULT_MAXIDLE_SEC (60 * 10)     /* 10 minutes */
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -127,9 +129,12 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
 /**
  * Reserve a cursor for use with a given query.
  * Returns NULL if the index does not exist or if there are too many
- * cursors currently in use
+ * cursors currently in use.
+ *
+ * Timeout is the max idle timeout (activated at each call to Pause()) in
+ * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char **err);
+Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned timeout, const char **err);
 
 /**
  * Retrieve a cursor for execution. This locates the cursor, removes it
@@ -141,7 +146,7 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
  * Pause a cursor, setting it to idle and placing it back in the cursor
  * list
  */
-int Cursor_Pause(Cursor *cur, uint32_t maxIdleMs);
+int Cursor_Pause(Cursor *cur);
 
 /**
  * Free a given cursor. This should be called on an already-obtained cursor
