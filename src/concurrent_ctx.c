@@ -1,6 +1,7 @@
 #include "concurrent_ctx.h"
 #include "dep/thpool/thpool.h"
 #include <unistd.h>
+#include <assert.h>
 
 static threadpool ConcurrentSearchThreadPool = NULL;
 static threadpool ConcurrentIndexThreadPool = NULL;
@@ -82,7 +83,7 @@ static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
   }
 }
 
-static void ConcurrentSearch_ReopenKeys(ConcurrentSearchCtx *ctx) {
+void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
     ConcurrentKeyCtx *kx = &ctx->openKeys[i];
@@ -192,9 +193,10 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
 }
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
+  assert(!ctx->isLocked);
   RedisModule_ThreadSafeContextLock(ctx->ctx);
   ctx->isLocked = 1;
-  ConcurrentSearch_ReopenKeys(ctx);
+  ConcurrentSearchCtx_ReopenKeys(ctx);
 }
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {

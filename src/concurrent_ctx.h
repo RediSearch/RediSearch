@@ -156,6 +156,8 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
+void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
+
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
