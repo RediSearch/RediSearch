@@ -1742,6 +1742,16 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.assertResponseError():
             self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE',
                      'blah', 'FIELDS', 'language', 'gibber')
+    
+    def testUninitSortvector(self):
+        # This would previously crash
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
+        for x in range(2000):
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS', 'f1', 'HELLO')
+
+        self.cmd('SAVE')
+        for x in range(10):
+            self.cmd('DEBUG RELOAD')
 
 
 def grouper(iterable, n, fillvalue=None):
