@@ -92,8 +92,10 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
         break;
       case RS_SORTABLE_STR:
         tbl->values[idx].str = normalizeStr((char *)p);
+        break;
       case RS_SORTABLE_NIL:
       default:
+        tbl->values[idx].str = NULL;
         break;
     }
     tbl->values[idx].type = type;

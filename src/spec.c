@@ -505,7 +505,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
-  sp->docs = NewDocTable(1000);
+  sp->docs = NewDocTable(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->sortables = NULL;
