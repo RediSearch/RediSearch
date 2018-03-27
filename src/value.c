@@ -47,6 +47,7 @@ inline void RSValue_Free(RSValue *v) {
             sdsfree(v->strval.str);
             break;
           case RSString_Const:
+          case RSString_Volatile:
             break;
         }
         break;
@@ -68,11 +69,6 @@ inline void RSValue_Free(RSValue *v) {
     }
   }
 }
-
-/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on
- * arrays. On numeric values it's no slower than shallow copy. Redis strings ar not recreated
- */
-#define RSValue_Copy RSValue_IncrRef
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){

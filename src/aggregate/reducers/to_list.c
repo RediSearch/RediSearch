@@ -22,7 +22,8 @@ int tolist_Add(void *ctx, SearchResult *res) {
     uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), RSValue_IncrRef(v), NULL);
+      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
+                  RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
     }
   }
   return 1;
@@ -48,7 +49,7 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 void freeValues(void *ptr) {
   RSValue_Free(ptr);
-  //free(ptr);
+  // free(ptr);
 }
 // Free just frees up the processor. If left as NULL we simply use free()
 void tolist_Free(Reducer *r) {

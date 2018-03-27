@@ -39,7 +39,7 @@ static int fv_Add(void *ctx, SearchResult *res) {
   if (RSValue_IsNull(sortval)) {
     if (!fvx->hasValue) {
       fvx->hasValue = 1;
-      RSValue_MakeReference(&fvx->value, val ? val : RS_NullVal());
+      RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
     }
     return 1;
   }
@@ -50,8 +50,8 @@ static int fv_Add(void *ctx, SearchResult *res) {
   if (!fvx->hasValue || (!isnull && rc > 0) || (isnull && rc < 0)) {
     RSValue_Free(&fvx->sortValue);
     RSValue_Free(&fvx->value);
-    RSValue_MakeReference(&fvx->sortValue, sortval);
-    RSValue_MakeReference(&fvx->value, val ? val : RS_NullVal());
+    RSValue_MakeReference(&fvx->sortValue, RSValue_MakePersistent(sortval));
+    RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
     fvx->hasValue = 1;
   }
 

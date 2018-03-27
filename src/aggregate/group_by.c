@@ -71,7 +71,7 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
 
     // We must do a deep copy of the group values since they may be deleted during processing
     RSValue *src = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
-    RSFieldMap_Add(&group->values, g->keys->keys[i].key, src);
+    RSFieldMap_Add(&group->values, g->keys->keys[i].key, RSValue_MakePersistent(src));
   }
 }
 

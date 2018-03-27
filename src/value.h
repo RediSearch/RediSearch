@@ -35,6 +35,8 @@ typedef enum {
   RSString_Malloc = 0x01,
   RSString_RMAlloc = 0x02,
   RSString_SDS = 0x03,
+  // Volatile strings are strings that need to be copied when retained
+  RSString_Volatile = 0x04,
 } RSStringType;
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
@@ -51,9 +53,9 @@ typedef struct rsvalue {
     // string value
     struct {
       char *str;
-      uint32_t len : 30;
+      uint32_t len : 29;
       // sub type for string
-      RSStringType stype : 2;
+      RSStringType stype : 3;
     } strval;
 
     // array value
@@ -79,16 +81,6 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
   ++v->refcount;
   return v;
 }
-
-static inline RSValue *RSValue_DecrRef(RSValue *v) {
-  --v->refcount;
-  return v;
-}
-
-/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on
- * arrays. On numeric values it's no slower than shallow copy. Redis strings ar not recreated
- */
-#define RSValue_Copy RSValue_IncrRef
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -149,6 +141,18 @@ static inline int RSValue_IsNull(const RSValue *value) {
   if (!value || value->t == RSValue_Null) return 1;
   if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
   return 0;
+}
+
+/* Make sure a value can be long lived. If the underlying value is a volatile string that might go
+ * away in the next iteration, we copy it at that stage. This doesn't change the ref count.
+ * A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
+ * discarding the pointer here is "safe" */
+static inline RSValue *RSValue_MakePersistent(RSValue *v) {
+  if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
+    v->strval.str = strndup(v->strval.str, v->strval.len);
+    v->strval.stype = RSString_Malloc;
+  }
+  return v;
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets

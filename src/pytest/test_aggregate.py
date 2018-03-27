@@ -15,7 +15,7 @@ def to_dict(res):
 
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
-    #ingested = False
+    # ingested = False
 
     def ingest(self):
         try:
@@ -64,7 +64,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         row = to_dict(res[1])
-        # print row
+        print row
         self.assertEqual(88, int(float(row['minPrice'])))
 
         cmd = ['ft.aggregate', 'games', 'sony',
@@ -288,6 +288,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                 f(self)
                 sys.stdout.write('.')
                 sys.stdout.flush()
+
 
 if __name__ == '__main__':
 
