@@ -76,6 +76,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
       }
       case RS_SORTABLE_NIL:
       default:
+        tbl->values[idx] = RSValue_IncrRef(RS_NullVal());
         break;
     }
   }
