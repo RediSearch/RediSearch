@@ -1567,7 +1567,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, CursorCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, CursorCommand, "readonly", 2, 2, 1);
 
   return REDISMODULE_OK;
 }
