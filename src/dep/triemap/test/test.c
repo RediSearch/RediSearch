@@ -131,7 +131,6 @@ void testRandomWalk() {
     mu_check(rc);
     mu_check(ptr);
 
-    //printf("%.*s\n", len, sbuf);
     free(sbuf);
   }
 
@@ -140,9 +139,9 @@ void testRandomWalk() {
     sprintf(prefix, "key%d", i);
     for (int x = 0; x < 5; x++) {
       void *val = TrieMap_RandomValueByPrefix(tm, prefix, strlen(prefix));
-      
+
       mu_check(val);
-      //printf("%d %s\n", i, (char*)val);
+      // printf("%d %s\n", i, (char*)val);
       mu_check(!strncmp((char *)val, prefix, strlen(prefix)));
     }
   }
@@ -153,10 +152,51 @@ void testRandomWalk() {
   TrieMap_Free(tm, NULL);
 }
 
+void testRandom() {
+  TrieMap *tm = NewTrieMap();
+
+  char buf[0xfffff + 10];
+  int N = 1000;
+  for (int i = 0; i < N; i++) {
+    int n = rand() % sizeof(buf);
+    for (int j = 0; j < n; j++) {
+      buf[j] = rand() % 255;
+    }
+
+    int *pi = malloc(sizeof(int));
+    *pi = i + 1;
+    TrieMap_Add(tm, buf, n, pi, NULL);
+    // if (i % 1000 == 0) printf("%d\n", i);
+  }
+  mu_assert_int_eq(N, tm->cardinality);
+  // mu_check(1 == TrieMap_Add(tm, "", 0, NULL, NULL));
+  // mu_assert_int_eq(101, tm->cardinality);
+
+  TrieMapIterator *it = TrieMap_Iterate(tm, "", 0);
+  mu_check(it);
+  int count = 0;
+
+  char *str = NULL;
+  tm_len_t len = 0;
+  void *ptr = NULL;
+
+  while (0 != TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    // mu_check(!strncmp("key1", str, 4));
+    mu_check(str);
+    mu_check(len > 0);
+    mu_check(ptr);
+    mu_check(*(int *)ptr > 0);
+    count++;
+  }
+  mu_assert_int_eq(N, count);
+  TrieMapIterator_Free(it);
+}
+
 int main(int argc, char **argv) {
   MU_RUN_TEST(testTrie);
   MU_RUN_TEST(testTrieIterator);
   MU_RUN_TEST(testRandomWalk);
+  MU_RUN_TEST(testRandom);
 
   MU_REPORT();
   return minunit_status;

@@ -20,7 +20,7 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
 
 /* The byte size of a node, based on its internal string length and number of
  * children */
-tm_len_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
+size_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
   return (sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) + (slen + 1) + numChildren);
 }
 
@@ -505,7 +505,12 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 /* Push a new trie node on the iterator's stack */
 inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node) {
   if (it->stackOffset == it->stackCap) {
-    it->stackCap += MIN(it->stackCap, 1024);
+    // make sure we don't overflow stackCap
+    if ((int)it->stackCap + 1024 > 0xFFFF) {
+      it->stackCap = 0xFFFF;
+    } else {
+      it->stackCap += MIN(it->stackCap, 1024);
+    }
     it->stack = realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
   it->stack[it->stackOffset++] = (__tmi_stackNode){
@@ -571,7 +576,11 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
 
         // if needed - increase the buffer on the heap
         if (it->bufOffset == it->bufLen) {
-          it->bufLen *= 2;
+          if ((int)it->bufLen + 1024 > 0xFFFF) {
+            it->bufLen = 0xFFFF;
+          } else {
+            it->bufLen += MIN(it->bufLen, 1024);
+          }
           it->buf = realloc(it->buf, it->bufLen);
         }
       }
