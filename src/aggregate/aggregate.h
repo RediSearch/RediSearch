@@ -11,6 +11,75 @@ typedef struct Grouper Grouper;
 #endif
 
 typedef struct {
+  RSMultiKey *keys;
+} AggregateLoadStep;
+
+typedef struct {
+  const char *reducer;
+  RSValue *args;  // TODO: something better here...
+  const char *alias;
+} AggregateGroupReduce;
+
+typedef struct {
+  RSMultiKey *properties;
+  AggregateGroupReduce *reducers;
+  size_t numReducers;
+  const char *alias;
+} AggregateGroupStep;
+
+typedef struct {
+  const char *expr;
+  const char *alias;
+} AggregateApplyStep;
+
+typedef struct {
+  RSMultiKey *keys;
+  uint64_t ascMap;
+  long long max;
+} AggregateSortStep;
+
+typedef struct {
+  long long offset;
+  long long num;
+} AggregateLimitStep;
+
+typedef enum {
+  AggregateStep_Group,
+  AggregateStep_Sort,
+  AggregateStep_Apply,
+  AggregateStep_Limit,
+  AggregateStep_Load,
+} AggregateStepType;
+
+typedef struct AggregateStep {
+  union {
+    AggregateApplyStep apply;
+    AggregateGroupStep group;
+    AggregateLoadStep load;
+    AggregateLimitStep limit;
+    AggregateSortStep sort;
+  };
+  AggregateStepType type;
+  struct AggregateStep *next;
+} AggregateStep;
+
+typedef struct {
+  size_t count;
+  int maxIdle;
+} AggregateCursor;
+
+typedef struct {
+  const char *index;
+  const char *query;
+  size_t queryLen;
+  AggregateStep *head;
+  AggregateStep *tail;
+  size_t size;
+  int hasCursor;
+  AggregateCursor cursor;
+} AggregatePlan;
+
+typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;
   CmdArg *args;

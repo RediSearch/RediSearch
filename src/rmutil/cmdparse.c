@@ -936,6 +936,28 @@ CmdArg *CmdArg_FirstOf(CmdArg *arg, const char *key) {
   return NULL;
 }
 
+/* count the number of children of an object that correspond to a specific key */
+size_t CmdArg_Count(CmdArg *arg, const char *key) {
+  if (arg->type != CmdArg_Object) return 0;
+  size_t ret = 0;
+  for (size_t i = 0; i < arg->obj.len; i++) {
+    if (!strcasecmp(key, arg->obj.entries[i].k)) {
+      ++ret;
+    }
+  }
+  return ret;
+}
+
+size_t CmdArg_NumChildren(CmdArg *arg) {
+  if (arg->type == CmdArg_Array) {
+    return arg->a.len;
+  } else if (arg->type == CmdArg_Object) {
+    return arg->obj.len;
+  } else {
+    return 0;
+  }
+}
+
 /*
  *  - s: will be parsed as a string
  *  - l: Will be parsed as a long integer
