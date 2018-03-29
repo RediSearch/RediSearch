@@ -10,13 +10,15 @@
 typedef struct Grouper Grouper;
 #endif
 
+CmdSchemaNode *GetAggregateRequestSchema();
+
 typedef struct {
   RSMultiKey *keys;
 } AggregateLoadStep;
 
 typedef struct {
   const char *reducer;
-  RSValue *args;  // TODO: something better here...
+  RSValue *args;
   const char *alias;
 } AggregateGroupReduce;
 
@@ -78,6 +80,9 @@ typedef struct {
   int hasCursor;
   AggregateCursor cursor;
 } AggregatePlan;
+
+Vector *AggregatePlan_Serialize(AggregatePlan *plan);
+int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 
 typedef struct {
   QueryPlan *plan;

@@ -11,6 +11,9 @@
 static CmdSchemaNode *requestSchema = NULL;
 static RSFunctionRegistry functions_g = {0};
 
+CmdSchemaNode *GetAggregateRequestSchema() {
+  return requestSchema;
+}
 // validator for property names
 int validatePropertyName(CmdArg *arg, void *p) {
   return (CMDARG_TYPE(arg) == CmdArg_String && CMDARG_STRLEN(arg) > 1 &&

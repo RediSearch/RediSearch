@@ -151,12 +151,17 @@ AggregateStep *newGroupStep(CmdArg *grp, char **err) {
 
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   *plan = (AggregatePlan){0};
-
+  if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
+    goto fail;
+  }
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
+  int n = 0;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
-    AggregateStep *next;
+    if (n++ < 2) continue;
+
+    AggregateStep *next = NULL;
     if (!strcasecmp(key, "GROUPBY")) {
       next = newGroupStep(child, err);
     } else if (!strcasecmp(key, "SORTBY")) {
@@ -196,8 +201,82 @@ fail:
   return 0;
 }
 
-Vector *AggregatePlan_Serialize(AggregatePlan *plan, size_t *len) {
+void vecPushStrdup(Vector *v, const char *s) {
+  char *x = strdup(s);
+  printf("%s\n", x);
+  Vector_Push(v, x);
+}
+
+void vecPushStrfmt(Vector *v, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  char *c;
+  vasprintf(&c, fmt, ap);
+  va_end(ap);
+  Vector_Push(v, c);
+}
+
+void serializeGroup(AggregateGroupStep *g, Vector *v) {
+  vecPushStrdup(v, "GROUPBY");
+  vecPushStrfmt(v, "%d", g->properties->len);
+
+  for (int i = 0; i < g->properties->len; i++) {
+    vecPushStrfmt(v, "@%s", g->properties->keys[i].key);
+  }
+  for (int i = 0; i < g->numReducers; i++) {
+    vecPushStrdup(v, "REDUCE");
+    vecPushStrdup(v, g->reducers[i].reducer);
+    vecPushStrfmt(v, "%d", g->reducers[i].args ? g->reducers[i].args->arrval.len : 0);
+    if (g->reducers[i].args) {
+      RSValue tmp = {.allocated = 0};
+      for (int j = 0; j < g->reducers[i].args->arrval.len; j++) {
+        RSValue_ToString(&tmp, g->reducers[i].args->arrval.vals[i]);
+        vecPushStrdup(v, tmp.strval.str);
+        RSValue_Free(&tmp);
+      }
+    }
+    if (g->reducers[i].alias) {
+      vecPushStrdup(v, "AS");
+      vecPushStrdup(v, g->reducers[i].alias);
+    }
+  }
+}
+
+void serializeSort(AggregateSortStep *s, Vector *v) {
+  vecPushStrdup(v, "SORTBY");
+  vecPushStrfmt(v, "%d", s->keys->len * 2);
+  for (int i = 0; i < s->keys->len; i++) {
+    vecPushStrfmt(v, "@%s", s->keys->keys[i].key);
+    vecPushStrdup(v, s->ascMap & (1 << i) ? "ASC" : "DESC");
+  }
+}
+
+void serializeApply(AggregateApplyStep *a, Vector *v) {
+  vecPushStrdup(v, "APPLY");
+  vecPushStrdup(v, a->expr);
+  vecPushStrdup(v, "AS");
+  vecPushStrdup(v, a->alias);
+}
+
+void serializeLimit(AggregateLimitStep *l, Vector *v) {
+  vecPushStrdup(v, "LIMIT");
+  vecPushStrfmt(v, "%lld", l->offset);
+  vecPushStrfmt(v, "%lld", l->num);
+}
+
+void serializeLoad(AggregateLoadStep *l, Vector *v) {
+  vecPushStrdup(v, "LOAD");
+  vecPushStrfmt(v, "%d", l->keys->len);
+  for (int i = 0; i < l->keys->len; i++) {
+    vecPushStrfmt(v, "@%s", l->keys->keys[i].key);
+  }
+}
+
+Vector *AggregatePlan_Serialize(AggregatePlan *plan) {
   Vector *vec = NewVector(const char *, 10);
+  // vecPushStrdup(vec, plan->index);
+  // vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
+
   AggregateStep *current = plan->head;
   while (current) {
     switch (current->type) {
@@ -205,7 +284,7 @@ Vector *AggregatePlan_Serialize(AggregatePlan *plan, size_t *len) {
         serializeGroup(&current->group, vec);
         break;
       case AggregateStep_Sort:
-        serializeSort(&current->group, vec);
+        serializeSort(&current->sort, vec);
         break;
 
       case AggregateStep_Apply:
@@ -220,5 +299,8 @@ Vector *AggregatePlan_Serialize(AggregatePlan *plan, size_t *len) {
         serializeLoad(&current->load, vec);
         break;
     }
+    current = current->next;
   }
+
+  return vec;
 }

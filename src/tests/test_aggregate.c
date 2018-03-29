@@ -66,8 +66,41 @@ int testGroupBy() {
   RETURN_TEST_SUCCESS;
 }
 
+int testAggregatePlan() {
+  CmdString *argv = CmdParser_NewArgListV(
+      30, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
+      "@bar", "REDUCE", "count_distinct", "1", "@foo", "REDUCE", "count", "0", "AS", "num",
+      "SORTBY", "3", "@foo", "@bar", "DESC", "MAX", "5", "LIMIT", "0", "100");
+
+  CmdArg *cmd = NULL;
+  char *err;
+  Aggregate_BuildSchema();
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 30, &err, 1);
+  ASSERT(!err);
+  ASSERT(cmd);
+
+  CmdArg_Print(cmd, 0);
+
+  AggregatePlan plan;
+  int rc = AggregatePlan_Build(&plan, cmd, &err);
+  if (err) printf("%s\n", err);
+  ASSERT(rc);
+
+  ASSERT(!err);
+  Vector *args = AggregatePlan_Serialize(&plan);
+  for (int i = 0; i < Vector_Size(args); i++) {
+    char *arg;
+    Vector_Get(args, i, &arg);
+    printf("%s ", arg);
+    free(arg);
+  }
+  printf("\n");
+  RETURN_TEST_SUCCESS
+}
+
 TEST_MAIN({
 
-  TESTFUNC(testGroupBy);
+  // TESTFUNC(testGroupBy);
+  TESTFUNC(testAggregatePlan);
 
 })

@@ -307,11 +307,14 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 #define CMDARG_STR(a) (a->s)
 #define CMDARG_ORNULL(a, expr) (a ? expr(a) : NULL)
 #define CMDARG_STRLEN(a) (a->s.len)
+
 #define CMDARG_STRPTR(a) (a->s.str)
 #define CMDARG_STRLEN(a) (a->s.len)
 #define CMDARG_ARR(arr) (arr->a)
 #define CMDARG_OBJ(a) (a->obj)
-#define CMDARG_OBJLEN(a) (arg->a.obj.len)
+#define CMDARG_OBJLEN(arg) (arg->obj.len)
+#define CMDARG_OBJCHILD(arg, n) (&arg->obj.entries[n])
+
 #define CMDARG_BOOL(a) (a->b)
 #define CMDARG_ARRLEN(arg) (arg->a.len)
 #define CMDARG_ARRELEM(arg, i) (arg->a.args[i])
