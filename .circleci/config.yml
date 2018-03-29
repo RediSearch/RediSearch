@@ -86,6 +86,7 @@ jobs:
           command: >-
             aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
             public-read --recursive --exclude "*" --include "*.zip"
+  
   deploy_docs:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
