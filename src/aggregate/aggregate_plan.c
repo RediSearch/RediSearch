@@ -1,5 +1,5 @@
 #include "aggregate.h"
-
+#include <commands.h>
 #define FMT_ERR(e, fmt, ...) asprintf(e, fmt, __VA_ARGS__);
 #define SET_ERR(e, err) *e = strdup(err);
 
@@ -69,7 +69,7 @@ AggregateStep *newSortStep(CmdArg *srt, char **err) {
       goto err;
     }
   }
-
+  keys->len = n;
   // Parse optional MAX
   CmdArg *max = CmdArg_FirstOf(srt, "MAX");
   long long mx = 0;
@@ -159,10 +159,17 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   const char *key;
   int n = 0;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
-    if (n++ < 2) continue;
-
+    // if (n++ < 2) continue;
+    printf("Key: %s\n", key);
     AggregateStep *next = NULL;
-    if (!strcasecmp(key, "GROUPBY")) {
+    if (!strcasecmp(key, "idx")) {
+      plan->index = CMDARG_STRPTR(child);
+      continue;
+    } else if (!strcasecmp(key, "query")) {
+      plan->query = CMDARG_STRPTR(child);
+      plan->queryLen = CMDARG_STRLEN(child);
+      continue;
+    } else if (!strcasecmp(key, "GROUPBY")) {
       next = newGroupStep(child, err);
     } else if (!strcasecmp(key, "SORTBY")) {
       next = newSortStep(child, err);
@@ -203,7 +210,6 @@ fail:
 
 void vecPushStrdup(Vector *v, const char *s) {
   char *x = strdup(s);
-  printf("%s\n", x);
   Vector_Push(v, x);
 }
 
@@ -229,9 +235,10 @@ void serializeGroup(AggregateGroupStep *g, Vector *v) {
     vecPushStrfmt(v, "%d", g->reducers[i].args ? g->reducers[i].args->arrval.len : 0);
     if (g->reducers[i].args) {
       RSValue tmp = {.allocated = 0};
+
       for (int j = 0; j < g->reducers[i].args->arrval.len; j++) {
         RSValue_ToString(&tmp, g->reducers[i].args->arrval.vals[i]);
-        vecPushStrdup(v, tmp.strval.str);
+        vecPushStrdup(v, RSValue_Dereference(&tmp)->strval.str);
         RSValue_Free(&tmp);
       }
     }
@@ -248,6 +255,10 @@ void serializeSort(AggregateSortStep *s, Vector *v) {
   for (int i = 0; i < s->keys->len; i++) {
     vecPushStrfmt(v, "@%s", s->keys->keys[i].key);
     vecPushStrdup(v, s->ascMap & (1 << i) ? "ASC" : "DESC");
+  }
+  if (s->max) {
+    vecPushStrdup(v, "MAX");
+    vecPushStrfmt(v, "%d", s->max);
   }
 }
 
@@ -274,8 +285,10 @@ void serializeLoad(AggregateLoadStep *l, Vector *v) {
 
 Vector *AggregatePlan_Serialize(AggregatePlan *plan) {
   Vector *vec = NewVector(const char *, 10);
-  // vecPushStrdup(vec, plan->index);
-  // vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
+  vecPushStrdup(vec, RS_AGGREGATE_CMD);
+
+  vecPushStrdup(vec, plan->index);
+  vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
 
   AggregateStep *current = plan->head;
   while (current) {

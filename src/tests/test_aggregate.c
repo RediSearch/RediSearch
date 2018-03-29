@@ -68,14 +68,14 @@ int testGroupBy() {
 
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
-      30, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
+      31, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
       "@bar", "REDUCE", "count_distinct", "1", "@foo", "REDUCE", "count", "0", "AS", "num",
-      "SORTBY", "3", "@foo", "@bar", "DESC", "MAX", "5", "LIMIT", "0", "100");
+      "SORTBY", "4", "@foo", "ASC", "@bar", "DESC", "MAX", "5", "LIMIT", "0", "100");
 
   CmdArg *cmd = NULL;
   char *err;
   Aggregate_BuildSchema();
-  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 30, &err, 1);
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 31, &err, 1);
   ASSERT(!err);
   ASSERT(cmd);
 
@@ -91,7 +91,11 @@ int testAggregatePlan() {
   for (int i = 0; i < Vector_Size(args); i++) {
     char *arg;
     Vector_Get(args, i, &arg);
-    printf("%s ", arg);
+    ASSERT_STRING_EQ(argv[i].str, arg);
+
+    sds s = sdscatrepr(sdsnew(""), arg, strlen(arg));
+    printf("%s ", s);
+    sdsfree(s);
     free(arg);
   }
   printf("\n");
