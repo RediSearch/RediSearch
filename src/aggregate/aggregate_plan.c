@@ -159,8 +159,6 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   const char *key;
   int n = 0;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
-    // if (n++ < 2) continue;
-    printf("Key: %s\n", key);
     AggregateStep *next = NULL;
     if (!strcasecmp(key, "idx")) {
       plan->index = CMDARG_STRPTR(child);
