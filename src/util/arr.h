@@ -37,7 +37,7 @@ typedef void *array_t;
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)arr) - sizeof(array_hdr_t)))
 /* Interanl - get a pointer to an element inside the array at a given index */
-#define array_elem(arr, idx) ((void **)((char *)arr + (idx * array_hdr(arr)->elem_sz)))
+#define array_elem(arr, idx) (*((void **)((char *)arr + (idx * array_hdr(arr)->elem_sz))))
 
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
@@ -92,7 +92,7 @@ static inline uint32_t array_len(array_t arr) {
 static void array_free(array_t arr, void (*free_cb)(void *)) {
   if (free_cb) {
     for (uint32_t i = 0; i < array_len(arr); i++) {
-      free_cb(*array_elem(arr, i));
+      free_cb(array_elem(arr, i));
     }
   }
   free(array_hdr(arr));

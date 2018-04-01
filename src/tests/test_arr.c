@@ -10,10 +10,8 @@ typedef struct {
 int testStruct() {
 
   foo *arr = array_new(foo, 8);
-  foo f;
-  for (int i = 0; i < 10; i++) {
 
-    f.x = i;
+  for (int i = 0; i < 10; i++) {
     arr = array_append(arr, (foo){i});
     ASSERT_EQUAL(i + 1, array_len(arr));
   }
