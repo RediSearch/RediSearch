@@ -172,8 +172,7 @@ AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property
       return schema;
     }
   }
-  AggregateProperty prop = {property, t, kind};
-  schema = array_push(schema, &prop);
+  schema = array_append(schema, ((AggregateProperty){property, t, kind}));
   return schema;
 }
 
@@ -325,112 +324,113 @@ fail:
   return 0;
 }
 
-void vecPushStrdup(Vector *v, const char *s) {
-  char *x = strdup(s);
-  Vector_Push(v, x);
+void arrPushStrdup(char ***v, const char *s) {
+  char *c = strdup(s);
+  *v = array_append(*v, c);
 }
 
-void vecPushStrfmt(Vector *v, const char *fmt, ...) {
+void arrPushStrfmt(char ***v, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   char *c;
   vasprintf(&c, fmt, ap);
   va_end(ap);
-  Vector_Push(v, c);
+
+  *v = array_append(*v, c);
 }
 
-void serializeGroup(AggregateGroupStep *g, Vector *v) {
-  vecPushStrdup(v, "GROUPBY");
-  vecPushStrfmt(v, "%d", g->properties->len);
+void serializeGroup(AggregateGroupStep *g, char ***v) {
+  arrPushStrdup(v, "GROUPBY");
+  arrPushStrfmt(v, "%d", g->properties->len);
 
   for (int i = 0; i < g->properties->len; i++) {
-    vecPushStrfmt(v, "@%s", g->properties->keys[i].key);
+    arrPushStrfmt(v, "@%s", g->properties->keys[i].key);
   }
   for (int i = 0; i < g->numReducers; i++) {
-    vecPushStrdup(v, "REDUCE");
-    vecPushStrdup(v, g->reducers[i].reducer);
-    vecPushStrfmt(v, "%d", g->reducers[i].args ? g->reducers[i].args->arrval.len : 0);
+    arrPushStrdup(v, "REDUCE");
+    arrPushStrdup(v, g->reducers[i].reducer);
+    arrPushStrfmt(v, "%d", g->reducers[i].args ? g->reducers[i].args->arrval.len : 0);
     if (g->reducers[i].args) {
       RSValue tmp = {.allocated = 0};
 
       for (int j = 0; j < g->reducers[i].args->arrval.len; j++) {
         RSValue_ToString(&tmp, g->reducers[i].args->arrval.vals[i]);
-        vecPushStrdup(v, RSValue_Dereference(&tmp)->strval.str);
+        arrPushStrdup(v, RSValue_Dereference(&tmp)->strval.str);
         RSValue_Free(&tmp);
       }
     }
     if (g->reducers[i].alias) {
-      vecPushStrdup(v, "AS");
-      vecPushStrdup(v, g->reducers[i].alias);
+      arrPushStrdup(v, "AS");
+      arrPushStrdup(v, g->reducers[i].alias);
     }
   }
 }
 
-void serializeSort(AggregateSortStep *s, Vector *v) {
-  vecPushStrdup(v, "SORTBY");
-  vecPushStrfmt(v, "%d", s->keys->len * 2);
+void serializeSort(AggregateSortStep *s, char ***v) {
+  arrPushStrdup(v, "SORTBY");
+  arrPushStrfmt(v, "%d", s->keys->len * 2);
   for (int i = 0; i < s->keys->len; i++) {
-    vecPushStrfmt(v, "@%s", s->keys->keys[i].key);
-    vecPushStrdup(v, s->ascMap & (1 << i) ? "ASC" : "DESC");
+    arrPushStrfmt(v, "@%s", s->keys->keys[i].key);
+    arrPushStrdup(v, s->ascMap & (1 << i) ? "ASC" : "DESC");
   }
   if (s->max) {
-    vecPushStrdup(v, "MAX");
-    vecPushStrfmt(v, "%d", s->max);
+    arrPushStrdup(v, "MAX");
+    arrPushStrfmt(v, "%d", s->max);
   }
 }
 
-void serializeApply(AggregateApplyStep *a, Vector *v) {
-  vecPushStrdup(v, "APPLY");
-  vecPushStrdup(v, a->rawExpr);
-  vecPushStrdup(v, "AS");
-  vecPushStrdup(v, a->alias);
+void serializeApply(AggregateApplyStep *a, char ***v) {
+  arrPushStrdup(v, "APPLY");
+  arrPushStrdup(v, a->rawExpr);
+  arrPushStrdup(v, "AS");
+  arrPushStrdup(v, a->alias);
 }
 
-void serializeLimit(AggregateLimitStep *l, Vector *v) {
-  vecPushStrdup(v, "LIMIT");
-  vecPushStrfmt(v, "%lld", l->offset);
-  vecPushStrfmt(v, "%lld", l->num);
+void serializeLimit(AggregateLimitStep *l, char ***v) {
+  arrPushStrdup(v, "LIMIT");
+  arrPushStrfmt(v, "%lld", l->offset);
+  arrPushStrfmt(v, "%lld", l->num);
 }
 
-void serializeLoad(AggregateLoadStep *l, Vector *v) {
-  vecPushStrdup(v, "LOAD");
-  vecPushStrfmt(v, "%d", l->keys->len);
+void serializeLoad(AggregateLoadStep *l, char ***v) {
+  arrPushStrdup(v, "LOAD");
+  arrPushStrfmt(v, "%d", l->keys->len);
   for (int i = 0; i < l->keys->len; i++) {
-    vecPushStrfmt(v, "@%s", l->keys->keys[i].key);
+    arrPushStrfmt(v, "@%s", l->keys->keys[i].key);
   }
 }
 
-Vector *AggregatePlan_Serialize(AggregatePlan *plan) {
-  Vector *vec = NewVector(const char *, 10);
-  vecPushStrdup(vec, RS_AGGREGATE_CMD);
+char **AggregatePlan_Serialize(AggregatePlan *plan) {
+  char **vec = array_new(char *, 10);
+  arrPushStrdup(&vec, RS_AGGREGATE_CMD);
 
-  if (plan->index) vecPushStrdup(vec, plan->index);
-  if (plan->query) vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
+  if (plan->index) arrPushStrdup(&vec, plan->index);
+  if (plan->query) arrPushStrfmt(&vec, "%.*s", plan->queryLen, plan->query);
 
   AggregateStep *current = plan->head;
   while (current) {
     switch (current->type) {
       case AggregateStep_Group:
-        serializeGroup(&current->group, vec);
+        serializeGroup(&current->group, &vec);
         break;
       case AggregateStep_Sort:
-        serializeSort(&current->sort, vec);
+        serializeSort(&current->sort, &vec);
         break;
 
       case AggregateStep_Apply:
-        serializeApply(&current->apply, vec);
+        serializeApply(&current->apply, &vec);
         break;
 
       case AggregateStep_Limit:
-        serializeLimit(&current->limit, vec);
+        serializeLimit(&current->limit, &vec);
         break;
 
       case AggregateStep_Load:
-        serializeLoad(&current->load, vec);
+        serializeLoad(&current->load, &vec);
         break;
 
       case AggregateStep_Distribute:
-        vecPushStrdup(vec, "<DISTRIBUTE-SUBPLAN>");
+        arrPushStrdup(&vec, "<DISTRIBUTE-SUBPLAN>");
         break;
     }
     current = current->next;
@@ -531,7 +531,7 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
       if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
 
         // const char *prop = as[i].property;
-        arr = array_push(arr, &as[i].property);
+        arr = array_append(arr, as[i].property);
       }
     }
     if (array_len(arr) > 0) {
@@ -542,6 +542,7 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
       ls->next = dist->head;
       dist->head = ls;
     }
+
     array_free(arr, NULL);
     array_free(as, NULL);
     array_free(dis, NULL);

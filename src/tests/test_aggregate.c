@@ -69,15 +69,14 @@ int testGroupBy() {
 }
 
 void AggregatePlan_Print(AggregatePlan *plan) {
-  Vector *args = AggregatePlan_Serialize(plan);
-  for (int i = 0; i < Vector_Size(args); i++) {
-    char *arg;
-    Vector_Get(args, i, &arg);
-    sds s = sdscatrepr(sdsnew(""), arg, strlen(arg));
+  char **args = AggregatePlan_Serialize(plan);
+  for (int i = 0; i < array_len(args); i++) {
+
+    sds s = sdscatrepr(sdsnew(""), args[i], strlen(args[i]));
     printf("%s ", s);
     sdsfree(s);
-    free(arg);
   }
+  array_free(args, free);
   printf("\n");
 }
 
@@ -137,6 +136,7 @@ int testDistribute() {
   ASSERT(!err);
 
   AggregatePlan_Print(&plan);
+
   printf("----------------\n");
   printf("----------------\n");
 

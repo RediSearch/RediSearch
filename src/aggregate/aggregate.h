@@ -105,7 +105,7 @@ typedef struct AggregatePlan {
   AggregateCursor cursor;
 } AggregatePlan;
 
-Vector *AggregatePlan_Serialize(AggregatePlan *plan);
+char **AggregatePlan_Serialize(AggregatePlan *plan);
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
