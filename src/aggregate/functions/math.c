@@ -27,7 +27,7 @@ NUMERIC_SIMPLE_FUNCTION(log2);
 NUMERIC_SIMPLE_FUNCTION(exp);
 
 #define REGISTER_MATHFUNC(reg, name, f) \
-  RSFunctionRegistry_RegisterFunction(reg, name, mathfunc_##f);
+  RSFunctionRegistry_RegisterFunction(reg, name, mathfunc_##f, RSValue_Number);
 
 void RegisterMathFunctions(RSFunctionRegistry *reg) {
   REGISTER_MATHFUNC(reg, "log", log);

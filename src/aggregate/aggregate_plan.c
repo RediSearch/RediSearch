@@ -1,5 +1,8 @@
 #include "aggregate.h"
+#include "expr/expression.h"
 #include <commands.h>
+#include <util/arr.h>
+
 #define FMT_ERR(e, fmt, ...) asprintf(e, fmt, __VA_ARGS__);
 #define SET_ERR(e, err) *e = strdup(err);
 
@@ -25,8 +28,15 @@ AggregateStep *newApplyStep(CmdArg *arg, char **err) {
     SET_ERR(err, "Missing or invalid projection expression");
     return NULL;
   }
+
+  const char *exp = CMDARG_STRPTR(expr);
+  RSExpr *pe = RSExpr_Parse(exp, strlen(exp), GetFunctions(), err);
+  if (!pe) {
+    return NULL;
+  }
   AggregateStep *ret = newStep(AggregateStep_Apply);
-  ret->apply.expr = CMDARG_STRPTR(expr);
+  ret->apply.rawExpr = exp;
+  ret->apply.parsedExpr = pe;
   ret->apply.alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
   return ret;
 }
@@ -149,6 +159,115 @@ AggregateStep *newGroupStep(CmdArg *grp, char **err) {
   return ret;
 }
 
+AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property, RSValueType t,
+                                    AggregatePropertyKind kind, int replace) {
+  printf("Appending %s in schema len %zd\n", property, array_len(schema));
+  for (size_t i = 0; i < array_len(schema); i++) {
+    AggregateProperty p = schema[i];
+    if (!strcasecmp(RSKEY(schema[i].property), RSKEY(property))) {
+      if (replace) {
+        schema[i].kind = kind;
+        schema[i].type = t;
+      }
+      return schema;
+    }
+  }
+  AggregateProperty prop = {property, t, kind};
+  schema = array_push(schema, &prop);
+  return schema;
+}
+
+RSValueType GetExprType(RSExpr *expr) {
+  switch (expr->t) {
+    case RSExpr_Function:
+      return RSFunctionRegistry_GetType(GetFunctions(), expr->func.name, strlen(expr->func.name));
+      break;
+    case RSExpr_Op:
+      return RSValue_Number;
+    case RSExpr_Literal:
+      return expr->literal.t;
+    case RSExpr_Property:
+      return RSValue_String;
+  }
+}
+AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint) {
+  switch (expr->t) {
+    case RSExpr_Function: {
+      RSValueType funcType = GetExprType(expr);
+      for (int i = 0; i < expr->func.args->len; i++) {
+        arr = extractExprTypes(expr->func.args->args[i], arr, funcType);
+      }
+      break;
+    }
+    case RSExpr_Property:
+      arr = AggregateSchema_Set(arr, expr->property.key, typeHint, Property_Field, 0);
+      break;
+    case RSExpr_Op:
+      // ops are between numeric properties, so the hint is number
+      arr = extractExprTypes(expr->op.left, arr, RSValue_Number);
+      arr = extractExprTypes(expr->op.right, arr, RSValue_Number);
+      break;
+    case RSExpr_Literal:
+    default:
+      break;
+  }
+  return arr;
+}
+AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl) {
+  AggregateStep *current = plan->head;
+  AggregateSchema arr = array_new(AggregateProperty, 8);
+  while (current) {
+    switch (current->type) {
+      case AggregateStep_Apply:
+        // arr = extractExprTypes(current->apply.parsedExpr, arr, RSValue_String);
+        arr = AggregateSchema_Set(arr, current->apply.alias, GetExprType(current->apply.parsedExpr),
+                                  Property_Projection, 1);
+        break;
+
+      case AggregateStep_Load:
+        for (int i = 0; i < current->load.keys->len; i++) {
+          arr = AggregateSchema_Set(arr, current->load.keys->keys[i].key, RSValue_String,
+                                    Property_Field, 1);
+        }
+        break;
+      case AggregateStep_Sort:
+        for (int i = 0; i < current->sort.keys->len; i++) {
+          arr = AggregateSchema_Set(arr, current->sort.keys->keys[i].key, RSValue_String,
+                                    Property_Field, 0);
+        }
+        break;
+      case AggregateStep_Group:
+        for (int i = 0; i < current->group.properties->len; i++) {
+          arr = AggregateSchema_Set(arr, current->group.properties->keys[i].key, RSValue_String,
+                                    Property_Field, 0);
+        }
+        for (int i = 0; i < current->group.numReducers; i++) {
+          AggregateGroupReduce *red = &current->group.reducers[i];
+
+          for (int j = 0; j < RSValue_ArrayLen(red->args); j++) {
+            if (RSValue_IsString(RSValue_ArrayItem(red->args, j))) {
+              const char *c = RSValue_StringPtrLen(RSValue_ArrayItem(red->args, j), NULL);
+              if (c && *c == '@') {
+                AggregateSchema_Set(arr, red->alias, RSValue_String, Property_Field, 0);
+              }
+            }
+          }
+          if (red->alias) {
+            arr = AggregateSchema_Set(arr, red->alias, GetReducerType(red->reducer),
+                                      Property_Aggregate, 1);
+          }
+        }
+        break;
+      case AggregateStep_Limit:
+      default:
+        break;
+    }
+    current = current->next;
+  }
+
+  return arr;
+}
+
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   *plan = (AggregatePlan){0};
   if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
@@ -262,7 +381,7 @@ void serializeSort(AggregateSortStep *s, Vector *v) {
 
 void serializeApply(AggregateApplyStep *a, Vector *v) {
   vecPushStrdup(v, "APPLY");
-  vecPushStrdup(v, a->expr);
+  vecPushStrdup(v, a->rawExpr);
   vecPushStrdup(v, "AS");
   vecPushStrdup(v, a->alias);
 }

@@ -171,8 +171,8 @@ error:
 }
 
 void RegisterStringFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "lower", stringfunc_tolower);
-  RSFunctionRegistry_RegisterFunction(reg, "upper", stringfunc_toupper);
-  RSFunctionRegistry_RegisterFunction(reg, "substr", stringfunc_substr);
-  RSFunctionRegistry_RegisterFunction(reg, "format", stringfunc_format);
+  RSFunctionRegistry_RegisterFunction(reg, "lower", stringfunc_tolower, RSValue_String);
+  RSFunctionRegistry_RegisterFunction(reg, "upper", stringfunc_toupper, RSValue_String);
+  RSFunctionRegistry_RegisterFunction(reg, "substr", stringfunc_substr, RSValue_String);
+  RSFunctionRegistry_RegisterFunction(reg, "format", stringfunc_format, RSValue_String);
 }

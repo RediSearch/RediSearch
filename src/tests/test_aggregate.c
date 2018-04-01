@@ -4,6 +4,8 @@
 #include <aggregate/reducer.h>
 #include "test_util.h"
 #include "time_sample.h"
+#include <util/arr.h>
+
 struct mockProcessorCtx {
   int counter;
   char **values;
@@ -99,6 +101,12 @@ int testAggregatePlan() {
     free(arg);
   }
   printf("\n");
+
+  AggregateSchema sc = AggregatePlan_GetSchema(&plan, NULL);
+  for (size_t i = 0; i < array_len(sc); i++) {
+    printf("%s => %d (%d)\n", sc[i].property, sc[i].type, sc[i].kind);
+  }
+
   RETURN_TEST_SUCCESS
 }
 

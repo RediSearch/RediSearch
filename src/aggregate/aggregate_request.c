@@ -11,6 +11,9 @@
 static CmdSchemaNode *requestSchema = NULL;
 static RSFunctionRegistry functions_g = {0};
 
+RSFunctionRegistry *GetFunctions() {
+  return &functions_g;
+}
 CmdSchemaNode *GetAggregateRequestSchema() {
   return requestSchema;
 }

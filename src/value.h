@@ -226,6 +226,10 @@ static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
   return arr->arrval.vals[index];
 }
 
+static inline uint32_t RSValue_ArrayLen(RSValue *arr) {
+  return arr ? arr->arrval.len : 0;
+}
+
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v);
 

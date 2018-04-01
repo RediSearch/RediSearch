@@ -3,6 +3,7 @@
 #include <result_processor.h>
 #include <query.h>
 #include "reducer.h"
+#include "expr/expression.h"
 #include "query_plan.h"
 #include <value.h>
 
@@ -11,6 +12,7 @@ typedef struct Grouper Grouper;
 #endif
 
 CmdSchemaNode *GetAggregateRequestSchema();
+RSFunctionRegistry *GetFunctions();
 
 typedef struct {
   RSMultiKey *keys;
@@ -30,9 +32,24 @@ typedef struct {
 } AggregateGroupStep;
 
 typedef struct {
-  const char *expr;
+  const char *rawExpr;
+  RSExpr *parsedExpr;
   const char *alias;
 } AggregateApplyStep;
+
+typedef enum {
+  Property_Field,
+  Property_Aggregate,
+  Property_Projection,
+} AggregatePropertyKind;
+
+typedef struct {
+  const char *property;
+  RSValueType type;
+  AggregatePropertyKind kind;
+} AggregateProperty;
+
+typedef AggregateProperty *AggregateSchema;
 
 typedef struct {
   RSMultiKey *keys;
@@ -83,7 +100,7 @@ typedef struct {
 
 Vector *AggregatePlan_Serialize(AggregatePlan *plan);
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
-
+AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;

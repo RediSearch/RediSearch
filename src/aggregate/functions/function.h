@@ -50,11 +50,15 @@ typedef struct {
   struct {
     RSFunction f;
     const char *name;
+    RSValueType retType;
   } * funcs;
 } RSFunctionRegistry;
 
 RSFunction RSFunctionRegistry_Get(RSFunctionRegistry *reg, const char *name, size_t len);
-int RSFunctionRegistry_RegisterFunction(RSFunctionRegistry *reg, const char *name, RSFunction f);
+RSValueType RSFunctionRegistry_GetType(RSFunctionRegistry *reg, const char *name, size_t len);
+
+int RSFunctionRegistry_RegisterFunction(RSFunctionRegistry *reg, const char *name, RSFunction f,
+                                        RSValueType retType);
 
 void RegisterMathFunctions(RSFunctionRegistry *reg);
 void RegisterStringFunctions(RSFunctionRegistry *reg);

@@ -120,18 +120,19 @@ typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, CmdArray *args, const ch
 static struct {
   const char *k;
   ReducerFactory f;
+  RSValueType retType;
 } reducers_g[] = {
-    {"sum", NewSumArgs},
-    {"min", NewMinArgs},
-    {"max", NewMaxArgs},
-    {"avg", NewAvgArgs},
-    {"count", NewCountArgs},
-    {"count_distinct", NewCountDistinctArgs},
-    {"count_distinctish", NewCountDistinctishArgs},
-    {"tolist", NewToListArgs},
-    {"quantile", NewQuantileArgs},
-    {"stddev", NewStddevArgs},
-    {"first_value", NewFirstValueArgs},
+    {"sum", NewSumArgs, RSValue_Number},
+    {"min", NewMinArgs, RSValue_Number},
+    {"max", NewMaxArgs, RSValue_Number},
+    {"avg", NewAvgArgs, RSValue_Number},
+    {"count", NewCountArgs, RSValue_Number},
+    {"count_distinct", NewCountDistinctArgs, RSValue_Number},
+    {"count_distinctish", NewCountDistinctishArgs, RSValue_Number},
+    {"tolist", NewToListArgs, RSValue_Array},
+    {"quantile", NewQuantileArgs, RSValue_Number},
+    {"stddev", NewStddevArgs, RSValue_Number},
+    {"first_value", NewFirstValueArgs, RSValue_String},
 
     {NULL, NULL},
 };
@@ -146,4 +147,14 @@ Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, Cm
 
   asprintf(err, "Could not find reducer '%s'", name);
   return NULL;
+}
+
+RSValueType GetReducerType(const char *name) {
+  for (int i = 0; reducers_g[i].k != NULL; i++) {
+    if (!strcasecmp(reducers_g[i].k, name)) {
+      return reducers_g[i].retType;
+    }
+  }
+
+  return RSValue_Null;
 }
