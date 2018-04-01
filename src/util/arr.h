@@ -1,43 +1,67 @@
 #ifndef UTIL_ARR_H_
 #define UTIL_ARR_H_
-
+/* arr.h - simple, easy to use dynamic array with fat pointers,
+ * to allow native access to members. It can accept pointers, struct literals and scalars.
+ *
+ * Example usage:
+ *
+ *  int *arr =array_new(int, 8);
+ *  // Add elements to the array
+ *  for (int i = 0; i < 100; i++) {
+ *   arr = array_append(arr, i);
+ *  }
+ *
+ *  // read individual alements
+ *  for (int i = 0; i < array_len(arr); i++) {
+ *    printf("%d\n", arr[i]);
+ *  }
+ *
+ *  array_free(arr);
+ *
+ *
+ *  */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
-#include <stdio.h>
-#pragma pack(4)
+
 typedef struct {
   uint32_t len;
   uint32_t cap;
   uint32_t elem_sz;
   char buf[];
 } array_hdr_t;
-#pragma pack()
-#define INITIAL_CAP ;
+
 typedef void *array_t;
-
+/* Internal - calculate the array size for allocations */
 #define array_sizeof(hdr) (sizeof(array_hdr_t) + hdr->cap * hdr->elem_sz)
-#define array_bytelen(hdr) (hdr->len * hdr->elem_sz)
-
-#define array_bytecap(hdr) (hdr->cap * hdr->elem_sz)
-
+/* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)arr) - sizeof(array_hdr_t)))
-#define array_elemptr(arr, idx) (((char *)arr) + (array_hdr(arr)->elem_sz * idx))
+/* Interanl - get a pointer to an element inside the array at a given index */
+#define array_elem(arr, idx) ((void **)((char *)arr + (idx * array_hdr(arr)->elem_sz)))
 
-static array_t array_new_sz(size_t elem_sz, size_t cap) {
-  array_hdr_t *hdr = calloc(1, sizeof(array_hdr_t) + cap * elem_sz);
+/* Initialize a new array with a given element size and capacity. Should not be used directly - use
+ * array_new instead */
+static array_t array_new_sz(uint32_t elem_sz, uint32_t cap) {
+  array_hdr_t *hdr = malloc(sizeof(array_hdr_t) + cap * elem_sz);
   hdr->cap = cap;
   hdr->elem_sz = elem_sz;
   hdr->len = 0;
   return (array_t)(hdr->buf);
 }
 
+/* Initialize an array for a given type T with a given capacity. The array should be case to a
+ * pointer to that type. e.g.
+ *
+ *  int *arr = array_new(int, 4);
+ *
+ * This allows direct access to elements
+ *  */
 #define array_new(T, cap) (array_new_sz(sizeof(T), cap))
 
-static inline array_t array_ensure_cap(array_t arr, size_t cap) {
+static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
   if (cap > hdr->cap) {
-    hdr->cap = MAX(hdr->cap * 2, cap);
+    hdr->cap = MAX(MIN(hdr->cap * 2, hdr->cap + 1024), cap);
     hdr = realloc(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
@@ -48,86 +72,30 @@ static inline array_t array_grow(array_t arr) {
   return array_ensure_cap(arr, ++array_hdr(arr)->len);
 }
 
-static array_t array_push(array_t arr, void *ptr) {
-  array_hdr_t *hdr = array_hdr(arr);
-  if (hdr->len + 1 >= hdr->cap) {
-    hdr->cap += MIN(hdr->cap, 1024);
-    hdr = realloc(hdr, array_sizeof(hdr));
-  }
-  memcpy(hdr->buf + array_bytelen(hdr), ptr, hdr->elem_sz);
-  hdr->len += 1;
+/* get the last element in the array */
+#define array_tail(arr) (arr[array_hdr(arr)->len - 1])
 
-  return (array_t)hdr->buf;
-}
+/* Append an element to the array, returning the array which may have been reallocated */
+#define array_append(arr, x)   \
+  ({                           \
+    (arr) = array_grow((arr)); \
+    array_tail((arr)) = (x);   \
+    (arr);                     \
+  })
 
-#define array_append(arr, x)               \
-  {                                        \
-    *arr = array_grow(*arr);               \
-    (*arr)[array_hdr(arr)->len - 1] = (x); \
-  }
-
-static void *array_get(array_t arr, size_t idx) {
-  return (void *)array_elemptr(arr, idx);
-}
-
-static void array_set(array_t arr, size_t idx, void *ptr) {
-  memcpy(array_elemptr(arr, idx), ptr, array_hdr(arr)->elem_sz);
-}
-
-static size_t array_len(array_t arr) {
+/* Get the length of the array */
+static inline uint32_t array_len(array_t arr) {
   return array_hdr(arr)->len;
 }
 
+/* Free the array, optionally freeing individual elements with free_cb */
 static void array_free(array_t arr, void (*free_cb)(void *)) {
   if (free_cb) {
-    for (size_t i = 0; i < array_len(arr); i++) {
-      free_cb(array_elemptr(arr, i));
+    for (uint32_t i = 0; i < array_len(arr); i++) {
+      free_cb(*array_elem(arr, i));
     }
   }
   free(array_hdr(arr));
 }
 
-  // #define ARRAY_T(T, TNAME)                             \
-//   typedef T *TNAME##_t;                               \
-//   static TNAME##_t TNAME##_new(size_t cap) {          \
-//     return array_new(sizeof(T), cap);                 \
-//   }                                                   \
-//                                                       \
-//   static TNAME##_t TNAME##_push(TNAME##_t arr, T x) { \
-//     return array_push(arr, (void *)&x);               \
-//   }
-
-  // ARRAY_T(int, int_array);
-  // ARRAY_T(double, double_array);
-  // ARRAY_T(char *, str_array);
-
-#ifdef WITHARRAY_MAIN
-#include <stdio.h>
-
-#pragma pack(1)
-typedef struct {
-  int x;
-  double y;
-} foo;
-#pragma pack()
-int main(int argc, char **argv) {
-
-  foo *arr = array_new(foo, 8);
-  foo f;
-  for (int i = 0; i < 100; i++) {
-    // printf("%p <> %p\n", array_elemptr(arr, i), arr + i);
-    // f.x = i;
-    // arr = array_push(arr, &f);
-    // arr[i].x = i * 2;
-    arr = array_ensure_cap(arr, i);
-    arr[i].x = i * 2;
-  }
-
-  for (int i = 0; i < 100; i++) {
-    printf("%d %zd\n", arr[i].x, array_len(arr));
-  }
-  // array_free(arr, NULL);
-  return 0;
-}
-#endif
 #endif
