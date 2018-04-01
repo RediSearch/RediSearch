@@ -68,6 +68,19 @@ int testGroupBy() {
   RETURN_TEST_SUCCESS;
 }
 
+void AggregatePlan_Print(AggregatePlan *plan) {
+  Vector *args = AggregatePlan_Serialize(plan);
+  for (int i = 0; i < Vector_Size(args); i++) {
+    char *arg;
+    Vector_Get(args, i, &arg);
+    sds s = sdscatrepr(sdsnew(""), arg, strlen(arg));
+    printf("%s ", s);
+    sdsfree(s);
+    free(arg);
+  }
+  printf("\n");
+}
+
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
       39, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
@@ -90,18 +103,8 @@ int testAggregatePlan() {
   ASSERT(rc);
 
   ASSERT(!err);
-  Vector *args = AggregatePlan_Serialize(&plan);
-  for (int i = 0; i < Vector_Size(args); i++) {
-    char *arg;
-    Vector_Get(args, i, &arg);
-    ASSERT_STRING_EQ(argv[i].str, arg);
 
-    sds s = sdscatrepr(sdsnew(""), arg, strlen(arg));
-    printf("%s ", s);
-    sdsfree(s);
-    free(arg);
-  }
-  printf("\n");
+  AggregatePlan_Print(&plan);
 
   AggregateSchema sc = AggregatePlan_GetSchema(&plan, NULL);
   for (size_t i = 0; i < array_len(sc); i++) {
@@ -111,9 +114,45 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 
+int testDistribute() {
+  CmdString *argv = CmdParser_NewArgListV(20, "FT.AGGREGATE", "idx", "foo", "APPLY", "@foo", "AS",
+                                          "@bar", "GROUPBY", "2", "@foo", "@bar", "REDUCE", "count",
+                                          "0", "AS", "num", "SORTBY", "2", "@num", "DESC");
+
+  CmdArg *cmd = NULL;
+  char *err;
+  Aggregate_BuildSchema();
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 20, &err, 1);
+  printf("%s\n", err);
+  ASSERT(!err);
+  ASSERT(cmd);
+
+  CmdArg_Print(cmd, 0);
+
+  AggregatePlan plan;
+  int rc = AggregatePlan_Build(&plan, cmd, &err);
+  if (err) printf("%s\n", err);
+  ASSERT(rc);
+
+  ASSERT(!err);
+
+  AggregatePlan_Print(&plan);
+  printf("----------------\n");
+  printf("----------------\n");
+
+  AggregatePlan distro;
+  rc = AggregatePlan_MakeDistributed(&plan, &distro);
+  ASSERT(rc);
+  printf("----------------\n");
+  AggregatePlan_Print(&plan);
+  printf("----------------\n");
+
+  AggregatePlan_Print(&distro);
+  RETURN_TEST_SUCCESS;
+}
 TEST_MAIN({
 
   // TESTFUNC(testGroupBy);
-  TESTFUNC(testAggregatePlan);
-
+  // TESTFUNC(testAggregatePlan);
+  TESTFUNC(testDistribute);
 })

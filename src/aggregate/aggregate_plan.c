@@ -177,6 +177,16 @@ AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property
   return schema;
 }
 
+int AggregateSchema_Contains(AggregateSchema schema, const char *property) {
+  for (size_t i = 0; i < array_len(schema); i++) {
+
+    if (!strcasecmp(RSKEY(schema[i].property), RSKEY(property))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint) {
   switch (expr->t) {
     case RSExpr_Function: {
@@ -255,6 +265,15 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
   return arr;
 }
 
+static void plan_AddStep(AggregatePlan *plan, AggregateStep *step) {
+  if (!plan->head) {
+    plan->head = plan->tail = step;
+  } else {
+    plan->tail->next = step;
+    plan->tail = step;
+  }
+  plan->size++;
+}
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   *plan = (AggregatePlan){0};
   if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
@@ -287,13 +306,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
     if (!next) {
       goto fail;
     }
-    if (!plan->head) {
-      plan->head = plan->tail = next;
-    } else {
-      plan->tail->next = next;
-      plan->tail = next;
-    }
-    plan->size++;
+    plan_AddStep(plan, next);
   }
 
   return 1;
@@ -391,8 +404,8 @@ Vector *AggregatePlan_Serialize(AggregatePlan *plan) {
   Vector *vec = NewVector(const char *, 10);
   vecPushStrdup(vec, RS_AGGREGATE_CMD);
 
-  vecPushStrdup(vec, plan->index);
-  vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
+  if (plan->index) vecPushStrdup(vec, plan->index);
+  if (plan->query) vecPushStrfmt(vec, "%.*s", plan->queryLen, plan->query);
 
   AggregateStep *current = plan->head;
   while (current) {
@@ -415,9 +428,129 @@ Vector *AggregatePlan_Serialize(AggregatePlan *plan) {
       case AggregateStep_Load:
         serializeLoad(&current->load, vec);
         break;
+
+      case AggregateStep_Distribute:
+        vecPushStrdup(vec, "<DISTRIBUTE-SUBPLAN>");
+        break;
     }
     current = current->next;
   }
 
   return vec;
+}
+
+AggregateStep *plan_MoveStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step,
+                             AggregateStep *prev) {
+  if (prev) {
+    prev->next = step->next;
+  } else {
+    src->head = step->next;
+  }
+  AggregateStep *next = step->next;
+  step->next = NULL;
+  plan_AddStep(dist, step);
+  return next;
+}
+
+AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step,
+                                   AggregateStep *prev, int *cont) {
+  AggregateGroupStep *gr = &step->group;
+  AggregateStep *so = newStep(AggregateStep_Group);
+  AggregateGroupStep *out = &so->group;
+  out->alias = gr->alias;
+  out->properties = gr->properties;
+  out->reducers = calloc(gr->numReducers, sizeof(AggregateGroupReduce));
+  out->numReducers = 0;
+  for (int i = 0; i < gr->numReducers; i++) {
+    AggregateGroupReduce *red = &gr->reducers[i];
+    if (!strcasecmp(red->reducer, "COUNT")) {
+      out->reducers[out->numReducers++] =
+          (AggregateGroupReduce){.alias = red->alias, .args = NULL, .reducer = red->reducer};
+
+      red->reducer = "SUM";
+      char *arg;
+      asprintf(&arg, "@%s", RSKEY(red->alias));
+      red->args = RS_VStringArray(1, arg);
+      *cont = 0;
+    } else {
+      *cont = 0;
+      return NULL;
+    }
+  }
+
+  plan_AddStep(dist, so);
+  return step->next;
+}
+int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
+  AggregateStep *current = src->head;
+  AggregateStep *prev = NULL;
+  *dist = (AggregatePlan){.query = src->query,
+                          .queryLen = src->queryLen,
+                          .index = src->index,
+                          .hasCursor = 1,
+                          .cursor = (AggregateCursor){
+                              .count = 500,
+                          }};
+  // zero the stuff we don't care about in src
+  src->index = NULL;
+  src->query = NULL;
+
+  int cont = 1;
+  while (current && cont) {
+    switch (current->type) {
+      case AggregateStep_Apply:
+        current = plan_MoveStep(src, dist, current, prev);
+        break;
+      case AggregateStep_Limit:
+        current = plan_MoveStep(src, dist, current, prev);
+        break;
+      case AggregateStep_Group:
+        current = distributeGroupStep(src, dist, current, prev, &cont);
+        break;
+      case AggregateStep_Load:
+        current = plan_MoveStep(src, dist, current, prev);
+        break;
+      case AggregateStep_Sort:
+        current = plan_MoveStep(src, dist, current, prev);
+        cont = 0;
+        break;
+      case AggregateStep_Distribute:
+        break;
+    }
+  }
+  // If we can distribute the plan, add a marker for it in the source plan
+  if (dist->size > 0) {
+
+    // Add a load step for everything not in the distributed schema
+    AggregateSchema as = AggregatePlan_GetSchema(src, NULL);
+    AggregateSchema dis = AggregatePlan_GetSchema(dist, NULL);
+
+    AggregateStep *ls = newStep(AggregateStep_Load);
+    const char **arr = array_new(const char *, 4);
+    for (int i = 0; i < array_len(as); i++) {
+      if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
+
+        // const char *prop = as[i].property;
+        arr = array_push(arr, &as[i].property);
+      }
+    }
+    if (array_len(arr) > 0) {
+      ls->load.keys = RS_NewMultiKey(array_len(arr));
+      for (int i = 0; i < array_len(arr); i++) {
+        ls->load.keys->keys[i].key = arr[i];
+      }
+      ls->next = dist->head;
+      dist->head = ls;
+    }
+    array_free(arr, NULL);
+    array_free(as, NULL);
+    array_free(dis, NULL);
+
+    AggregateStep *ds = newStep(AggregateStep_Distribute);
+    ds->dist.plan = dist;
+    ds->next = src->head;
+    src->head = ds;
+  }
+
+  return 1;
 }

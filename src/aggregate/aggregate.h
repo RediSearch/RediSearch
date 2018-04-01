@@ -13,6 +13,8 @@ typedef struct Grouper Grouper;
 
 CmdSchemaNode *GetAggregateRequestSchema();
 
+struct AggregatePlan;
+
 typedef struct {
   RSMultiKey *keys;
 } AggregateLoadStep;
@@ -67,7 +69,12 @@ typedef enum {
   AggregateStep_Apply,
   AggregateStep_Limit,
   AggregateStep_Load,
+  AggregateStep_Distribute,
 } AggregateStepType;
+
+typedef struct {
+  struct AggregatePlan *plan;
+} AggregateDistributeStep;
 
 typedef struct AggregateStep {
   union {
@@ -76,6 +83,7 @@ typedef struct AggregateStep {
     AggregateLoadStep load;
     AggregateLimitStep limit;
     AggregateSortStep sort;
+    AggregateDistributeStep dist;
   };
   AggregateStepType type;
   struct AggregateStep *next;
@@ -86,7 +94,7 @@ typedef struct {
   int maxIdle;
 } AggregateCursor;
 
-typedef struct {
+typedef struct AggregatePlan {
   const char *index;
   const char *query;
   size_t queryLen;
@@ -100,6 +108,7 @@ typedef struct {
 Vector *AggregatePlan_Serialize(AggregatePlan *plan);
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
+int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;

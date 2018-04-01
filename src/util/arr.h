@@ -5,14 +5,14 @@
 #include <string.h>
 #include <sys/param.h>
 #include <stdio.h>
-
+#pragma pack(4)
 typedef struct {
   uint32_t len;
   uint32_t cap;
   uint32_t elem_sz;
   char buf[];
 } array_hdr_t;
-
+#pragma pack()
 #define INITIAL_CAP ;
 typedef void *array_t;
 
