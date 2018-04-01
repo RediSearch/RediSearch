@@ -89,7 +89,7 @@ err:
   return EXPR_EVAL_OK;
 }
 
-void RegisterDateFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "time", timeFormat, RSValue_String);
-  RSFunctionRegistry_RegisterFunction(reg, "parse_time", parseTime, RSValue_Number);
+void RegisterDateFunctions() {
+  RSFunctionRegistry_RegisterFunction("time", timeFormat, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("parse_time", parseTime, RSValue_Number);
 }

@@ -53,7 +53,7 @@ number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= FUNC(B) LP arglist(C) RP. {
-    RSFunction cb = RSFunctionRegistry_Get(ctx->funcs, B.s, B.len);
+    RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
         asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         ctx->ok = 0;

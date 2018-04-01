@@ -905,7 +905,7 @@ static void yy_reduce(
       case 13: /* expr ::= FUNC LP arglist RP */
 #line 55 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
 {
-    RSFunction cb = RSFunctionRegistry_Get(ctx->funcs, yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
+    RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
         asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;

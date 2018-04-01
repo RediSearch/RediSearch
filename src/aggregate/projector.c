@@ -52,16 +52,14 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewProjector(RedisSearchCtx *sctx, RSFunctionRegistry *funcs,
-                              ResultProcessor *upstream, const char *alias, const char *expr,
-                              size_t len, char **err) {
+ResultProcessor *NewProjector(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *alias,
+                              const char *expr, size_t len, char **err) {
 
   ProjectorCtx *ctx = NewProjectorCtx(alias);
-  ctx->ctx.fr = funcs;
   ctx->ctx.sctx = sctx;
   ctx->ctx.sortables = sctx && sctx->spec ? sctx->spec->sortables : NULL;
   ctx->ctx.fctx = RS_NewFunctionEvalCtx();
-  ctx->exp = RSExpr_Parse(expr, len, funcs, err);
+  ctx->exp = RSExpr_Parse(expr, len, err);
   if (!ctx->exp) {
     free(ctx);
     return NULL;

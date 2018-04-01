@@ -26,15 +26,15 @@ NUMERIC_SIMPLE_FUNCTION(sqrt);
 NUMERIC_SIMPLE_FUNCTION(log2);
 NUMERIC_SIMPLE_FUNCTION(exp);
 
-#define REGISTER_MATHFUNC(reg, name, f) \
-  RSFunctionRegistry_RegisterFunction(reg, name, mathfunc_##f, RSValue_Number);
+#define REGISTER_MATHFUNC(name, f) \
+  RSFunctionRegistry_RegisterFunction(name, mathfunc_##f, RSValue_Number);
 
-void RegisterMathFunctions(RSFunctionRegistry *reg) {
-  REGISTER_MATHFUNC(reg, "log", log);
-  REGISTER_MATHFUNC(reg, "floor", floor);
-  REGISTER_MATHFUNC(reg, "abs", fabs);
-  REGISTER_MATHFUNC(reg, "ceil", ceil);
-  REGISTER_MATHFUNC(reg, "sqrt", sqrt);
-  REGISTER_MATHFUNC(reg, "log2", log2);
-  REGISTER_MATHFUNC(reg, "exp", exp);
+void RegisterMathFunctions() {
+  REGISTER_MATHFUNC("log", log);
+  REGISTER_MATHFUNC("floor", floor);
+  REGISTER_MATHFUNC("abs", fabs);
+  REGISTER_MATHFUNC("ceil", ceil);
+  REGISTER_MATHFUNC("sqrt", sqrt);
+  REGISTER_MATHFUNC("log2", log2);
+  REGISTER_MATHFUNC("exp", exp);
 }

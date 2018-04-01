@@ -70,14 +70,15 @@ int testGroupBy() {
 
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
-      31, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
+      39, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
       "@bar", "REDUCE", "count_distinct", "1", "@foo", "REDUCE", "count", "0", "AS", "num",
-      "SORTBY", "4", "@foo", "ASC", "@bar", "DESC", "MAX", "5", "LIMIT", "0", "100");
+      "SORTBY", "4", "@foo", "ASC", "@bar", "DESC", "MAX", "5", "APPLY", "@num/3", "AS", "subnum",
+      "APPLY", "time(@subnum)", "AS", "datenum", "LIMIT", "0", "100");
 
   CmdArg *cmd = NULL;
   char *err;
   Aggregate_BuildSchema();
-  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 31, &err, 1);
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 39, &err, 1);
   ASSERT(!err);
   ASSERT(cmd);
 

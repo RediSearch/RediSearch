@@ -12,7 +12,6 @@ typedef struct Grouper Grouper;
 #endif
 
 CmdSchemaNode *GetAggregateRequestSchema();
-RSFunctionRegistry *GetFunctions();
 
 typedef struct {
   RSMultiKey *keys;
@@ -38,9 +37,9 @@ typedef struct {
 } AggregateApplyStep;
 
 typedef enum {
-  Property_Field,
-  Property_Aggregate,
-  Property_Projection,
+  Property_Field = 1,
+  Property_Aggregate = 2,
+  Property_Projection = 3,
 } AggregatePropertyKind;
 
 typedef struct {

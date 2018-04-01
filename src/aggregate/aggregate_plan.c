@@ -30,7 +30,7 @@ AggregateStep *newApplyStep(CmdArg *arg, char **err) {
   }
 
   const char *exp = CMDARG_STRPTR(expr);
-  RSExpr *pe = RSExpr_Parse(exp, strlen(exp), GetFunctions(), err);
+  RSExpr *pe = RSExpr_Parse(exp, strlen(exp), err);
   if (!pe) {
     return NULL;
   }
@@ -161,7 +161,7 @@ AggregateStep *newGroupStep(CmdArg *grp, char **err) {
 
 AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property, RSValueType t,
                                     AggregatePropertyKind kind, int replace) {
-  printf("Appending %s in schema len %zd\n", property, array_len(schema));
+  assert(property);
   for (size_t i = 0; i < array_len(schema); i++) {
     AggregateProperty p = schema[i];
     if (!strcasecmp(RSKEY(schema[i].property), RSKEY(property))) {
@@ -177,19 +177,6 @@ AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property
   return schema;
 }
 
-RSValueType GetExprType(RSExpr *expr) {
-  switch (expr->t) {
-    case RSExpr_Function:
-      return RSFunctionRegistry_GetType(GetFunctions(), expr->func.name, strlen(expr->func.name));
-      break;
-    case RSExpr_Op:
-      return RSValue_Number;
-    case RSExpr_Literal:
-      return expr->literal.t;
-    case RSExpr_Property:
-      return RSValue_String;
-  }
-}
 AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint) {
   switch (expr->t) {
     case RSExpr_Function: {
@@ -219,7 +206,7 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
   while (current) {
     switch (current->type) {
       case AggregateStep_Apply:
-        // arr = extractExprTypes(current->apply.parsedExpr, arr, RSValue_String);
+        arr = extractExprTypes(current->apply.parsedExpr, arr, RSValue_String);
         arr = AggregateSchema_Set(arr, current->apply.alias, GetExprType(current->apply.parsedExpr),
                                   Property_Projection, 1);
         break;
@@ -248,7 +235,7 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
             if (RSValue_IsString(RSValue_ArrayItem(red->args, j))) {
               const char *c = RSValue_StringPtrLen(RSValue_ArrayItem(red->args, j), NULL);
               if (c && *c == '@') {
-                AggregateSchema_Set(arr, red->alias, RSValue_String, Property_Field, 0);
+                AggregateSchema_Set(arr, c, RSValue_String, Property_Field, 0);
               }
             }
           }

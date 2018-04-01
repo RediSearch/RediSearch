@@ -170,9 +170,9 @@ error:
   return EXPR_EVAL_ERR;
 }
 
-void RegisterStringFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "lower", stringfunc_tolower, RSValue_String);
-  RSFunctionRegistry_RegisterFunction(reg, "upper", stringfunc_toupper, RSValue_String);
-  RSFunctionRegistry_RegisterFunction(reg, "substr", stringfunc_substr, RSValue_String);
-  RSFunctionRegistry_RegisterFunction(reg, "format", stringfunc_format, RSValue_String);
+void RegisterStringFunctions() {
+  RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("substr", stringfunc_substr, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValue_String);
 }

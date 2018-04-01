@@ -9,11 +9,7 @@
 #include "functions/function.h"
 
 static CmdSchemaNode *requestSchema = NULL;
-static RSFunctionRegistry functions_g = {0};
 
-RSFunctionRegistry *GetFunctions() {
-  return &functions_g;
-}
 CmdSchemaNode *GetAggregateRequestSchema() {
   return requestSchema;
 }
@@ -53,9 +49,9 @@ void Aggregate_BuildSchema() {
       */
 
   // Initialize projection functions registry
-  RegisterMathFunctions(&functions_g);
-  RegisterStringFunctions(&functions_g);
-  RegisterDateFunctions(&functions_g);
+  RegisterMathFunctions();
+  RegisterStringFunctions();
+  RegisterDateFunctions();
 
   requestSchema = NewSchema("FT.AGGREGATE", NULL);
   CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
@@ -222,8 +218,7 @@ ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, RedisSe
 
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
 
-  return NewProjector(sctx, &functions_g, upstream, alias, CMDARG_STRPTR(expr), CMDARG_STRLEN(expr),
-                      err);
+  return NewProjector(sctx, upstream, alias, CMDARG_STRPTR(expr), CMDARG_STRLEN(expr), err);
 }
 
 ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {

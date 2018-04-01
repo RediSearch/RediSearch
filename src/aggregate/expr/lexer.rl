@@ -175,14 +175,13 @@ main := |*
 
 
 
-RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, char **err) {
+RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   RSExprParseCtx ctx = {
     .raw = expr,
     .len = len, 
     .errorMsg = NULL,
     .root = NULL,
     .ok = 1,
-    .funcs = funcs,
   };
   void *pParser = RSExprParser_ParseAlloc(malloc);
 

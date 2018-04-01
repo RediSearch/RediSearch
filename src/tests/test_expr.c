@@ -40,13 +40,13 @@ int testParser() {
 }
 
 int testFunction() {
-  RSFunctionRegistry funcs = {0};
-  RegisterMathFunctions(&funcs);
+  // RSFunctionRegistry funcs = {0};
+  RegisterMathFunctions();
 
   char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
 
   char *err = NULL;
-  RSExpr *root = RSExpr_Parse(e, strlen(e), &funcs, &err);
+  RSExpr *root = RSExpr_Parse(e, strlen(e), &err);
   if (err != NULL) {
     FAIL("Error parsing expression: %s", err);
   }
