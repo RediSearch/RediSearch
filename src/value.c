@@ -1,11 +1,24 @@
 #include "value.h"
 #include "util/mempool.h"
+#include <pthread.h>
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
 
-struct mempool_t *valuePool_g = NULL;
+typedef struct {
+  mempool_t *values;
+  mempool_t *fieldmaps;
+} mempoolThreadPool;
+
+static void mempoolThreadPoolDtor(void *p) {
+  mempoolThreadPool *tp = p;
+  mempool_destroy(tp->values);
+  mempool_destroy(tp->fieldmaps);
+  free(tp);
+}
+
+pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
   return malloc(sizeof(RSValue));
@@ -15,11 +28,34 @@ static void _valueFree(void *p) {
   free(p);
 }
 
-RSValue *RS_NewValue(RSValueType t) {
-  if (!valuePool_g) {
-    valuePool_g = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
+/* The byte size of the field map */
+static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
+  return sizeof(RSFieldMap) + cap * sizeof(RSField);
+}
+
+void *_fieldMapAlloc() {
+  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
+  ret->cap = 8;
+  return ret;
+}
+
+static void __attribute__((constructor)) initKey() {
+  pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
+}
+
+static mempoolThreadPool *getPoolInfo() {
+  mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
+  if (tp == NULL) {
+    tp = calloc(1, sizeof(*tp));
+    tp->values = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
+    tp->fieldmaps = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
+    pthread_setspecific(mempoolKey_g, tp);
   }
-  RSValue *v = mempool_safe_get(valuePool_g);
+  return tp;
+}
+
+RSValue *RS_NewValue(RSValueType t) {
+  RSValue *v = mempool_get(getPoolInfo()->values);
   v->t = t;
   v->refcount = 0;
   v->allocated = 1;
@@ -65,7 +101,7 @@ inline void RSValue_Free(RSValue *v) {
     }
 
     if (v->allocated) {
-      mempool_safe_release(valuePool_g, v);
+      mempool_release(getPoolInfo()->values, v);
     }
   }
 }
@@ -554,26 +590,10 @@ inline RSField RS_NewField(const char *k, RSValue *val) {
   return ret;
 }
 
-/* The byte size of the field map */
-static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
-  return sizeof(RSFieldMap) + cap * sizeof(RSField);
-}
-
-mempool_t *fieldmapPool_g = NULL;
-
-void *_fieldMapAlloc() {
-  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
-  ret->cap = 8;
-  return ret;
-}
-
 /* Create a new field map with a given initial capacity */
 RSFieldMap *RS_NewFieldMap(uint16_t cap) {
-  if (!fieldmapPool_g) {
-    fieldmapPool_g = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
-  }
   if (!cap) cap = 1;
-  RSFieldMap *m = mempool_safe_get(fieldmapPool_g);
+  RSFieldMap *m = mempool_get(getPoolInfo()->fieldmaps);
   m->len = 0;
   return m;
 }
@@ -662,7 +682,7 @@ void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
     if (freeKeys) free((void *)m->fields[i].key);
   }
   m->len = 0;
-  mempool_safe_release(fieldmapPool_g, m);
+  mempool_release(getPoolInfo()->fieldmaps, m);
   // free(m);
 }
 

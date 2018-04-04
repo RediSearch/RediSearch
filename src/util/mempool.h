@@ -29,14 +29,8 @@ struct mempool_t *mempool_new_limited(size_t cap, size_t max_cap, mempool_alloc_
 /* Get an entry from the pool, allocating a new instance if unavailable */
 void *mempool_get(struct mempool_t *p);
 
-/* Same as mempool_get but thread safe. For the same pool instance use always just one  of them */
-void *mempool_safe_get(struct mempool_t *p);
-
 /* Release an allocated instance to the pool */
 void mempool_release(struct mempool_t *p, void *ptr);
-
-/* Thread safe version of release */
-void mempool_safe_release(struct mempool_t *p, void *ptr);
 
 /* destroy the pool, releasing all entries in it and destroying its internal array */
 void mempool_destroy(struct mempool_t *p);
