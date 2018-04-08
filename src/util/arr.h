@@ -5,13 +5,13 @@
  *
  * Example usage:
  *
- *  int *arr =array_new(int, 8);
+ *  int *arr = array_new(int, 8);
  *  // Add elements to the array
  *  for (int i = 0; i < 100; i++) {
  *   arr = array_append(arr, i);
  *  }
  *
- *  // read individual alements
+ *  // read individual elements
  *  for (int i = 0; i < array_len(arr); i++) {
  *    printf("%d\n", arr[i]);
  *  }
@@ -23,6 +23,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+
+/* Definition of malloc & friedns that can be overridden before including arr.h */
+#ifndef array_alloc_fn
+#define array_alloc_fn malloc
+#define array_realloc_fn realloc
+#define array_free_fn free
+#endif
 
 typedef struct {
   uint32_t len;
@@ -42,7 +49,7 @@ typedef void *array_t;
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 static array_t array_new_sz(uint32_t elem_sz, uint32_t cap) {
-  array_hdr_t *hdr = malloc(sizeof(array_hdr_t) + cap * elem_sz);
+  array_hdr_t *hdr = array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
   hdr->cap = cap;
   hdr->elem_sz = elem_sz;
   hdr->len = 0;
@@ -62,7 +69,7 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
   if (cap > hdr->cap) {
     hdr->cap = MAX(MIN(hdr->cap * 2, hdr->cap + 1024), cap);
-    hdr = realloc(hdr, array_sizeof(hdr));
+    hdr = array_realloc_fn(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
 }
@@ -95,7 +102,7 @@ static void array_free(array_t arr, void (*free_cb)(void *)) {
       free_cb(array_elem(arr, i));
     }
   }
-  free(array_hdr(arr));
+  array_free_fn(array_hdr(arr));
 }
 
 #endif
