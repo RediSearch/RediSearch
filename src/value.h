@@ -116,6 +116,8 @@ static inline RSValue *RSValue_Dereference(RSValue *v) {
  * the value needs to be detached */
 RSValue *RS_StringVal(char *str, uint32_t len);
 
+RSValue *RS_StringValFmt(const char *fmt, ...);
+
 /* Same as RS_StringVal but with explicit string type */
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 

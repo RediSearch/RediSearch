@@ -10,6 +10,7 @@ AggregateStep *newStep(AggregateStepType t) {
   AggregateStep *step = malloc(sizeof(*step));
   step->type = t;
   step->next = NULL;
+  step->prev = NULL;
   return step;
 }
 
@@ -21,7 +22,34 @@ AggregateStep *newLoadStep(CmdArg *arg, char **err) {
   return ret;
 }
 
-AggregateStep *newApplyStep(CmdArg *arg, char **err) {
+AggregateStep *newApplyStep(const char *alias, const char *expr, char **err) {
+  RSExpr *pe = RSExpr_Parse(expr, strlen(expr), err);
+  if (!pe) {
+    return NULL;
+  }
+  AggregateStep *ret = newStep(AggregateStep_Apply);
+  ret->apply = (AggregateApplyStep){
+      .rawExpr = expr,
+      .parsedExpr = pe,
+      .alias = alias,
+  };
+  return ret;
+}
+
+AggregateStep *newApplyStepFmt(const char *alias, char **err, const char *fmt, ...) {
+  char *exp;
+  va_list ap;
+  va_start(ap, fmt);
+  vasprintf(&exp, fmt, ap);
+  va_end(ap);
+  AggregateStep *st = newApplyStep(alias, exp, err);
+  if (!st) {
+    free(exp);
+  }
+  return st;
+}
+
+AggregateStep *newApplyStepArgs(CmdArg *arg, char **err) {
 
   CmdArg *expr = CmdArg_FirstOf(arg, "expr");
   if (!expr || CMDARG_TYPE(expr) != CmdArg_String) {
@@ -30,15 +58,8 @@ AggregateStep *newApplyStep(CmdArg *arg, char **err) {
   }
 
   const char *exp = CMDARG_STRPTR(expr);
-  RSExpr *pe = RSExpr_Parse(exp, strlen(exp), err);
-  if (!pe) {
-    return NULL;
-  }
-  AggregateStep *ret = newStep(AggregateStep_Apply);
-  ret->apply.rawExpr = exp;
-  ret->apply.parsedExpr = pe;
-  ret->apply.alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
-  return ret;
+  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
+  return newApplyStep(alias, exp, err);
 }
 
 AggregateStep *newSortStep(CmdArg *srt, char **err) {
@@ -96,7 +117,7 @@ AggregateStep *newSortStep(CmdArg *srt, char **err) {
   };
   return ret;
 err:
-  FMT_ERR(err, "Invalid sortby arguments near '%s'", CMDARG_STRPTR(CMDARG_ARRELEM(by, i)));
+  FMT_ERR(err, "Invalid SORTBY arguments near '%s'", CMDARG_STRPTR(CMDARG_ARRELEM(by, i)));
   if (keys) RSMultiKey_Free(keys);
   return NULL;
 }
@@ -117,18 +138,65 @@ AggregateStep *newLimit(CmdArg *arg, char **err) {
   return ret;
 }
 
-void buildReducer(AggregateGroupReduce *gr, CmdArg *red, char **err) {
+size_t group_numReducers(AggregateGroupStep *g) {
+  return array_len(g->reducers);
+}
+
+const char *getReducerAlias(AggregateGroupStep *g, const char *func) {
+
+  char *ret;
+  asprintf(&ret, "grp%d_%s%d", g->idx, func, array_len(g->reducers));
+  for (char *c = ret; *c; c++) {
+    *c = tolower(*c);
+  }
+  return ret;
+}
+const char *group_addReducer(AggregateGroupStep *g, const char *func, const char *alias, int argc,
+                             ...) {
+  if (!g->reducers) {
+    g->reducers = array_new(AggregateGroupReduce, 1);
+  }
+  RSValue **arr = array_newlen(RSValue *, argc);
+  va_list ap;
+  va_start(ap, argc);
+  for (int i = 0; i < argc; i++) {
+    arr[i] = RSValue_IncrRef(va_arg(ap, RSValue *));
+  }
+  va_end(ap);
+  if (!alias) {
+    alias = getReducerAlias(g, func);
+  } else {
+    alias = strdup(alias);
+  }
+
+  g->reducers = array_append(g->reducers, ((AggregateGroupReduce){
+                                              .reducer = func,
+                                              .alias = alias,
+                                              .args = arr,
+                                          }));
+  return alias;
+}
+
+void buildReducer(AggregateGroupStep *g, AggregateGroupReduce *gr, CmdArg *red, char **err) {
 
   gr->reducer = CMDARG_STRPTR(CmdArg_FirstOf(red, "func"));
   CmdArg *args = CmdArg_FirstOf(red, "args");
   gr->args = NULL;
   if (CMDARG_ARRLEN(args) > 0) {
-    gr->args = RS_NewValueFromCmdArg(args);
+    gr->args = array_newlen(RSValue *, CMDARG_ARRLEN(args));
+    for (int i = 0; i < CMDARG_ARRLEN(args); i++) {
+      gr->args[i] = RSValue_IncrRef(RS_NewValueFromCmdArg(CMDARG_ARRELEM(args, i)));
+    }
   }
   gr->alias = CMDARG_ORNULL(CmdArg_FirstOf(red, "AS"), CMDARG_STRPTR);
+  if (!gr->alias) {
+    gr->alias = getReducerAlias(g, gr->reducer);
+  } else {
+    gr->alias = strdup(gr->alias);
+  }
 }
 
-AggregateStep *newGroupStep(CmdArg *grp, char **err) {
+AggregateStep *newGroupStep(int idx, CmdArg *grp, char **err) {
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) {
     SET_ERR(err, "No fields for GROUPBY");
@@ -138,23 +206,21 @@ AggregateStep *newGroupStep(CmdArg *grp, char **err) {
   size_t numReducers = CmdArg_Count(grp, "REDUCE");
   AggregateGroupReduce *arr = NULL;
   if (numReducers) {
-    arr = calloc(numReducers, sizeof(AggregateGroupReduce));
+    arr = array_new(AggregateGroupReduce, numReducers);
   }
-
-  size_t n = 0;
-  // Add reducers
-  CMD_FOREACH_SELECT(grp, "REDUCE", {
-    buildReducer(&arr[n], result, err);
-    n++;
-  });
 
   AggregateStep *ret = newStep(AggregateStep_Group);
   ret->group = (AggregateGroupStep){
       .properties = keys,
       .reducers = arr,
-      .numReducers = numReducers,
-      .alias = CMDARG_ORNULL(CmdArg_FirstOf(grp, "AS"), CMDARG_STRPTR),
+      .idx = idx,  // FIXME: Global counter
   };
+  // Add reducers
+  CMD_FOREACH_SELECT(grp, "REDUCE", {
+    AggregateGroupReduce agr;
+    buildReducer(&ret->group, &agr, result, err);
+    ret->group.reducers = array_append(ret->group.reducers, agr);
+  });
 
   return ret;
 }
@@ -237,12 +303,12 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
           arr = AggregateSchema_Set(arr, current->group.properties->keys[i].key, RSValue_String,
                                     Property_Field, 0);
         }
-        for (int i = 0; i < current->group.numReducers; i++) {
+        for (int i = 0; i < array_len(current->group.reducers); i++) {
           AggregateGroupReduce *red = &current->group.reducers[i];
 
-          for (int j = 0; j < RSValue_ArrayLen(red->args); j++) {
-            if (RSValue_IsString(RSValue_ArrayItem(red->args, j))) {
-              const char *c = RSValue_StringPtrLen(RSValue_ArrayItem(red->args, j), NULL);
+          for (int j = 0; j < array_len(red->args); j++) {
+            if (RSValue_IsString(red->args[j])) {
+              const char *c = RSValue_StringPtrLen(red->args[j], NULL);
               if (c && *c == '@') {
                 AggregateSchema_Set(arr, c, RSValue_String, Property_Field, 0);
               }
@@ -264,13 +330,38 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
   return arr;
 }
 
-static void plan_AddStep(AggregatePlan *plan, AggregateStep *step) {
-  if (!plan->head) {
-    plan->head = plan->tail = step;
-  } else {
-    plan->tail->next = step;
-    plan->tail = step;
+void step_AddAfter(AggregateStep *step, AggregateStep *add) {
+  add->next = step->next;
+  if (step->next) step->next->prev = add;
+  add->prev = step;
+  step->next = add;
+}
+
+void step_AddBefore(AggregateStep *step, AggregateStep *add) {
+  add->prev = step->prev;
+  if (add->prev) add->prev->next = add;
+
+  // if add is several steps connected, go to the end
+  while (add->next) {
+    add = add->next;
   }
+
+  add->next = step;
+  step->prev = add;
+}
+
+/* Detach the step and return the previous next of it */
+AggregateStep *step_Detach(AggregateStep *step) {
+  AggregateStep *tmp = step->next;
+  if (step->next) step->next->prev = step->prev;
+  if (step->prev) step->prev->next = step->next;
+  step->prev = NULL;
+  step->next = NULL;
+  return tmp;
+}
+static void plan_AddStep(AggregatePlan *plan, AggregateStep *step) {
+  // We assume head and tail are sentinels
+  step_AddBefore(plan->tail, step);
   plan->size++;
 }
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
@@ -281,22 +372,25 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   CmdArgIterator it = CmdArg_Children(cmd);
   CmdArg *child;
   const char *key;
-  int n = 0;
+  int n = 1;
+  plan->head = newStep(AggregateStep_Dummy);
+  plan->tail = newStep(AggregateStep_Dummy);
+  plan->tail->prev = plan->head;
+  plan->head->next = plan->tail;
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     AggregateStep *next = NULL;
     if (!strcasecmp(key, "idx")) {
       plan->index = CMDARG_STRPTR(child);
       continue;
     } else if (!strcasecmp(key, "query")) {
-      plan->query = CMDARG_STRPTR(child);
-      plan->queryLen = CMDARG_STRLEN(child);
-      continue;
+      next = newStep(AggregateStep_Query);
+      next->query.str = CMDARG_STRPTR(child);
     } else if (!strcasecmp(key, "GROUPBY")) {
-      next = newGroupStep(child, err);
+      next = newGroupStep(n++, child, err);
     } else if (!strcasecmp(key, "SORTBY")) {
       next = newSortStep(child, err);
     } else if (!strcasecmp(key, "APPLY")) {
-      next = newApplyStep(child, err);
+      next = newApplyStepArgs(child, err);
     } else if (!strcasecmp(key, "LIMIT")) {
       next = newLimit(child, err);
     } else if (!strcasecmp(key, "LOAD")) {
@@ -346,16 +440,16 @@ void serializeGroup(AggregateGroupStep *g, char ***v) {
   for (int i = 0; i < g->properties->len; i++) {
     arrPushStrfmt(v, "@%s", g->properties->keys[i].key);
   }
-  for (int i = 0; i < g->numReducers; i++) {
+  for (int i = 0; i < group_numReducers(g); i++) {
     arrPushStrdup(v, "REDUCE");
     arrPushStrdup(v, g->reducers[i].reducer);
-    arrPushStrfmt(v, "%d", g->reducers[i].args ? g->reducers[i].args->arrval.len : 0);
+    arrPushStrfmt(v, "%d", array_len(g->reducers[i].args));
     if (g->reducers[i].args) {
       RSValue tmp = {.allocated = 0};
 
-      for (int j = 0; j < g->reducers[i].args->arrval.len; j++) {
-        RSValue_ToString(&tmp, g->reducers[i].args->arrval.vals[i]);
-        arrPushStrdup(v, RSValue_Dereference(&tmp)->strval.str);
+      for (int j = 0; j < array_len(g->reducers[i].args); j++) {
+        RSValue_ToString(&tmp, g->reducers[i].args[j]);
+        arrPushStrdup(v, RSValue_StringPtrLen(&tmp, NULL));
         RSValue_Free(&tmp);
       }
     }
@@ -405,11 +499,14 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
   arrPushStrdup(&vec, RS_AGGREGATE_CMD);
 
   if (plan->index) arrPushStrdup(&vec, plan->index);
-  if (plan->query) arrPushStrfmt(&vec, "%.*s", plan->queryLen, plan->query);
 
   AggregateStep *current = plan->head;
   while (current) {
     switch (current->type) {
+      case AggregateStep_Query:
+        arrPushStrdup(&vec, current->query.str);
+        break;
+
       case AggregateStep_Group:
         serializeGroup(&current->group, &vec);
         break;
@@ -429,8 +526,17 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
         serializeLoad(&current->load, &vec);
         break;
 
-      case AggregateStep_Distribute:
-        arrPushStrdup(&vec, "<DISTRIBUTE-SUBPLAN>");
+      case AggregateStep_Distribute: {
+        arrPushStrdup(&vec, "{{");
+        char **sub = AggregatePlan_Serialize(current->dist.plan);
+        for (int k = 0; k < array_len(sub); k++) {
+          vec = array_append(vec, sub[k]);
+        }
+        arrPushStrdup(&vec, "}}");
+        array_free(sub, NULL);
+        break;
+      }
+      case AggregateStep_Dummy:
         break;
     }
     current = current->next;
@@ -439,82 +545,170 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
   return vec;
 }
 
-AggregateStep *plan_MoveStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step,
-                             AggregateStep *prev) {
-  if (prev) {
-    prev->next = step->next;
-  } else {
-    src->head = step->next;
-  }
-  AggregateStep *next = step->next;
-  step->next = NULL;
+AggregateStep *plan_MoveStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step) {
+  AggregateStep *next = step_Detach(step);
+
   plan_AddStep(dist, step);
   return next;
 }
 
+typedef struct {
+
+} PlanProcessingCtx;
+
+#define PROPVAL(p) (RS_StringValFmt("@%s", RSKEY(p)))
+const char *getReducerAlias(AggregateGroupStep *g, const char *func);
+
+int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
+                    AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+  group_addReducer(&remote->group, "COUNT", RSKEY(src->alias), 0);
+
+  group_addReducer(&local->group, "SUM", RSKEY(src->alias), 1, PROPVAL(src->alias));
+
+  return 1;
+}
+
+int distributeSum(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
+                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+  group_addReducer(&remote->group, "SUM", RSKEY(src->alias), 1, src->args[0]);
+
+  group_addReducer(&local->group, "SUM", RSKEY(src->alias), 1, PROPVAL(src->alias));
+
+  return 1;
+}
+
+int distributeMin(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
+                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+  group_addReducer(&remote->group, "MIN", RSKEY(src->alias), 1, src->args[0]);
+
+  group_addReducer(&local->group, "MIN", RSKEY(src->alias), 1, PROPVAL(src->alias));
+
+  return 1;
+}
+
+int distributeMax(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
+                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+  group_addReducer(&remote->group, "MAX", RSKEY(src->alias), 1, src->args[0]);
+
+  group_addReducer(&local->group, "MAX", RSKEY(src->alias), 1, PROPVAL(src->alias));
+
+  return 1;
+}
+
+int distributeAvg(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
+                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+
+  // Add count and sum remotely
+  const char *countAlias = group_addReducer(&remote->group, "COUNT", NULL, 0);
+  const char *sumAlias = group_addReducer(&remote->group, "SUM", NULL, 1, src->args[0]);
+
+  group_addReducer(&local->group, "SUM", sumAlias, 1, PROPVAL(sumAlias));
+  group_addReducer(&local->group, "SUM", countAlias, 1, PROPVAL(countAlias));
+
+  char *err;
+  AggregateStep *as = newApplyStepFmt(src->alias, &err, "(@%s/@%s)", sumAlias, countAlias);
+  if (!as) {
+    return 0;
+    // TODO: Free everything
+  }
+  step_AddAfter(local, as);
+  return 1;
+}
 AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step,
-                                   AggregateStep *prev, int *cont) {
+                                   int *cont) {
   AggregateGroupStep *gr = &step->group;
-  AggregateStep *so = newStep(AggregateStep_Group);
-  AggregateGroupStep *out = &so->group;
-  out->alias = gr->alias;
-  out->properties = gr->properties;
-  out->reducers = calloc(gr->numReducers, sizeof(AggregateGroupReduce));
-  out->numReducers = 0;
-  for (int i = 0; i < gr->numReducers; i++) {
+  AggregateStep *remoteStep = newStep(AggregateStep_Group);
+  AggregateStep *localStep = newStep(AggregateStep_Group);
+
+  AggregateGroupStep *remote = &remoteStep->group;
+  AggregateGroupStep *local = &localStep->group;
+  remote->idx = step->group.idx;
+  local->idx = step->group.idx;
+
+  remote->properties = gr->properties;
+  local->properties = gr->properties;
+  remote->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
+  local->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
+  int success = 1;
+  for (int i = 0; i < group_numReducers(gr); i++) {
     AggregateGroupReduce *red = &gr->reducers[i];
     if (!strcasecmp(red->reducer, "COUNT")) {
-      out->reducers[out->numReducers++] =
-          (AggregateGroupReduce){.alias = red->alias, .args = NULL, .reducer = red->reducer};
-
-      red->reducer = "SUM";
-      char *arg;
-      asprintf(&arg, "@%s", RSKEY(red->alias));
-      red->args = RS_VStringArray(1, arg);
-      *cont = 0;
+      if (!distributeCount(red, localStep, remoteStep, src, dist)) {
+        success = 0;
+        break;
+      }
+    } else if (!strcasecmp(red->reducer, "AVG")) {
+      if (!distributeAvg(red, localStep, remoteStep, src, dist)) {
+        success = 0;
+        break;
+      }
+    } else if (!strcasecmp(red->reducer, "SUM")) {
+      if (!distributeSum(red, localStep, remoteStep, src, dist)) {
+        success = 0;
+        break;
+      }
+    } else if (!strcasecmp(red->reducer, "MIN")) {
+      if (!distributeMin(red, localStep, remoteStep, src, dist)) {
+        success = 0;
+        break;
+      }
+    } else if (!strcasecmp(red->reducer, "MAX")) {
+      if (!distributeMax(red, localStep, remoteStep, src, dist)) {
+        success = 0;
+        break;
+      }
     } else {
-      *cont = 0;
-      return NULL;
+      success = 0;
+      break;
     }
   }
+  *cont = 0;
 
-  plan_AddStep(dist, so);
-  return step->next;
+  if (!success) {
+    return NULL;  // TODO: free stuff here
+  }
+
+  plan_AddStep(dist, remoteStep);
+  AggregateStep *tmp = step_Detach(step);
+  step_AddBefore(tmp, localStep);
+  return localStep->next;
 }
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
   AggregateStep *current = src->head;
-  AggregateStep *prev = NULL;
-  *dist = (AggregatePlan){.query = src->query,
-                          .queryLen = src->queryLen,
-                          .index = src->index,
+  *dist = (AggregatePlan){.index = src->index,
                           .hasCursor = 1,
+                          .head = newStep(AggregateStep_Dummy),
+                          .tail = newStep(AggregateStep_Dummy),
+
                           .cursor = (AggregateCursor){
                               .count = 500,
                           }};
+  dist->tail->prev = dist->head;
+  dist->head->next = dist->tail;
   // zero the stuff we don't care about in src
   src->index = NULL;
-  src->query = NULL;
 
   int cont = 1;
   while (current && cont) {
+    AggregateStep *tmp = current;
     switch (current->type) {
+      case AggregateStep_Query:
       case AggregateStep_Apply:
-        current = plan_MoveStep(src, dist, current, prev);
-        break;
       case AggregateStep_Limit:
-        current = plan_MoveStep(src, dist, current, prev);
-        break;
-      case AggregateStep_Group:
-        current = distributeGroupStep(src, dist, current, prev, &cont);
-        break;
       case AggregateStep_Load:
-        current = plan_MoveStep(src, dist, current, prev);
-        break;
       case AggregateStep_Sort:
-        current = plan_MoveStep(src, dist, current, prev);
-        cont = 0;
+
+        current = plan_MoveStep(src, dist, current);
         break;
+
+      case AggregateStep_Group:
+        current = distributeGroupStep(src, dist, current, &cont);
+        break;
+
       case AggregateStep_Distribute:
+        break;
+      case AggregateStep_Dummy:
+        current = current->next;
         break;
     }
   }
@@ -539,8 +733,7 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
       for (int i = 0; i < array_len(arr); i++) {
         ls->load.keys->keys[i].key = arr[i];
       }
-      ls->next = dist->head;
-      dist->head = ls;
+      step_AddAfter(dist->head, ls);
     }
 
     array_free(arr, NULL);
@@ -549,8 +742,7 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
 
     AggregateStep *ds = newStep(AggregateStep_Distribute);
     ds->dist.plan = dist;
-    ds->next = src->head;
-    src->head = ds;
+    step_AddAfter(src->head, ds);
   }
 
   return 1;

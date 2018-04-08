@@ -134,6 +134,16 @@ inline RSValue *RS_StringValC(char *str) {
   return RS_StringVal(str, strlen(str));
 }
 
+RSValue *RS_StringValFmt(const char *fmt, ...) {
+
+  char *buf;
+  va_list ap;
+  va_start(ap, fmt);
+  vasprintf(&buf, fmt, ap);
+  va_end(ap);
+  return RS_StringVal(buf, strlen(buf));
+}
+
 inline RSValue *RS_ConstStringValC(char *str) {
   return RS_StringValT(str, strlen(str), RSString_Const);
 }

@@ -114,14 +114,14 @@ int testAggregatePlan() {
 }
 
 int testDistribute() {
-  CmdString *argv = CmdParser_NewArgListV(20, "FT.AGGREGATE", "idx", "foo", "APPLY", "@foo", "AS",
-                                          "@bar", "GROUPBY", "2", "@foo", "@bar", "REDUCE", "count",
-                                          "0", "AS", "num", "SORTBY", "2", "@num", "DESC");
+  CmdString *argv = CmdParser_NewArgListV(
+      22, "FT.AGGREGATE", "idx", "foo", "GROUPBY", "1", "@bar", "REDUCE", "AVG", "1", "@foo", "AS",
+      "num", "REDUCE", "MAX", "1", "@bar", "AS", "sum_bar", "SORTBY", "2", "@num", "DESC");
 
   CmdArg *cmd = NULL;
   char *err;
   Aggregate_BuildSchema();
-  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 20, &err, 1);
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 22, &err, 1);
   printf("%s\n", err);
   ASSERT(!err);
   ASSERT(cmd);

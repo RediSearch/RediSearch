@@ -20,16 +20,20 @@ typedef struct {
 } AggregateLoadStep;
 
 typedef struct {
+  const char *str;
+
+} AggregateQueryStep;
+
+typedef struct {
   const char *reducer;
-  RSValue *args;
+  RSValue **args;
   const char *alias;
 } AggregateGroupReduce;
 
 typedef struct {
   RSMultiKey *properties;
   AggregateGroupReduce *reducers;
-  size_t numReducers;
-  const char *alias;
+  int idx;
 } AggregateGroupStep;
 
 typedef struct {
@@ -64,12 +68,14 @@ typedef struct {
 } AggregateLimitStep;
 
 typedef enum {
+  AggregateStep_Query,
   AggregateStep_Group,
   AggregateStep_Sort,
   AggregateStep_Apply,
   AggregateStep_Limit,
   AggregateStep_Load,
   AggregateStep_Distribute,
+  AggregateStep_Dummy,  // dummy step representing an empty plan's head
 } AggregateStepType;
 
 typedef struct {
@@ -84,9 +90,12 @@ typedef struct AggregateStep {
     AggregateLimitStep limit;
     AggregateSortStep sort;
     AggregateDistributeStep dist;
+    AggregateQueryStep query;
   };
   AggregateStepType type;
   struct AggregateStep *next;
+  struct AggregateStep *prev;
+
 } AggregateStep;
 
 typedef struct {
@@ -96,8 +105,6 @@ typedef struct {
 
 typedef struct AggregatePlan {
   const char *index;
-  const char *query;
-  size_t queryLen;
   AggregateStep *head;
   AggregateStep *tail;
   size_t size;

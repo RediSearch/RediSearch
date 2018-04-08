@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <stdarg.h>
 
 /* Definition of malloc & friedns that can be overridden before including arr.h.
  * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
@@ -36,6 +37,8 @@
 
 typedef struct {
   uint32_t len;
+  // TODO: optimize memory by making cap a 16-bit delta from len, and elem_sz 16 bit as well. This
+  // makes the whole header fit in 64 bit
   uint32_t cap;
   uint32_t elem_sz;
   char buf[];
@@ -51,22 +54,27 @@ typedef void *array_t;
 
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
-static array_t array_new_sz(uint32_t elem_sz, uint32_t cap) {
+static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
   array_hdr_t *hdr = array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
   hdr->cap = cap;
   hdr->elem_sz = elem_sz;
-  hdr->len = 0;
+  hdr->len = len;
   return (array_t)(hdr->buf);
 }
 
-/* Initialize an array for a given type T with a given capacity. The array should be case to a
- * pointer to that type. e.g.
+/* Initialize an array for a given type T with a given capacity and zero length. The array should be
+ * case to a pointer to that type. e.g.
  *
  *  int *arr = array_new(int, 4);
  *
  * This allows direct access to elements
  *  */
-#define array_new(T, cap) (array_new_sz(sizeof(T), cap))
+#define array_new(T, cap) (array_new_sz(sizeof(T), cap, 0))
+
+/* Initialize an array for a given type T with a given length. The capacity allocated is identical
+ * to the length
+ *  */
+#define array_newlen(T, len) (array_new_sz(sizeof(T), len, len))
 
 static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
@@ -95,11 +103,12 @@ static inline array_t array_grow(array_t arr) {
 
 /* Get the length of the array */
 static inline uint32_t array_len(array_t arr) {
-  return array_hdr(arr)->len;
+  return arr ? array_hdr(arr)->len : 0;
 }
 
 /* Free the array, optionally freeing individual elements with free_cb */
 static void array_free(array_t arr, void (*free_cb)(void *)) {
+  if (!arr) return;  // behave like free(NULL)
   if (free_cb) {
     for (uint32_t i = 0; i < array_len(arr); i++) {
       free_cb(array_elem(arr, i));
