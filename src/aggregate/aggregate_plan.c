@@ -559,8 +559,7 @@ typedef struct {
 #define PROPVAL(p) (RS_StringValFmt("@%s", RSKEY(p)))
 const char *getReducerAlias(AggregateGroupStep *g, const char *func);
 
-int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
-                    AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
   group_addReducer(&remote->group, "COUNT", RSKEY(src->alias), 0);
 
   group_addReducer(&local->group, "SUM", RSKEY(src->alias), 1, PROPVAL(src->alias));
@@ -568,8 +567,7 @@ int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateSt
   return 1;
 }
 
-int distributeSum(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
-                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+int distributeSum(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
   group_addReducer(&remote->group, "SUM", RSKEY(src->alias), 1, src->args[0]);
 
   group_addReducer(&local->group, "SUM", RSKEY(src->alias), 1, PROPVAL(src->alias));
@@ -577,8 +575,7 @@ int distributeSum(AggregateGroupReduce *src, AggregateStep *local, AggregateStep
   return 1;
 }
 
-int distributeMin(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
-                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+int distributeMin(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
   group_addReducer(&remote->group, "MIN", RSKEY(src->alias), 1, src->args[0]);
 
   group_addReducer(&local->group, "MIN", RSKEY(src->alias), 1, PROPVAL(src->alias));
@@ -586,8 +583,7 @@ int distributeMin(AggregateGroupReduce *src, AggregateStep *local, AggregateStep
   return 1;
 }
 
-int distributeMax(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
-                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+int distributeMax(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
   group_addReducer(&remote->group, "MAX", RSKEY(src->alias), 1, src->args[0]);
 
   group_addReducer(&local->group, "MAX", RSKEY(src->alias), 1, PROPVAL(src->alias));
@@ -595,8 +591,7 @@ int distributeMax(AggregateGroupReduce *src, AggregateStep *local, AggregateStep
   return 1;
 }
 
-int distributeAvg(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote,
-                  AggregatePlan *localPlan, AggregatePlan *remotePlan) {
+int distributeAvg(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
 
   // Add count and sum remotely
   const char *countAlias = group_addReducer(&remote->group, "COUNT", NULL, 0);
@@ -633,27 +628,27 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
   for (int i = 0; i < group_numReducers(gr); i++) {
     AggregateGroupReduce *red = &gr->reducers[i];
     if (!strcasecmp(red->reducer, "COUNT")) {
-      if (!distributeCount(red, localStep, remoteStep, src, dist)) {
+      if (!distributeCount(red, localStep, remoteStep)) {
         success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "AVG")) {
-      if (!distributeAvg(red, localStep, remoteStep, src, dist)) {
+      if (!distributeAvg(red, localStep, remoteStep)) {
         success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "SUM")) {
-      if (!distributeSum(red, localStep, remoteStep, src, dist)) {
+      if (!distributeSum(red, localStep, remoteStep)) {
         success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "MIN")) {
-      if (!distributeMin(red, localStep, remoteStep, src, dist)) {
+      if (!distributeMin(red, localStep, remoteStep)) {
         success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "MAX")) {
-      if (!distributeMax(red, localStep, remoteStep, src, dist)) {
+      if (!distributeMax(red, localStep, remoteStep)) {
         success = 0;
         break;
       }
