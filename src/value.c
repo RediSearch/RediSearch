@@ -43,7 +43,7 @@ static void __attribute__((constructor)) initKey() {
   pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
 }
 
-static mempoolThreadPool *getPoolInfo() {
+static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
     tp = calloc(1, sizeof(*tp));

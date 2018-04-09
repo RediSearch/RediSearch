@@ -311,9 +311,9 @@ void AggregateRequest_Free(AggregateRequest *req) {
   if (req->parseCtx) {
     Query_Free(req->parseCtx);
   }
-  if (req->ap.head) {
-    AggregatePlan_Free(&req->ap);
-  }
+  // if (req->ap.head) {
+  AggregatePlan_Free(&req->ap);
+  //
   if (req->args) {
     CmdArg_Free(req->args);
   }

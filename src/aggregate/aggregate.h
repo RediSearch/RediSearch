@@ -112,7 +112,7 @@ typedef struct AggregatePlan {
 char **AggregatePlan_Serialize(AggregatePlan *plan);
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
-int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
+AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src);
 void AggregatePlan_Free(AggregatePlan *plan);
 void AggregateStep_Free(AggregateStep *s);
 void AggregatePlan_Print(AggregatePlan *plan);
