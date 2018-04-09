@@ -331,4 +331,13 @@ void RSFieldMap_Free(RSFieldMap *m, int freeKeys);
 
 void RSFieldMap_Print(RSFieldMap *m);
 
+/* Read an array of RSVAlues into an array of strings or numbers based on fmt. Return 1 on success.
+ * fmt:
+ *  - s: will be parsed as a string
+ *  - l: Will be parsed as a long integer
+ *  - d: Will be parsed as a double
+ *  - !: will be skipped
+ *  - ?: means evrything after is optional
+ */
+int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #endif

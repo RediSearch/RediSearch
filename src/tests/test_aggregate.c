@@ -152,9 +152,50 @@ int testDistribute() {
 
   RETURN_TEST_SUCCESS;
 }
-TEST_MAIN({
 
-  // TESTFUNC(testGroupBy);
-  // TESTFUNC(testAggregatePlan);
+int testRevertToBasic() {
+  CmdString *argv =
+      CmdParser_NewArgListV(22, "FT.AGGREGATE", "idx", "foo", "GROUPBY", "1", "@bar", "REDUCE",
+                            "COUNT_DISTINCT", "1", "@foo", "AS", "num", "REDUCE", "MAX", "1",
+                            "@bar", "AS", "sum_bar", "SORTBY", "2", "@num", "DESC");
+
+  CmdArg *cmd = NULL;
+  char *err;
+  Aggregate_BuildSchema();
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, 22, &err, 1);
+  printf("%s\n", err);
+  ASSERT(!err);
+  ASSERT(cmd);
+
+  CmdArg_Print(cmd, 0);
+
+  AggregatePlan plan;
+  int rc = AggregatePlan_Build(&plan, cmd, &err);
+  if (err) printf("%s\n", err);
+  ASSERT(rc);
+
+  ASSERT(!err);
+
+  AggregatePlan_Print(&plan);
+
+  printf("----------------\n");
+  printf("----------------\n");
+
+  AggregatePlan distro;
+  rc = AggregatePlan_MakeDistributed(&plan, &distro);
+  ASSERT(rc);
+  printf("----------------\n");
+  AggregatePlan_Print(&plan);
+  printf("----------------\n");
+
+  AggregatePlan_Print(&distro);
+  AggregatePlan_Free(&plan);
+
+  RETURN_TEST_SUCCESS;
+}
+TEST_MAIN({
+  TESTFUNC(testRevertToBasic);
+  TESTFUNC(testGroupBy);
+  TESTFUNC(testAggregatePlan);
   TESTFUNC(testDistribute);
 })

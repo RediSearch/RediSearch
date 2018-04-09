@@ -5,6 +5,7 @@
 #include <query.h>
 #include <result_processor.h>
 #include <rmutil/cmdparse.h>
+#include <util/arr.h>
 #include <search_request.h>
 #include "functions/function.h"
 
@@ -117,33 +118,18 @@ CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
   return NULL;
 }
 
-int parseReducer(RedisSearchCtx *ctx, Grouper *g, CmdArg *red, char **err) {
+ResultProcessor *buildGroupBy(AggregateGroupStep *grp, RedisSearchCtx *sctx,
+                              ResultProcessor *upstream, char **err) {
 
-  const char *func = CMDARG_STRPTR(CmdArg_FirstOf(red, "func"));
-  CmdArg *args = CmdArg_FirstOf(red, "args");
-  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(red, "AS"), CMDARG_STRPTR);
+  Grouper *g = NewGrouper(RSMultiKey_Copy(grp->properties, 0),
+                          sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
-  Reducer *r = GetReducer(ctx, func, alias, &CMDARG_ARR(args), err);
-  if (!r) {
-    return 0;
-  }
-  Grouper_AddReducer(g, r);
-
-  return 1;
-}
-
-ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor *upstream,
-                              char **err) {
-
-  CmdArg *by = CmdArg_FirstOf(grp, "by");
-  if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
-
-  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1, 0);
-  Grouper *g = NewGrouper(keys, sctx && sctx->spec ? sctx->spec->sortables : NULL);
-
-  // Add reducers
-  CMD_FOREACH_SELECT(grp, "REDUCE", {
-    if (!parseReducer(sctx, g, result, err)) goto fail;
+  array_foreach(grp->reducers, red, {
+    Reducer *r = GetReducer(sctx, red.reducer, red.alias, red.args, array_len(red.args), err);
+    if (!r) {
+      goto fail;
+    }
+    Grouper_AddReducer(g, r);
   });
 
   return NewGrouperProcessor(g, upstream);
@@ -155,82 +141,22 @@ fail:
   return NULL;
 }
 
-ResultProcessor *buildSortBY(CmdArg *srt, ResultProcessor *upstream, char **err) {
-  CmdArg *by = CmdArg_FirstOf(srt, "by");
-  if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
-
-  RSMultiKey *keys = RS_NewMultiKey(CMDARG_ARRLEN(by));
-  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
-  // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
-  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
-  int n = 0;
-
-  // since ASC/DESC are optional, we need a stateful parser
-  // state 0 means we are open only to property names
-  // state 1 means we are open to either a new property or ASC/DESC
-  int state = 0, i = 0;
-  for (i = 0; i < CMDARG_ARRLEN(by) && i < sizeof(ascMap) * 8; i++) {
-    const char *str = CMDARG_STRPTR(CMDARG_ARRELEM(by, i));
-    // New properties are accepted in either state
-    if (*str == '@') {
-      keys->keys[n++] = RS_KEY(RSKEY(str));
-      state = 1;
-    } else if (state == 0) {
-      // At state 0 we only accept properties, so we don't even need to see what this is
-      goto err;
-    } else if (!strcasecmp(str, "asc")) {
-      // For as - we put a 1 in the map. We don't actually need to, this is just for readability
-      ascMap |= 1 << (n - 1);
-      // switch back to state 0, ASC/DESC cannot follow ASC
-      state = 0;
-    } else if (!strcasecmp(str, "desc")) {
-      // We turn the current bit to 0 meaning desc for the Nth property
-      ascMap &= ~(1 << (n - 1));
-      // switch back to state 0, ASC/DESC cannot follow ASC
-      state = 0;
-    } else {
-      // Unkown token - neither a property nor ASC/DESC
-      goto err;
-    }
-  }
-
-  // Parse optional MAX
-  CmdArg *max = CmdArg_FirstOf(srt, "MAX");
-  long long mx = 0;
-  if (max) {
-    mx = CMDARG_INT(max);
-    if (mx < 0) mx = 0;
-  }
-  return NewSorterByFields(keys, ascMap, mx, upstream);
-err:
-  asprintf(err, "Invalid sortby arguments near '%s'", CMDARG_STRPTR(CMDARG_ARRELEM(by, i)));
-  if (keys) RSMultiKey_Free(keys);
-  return NULL;
+ResultProcessor *buildSortBY(AggregateSortStep *srt, ResultProcessor *upstream, char **err) {
+  return NewSorterByFields(RSMultiKey_Copy(srt->keys, 0), srt->ascMap, srt->max, upstream);
 }
 
-ResultProcessor *buildProjection(CmdArg *arg, ResultProcessor *upstream, RedisSearchCtx *sctx,
-                                 char **err) {
-  CmdArg *expr = CmdArg_FirstOf(arg, "expr");
-  if (!expr || CMDARG_TYPE(expr) != CmdArg_String) {
-    asprintf(err, "Missing or invalid projection expression");
-    return NULL;
-  }
-
-  const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
-
-  return NewProjector(sctx, upstream, alias, CMDARG_STRPTR(expr), CMDARG_STRLEN(expr), err);
+ResultProcessor *buildProjection(AggregateApplyStep *a, ResultProcessor *upstream,
+                                 RedisSearchCtx *sctx, char **err) {
+  return NewProjector(sctx, upstream, a->alias, a->rawExpr, strlen(a->rawExpr), err);
 }
 
-ResultProcessor *addLimit(CmdArg *arg, ResultProcessor *upstream, char **err) {
-  long long offset, limit;
-  offset = CMDARG_INT(CMDARG_ARRELEM(arg, 0));
-  limit = CMDARG_INT(CMDARG_ARRELEM(arg, 1));
+ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char **err) {
 
-  if (offset < 0 || limit <= 0) {
+  if (l->offset < 0 || l->num <= 0) {
     *err = strdup("Invalid offset/num for LIMIT");
     return NULL;
   }
-  return NewPager(upstream, (uint32_t)offset, (uint32_t)limit);
+  return NewPager(upstream, (uint32_t)l->offset, (uint32_t)l->num);
 }
 
 int getAggregateFields(FieldList *l, RedisModuleCtx *ctx, CmdArg *cmd) {
@@ -257,31 +183,48 @@ int getAggregateFields(FieldList *l, RedisModuleCtx *ctx, CmdArg *cmd) {
 
 static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
 
-  CmdArg *cmd = ctx;
+  AggregatePlan *ap = ctx;
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
   ResultProcessor *prev = NULL;
   // Load LOAD based stuff from hash vals
 
-  if (getAggregateFields(&plan->opts.fields, plan->ctx->redisCtx, cmd)) {
-    next = NewLoader(next, plan->ctx, &plan->opts.fields);
-  }
+  // if (getAggregateFields(&plan->opts.fields, plan->ctx->redisCtx, cmd)) {
+  //   next = NewLoader(next, plan->ctx, &plan->opts.fields);
+  // }
 
   // Walk the children and evaluate them
-  CmdArgIterator it = CmdArg_Children(cmd);
-  CmdArg *child;
+  AggregateStep *current = ap->head;
   const char *key;
-  while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
+  while (current) {
     prev = next;
-    if (!strcasecmp(key, "GROUPBY")) {
-      next = buildGroupBy(child, plan->ctx, next, err);
-    } else if (!strcasecmp(key, "SORTBY")) {
-      next = buildSortBY(child, next, err);
-    } else if (!strcasecmp(key, "APPLY")) {
-      next = buildProjection(child, next, plan->ctx, err);
-    } else if (!strcasecmp(key, "LIMIT")) {
-      next = addLimit(child, next, err);
+    switch (current->type) {
+
+      case AggregateStep_Group:
+
+        next = buildGroupBy(&current->group, plan->ctx, next, err);
+        break;
+      case AggregateStep_Sort:
+        next = buildSortBY(&current->sort, next, err);
+        break;
+      case AggregateStep_Apply:
+        next = buildProjection(&current->apply, next, plan->ctx, err);
+        break;
+      case AggregateStep_Limit:
+        next = addLimit(&current->limit, next, err);
+        break;
+      case AggregateStep_Load:
+        fprintf(stderr, "PLEASE IMPLEMENT LOAD...\n");
+        // next = load
+        break;
+      case AggregateStep_Distribute:
+      case AggregateStep_Dummy:
+      case AggregateStep_Query:
+
+        break;
     }
+    current = current->next;
+
     if (!next) {
       goto fail;
     }
@@ -294,7 +237,7 @@ fail:
     ResultProcessor_Free(prev);
   }
 
-  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate reuqest: %s", *err);
+  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
   return NULL;
 }
 
@@ -304,9 +247,17 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   if (!*err) {           \
     *err = s;            \
   }
+
   req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
   if (!req->args) {
     MAYBE_SET_ERR("Could not parse aggregate request");
+    return REDISMODULE_ERR;
+  }
+
+  req->ap = malloc(sizeof(*req->ap));
+  if (!AggregatePlan_Build(req->ap, req->args, (char **)err)) {
+    printf("err:%s\n", *err);
+    MAYBE_SET_ERR("Could not build aggregate plan");
     return REDISMODULE_ERR;
   }
 
@@ -326,7 +277,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   }
 
   Query_Expand(req->parseCtx, opts.expander);
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, req->args,
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, req->ap,
                               (char **)&err);
   if (!req->plan) {
     printf("Don't have a plan! Sad!\n");
@@ -350,6 +301,9 @@ void AggregateRequest_Free(AggregateRequest *req) {
   }
   if (req->parseCtx) {
     Query_Free(req->parseCtx);
+  }
+  if (req->ap) {
+    AggregatePlan_Free(req->ap);
   }
   if (req->args) {
     CmdArg_Free(req->args);

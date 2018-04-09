@@ -669,18 +669,9 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  CmdArg *curarg = CmdArg_FirstOf(req->args, "WITHCURSOR");
-  if (curarg) {
-    CmdArg *tmoarg = CmdArg_FirstOf(curarg, "MAXIDLE");
-    CmdArg *countarg = CmdArg_FirstOf(curarg, "COUNT");
-    uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : RSGlobalConfig.cursorMaxIdle;
-    if (timeout > RSGlobalConfig.cursorMaxIdle) {
-      timeout = RSGlobalConfig.cursorMaxIdle;
-    }
-    uint32_t count = countarg ? CMDARG_INT(countarg) : 0;
-
+  if (req->ap->hasCursor) {
     // Using a cursor here!
-    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, timeout, &err);
+    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap->cursor.maxIdle, &err);
     if (!cursor) {
       RedisModule_ReplyWithError(ctx, err);
       goto done;
@@ -691,7 +682,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     cursor->execState = req;
     /* Don't let the context get removed from under our feet */
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-    runCursor(ctx, cursor, count);
+    runCursor(ctx, cursor, req->ap->cursor.count);
     return;
   }
 

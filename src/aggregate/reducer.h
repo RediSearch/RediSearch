@@ -78,8 +78,8 @@ Reducer *NewCountDistinct(RedisSearchCtx *, const char *, const char *);
 Reducer *NewCountDistinctish(RedisSearchCtx *, const char *, const char *);
 Reducer *NewQuantile(RedisSearchCtx *, const char *, const char *, double);
 Reducer *NewStddev(RedisSearchCtx *, const char *, const char *);
-Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
-                    char **err);
+Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RSValue **args,
+                    size_t argc, char **err);
 RSValueType GetReducerType(const char *name);
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias);

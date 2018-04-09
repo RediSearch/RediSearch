@@ -4,7 +4,8 @@
 #include <util/arr.h>
 
 #define FMT_ERR(e, fmt, ...) asprintf(e, fmt, __VA_ARGS__);
-#define SET_ERR(e, err) *e = strdup(err);
+#define SET_ERR(e, err) \
+  if (e && !*e) *e = strdup(err);
 
 AggregateStep *newStep(AggregateStepType t) {
   AggregateStep *step = malloc(sizeof(*step));
@@ -363,6 +364,15 @@ AggregateStep *step_Detach(AggregateStep *step) {
   return tmp;
 }
 
+/* Get the first step after start of type t */
+AggregateStep *AggregateStep_FirstOf(AggregateStep *start, AggregateStepType t) {
+  while (start) {
+    if (start->type == t) return start;
+    start = start->next;
+  }
+  return NULL;
+}
+
 /* add a step to the plan at its end (before the dummy tail) */
 static void plan_AddStep(AggregatePlan *plan, AggregateStep *step) {
   // We assume head and tail are sentinels
@@ -376,6 +386,21 @@ void plan_Init(AggregatePlan *plan) {
   plan->tail->prev = plan->head;
   plan->head->next = plan->tail;
 }
+
+void plan_setCursor(AggregatePlan *plan, CmdArg *arg) {
+
+  CmdArg *tmoarg = CmdArg_FirstOf(arg, "MAXIDLE");
+  CmdArg *countarg = CmdArg_FirstOf(arg, "COUNT");
+  uint32_t timeout = tmoarg ? CMDARG_INT(tmoarg) : RSGlobalConfig.cursorMaxIdle;
+  if (timeout > RSGlobalConfig.cursorMaxIdle) {
+    timeout = RSGlobalConfig.cursorMaxIdle;
+  }
+  plan->cursor.count = countarg ? CMDARG_INT(countarg) : 0;
+
+  plan->hasCursor = 1;
+  plan->cursor.maxIdle = timeout;
+}
+
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   plan_Init(plan);
   if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
@@ -393,7 +418,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       continue;
     } else if (!strcasecmp(key, "query")) {
       next = newStep(AggregateStep_Query);
-      next->query.str = CMDARG_STRPTR(child);
+      next->query.str = strdup(CMDARG_STRPTR(child));
     } else if (!strcasecmp(key, "GROUPBY")) {
       next = newGroupStep(n++, child, err);
     } else if (!strcasecmp(key, "SORTBY")) {
@@ -404,6 +429,9 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       next = newLimit(child, err);
     } else if (!strcasecmp(key, "LOAD")) {
       next = newLoadStep(child, err);
+    } else if (!strcasecmp(key, "WITHCURSOR")) {
+      plan_setCursor(plan, child);
+      continue;
     }
     if (!next) {
       goto fail;
@@ -494,12 +522,24 @@ void serializeLoad(AggregateLoadStep *l, char ***v) {
   }
 }
 
+void plan_serializeCursor(AggregatePlan *plan, char ***vec) {
+  arrPushStrdup(vec, "WITHCURSOR");
+  arrPushStrdup(vec, "COUNT");
+  arrPushStrfmt(vec, "%d", plan->cursor.count);
+  if (plan->cursor.maxIdle > 0) {
+    arrPushStrdup(vec, "MAXIDLE");
+    arrPushStrfmt(vec, "%d", plan->cursor.maxIdle);
+  }
+}
 char **AggregatePlan_Serialize(AggregatePlan *plan) {
   char **vec = array_new(char *, 10);
   arrPushStrdup(&vec, RS_AGGREGATE_CMD);
 
   if (plan->index) arrPushStrdup(&vec, plan->index);
-
+  // Serialize the cursor if needed
+  if (plan->hasCursor) {
+    plan_serializeCursor(plan, &vec);
+  }
   AggregateStep *current = plan->head;
   while (current) {
     switch (current->type) {
@@ -559,6 +599,7 @@ typedef struct {
 } PlanProcessingCtx;
 
 #define PROPVAL(p) (RS_StringValFmt("@%s", RSKEY(p)))
+
 char *getReducerAlias(AggregateGroupStep *g, const char *func);
 
 int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
@@ -606,13 +647,12 @@ int distributeAvg(AggregateGroupReduce *src, AggregateStep *local, AggregateStep
   AggregateStep *as = newApplyStepFmt(src->alias, &err, "(@%s/@%s)", sumAlias, countAlias);
   if (!as) {
     return 0;
-    // TODO: Free everything
   }
   step_AddAfter(local, as);
   return 1;
 }
 AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, AggregateStep *step,
-                                   int *cont) {
+                                   int *cont, int *success) {
   AggregateGroupStep *gr = &step->group;
   AggregateStep *remoteStep = newStep(AggregateStep_Group);
   AggregateStep *localStep = newStep(AggregateStep_Group);
@@ -626,42 +666,44 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
   local->properties = RSMultiKey_Copy(gr->properties, 1);
   remote->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
   local->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
-  int success = 1;
   for (int i = 0; i < group_numReducers(gr); i++) {
     AggregateGroupReduce *red = &gr->reducers[i];
     if (!strcasecmp(red->reducer, "COUNT")) {
       if (!distributeCount(red, localStep, remoteStep)) {
-        success = 0;
+        *success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "AVG")) {
       if (!distributeAvg(red, localStep, remoteStep)) {
-        success = 0;
+        *success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "SUM")) {
       if (!distributeSum(red, localStep, remoteStep)) {
-        success = 0;
+        *success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "MIN")) {
       if (!distributeMin(red, localStep, remoteStep)) {
-        success = 0;
+        *success = 0;
         break;
       }
     } else if (!strcasecmp(red->reducer, "MAX")) {
       if (!distributeMax(red, localStep, remoteStep)) {
-        success = 0;
+        *success = 0;
         break;
       }
     } else {
-      success = 0;
+      *success = 0;
       break;
     }
   }
   *cont = 0;
 
-  if (!success) {
+  if (!*success) {
+    AggregateStep_Free(remoteStep);
+    AggregateStep_Free(localStep);
+
     return NULL;  // TODO: free stuff here
   }
 
@@ -670,18 +712,50 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
   step_AddBefore(tmp, localStep);
   return localStep->next;
 }
+
+/* Extract the needed LOAD properties from the source plan to add to the dist plan */
+void plan_extractImplicitLoad(AggregatePlan *src, AggregatePlan *dist) {
+  // Add a load step for everything not in the distributed schema
+  AggregateSchema as = AggregatePlan_GetSchema(src, NULL);
+  AggregateSchema dis = AggregatePlan_GetSchema(dist, NULL);
+
+  // make an array of all the fields in the src schema that are not already in the dist schema
+  const char **arr = array_new(const char *, 4);
+  for (int i = 0; i < array_len(as); i++) {
+    if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
+      arr = array_append(arr, RSKEY(as[i].property));
+    }
+  }
+
+  // Add "APPLY @x AS @x" for each such property
+  AggregateStep *q = AggregateStep_FirstOf(dist->head, AggregateStep_Query);
+
+  for (int i = 0; i < array_len(arr); i++) {
+
+    AggregateStep *a = newApplyStepFmt(strdup(arr[i]), NULL, "@%s", arr[i]);
+
+    step_AddAfter(q ? q : dist->head, a);
+  }
+
+  array_free(arr);
+  array_free(as);
+  array_free(dis);
+}
+
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
   AggregateStep *current = src->head;
   plan_Init(dist);
   dist->cursor = (AggregateCursor){
       .count = 500,
   };
+  dist->hasCursor = 1;
   // zero the stuff we don't care about in src
   dist->index = src->index;
   src->index = NULL;
 
-  int cont = 1;
-  while (current && cont) {
+  int cont = 1, success = 1;
+
+  while (current && success && cont) {
     AggregateStep *tmp = current;
     switch (current->type) {
       case AggregateStep_Query:
@@ -694,7 +768,7 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
         break;
 
       case AggregateStep_Group:
-        current = distributeGroupStep(src, dist, current, &cont);
+        current = distributeGroupStep(src, dist, current, &cont, &success);
         break;
 
       case AggregateStep_Distribute:
@@ -704,33 +778,11 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
         break;
     }
   }
+
+  // If needed, add implicit APPLY foo AS foo to the dist plan
+  plan_extractImplicitLoad(src, dist);
+
   // If we can distribute the plan, add a marker for it in the source plan
-
-  // Add a load step for everything not in the distributed schema
-  AggregateSchema as = AggregatePlan_GetSchema(src, NULL);
-  AggregateSchema dis = AggregatePlan_GetSchema(dist, NULL);
-
-  AggregateStep *ls = newStep(AggregateStep_Load);
-  const char **arr = array_new(const char *, 4);
-  for (int i = 0; i < array_len(as); i++) {
-    if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
-
-      // const char *prop = as[i].property;
-      arr = array_append(arr, as[i].property);
-    }
-  }
-  if (array_len(arr) > 0) {
-    ls->load.keys = RS_NewMultiKey(array_len(arr));
-    for (int i = 0; i < array_len(arr); i++) {
-      ls->load.keys->keys[i].key = arr[i];
-    }
-    step_AddAfter(dist->head, ls);
-  }
-
-  array_free(arr);
-  array_free(as);
-  array_free(dis);
-
   AggregateStep *ds = newStep(AggregateStep_Distribute);
   ds->dist.plan = dist;
   step_AddAfter(src->head, ds);
@@ -787,4 +839,5 @@ void AggregatePlan_Free(AggregatePlan *plan) {
     AggregateStep_Free(current);
     current = next;
   }
+  plan->head = plan->tail = NULL;
 }

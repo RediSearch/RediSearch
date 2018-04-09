@@ -133,8 +133,8 @@ static void array_free(array_t arr) {
         void *ptr = &arr[i];                          \
         { blk; }                                      \
       }                                               \
+      array_free(arr);                                \
     }                                                 \
-    array_free(arr);                                  \
   })
 
 #endif

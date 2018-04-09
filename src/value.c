@@ -673,3 +673,75 @@ void RSFieldMap_Print(RSFieldMap *m) {
     printf("\n");
   }
 }
+
+/*
+ *  - s: will be parsed as a string
+ *  - l: Will be parsed as a long integer
+ *  - d: Will be parsed as a double
+ *  - !: will be skipped
+ *  - ?: means evrything after is optional
+ */
+
+int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
+
+  va_list ap;
+  va_start(ap, fmt);
+  const char *p = fmt;
+  size_t i = 0;
+  int optional = 0;
+  while (i < argc && *p) {
+    switch (*p) {
+      case 's': {
+        char **ptr = va_arg(ap, char **);
+        if (!RSValue_IsString(args[i])) {
+          goto err;
+        }
+        *ptr = (char *)RSValue_StringPtrLen(args[i], NULL);
+        break;
+      }
+      case 'l': {
+        long long *lp = va_arg(ap, long long *);
+        double d;
+        if (!RSValue_ToNumber(args[i], &d)) {
+          goto err;
+        }
+        *lp = (long long)d;
+        break;
+      }
+      case 'd': {
+        double *dp = va_arg(ap, double *);
+        if (!RSValue_ToNumber(args[i], dp)) {
+          goto err;
+        }
+        break;
+      }
+      case '!':
+        // do nothing...
+        break;
+      case '?':
+        optional = 1;
+        // reduce i because it will be incremented soon
+        i -= 1;
+        break;
+      default:
+        goto err;
+    }
+    ++i;
+    ++p;
+  }
+  // if we have stuff left to read in the format but we haven't gotten to the optional part -fail
+  if (*p && !optional && i < argc) {
+    goto err;
+  }
+  // if we don't have anything left to read from the format but we haven't gotten to the array's
+  // end, fail
+  if (*p == 0 && i < argc) {
+    goto err;
+  }
+
+  va_end(ap);
+  return 1;
+err:
+  va_end(ap);
+  return 0;
+}

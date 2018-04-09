@@ -116,10 +116,11 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
 void AggregatePlan_Free(AggregatePlan *plan);
-
+void AggregateStep_Free(AggregateStep *s);
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;
+  AggregatePlan *ap;
   CmdArg *args;
 
   /**
