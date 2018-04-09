@@ -16,7 +16,7 @@ AggregateStep *newStep(AggregateStepType t) {
 
 AggregateStep *newLoadStep(CmdArg *arg, char **err) {
 
-  RSMultiKey *k = RS_NewMultiKeyFromArgs(&CMDARG_ARR(arg), 1);
+  RSMultiKey *k = RS_NewMultiKeyFromArgs(&CMDARG_ARR(arg), 1, 1);
   AggregateStep *ret = newStep(AggregateStep_Load);
   ret->load.keys = k;
   return ret;
@@ -29,9 +29,9 @@ AggregateStep *newApplyStep(const char *alias, const char *expr, char **err) {
   }
   AggregateStep *ret = newStep(AggregateStep_Apply);
   ret->apply = (AggregateApplyStep){
-      .rawExpr = expr,
+      .rawExpr = (char *)expr,
       .parsedExpr = pe,
-      .alias = alias,
+      .alias = (char *)alias,
   };
   return ret;
 }
@@ -57,9 +57,9 @@ AggregateStep *newApplyStepArgs(CmdArg *arg, char **err) {
     return NULL;
   }
 
-  const char *exp = CMDARG_STRPTR(expr);
+  const char *exp = strdup(CMDARG_STRPTR(expr));
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
-  return newApplyStep(alias, exp, err);
+  return newApplyStep(alias ? strdup(alias) : NULL, exp, err);
 }
 
 AggregateStep *newSortStep(CmdArg *srt, char **err) {
@@ -67,6 +67,7 @@ AggregateStep *newSortStep(CmdArg *srt, char **err) {
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
   RSMultiKey *keys = RS_NewMultiKey(CMDARG_ARRLEN(by));
+  keys->keysAllocated = 1;
   // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
   uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
@@ -80,7 +81,7 @@ AggregateStep *newSortStep(CmdArg *srt, char **err) {
     const char *str = CMDARG_STRPTR(CMDARG_ARRELEM(by, i));
     // New properties are accepted in either state
     if (*str == '@') {
-      keys->keys[n++] = RS_KEY(RSKEY(str));
+      keys->keys[n++] = RS_KEY_STRDUP(RSKEY(str));
       state = 1;
     } else if (state == 0) {
       // At state 0 we only accept properties, so we don't even need to see what this is
@@ -142,7 +143,7 @@ size_t group_numReducers(AggregateGroupStep *g) {
   return array_len(g->reducers);
 }
 
-const char *getReducerAlias(AggregateGroupStep *g, const char *func) {
+char *getReducerAlias(AggregateGroupStep *g, const char *func) {
 
   char *ret;
   asprintf(&ret, "grp%d_%s%d", g->idx, func, array_len(g->reducers));
@@ -151,8 +152,8 @@ const char *getReducerAlias(AggregateGroupStep *g, const char *func) {
   }
   return ret;
 }
-const char *group_addReducer(AggregateGroupStep *g, const char *func, const char *alias, int argc,
-                             ...) {
+
+char *group_addReducer(AggregateGroupStep *g, const char *func, char *alias, int argc, ...) {
   if (!g->reducers) {
     g->reducers = array_new(AggregateGroupReduce, 1);
   }
@@ -202,7 +203,7 @@ AggregateStep *newGroupStep(int idx, CmdArg *grp, char **err) {
     SET_ERR(err, "No fields for GROUPBY");
     return NULL;
   }
-  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
+  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1, 1);
   size_t numReducers = CmdArg_Count(grp, "REDUCE");
   AggregateGroupReduce *arr = NULL;
   if (numReducers) {
@@ -330,6 +331,7 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
   return arr;
 }
 
+/* Add a step after a step */
 void step_AddAfter(AggregateStep *step, AggregateStep *add) {
   add->next = step->next;
   if (step->next) step->next->prev = add;
@@ -337,6 +339,7 @@ void step_AddAfter(AggregateStep *step, AggregateStep *add) {
   step->next = add;
 }
 
+/* Add a step before a step */
 void step_AddBefore(AggregateStep *step, AggregateStep *add) {
   add->prev = step->prev;
   if (add->prev) add->prev->next = add;
@@ -359,13 +362,22 @@ AggregateStep *step_Detach(AggregateStep *step) {
   step->next = NULL;
   return tmp;
 }
+
+/* add a step to the plan at its end (before the dummy tail) */
 static void plan_AddStep(AggregatePlan *plan, AggregateStep *step) {
   // We assume head and tail are sentinels
   step_AddBefore(plan->tail, step);
-  plan->size++;
+}
+
+void plan_Init(AggregatePlan *plan) {
+  *plan = (AggregatePlan){0};
+  plan->head = newStep(AggregateStep_Dummy);
+  plan->tail = newStep(AggregateStep_Dummy);
+  plan->tail->prev = plan->head;
+  plan->head->next = plan->tail;
 }
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
-  *plan = (AggregatePlan){0};
+  plan_Init(plan);
   if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
     goto fail;
   }
@@ -373,10 +385,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   CmdArg *child;
   const char *key;
   int n = 1;
-  plan->head = newStep(AggregateStep_Dummy);
-  plan->tail = newStep(AggregateStep_Dummy);
-  plan->tail->prev = plan->head;
-  plan->head->next = plan->tail;
+
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     AggregateStep *next = NULL;
     if (!strcasecmp(key, "idx")) {
@@ -405,16 +414,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   return 1;
 
 fail:
-  if (plan->head) {
-    AggregateStep *current = plan->head;
-    while (current) {
-      AggregateStep *tmp = current->next;
-      free(current);  // TODO: step_free
-      current = tmp;
-    }
-    plan->head = plan->tail = NULL;
-    plan->size = 0;
-  }
+  AggregatePlan_Free(plan);
   return 0;
 }
 
@@ -532,10 +532,12 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
         for (int k = 0; k < array_len(sub); k++) {
           vec = array_append(vec, sub[k]);
         }
+
         arrPushStrdup(&vec, "}}");
-        array_free(sub, NULL);
+        array_free(sub);
         break;
       }
+
       case AggregateStep_Dummy:
         break;
     }
@@ -557,7 +559,7 @@ typedef struct {
 } PlanProcessingCtx;
 
 #define PROPVAL(p) (RS_StringValFmt("@%s", RSKEY(p)))
-const char *getReducerAlias(AggregateGroupStep *g, const char *func);
+char *getReducerAlias(AggregateGroupStep *g, const char *func);
 
 int distributeCount(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
   group_addReducer(&remote->group, "COUNT", RSKEY(src->alias), 0);
@@ -594,8 +596,8 @@ int distributeMax(AggregateGroupReduce *src, AggregateStep *local, AggregateStep
 int distributeAvg(AggregateGroupReduce *src, AggregateStep *local, AggregateStep *remote) {
 
   // Add count and sum remotely
-  const char *countAlias = group_addReducer(&remote->group, "COUNT", NULL, 0);
-  const char *sumAlias = group_addReducer(&remote->group, "SUM", NULL, 1, src->args[0]);
+  char *countAlias = group_addReducer(&remote->group, "COUNT", NULL, 0);
+  char *sumAlias = group_addReducer(&remote->group, "SUM", NULL, 1, src->args[0]);
 
   group_addReducer(&local->group, "SUM", sumAlias, 1, PROPVAL(sumAlias));
   group_addReducer(&local->group, "SUM", countAlias, 1, PROPVAL(countAlias));
@@ -620,8 +622,8 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
   remote->idx = step->group.idx;
   local->idx = step->group.idx;
 
-  remote->properties = gr->properties;
-  local->properties = gr->properties;
+  remote->properties = RSMultiKey_Copy(gr->properties, 1);
+  local->properties = RSMultiKey_Copy(gr->properties, 1);
   remote->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
   local->reducers = array_new(AggregateGroupStep, group_numReducers(gr));
   int success = 1;
@@ -670,17 +672,12 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
 }
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
   AggregateStep *current = src->head;
-  *dist = (AggregatePlan){.index = src->index,
-                          .hasCursor = 1,
-                          .head = newStep(AggregateStep_Dummy),
-                          .tail = newStep(AggregateStep_Dummy),
-
-                          .cursor = (AggregateCursor){
-                              .count = 500,
-                          }};
-  dist->tail->prev = dist->head;
-  dist->head->next = dist->tail;
+  plan_Init(dist);
+  dist->cursor = (AggregateCursor){
+      .count = 500,
+  };
   // zero the stuff we don't care about in src
+  dist->index = src->index;
   src->index = NULL;
 
   int cont = 1;
@@ -708,37 +705,86 @@ int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
     }
   }
   // If we can distribute the plan, add a marker for it in the source plan
-  if (dist->size > 0) {
 
-    // Add a load step for everything not in the distributed schema
-    AggregateSchema as = AggregatePlan_GetSchema(src, NULL);
-    AggregateSchema dis = AggregatePlan_GetSchema(dist, NULL);
+  // Add a load step for everything not in the distributed schema
+  AggregateSchema as = AggregatePlan_GetSchema(src, NULL);
+  AggregateSchema dis = AggregatePlan_GetSchema(dist, NULL);
 
-    AggregateStep *ls = newStep(AggregateStep_Load);
-    const char **arr = array_new(const char *, 4);
-    for (int i = 0; i < array_len(as); i++) {
-      if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
+  AggregateStep *ls = newStep(AggregateStep_Load);
+  const char **arr = array_new(const char *, 4);
+  for (int i = 0; i < array_len(as); i++) {
+    if (as[i].kind == Property_Field && !AggregateSchema_Contains(dis, as[i].property)) {
 
-        // const char *prop = as[i].property;
-        arr = array_append(arr, as[i].property);
-      }
+      // const char *prop = as[i].property;
+      arr = array_append(arr, as[i].property);
     }
-    if (array_len(arr) > 0) {
-      ls->load.keys = RS_NewMultiKey(array_len(arr));
-      for (int i = 0; i < array_len(arr); i++) {
-        ls->load.keys->keys[i].key = arr[i];
-      }
-      step_AddAfter(dist->head, ls);
+  }
+  if (array_len(arr) > 0) {
+    ls->load.keys = RS_NewMultiKey(array_len(arr));
+    for (int i = 0; i < array_len(arr); i++) {
+      ls->load.keys->keys[i].key = arr[i];
     }
-
-    array_free(arr, NULL);
-    array_free(as, NULL);
-    array_free(dis, NULL);
-
-    AggregateStep *ds = newStep(AggregateStep_Distribute);
-    ds->dist.plan = dist;
-    step_AddAfter(src->head, ds);
+    step_AddAfter(dist->head, ls);
   }
 
+  array_free(arr);
+  array_free(as);
+  array_free(dis);
+
+  AggregateStep *ds = newStep(AggregateStep_Distribute);
+  ds->dist.plan = dist;
+  step_AddAfter(src->head, ds);
+
   return 1;
+}
+
+void value_pFree(void *p) {
+  RSValue_Free(p);
+}
+void reducer_Free(void *p) {
+
+  AggregateGroupReduce *gr = p;
+  // the reducer func itself is const char and should not be freed
+  free(gr->alias);
+  array_free_ex(gr->args, RSValue_Free(*(void **)ptr));
+}
+
+void AggregateStep_Free(AggregateStep *s) {
+  switch (s->type) {
+    case AggregateStep_Query:
+      free(s->query.str);
+      break;
+    case AggregateStep_Group:
+      RSMultiKey_Free(s->group.properties);
+      array_free_ex(s->group.reducers, reducer_Free(ptr));
+      break;
+    case AggregateStep_Sort:
+      RSMultiKey_Free(s->sort.keys);
+      break;
+    case AggregateStep_Apply:
+      free(s->apply.alias);
+      free(s->apply.rawExpr);
+      if (s->apply.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
+      break;
+    case AggregateStep_Limit:
+      break;
+    case AggregateStep_Load:
+      RSMultiKey_Free(s->load.keys);
+      break;
+    case AggregateStep_Distribute:
+      AggregatePlan_Free(s->dist.plan);
+      break;
+    case AggregateStep_Dummy:
+      break;
+  }
+  free(s);
+}
+
+void AggregatePlan_Free(AggregatePlan *plan) {
+  AggregateStep *current = plan->head;
+  while (current) {
+    AggregateStep *next = current->next;
+    AggregateStep_Free(current);
+    current = next;
+  }
 }

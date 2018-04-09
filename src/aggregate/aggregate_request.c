@@ -138,7 +138,7 @@ ResultProcessor *buildGroupBy(CmdArg *grp, RedisSearchCtx *sctx, ResultProcessor
   CmdArg *by = CmdArg_FirstOf(grp, "by");
   if (!by || CMDARG_ARRLEN(by) == 0) return NULL;
 
-  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1);
+  RSMultiKey *keys = RS_NewMultiKeyFromArgs(&CMDARG_ARR(by), 1, 0);
   Grouper *g = NewGrouper(keys, sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
   // Add reducers

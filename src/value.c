@@ -495,12 +495,14 @@ void RSValue_Print(RSValue *v) {
 RSMultiKey *RS_NewMultiKey(uint16_t len) {
   RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
+  ret->keysAllocated = 0;
   return ret;
 }
 
 RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
   RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
+  ret->keysAllocated = 0;
   va_list ap;
   va_start(ap, len);
   for (int i = 0; i < len; i++) {
@@ -512,16 +514,35 @@ RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
 }
 
 /* Create a multi-key from a string array */
-RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching) {
+RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicateStrings) {
   RSMultiKey *ret = RS_NewMultiKey(arr->len);
+  ret->keysAllocated = duplicateStrings;
   for (size_t i = 0; i < arr->len; i++) {
     assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
     ret->keys[i] = RS_KEY(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i))));
+    if (duplicateStrings) {
+      ret->keys[i].key = strdup(ret->keys[i].key);
+    }
+  }
+  return ret;
+}
+
+RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys) {
+  RSMultiKey *ret = RS_NewMultiKey(k->len);
+  ret->keysAllocated = copyKeys;
+
+  for (size_t i = 0; i < k->len; i++) {
+    ret->keys[i] = RS_KEY(copyKeys ? strdup(k->keys[i].key) : k->keys[i].key);
   }
   return ret;
 }
 
 void RSMultiKey_Free(RSMultiKey *k) {
+  if (k->keysAllocated) {
+    for (size_t i = 0; i < k->len; i++) {
+      free((char *)k->keys[i].key);
+    }
+  }
   free(k);
 }
 

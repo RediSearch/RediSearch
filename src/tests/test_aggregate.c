@@ -76,7 +76,7 @@ void AggregatePlan_Print(AggregatePlan *plan) {
     printf("%s ", s);
     sdsfree(s);
   }
-  array_free(args, free);
+  array_free_ex(args, free(*(void **)ptr););
   printf("\n");
 }
 
@@ -148,6 +148,8 @@ int testDistribute() {
   printf("----------------\n");
 
   AggregatePlan_Print(&distro);
+  AggregatePlan_Free(&plan);
+
   RETURN_TEST_SUCCESS;
 }
 TEST_MAIN({

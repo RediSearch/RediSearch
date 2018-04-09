@@ -19,7 +19,8 @@ int testStruct() {
   for (int i = 0; i < 10; i++) {
     ASSERT_EQUAL(i, arr[i].x);
   }
-  array_free(arr, NULL);
+  array_foreach(arr, elem, printf("%d\n", elem.x));
+  array_free(arr);
   RETURN_TEST_SUCCESS;
 }
 
@@ -36,7 +37,7 @@ int testScalar() {
 
     printf("%d %zd\n", ia[i], array_len(ia));
   }
-  array_free(ia, NULL);
+  array_free(ia);
   RETURN_TEST_SUCCESS;
 }
 
@@ -55,7 +56,7 @@ int testStrings() {
 
     // printf("%s\n", a[j]);
   }
-  array_free(a, free);
+  array_free_ex(a, free(*(void **)ptr));
   RETURN_TEST_SUCCESS;
 }
 

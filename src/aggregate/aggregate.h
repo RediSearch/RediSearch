@@ -20,14 +20,14 @@ typedef struct {
 } AggregateLoadStep;
 
 typedef struct {
-  const char *str;
+  char *str;
 
 } AggregateQueryStep;
 
 typedef struct {
   const char *reducer;
   RSValue **args;
-  const char *alias;
+  char *alias;
 } AggregateGroupReduce;
 
 typedef struct {
@@ -37,9 +37,9 @@ typedef struct {
 } AggregateGroupStep;
 
 typedef struct {
-  const char *rawExpr;
+  char *rawExpr;
   RSExpr *parsedExpr;
-  const char *alias;
+  char *alias;
 } AggregateApplyStep;
 
 typedef enum {
@@ -107,7 +107,6 @@ typedef struct AggregatePlan {
   const char *index;
   AggregateStep *head;
   AggregateStep *tail;
-  size_t size;
   int hasCursor;
   AggregateCursor cursor;
 } AggregatePlan;
@@ -116,6 +115,8 @@ char **AggregatePlan_Serialize(AggregatePlan *plan);
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
+void AggregatePlan_Free(AggregatePlan *plan);
+
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;

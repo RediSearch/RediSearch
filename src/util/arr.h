@@ -106,15 +106,35 @@ static inline uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
-/* Free the array, optionally freeing individual elements with free_cb */
-static void array_free(array_t arr, void (*free_cb)(void *)) {
-  if (!arr) return;  // behave like free(NULL)
-  if (free_cb) {
-    for (uint32_t i = 0; i < array_len(arr); i++) {
-      free_cb(array_elem(arr, i));
-    }
-  }
+/* Free the array, without dealing with individual elements */
+static void array_free(array_t arr) {
   array_free_fn(array_hdr(arr));
 }
+
+/* Repeate the code in "blk" for each element in the array, and give it the name of "as".
+ * e.g:
+ *  int *arr = array_new(int, 10);
+ *  arr = array_append(arr, 1);
+ *  array_foreach(arr, i, printf("%d\n", i));
+ */
+#define array_foreach(arr, as, blk)                 \
+  ({                                                \
+    for (uint32_t i = 0; i < array_len(arr); i++) { \
+      __auto_type as = arr[i];                      \
+      blk;                                          \
+    }                                               \
+  })
+
+/* Free the array, freeing individual elements with free_cb */
+#define array_free_ex(arr, blk)                       \
+  ({                                                  \
+    if (arr) {                                        \
+      for (uint32_t i = 0; i < array_len(arr); i++) { \
+        void *ptr = &arr[i];                          \
+        { blk; }                                      \
+      }                                               \
+    }                                                 \
+    array_free(arr);                                  \
+  })
 
 #endif

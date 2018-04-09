@@ -257,16 +257,25 @@ typedef struct {
       .sortableIdx = RSKEY_UNCACHED, \
   })
 
+#define RS_KEY_STRDUP(s) RS_KEY(strdup(s))
+
 typedef struct {
   uint16_t len;
+  int keysAllocated : 1;
   RSKey keys[];
 } RSMultiKey;
 
 RSMultiKey *RS_NewMultiKey(uint16_t len);
 
 RSMultiKey *RS_NewMultiKeyVariadic(int len, ...);
-/* Create a multi-key from a string array */
-RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching);
+/* Create a multi-key from a string array.
+ *  If allowCaching is 1, the keys are set to allow for index caching.
+ *  If duplicateStrings is 1, the key strings are copied
+ */
+RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicateStrings);
+
+RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys);
+
 void RSMultiKey_Free(RSMultiKey *k);
 
 /* A result field is a key/value pair of variant type, used inside a value map */
