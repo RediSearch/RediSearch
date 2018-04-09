@@ -762,7 +762,7 @@ void AggregatePlan_Print(AggregatePlan *plan) {
 }
 
 AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src) {
-  AggregatePlan *dist = malloc(sizeof(dist));
+  AggregatePlan *dist = malloc(sizeof(*dist));
   AggregateStep *current = src->head;
   plan_Init(dist);
   dist->cursor.count = 350;
