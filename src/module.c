@@ -669,9 +669,9 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  if (req->ap->hasCursor) {
+  if (req->ap.hasCursor) {
     // Using a cursor here!
-    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap->cursor.maxIdle, &err);
+    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap.cursor.maxIdle, &err);
     if (!cursor) {
       RedisModule_ReplyWithError(ctx, err);
       goto done;
@@ -682,7 +682,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     cursor->execState = req;
     /* Don't let the context get removed from under our feet */
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-    runCursor(ctx, cursor, req->ap->cursor.count);
+    runCursor(ctx, cursor, req->ap.cursor.count);
     return;
   }
 

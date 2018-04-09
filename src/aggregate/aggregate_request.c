@@ -181,12 +181,10 @@ int getAggregateFields(FieldList *l, RedisModuleCtx *ctx, CmdArg *cmd) {
   return l->numFields;
 }
 
-static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
-
-  AggregatePlan *ap = ctx;
-  // The base processor translates index results into search results
-  ResultProcessor *next = NewBaseProcessor(plan, &plan->execCtx);
+ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSearchCtx *sctx,
+                                                   ResultProcessor *root, char **err) {
   ResultProcessor *prev = NULL;
+  ResultProcessor *next = root;
   // Load LOAD based stuff from hash vals
 
   // if (getAggregateFields(&plan->opts.fields, plan->ctx->redisCtx, cmd)) {
@@ -194,7 +192,7 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
   // }
 
   // Walk the children and evaluate them
-  AggregateStep *current = ap->head;
+  AggregateStep *current = plan->head;
   const char *key;
   while (current) {
     prev = next;
@@ -202,15 +200,16 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
 
       case AggregateStep_Group:
 
-        next = buildGroupBy(&current->group, plan->ctx, next, err);
+        next = buildGroupBy(&current->group, sctx, next, err);
         break;
       case AggregateStep_Sort:
         next = buildSortBY(&current->sort, next, err);
         break;
       case AggregateStep_Apply:
-        next = buildProjection(&current->apply, next, plan->ctx, err);
+        next = buildProjection(&current->apply, next, sctx, err);
         break;
       case AggregateStep_Limit:
+
         next = addLimit(&current->limit, next, err);
         break;
       case AggregateStep_Load:
@@ -237,8 +236,19 @@ fail:
     ResultProcessor_Free(prev);
   }
 
-  RedisModule_Log(plan->ctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
+  RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
   return NULL;
+}
+
+static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
+
+  AggregatePlan *ap = ctx;
+  // The base processor translates index results into search results
+  ResultProcessor *root = NewBaseProcessor(plan, &plan->execCtx);
+
+  if (!root) return NULL;
+
+  return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
 }
 
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
@@ -254,8 +264,8 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
     return REDISMODULE_ERR;
   }
 
-  req->ap = malloc(sizeof(*req->ap));
-  if (!AggregatePlan_Build(req->ap, req->args, (char **)err)) {
+  req->ap = (AggregatePlan){};
+  if (!AggregatePlan_Build(&req->ap, req->args, (char **)err)) {
     printf("err:%s\n", *err);
     MAYBE_SET_ERR("Could not build aggregate plan");
     return REDISMODULE_ERR;
@@ -277,10 +287,9 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   }
 
   Query_Expand(req->parseCtx, opts.expander);
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, req->ap,
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, &req->ap,
                               (char **)&err);
   if (!req->plan) {
-    printf("Don't have a plan! Sad!\n");
     MAYBE_SET_ERR(QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;
   }
@@ -302,8 +311,8 @@ void AggregateRequest_Free(AggregateRequest *req) {
   if (req->parseCtx) {
     Query_Free(req->parseCtx);
   }
-  if (req->ap) {
-    AggregatePlan_Free(req->ap);
+  if (req->ap.head) {
+    AggregatePlan_Free(&req->ap);
   }
   if (req->args) {
     CmdArg_Free(req->args);

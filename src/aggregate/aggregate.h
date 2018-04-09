@@ -98,17 +98,15 @@ typedef struct AggregateStep {
 
 } AggregateStep;
 
-typedef struct {
-  size_t count;
-  int maxIdle;
-} AggregateCursor;
-
 typedef struct AggregatePlan {
   const char *index;
   AggregateStep *head;
   AggregateStep *tail;
   int hasCursor;
-  AggregateCursor cursor;
+  struct {
+    size_t count;
+    int maxIdle;
+  } cursor;
 } AggregatePlan;
 
 char **AggregatePlan_Serialize(AggregatePlan *plan);
@@ -117,10 +115,11 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist);
 void AggregatePlan_Free(AggregatePlan *plan);
 void AggregateStep_Free(AggregateStep *s);
+void AggregatePlan_Print(AggregatePlan *plan);
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;
-  AggregatePlan *ap;
+  AggregatePlan ap;
   CmdArg *args;
 
   /**

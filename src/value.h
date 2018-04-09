@@ -41,6 +41,7 @@ typedef enum {
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
 
+#pragma pack(4)
 // Variant value union
 typedef struct rsvalue {
   RSValueType t : 8;
@@ -72,6 +73,7 @@ typedef struct rsvalue {
   };
 
 } RSValue;
+#pragma pack()
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */

@@ -537,14 +537,15 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
 
   if (plan->index) arrPushStrdup(&vec, plan->index);
   // Serialize the cursor if needed
-  if (plan->hasCursor) {
-    plan_serializeCursor(plan, &vec);
-  }
+
   AggregateStep *current = plan->head;
   while (current) {
     switch (current->type) {
       case AggregateStep_Query:
         arrPushStrdup(&vec, current->query.str);
+        if (plan->hasCursor) {
+          plan_serializeCursor(plan, &vec);
+        }
         break;
 
       case AggregateStep_Group:
@@ -742,12 +743,27 @@ void plan_extractImplicitLoad(AggregatePlan *src, AggregatePlan *dist) {
   array_free(dis);
 }
 
+void AggregatePlan_FPrint(AggregatePlan *plan, FILE *out) {
+  char **args = AggregatePlan_Serialize(plan);
+  for (int i = 0; i < array_len(args); i++) {
+
+    sds s = sdscatrepr(sdsnew(""), args[i], strlen(args[i]));
+    fputs(s, out);
+    fputc(' ', out);
+    sdsfree(s);
+  }
+  array_free_ex(args, free(*(void **)ptr););
+  fputs("\n", out);
+}
+
+void AggregatePlan_Print(AggregatePlan *plan) {
+  AggregatePlan_FPrint(plan, stderr);
+}
+
 int AggregatePlan_MakeDistributed(AggregatePlan *src, AggregatePlan *dist) {
   AggregateStep *current = src->head;
   plan_Init(dist);
-  dist->cursor = (AggregateCursor){
-      .count = 500,
-  };
+  dist->cursor.count = 350;
   dist->hasCursor = 1;
   // zero the stuff we don't care about in src
   dist->index = src->index;
