@@ -711,6 +711,7 @@ AggregateStep *distributeGroupStep(AggregatePlan *src, AggregatePlan *dist, Aggr
   plan_AddStep(dist, remoteStep);
   AggregateStep *tmp = step_Detach(step);
   step_AddBefore(tmp, localStep);
+  AggregateStep_Free(step);
   return localStep->next;
 }
 
