@@ -31,8 +31,6 @@ void ConcurrentSearch_ThreadPoolStart() {
   }
 }
 
-#define CMDCTX_KEEP_RCTX 0x01
-
 typedef struct ConcurrentCmdCtx {
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *ctx;
@@ -50,9 +48,17 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
-  RedisModule_ThreadSafeContextLock(ctx->ctx);
+  // Lock GIL if needed
+  if (!(ctx->options & CMDCTX_NO_GIL)) {
+    RedisModule_ThreadSafeContextLock(ctx->ctx);
+  }
+
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
-  RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+
+  // Unlock GIL if needed
+  if (!(ctx->options & CMDCTX_NO_GIL)) {
+    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+  }
 
   if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
@@ -67,14 +73,15 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
   cctx->options |= CMDCTX_KEEP_RCTX;
 }
 
-int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
-                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ConcurrentCmdCtx *cmdCtx = malloc(sizeof(*cmdCtx));
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RedisModule_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
+  cmdCtx->options = options;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
@@ -83,6 +90,11 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
+                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc);
 }
 
 static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {

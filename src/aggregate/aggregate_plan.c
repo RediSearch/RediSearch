@@ -764,7 +764,7 @@ AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src) {
   AggregatePlan *dist = malloc(sizeof(*dist));
   AggregateStep *current = src->head;
   plan_Init(dist);
-  dist->cursor.count = 350;
+  dist->cursor.count = 450;
   dist->hasCursor = 1;
   // zero the stuff we don't care about in src
   dist->index = src->index;

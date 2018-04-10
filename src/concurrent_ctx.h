@@ -165,6 +165,9 @@ struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 
+#define CMDCTX_KEEP_RCTX 0x01
+#define CMDCTX_NO_GIL 0x02
+
 /**
  * Take ownership of the underlying Redis command context. Once ownership is
  * claimed, the context needs to be freed (at some point in the future) via
@@ -180,6 +183,10 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+/* Same as handleRedis command, but set flags for the concurrent context */
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
