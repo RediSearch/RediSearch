@@ -785,8 +785,6 @@ AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src) {
         break;
 
       case AggregateStep_Group:
-        success = cont = 0;
-        break;
         current = distributeGroupStep(src, dist, current, &cont, &success);
         break;
 

@@ -70,7 +70,7 @@ typedef struct {
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
  * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
  * By default the pool starts with just one thread, and scales up as needed  */
-#define CONCURRENT_SEARCH_POOL_SIZE 8
+#define CONCURRENT_SEARCH_POOL_SIZE 20
 
 /**
  * The maximum number of threads performing indexing on documents.
