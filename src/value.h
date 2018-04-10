@@ -44,9 +44,7 @@ typedef enum {
 #pragma pack(4)
 // Variant value union
 typedef struct rsvalue {
-  RSValueType t : 8;
-  int refcount : 23;
-  uint8_t allocated : 1;
+
   union {
     // numeric value
     double numval;
@@ -71,7 +69,9 @@ typedef struct rsvalue {
     // reference to another value
     struct rsvalue *ref;
   };
-
+  RSValueType t : 8;
+  int refcount : 23;
+  uint8_t allocated : 1;
 } RSValue;
 #pragma pack()
 

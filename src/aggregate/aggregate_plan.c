@@ -744,7 +744,6 @@ void plan_extractImplicitLoad(AggregatePlan *src, AggregatePlan *dist) {
 }
 
 void AggregatePlan_FPrint(AggregatePlan *plan, FILE *out) {
-  fprintf(out, "plan @ %p: ", plan);
   char **args = AggregatePlan_Serialize(plan);
   for (int i = 0; i < array_len(args); i++) {
 
@@ -786,6 +785,8 @@ AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src) {
         break;
 
       case AggregateStep_Group:
+        success = cont = 0;
+        break;
         current = distributeGroupStep(src, dist, current, &cont, &success);
         break;
 
@@ -853,7 +854,6 @@ void AggregateStep_Free(AggregateStep *s) {
 }
 
 void AggregatePlan_Free(AggregatePlan *plan) {
-  fprintf(stderr, "Freeing plan %p\n", plan);
   AggregateStep *current = plan->head;
   while (current) {
     AggregateStep *next = current->next;
