@@ -24,10 +24,20 @@ static int quantile_Add(void *ctx, SearchResult *res) {
   quantileCtx *qctx = ctx;
   double d;
   RSValue *v = SearchResult_GetValue(res, qctx->sortables, &qctx->params->property);
-  if (v == NULL || !RSValue_ToNumber(v, &d)) {
-    return 1;
+  if (v) {
+    if (v->t != RSValue_Array) {
+      if (RSValue_ToNumber(v, &d)) {
+        QS_Insert(qctx->strm, d);
+      }
+    } else {
+      uint32_t sz = RSValue_ArrayLen(v);
+      for (uint32_t i = 0; i < sz; i++) {
+        if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
+          QS_Insert(qctx->strm, d);
+        }
+      }
+    }
   }
-  QS_Insert(qctx->strm, d);
   return 1;
 }
 

@@ -102,7 +102,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
   if (res->fields) {
     RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
     if (!RSValue_IsNull(ret)) {
-      return ret;
+      return RSValue_Dereference(ret);
     }
   }
   // First try to get the group value by sortables

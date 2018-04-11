@@ -32,7 +32,6 @@ int sample_Add(void *ctx, SearchResult *res) {
     } else {
       int i = rand() % sc->seen++;
       if (i < sc->props->len) {
-        printf("%d/%d replace!\n", i, sc->seen);
         RSValue_Free(sc->samples[i]);
         sc->samples[i] = RSValue_IncrRef(RSValue_MakePersistent(v));
       }
@@ -44,6 +43,7 @@ int sample_Add(void *ctx, SearchResult *res) {
 
 int sample_Finalize(void *ctx, const char *key, SearchResult *res) {
   struct randomSampleCtx *sc = ctx;
+
   int top = MIN(sc->props->len, sc->seen);
   RSValue **arr = calloc(top, sizeof(RSValue *));
   memcpy(arr, sc->samples, top * sizeof(RSValue *));
