@@ -43,6 +43,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   if (n > 1) {
     Cursor *last = ll[n - 1]; /** Last cursor - move to current position */
     last->pos = cur->pos;
+    ll[last->pos] = last;
   }
 
   Array_Resize(idle, sizeof(Cursor *) * (n - 1));
