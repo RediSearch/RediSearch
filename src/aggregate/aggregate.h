@@ -4,7 +4,8 @@
 #include <query.h>
 #include "reducer.h"
 #include "expr/expression.h"
-#include "query_plan.h"
+#include <query_plan.h>
+#include "aggregate_plan.h"
 #include <value.h>
 
 #ifndef GROUPBY_C_
@@ -13,110 +14,6 @@ typedef struct Grouper Grouper;
 
 CmdSchemaNode *GetAggregateRequestSchema();
 
-struct AggregatePlan;
-
-typedef struct {
-  RSMultiKey *keys;
-  FieldList fl;
-} AggregateLoadStep;
-
-typedef struct {
-  char *str;
-
-} AggregateQueryStep;
-
-typedef struct {
-  const char *reducer;
-  RSValue **args;
-  char *alias;
-} AggregateGroupReduce;
-
-typedef struct {
-  RSMultiKey *properties;
-  AggregateGroupReduce *reducers;
-  int idx;
-} AggregateGroupStep;
-
-typedef struct {
-  char *rawExpr;
-  RSExpr *parsedExpr;
-  char *alias;
-} AggregateApplyStep;
-
-typedef enum {
-  Property_Field = 1,
-  Property_Aggregate = 2,
-  Property_Projection = 3,
-} AggregatePropertyKind;
-
-typedef struct {
-  const char *property;
-  RSValueType type;
-  AggregatePropertyKind kind;
-} AggregateProperty;
-
-typedef AggregateProperty *AggregateSchema;
-
-typedef struct {
-  RSMultiKey *keys;
-  uint64_t ascMap;
-  long long max;
-} AggregateSortStep;
-
-typedef struct {
-  long long offset;
-  long long num;
-} AggregateLimitStep;
-
-typedef enum {
-  AggregateStep_Query,
-  AggregateStep_Group,
-  AggregateStep_Sort,
-  AggregateStep_Apply,
-  AggregateStep_Limit,
-  AggregateStep_Load,
-  AggregateStep_Distribute,
-  AggregateStep_Dummy,  // dummy step representing an empty plan's head
-} AggregateStepType;
-
-typedef struct {
-  struct AggregatePlan *plan;
-} AggregateDistributeStep;
-
-typedef struct AggregateStep {
-  union {
-    AggregateApplyStep apply;
-    AggregateGroupStep group;
-    AggregateLoadStep load;
-    AggregateLimitStep limit;
-    AggregateSortStep sort;
-    AggregateDistributeStep dist;
-    AggregateQueryStep query;
-  };
-  AggregateStepType type;
-  struct AggregateStep *next;
-  struct AggregateStep *prev;
-
-} AggregateStep;
-
-typedef struct AggregatePlan {
-  const char *index;
-  AggregateStep *head;
-  AggregateStep *tail;
-  int hasCursor;
-  struct {
-    size_t count;
-    int maxIdle;
-  } cursor;
-} AggregatePlan;
-
-char **AggregatePlan_Serialize(AggregatePlan *plan);
-int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
-AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
-AggregatePlan *AggregatePlan_MakeDistributed(AggregatePlan *src);
-void AggregatePlan_Free(AggregatePlan *plan);
-void AggregateStep_Free(AggregateStep *s);
-void AggregatePlan_Print(AggregatePlan *plan);
 typedef struct {
   QueryPlan *plan;
   QueryParseCtx *parseCtx;
