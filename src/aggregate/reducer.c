@@ -122,6 +122,26 @@ static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc
   return NewQuantile(ctx, property, alias, pct);
 }
 
+static Reducer *NewRandomSampleArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                    const char *alias, char **err) {
+  if (argc != 2 || !RSValue_IsString(args[0])) {
+    *err = strdup("Invalid arguments for QUANTILE");
+    return NULL;
+  }
+  const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));
+
+  double d;
+  if (!RSValue_ToNumber(args[1], &d)) {
+    *err = strdup("Could not parse size for random sample");
+    return NULL;
+  }
+  int size = (int)d;
+  if (size <= 0 || size >= MAX_SAMPLE_SIZE) {
+    *err = strdup("Invalid size for random sample");
+  }
+  return NewRandomSample(ctx, size, property, alias);
+}
+
 typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                    const char *alias, char **err);
 
@@ -141,6 +161,7 @@ static struct {
     {"quantile", NewQuantileArgs, RSValue_Number},
     {"stddev", NewStddevArgs, RSValue_Number},
     {"first_value", NewFirstValueArgs, RSValue_String},
+    {"random_sample", NewRandomSampleArgs, RSValue_Array},
 
     {NULL, NULL},
 };

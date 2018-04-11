@@ -77,7 +77,11 @@ static void Group_Init(Group *group, Grouper *g, SearchResult *res, uint64_t has
 
 static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
   for (size_t i = 0; i < group->len; i++) {
-    group->ctxs[i].free(group->ctxs[i].ptr);
+    if (group->ctxs[i].free) {
+      group->ctxs[i].free(group->ctxs[i].ptr);
+    } else {
+      break;  // no need to continue if the first group context doesn't
+    }
   }
   group->len = 0;
   if (group->values) {

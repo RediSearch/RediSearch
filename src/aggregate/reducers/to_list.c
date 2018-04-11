@@ -7,7 +7,7 @@ struct tolistCtx {
 };
 
 void *tolist_NewInstance(ReducerCtx *rctx) {
-  struct tolistCtx *ctx = malloc(sizeof(*ctx));
+  struct tolistCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 1024 * sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = RS_KEY(rctx->property);
   ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
@@ -74,7 +74,6 @@ void tolist_FreeInstance(void *p) {
   struct tolistCtx *tlc = p;
 
   TrieMap_Free(tlc->values, freeValues);
-  free(tlc);
 }
 
 Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias) {

@@ -7,6 +7,9 @@
 #include <rmutil/cmdparse.h>
 #include <util/block_alloc.h>
 
+/* Maximum possible value to random sample group size */
+#define MAX_SAMPLE_SIZE 1000
+
 typedef struct {
   void *privdata;
   const char *property;
@@ -83,5 +86,6 @@ Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RS
 RSValueType GetReducerType(const char *name);
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias);
+Reducer *NewRandomSample(RedisSearchCtx *sctx, int size, const char *property, const char *alias);
 
 #endif
