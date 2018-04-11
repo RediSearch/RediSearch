@@ -19,11 +19,25 @@ int tolist_Add(void *ctx, SearchResult *res) {
 
   RSValue *v = SearchResult_GetValue(res, tlc->sortables, &tlc->property);
   if (v) {
-    uint64_t hval = RSValue_Hash(v, 0);
-    if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+    // for non array values we simply add the value to the list */
+    if (v->t != RSValue_Array) {
+      uint64_t hval = RSValue_Hash(v, 0);
+      if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                  RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
+        TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
+                    RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
+      }
+    } else {  // For array values we add each distinct element to the list
+      uint32_t len = RSValue_ArrayLen(v);
+      for (uint32_t i = 0; i < len; i++) {
+        RSValue *av = RSValue_ArrayItem(v, i);
+        uint64_t hval = RSValue_Hash(av, 0);
+        if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+
+          TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
+                      RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
+        }
+      }
     }
   }
   return 1;
