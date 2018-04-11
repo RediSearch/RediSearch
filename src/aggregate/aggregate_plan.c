@@ -20,6 +20,8 @@ AggregateStep *newLoadStep(CmdArg *arg, char **err) {
   RSMultiKey *k = RS_NewMultiKeyFromArgs(&CMDARG_ARR(arg), 1, 1);
   AggregateStep *ret = newStep(AggregateStep_Load);
   ret->load.keys = k;
+  // we do not immediately create the field list, it might not be needed
+  ret->load.fl = (FieldList){};
   return ret;
 }
 
@@ -837,15 +839,19 @@ void AggregateStep_Free(AggregateStep *s) {
       free(s->apply.rawExpr);
       if (s->apply.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
       break;
-    case AggregateStep_Limit:
-      break;
+
     case AggregateStep_Load:
       RSMultiKey_Free(s->load.keys);
+      if (s->load.fl.numFields) {
+        FieldList_Free(&s->load.fl);
+      }
       break;
     case AggregateStep_Distribute:
       AggregatePlan_Free(s->dist.plan);
       free(s->dist.plan);
       break;
+
+    case AggregateStep_Limit:
     case AggregateStep_Dummy:
       break;
   }

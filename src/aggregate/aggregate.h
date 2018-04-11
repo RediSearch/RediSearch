@@ -17,6 +17,7 @@ struct AggregatePlan;
 
 typedef struct {
   RSMultiKey *keys;
+  FieldList fl;
 } AggregateLoadStep;
 
 typedef struct {

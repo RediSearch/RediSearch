@@ -159,26 +159,17 @@ ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char
   return NewPager(upstream, (uint32_t)l->offset, (uint32_t)l->num);
 }
 
-int getAggregateFields(FieldList *l, RedisModuleCtx *ctx, CmdArg *cmd) {
-  *l = (FieldList){};
-  CmdArg *select = CmdArg_FirstOf(cmd, "LOAD");
-  if (select) {
-    l->explicitReturn = 1;
-    CmdArgIterator it = CmdArg_Children(select);
-    CmdArg *child;
-    while (NULL != (child = CmdArgIterator_Next(&it, NULL))) {
-      const char *k = CMDARG_STRPTR(child);
-      size_t len = CMDARG_STRLEN(child);
-      if (len > 0 && *k == '@') {
-        k++;
-        len--;
-      }
-      ReturnedField *rf = FieldList_GetCreateField(l, RedisModule_CreateString(ctx, k, len));
+ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
+                             AggregateLoadStep *ls) {
+  ls->fl = (FieldList){};
+  for (int i = 0; i < ls->keys->len; i++) {
+    const char *k = RSKEY(ls->keys->keys[i].key);
+    ReturnedField *rf =
+        FieldList_GetCreateField(&ls->fl, RedisModule_CreateString(ctx->redisCtx, k, strlen(k)));
 
-      rf->explicitReturn = 1;
-    }
+    rf->explicitReturn = 1;
   }
-  return l->numFields;
+  return NewLoader(upstream, ctx, &ls->fl);
 }
 
 ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSearchCtx *sctx,
@@ -213,8 +204,9 @@ ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSea
         next = addLimit(&current->limit, next, err);
         break;
       case AggregateStep_Load:
-        fprintf(stderr, "PLEASE IMPLEMENT LOAD...\n");
-        // next = load
+        if (current->load.keys->len > 0 && sctx != NULL) {
+          next = buildLoader(next, sctx, &current->load);
+        }
         break;
       case AggregateStep_Distribute:
       case AggregateStep_Dummy:
