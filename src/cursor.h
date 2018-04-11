@@ -33,13 +33,13 @@ typedef struct Cursor {
   void *execState;
 
   /** Time when this cursor will no longer be valid, in nanos */
-  uint64_t nextTimeout;
+  uint64_t nextTimeoutNs;
 
   /** ID of this cursor */
   uint64_t id;
 
   /** Initial timeout interval */
-  unsigned timeoutInterval;
+  unsigned timeoutIntervalMs;
 
   /** Position within idle list */
   int pos;
@@ -79,7 +79,7 @@ typedef struct CursorList {
    * Next timeout - set to the lowest entry.
    * This is used as a hint to avoid excessive sweeps.
    */
-  uint64_t nextIdleTimeout;
+  uint64_t nextIdleTimeoutNs;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this

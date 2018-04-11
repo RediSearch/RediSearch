@@ -5,7 +5,7 @@
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 CursorList RSCursors;
 
-static uint64_t curTime() {
+static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
   return tv.tv_nsec + (tv.tv_sec * 1000000000);
@@ -47,8 +47,8 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   }
 
   Array_Resize(idle, sizeof(Cursor *) * (n - 1));
-  if (cur->nextTimeout == cur->parent->nextIdleTimeout) {
-    cur->parent->nextIdleTimeout = 0;
+  if (cur->nextTimeoutNs == cur->parent->nextIdleTimeoutNs) {
+    cur->parent->nextIdleTimeoutNs = 0;
   }
   cur->pos = -1;
 }
@@ -57,7 +57,9 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   /* Decrement the used count */
   assert(khi != kh_end(cur->parent->lookup));
+  assert(kh_get(cursors, cur->parent->lookup, cur->id) != kh_end(cur->parent->lookup));
   kh_del(cursors, cur->parent->lookup, khi);
+  assert(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup));
   cur->specInfo->used--;
   if (cur->sctx->redisCtx) {
     RedisModule_FreeThreadSafeContext(cur->sctx->redisCtx);
@@ -79,9 +81,9 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
  * Garbage collection is throttled within a given interval as well.
  */
 static int Cursors_GCInternal(CursorList *cl) {
-  uint64_t now = curTime();
+  uint64_t now = curTimeNs();
   int numCollected = 0;
-  if (cl->nextIdleTimeout && cl->nextIdleTimeout < now) {
+  if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
     return -1;
   } else if (now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
     return -1;
@@ -90,7 +92,7 @@ static int Cursors_GCInternal(CursorList *cl) {
   cl->lastCollect = now;
   for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
     Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
-    if (cur->nextTimeout <= now) {
+    if (cur->nextTimeoutNs <= now) {
       /* Remove it */
       Cursor_RemoveFromIdle(cur);
       Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
@@ -166,7 +168,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval,
   cur->sctx = sctx;
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
-  cur->timeoutInterval = interval;
+  cur->timeoutIntervalMs = interval;
 
   int dummy;
   khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
@@ -182,13 +184,13 @@ done:
 
 int Cursor_Pause(Cursor *cur) {
   CursorList *cl = cur->parent;
-  cur->nextTimeout = curTime() + (cur->timeoutInterval * 1000000);
+  cur->nextTimeoutNs = curTimeNs() + (cur->timeoutIntervalMs * 1000000);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  if (cur->nextTimeout < cl->nextIdleTimeout || cl->nextIdleTimeout == 0) {
-    cl->nextIdleTimeout = cur->nextTimeout;
+  if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
   }
 
   /* Add to idle list */
