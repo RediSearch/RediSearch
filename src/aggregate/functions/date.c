@@ -90,6 +90,6 @@ err:
 }
 
 void RegisterDateFunctions() {
-  RSFunctionRegistry_RegisterFunction("time", timeFormat, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String);
   RSFunctionRegistry_RegisterFunction("parse_time", parseTime, RSValue_Number);
 }
