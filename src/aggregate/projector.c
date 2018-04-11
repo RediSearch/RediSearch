@@ -37,6 +37,7 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 1);
   ProjectorCtx *pc = ctx->privdata;
   pc->ctx.r = res;
+  pc->ctx.fctx->res = res;
   char *err;
   int rc = RSExpr_Eval(&pc->ctx, pc->exp, &pc->val, &err);
   if (rc == EXPR_EVAL_OK) {

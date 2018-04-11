@@ -157,7 +157,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0',
-               'APPLY', 'time(1517417144)', 'AS', 'dt',
+               'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                'APPLY', 'parse_time("%FT%TZ", @dt)', 'as', 'parsed_dt',
                'LIMIT', '0', '1']
         res = self.cmd(*cmd)

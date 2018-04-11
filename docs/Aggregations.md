@@ -123,7 +123,7 @@ FT.AGGREGATE myIndex "*"
   SORTBY 2 @hour ASC
 ```
 
-And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function `time` that formats unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one  is equivalent to specifying `%FT%TZ` to `strftime`.
+And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function `timefmt` that formats unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one  is equivalent to specifying `%FT%TZ` to `strftime`.
 
 ```
 FT.AGGREGATE myIndex "*"
@@ -134,7 +134,7 @@ FT.AGGREGATE myIndex "*"
   	
   SORTBY 2 @hour ASC
   
-  APPLY time(@hour) AS hour
+  APPLY timefmt(@hour) AS hour
 ```
 
 
@@ -355,7 +355,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | lower(s)                 | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
 | substr(s, offset, count) | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
 | format( fmt, ...)        | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
-
+| matched_terms()          | Return the query terms that matched for each record (up to 100), as a list | `matched_terms()` |
 
 
 ## List Of Date/Time Functions
@@ -364,7 +364,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| time(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
-| parsetime(x, [fmt]) | The opposite of time() - parse a time format using a given format string |
+| timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
+| parsetime(x, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
 |                     |                                                              |
 

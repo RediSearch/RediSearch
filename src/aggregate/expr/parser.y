@@ -63,6 +63,7 @@ expr(A) ::= FUNC(B) LP arglist(C) RP. {
     }
 }
 
+arglist(A) ::= . [ARGLIST] { A = RS_NewArgList(NULL); }
 arglist(A) ::= expr(B) . [ARGLIST] { A = RS_NewArgList(B); }
 arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] { 
     A = RSArgList_Append(B, C);

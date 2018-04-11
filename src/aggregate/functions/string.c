@@ -3,8 +3,30 @@
 #include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>
 #include <ctype.h>
+#include <util/arr.h>
 #include "function.h"
 #define STRING_BLOCK_SIZE 512
+
+static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                             char **err) {
+  SearchResult *res = ctx->res;
+  // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
+  if (res && res->indexResult) {
+    static RSQueryTerm *terms[100] = {};
+    size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, 100);
+    if (n) {
+      RSValue **arr = calloc(n, sizeof(RSValue *));
+      for (size_t i = 0; i < n; i++) {
+        arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
+      }
+      RSValue *v = RS_ArrVal(arr, n);
+      RSValue_MakeReference(result, v);
+      return EXPR_EVAL_OK;
+    }
+  }
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
 
 /* lower(str) */
 static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
@@ -175,4 +197,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
   RSFunctionRegistry_RegisterFunction("substr", stringfunc_substr, RSValue_String);
   RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
 }

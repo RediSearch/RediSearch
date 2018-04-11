@@ -3,6 +3,7 @@
 
 #include <value.h>
 #include <util/block_alloc.h>
+#include <result_processor.h>
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)              \
   if (argc < minargs || argc > maxargs) {                        \
@@ -32,6 +33,7 @@
 
 typedef struct RSFunctionEvalCtx {
   BlkAlloc alloc;
+  SearchResult *res;
 } RSFunctionEvalCtx;
 
 RSFunctionEvalCtx *RS_NewFunctionEvalCtx();
