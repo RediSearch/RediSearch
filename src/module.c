@@ -658,6 +658,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
   if (sctx == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    return;
   }
 
   const char *err = NULL;

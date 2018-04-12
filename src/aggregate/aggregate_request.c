@@ -161,7 +161,7 @@ ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char
 
 ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
                              AggregateLoadStep *ls) {
-  ls->fl = (FieldList){};
+  ls->fl = (FieldList){.explicitReturn = 1};
   for (int i = 0; i < ls->keys->len; i++) {
     const char *k = RSKEY(ls->keys->keys[i].key);
     ReturnedField *rf =
@@ -169,6 +169,7 @@ ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
 
     rf->explicitReturn = 1;
   }
+
   return NewLoader(upstream, ctx, &ls->fl);
 }
 
