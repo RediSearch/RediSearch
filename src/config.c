@@ -54,5 +54,21 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     RMUtil_ParseArgsAfter("FRISOINI", argv, argc, "c", &RSGlobalConfig.frisoIni);
   }
 
+  int onTmoIndex = RMUtil_ArgIndex("ON_TIMEOUT", argv, argc);
+  if (onTmoIndex >= 0) {
+    if (onTmoIndex >= argc - 1) {
+      *err = "Invalid ON_TIMEOUT value";
+      return REDISMODULE_ERR;
+    }
+    if (RMUtil_StringEqualsCaseC(argv[onTmoIndex + 1], "RETURN")) {
+      RSGlobalConfig.timeoutPolicy = TimeoutPolicy_Return;
+    } else if (RMUtil_StringEqualsCaseC(argv[onTmoIndex + 1], "FAIL")) {
+      RSGlobalConfig.timeoutPolicy = TimeoutPolicy_Fail;
+    } else {
+      *err = "Invalid ON_TIMEOUT value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
