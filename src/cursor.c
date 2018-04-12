@@ -1,6 +1,7 @@
 #include "cursor.h"
 #include <time.h>
 #include <assert.h>
+#include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 CursorList RSCursors;
@@ -140,7 +141,7 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval, const char **err) {
+Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval, char **err) {
   const char *keyName = RedisModule_StringPtrLen(sctx->keyName, NULL);
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -149,7 +150,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval,
   Cursor *cur = NULL;
 
   if (spec == NULL) {
-    *err = "Index does not have cursors enabled or does not exist";
+    SET_ERR(err, "Index does not have cursors enabled or does not exist");
     goto done;
   }
 
@@ -157,7 +158,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval,
     Cursors_GCInternal(cl);
     if (spec->used >= spec->cap) {
       /** Collect idle cursors now */
-      *err = "Too many cursors allocated for index";
+      SET_ERR(err, "Too many cursors allocated for index");
       goto done;
     }
   }

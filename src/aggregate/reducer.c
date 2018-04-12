@@ -2,6 +2,7 @@
 #include "aggregate.h"
 #include <rmutil/cmdparse.h>
 #include <string.h>
+#include <err.h>
 
 static Reducer *NewCountArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                              char **err) {
@@ -12,7 +13,7 @@ static Reducer *NewSumArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, con
                            char **err) {
 
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for SUM");
+    SET_ERR(err, "Invalid arguments for SUM");
     return NULL;
   }
   return NewSum(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -22,7 +23,7 @@ static Reducer *NewToListArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, 
                               char **err) {
 
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for TOLIST");
+    SET_ERR(err, "Invalid arguments for TOLIST");
     return NULL;
   }
   return NewToList(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -31,7 +32,7 @@ static Reducer *NewToListArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, 
 static Reducer *NewMinArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                            char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for MIN");
+    SET_ERR(err, "Invalid arguments for MIN");
     return NULL;
   }
   return NewMin(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -40,7 +41,7 @@ static Reducer *NewMinArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, con
 static Reducer *NewMaxArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                            char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for MAX");
+    SET_ERR(err, "Invalid arguments for MAX");
     return NULL;
   }
   return NewMax(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -49,7 +50,7 @@ static Reducer *NewMaxArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, con
 static Reducer *NewAvgArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                            char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for AVG");
+    SET_ERR(err, "Invalid arguments for AVG");
     return NULL;
   }
   return NewAvg(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -58,7 +59,7 @@ static Reducer *NewAvgArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, con
 static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                      const char *alias, char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for COUNT_DISTINCT");
+    SET_ERR(err, "Invalid arguments for COUNT_DISTINCT");
     return NULL;
   }
   return NewCountDistinct(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
@@ -67,7 +68,7 @@ static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, RSValue **args, size_t
 static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                         const char *alias, char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
+    SET_ERR(err, "Invalid arguments for COUNT_DISTINCTISH");
     return NULL;
   }
   return NewCountDistinctish(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
@@ -83,7 +84,7 @@ static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, RSValue **args, size_t ar
   // Parse all and make sure we were valid
   if (!RSValue_ArrayAssign(args, argc, "s?sss", &prop, &by, &sortBy, &asc) ||
       (by && strcasecmp(by, "BY")) || (asc && strcasecmp(asc, "ASC") && strcasecmp(asc, "DESC"))) {
-    *err = strdup("Invalid arguments for FIRST_VALUE");
+    SET_ERR(err, "Invalid arguments for FIRST_VALUE");
     return NULL;
   }
   // printf("prop: %s, by: %s, sortBy: %s, asc: %s\n", prop, by, sortBy, asc);
@@ -96,7 +97,7 @@ static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, RSValue **args, size_t ar
 static Reducer *NewStddevArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                               char **err) {
   if (argc != 1 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for STDDEV");
+    SET_ERR(err, "Invalid arguments for STDDEV");
     return NULL;
   }
   return NewStddev(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
@@ -105,19 +106,19 @@ static Reducer *NewStddevArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, 
 static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                                 char **err) {
   if (argc != 2 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for QUANTILE");
+    SET_ERR(err, "Invalid arguments for QUANTILE");
     return NULL;
   }
   const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));
 
   double pct;
   if (!RSValue_ToNumber(args[1], &pct)) {
-    *err = strdup("Could not parse percent for QUANTILE(key, pct)");
+    SET_ERR(err, "Could not parse percent for QUANTILE(key, pct)");
     return NULL;
   }
 
   if (pct <= 0 || pct >= 1) {
-    *err = strdup("Quantile must be between 0.0 and 1.0 (exclusive) )");
+    SET_ERR(err, "Quantile must be between 0.0 and 1.0 (exclusive) )");
   }
   return NewQuantile(ctx, property, alias, pct);
 }
@@ -125,19 +126,19 @@ static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc
 static Reducer *NewRandomSampleArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                     const char *alias, char **err) {
   if (argc != 2 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for RANDOM_SAMPLE");
+    SET_ERR(err, "Invalid arguments for RANDOM_SAMPLE");
     return NULL;
   }
   const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));
 
   double d;
   if (!RSValue_ToNumber(args[1], &d)) {
-    *err = strdup("Could not parse size for random sample");
+    SET_ERR(err, "Could not parse size for random sample");
     return NULL;
   }
   int size = (int)d;
   if (size <= 0 || size >= MAX_SAMPLE_SIZE) {
-    *err = strdup("Invalid size for random sample");
+    SET_ERR(err, "Invalid size for random sample");
   }
   return NewRandomSample(ctx, size, property, alias);
 }
@@ -174,7 +175,7 @@ Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RS
     }
   }
 
-  asprintf(err, "Could not find reducer '%s'", name);
+  FMT_ERR(err, "Could not find reducer '%s'", name);
   return NULL;
 }
 

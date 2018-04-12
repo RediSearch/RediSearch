@@ -8,6 +8,7 @@
 #include <util/arr.h>
 #include <search_request.h>
 #include "functions/function.h"
+#include <err.h>
 
 static CmdSchemaNode *requestSchema = NULL;
 
@@ -154,8 +155,7 @@ ResultProcessor *buildProjection(AggregateApplyStep *a, ResultProcessor *upstrea
 ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char **err) {
 
   if (l->offset < 0 || l->num <= 0) {
-    *err = strdup("Invalid offset/num for LIMIT");
-    return NULL;
+    return SET_ERR(err, "Invalid offset/num for LIMIT");
   }
   return NewPager(upstream, (uint32_t)l->offset, (uint32_t)l->num);
 }
@@ -246,22 +246,17 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
 }
 
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
-                           int argc, const char **err) {
-#define MAYBE_SET_ERR(s) \
-  if (!*err) {           \
-    *err = s;            \
-  }
+                           int argc, char **err) {
 
   req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
   if (!req->args) {
-    MAYBE_SET_ERR("Could not parse aggregate request");
+    SET_ERR(err, "Could not parse aggregate request");
     return REDISMODULE_ERR;
   }
 
   req->ap = (AggregatePlan){};
   if (!AggregatePlan_Build(&req->ap, req->args, (char **)err)) {
-    printf("err:%s\n", *err);
-    MAYBE_SET_ERR("Could not build aggregate plan");
+    SET_ERR(err, "Could not build aggregate plan");
     return REDISMODULE_ERR;
   }
 
@@ -276,7 +271,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
   if (!Query_Parse(req->parseCtx, (char **)err)) {
-    MAYBE_SET_ERR("Unknown error");
+    SET_ERR(err, "Unknown error");
     return REDISMODULE_ERR;
   }
 
@@ -284,7 +279,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, &req->ap,
                               (char **)err);
   if (!req->plan) {
-    MAYBE_SET_ERR(QUERY_ERROR_INTERNAL_STR);
+    SET_ERR(err, QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;
   }
 

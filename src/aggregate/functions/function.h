@@ -4,23 +4,23 @@
 #include <value.h>
 #include <util/block_alloc.h>
 #include <result_processor.h>
+#include <err.h>
 
-#define VALIDATE_ARGS(fname, minargs, maxargs, err)              \
-  if (argc < minargs || argc > maxargs) {                        \
-    *err = strdup("Invalid arguments for function '" fname "'"); \
-    return EXPR_EVAL_ERR;                                        \
+#define VALIDATE_ARGS(fname, minargs, maxargs, err)             \
+  if (argc < minargs || argc > maxargs) {                       \
+    SET_ERR(err, "Invalid arguments for function '" fname "'"); \
+    return EXPR_EVAL_ERR;                                       \
   }
 
-#define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                  \
-  {                                                                                             \
-    RSValue *dref = RSValue_Dereference(&args[idx]);                                            \
-    if (!verifier(dref, varg)) {                                                                \
-                                                                                                \
-      asprintf(err, "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", \
-               dref->t, idx, fname, #verifier, #varg);                                          \
-      printf("%s\n", *err);                                                                     \
-      return EXPR_EVAL_ERR;                                                                     \
-    }                                                                                           \
+#define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
+  {                                                                                            \
+    RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
+    if (!verifier(dref, varg)) {                                                               \
+                                                                                               \
+      FMT_ERR(err, "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", \
+              dref->t, idx, fname, #verifier, #varg);                                          \
+      return EXPR_EVAL_ERR;                                                                    \
+    }                                                                                          \
   }
 
 #define VALIDATE_ARG__TYPE(arg, t_) ((arg)->t == t_)

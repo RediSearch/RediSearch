@@ -76,7 +76,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                char **err) {
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
   if (sp == NULL) {
-    if (!*err) *err = "Could not parse index spec";
+    SET_ERR(err, "Could not parse index spec");
     return NULL;
   }
 
@@ -86,9 +86,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
     if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-      *err = "Wrong type for index key";
+      SET_ERR(err, "Wrong type for index key");
     } else {
-      *err = "Index already exists. Drop it first!";
+      SET_ERR(err, "Index already exists. Drop it first!");
     }
     IndexSpec_Free(sp);
     return NULL;
@@ -193,7 +193,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, ch
       if (strlen(argv[*offset]) == 1) {
         sp->tagOpts.separator = argv[*offset][0];
       } else {
-        *err = "Invalid separator, only 1 byte ascii characters allowed";
+        SET_ERR(err, "Invalid separator, only 1 byte ascii characters allowed");
         return 0;
       }
       ++*offset;
@@ -206,7 +206,7 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, ch
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
       if (sp->type == FIELD_GEO || sp->type == FIELD_TAG) {
-        *err = "Tag and Geo fields cannot be sortable";
+        SET_ERR(err, "Tag and Geo fields cannot be sortable");
         return 0;
       }
       sp->options |= FieldSpec_Sortable;
@@ -240,7 +240,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   int schemaOffset = __findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
-    *err = "schema not found";
+    SET_ERR(err, "schema not found");
     return NULL;
   }
   IndexSpec *spec = NewIndexSpec(name, 0);
@@ -265,7 +265,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
     if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
-      *err = "Invalid stopword list size";
+      SET_ERR(err, "Invalid stopword list size");
       goto failure;
     }
     spec->stopwords = NewStopWordListCStr(&argv[swIndex + 2], listSize);
@@ -285,7 +285,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
 
     if (!__parseFieldSpec(argv, &i, argc, fs, err)) {
       if (!*err) {
-        *err = "Could not parse field spec";
+        SET_ERR(err, "Could not parse field spec");
       }
       goto failure;
     }
@@ -293,7 +293,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
       // make sure we don't have too many indexable fields
       if (id == SPEC_MAX_FIELD_ID) {
-        *err = "Too many TEXT fields in schema";
+        SET_ERR(err, "Too many TEXT fields in schema");
         goto failure;
       }
 
@@ -309,13 +309,13 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       fs->sortIdx = sortIdx++;
     }
     if (sortIdx > RS_SORTABLES_MAX) {
-      *err = "Too many sortable fields";
+      SET_ERR(err, "Too many sortable fields");
 
       goto failure;
     }
 
     if (IndexSpec_GetField(spec, fs->name, strlen(fs->name)) != fs) {
-      *err = "Duplicate field in schema";
+      SET_ERR(err, "Duplicate field in schema");
       goto failure;
     }
   }

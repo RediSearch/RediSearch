@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <util/arr.h>
 #include "function.h"
+#include <err.h>
+
 #define STRING_BLOCK_SIZE 512
 
 static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
@@ -81,7 +83,7 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
   if (!str) {
-    *err = strdup("Invalid type for substr, expected string");
+    SET_ERR(err, "Invalid type for substr, expected string");
     return EXPR_EVAL_ERR;
   }
 
@@ -109,7 +111,7 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
   if (argc < 1) {
-    *err = strdup("Need at least one argument for format");
+    SET_ERR(err, "Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
@@ -127,7 +129,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 
     if (fmt[ii] == fmtsz - 1) {
       // ... %"
-      *err = strdup("Bad format string!");
+      SET_ERR(err, "Bad format string!");
       goto error;
     }
 
@@ -143,7 +145,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     }
 
     if (argix == argc) {
-      *err = strdup("Not enough arguments for format");
+      SET_ERR(err, "Not enough arguments for format");
       goto error;
     }
 
@@ -171,7 +173,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
         out = sdscatlen(out, str, sz);
       }
     } else {
-      *err = strdup("Unknown format specifier passed");
+      SET_ERR(err, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -185,7 +187,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 
 error:
   if (!*err) {
-    *err = strdup("Error in format");
+    SET_ERR(err, "Error in format");
   }
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());

@@ -4,10 +4,8 @@
 #include <commands.h>
 #include <util/arr.h>
 #include <ctype.h>
+#include <err.h>
 
-#define FMT_ERR(e, fmt, ...) asprintf(e, fmt, __VA_ARGS__);
-#define SET_ERR(e, err) \
-  if (e && !*e) *e = strdup(err);
 
 AggregateStep *AggregatePlan_NewStep(AggregateStepType t) {
   AggregateStep *step = malloc(sizeof(*step));

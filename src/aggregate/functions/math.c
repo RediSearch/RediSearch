@@ -1,13 +1,15 @@
 #include "function.h"
 #include <aggregate/expr/expression.h>
 #include <math.h>
+#include <err.h>
 
 /* Template for single argument double to double math function */
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                          \
   static int mathfunc_##f(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, \
                           char **err) {                                                     \
     if (argc != 1) {                                                                        \
-      *err = strdup("Invalid number of arguments for function '" #f);                       \
+      SET_ERR(err, "Invalid number of arguments for function '" #f);                        \
+      return EXPR_EVAL_ERR;                                                                 \
     }                                                                                       \
     double d;                                                                               \
     if (!RSValue_ToNumber(&argv[0], &d)) {                                                  \

@@ -33,7 +33,7 @@ void Aggregate_BuildSchema();
  * Note that this does not initialize the structure; use
  */
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
-                           int argc, const char **err);
+                           int argc, char **err);
 void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx);
 void AggregateRequest_Free(AggregateRequest *req);
 

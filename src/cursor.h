@@ -134,7 +134,7 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
  * Timeout is the max idle timeout (activated at each call to Pause()) in
  * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned timeout, const char **err);
+Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned timeout, char **err);
 
 /**
  * Retrieve a cursor for execution. This locates the cursor, removes it

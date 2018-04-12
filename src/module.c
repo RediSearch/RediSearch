@@ -450,13 +450,15 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  char *err;
+  char *err = NULL;
 
   RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
     SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, err);
+    RedisModule_ReplyWithError(ctx, err);
+    ERR_FREE(err);
+    return REDISMODULE_OK;
   }
 
   QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
@@ -465,13 +467,12 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
-  char *errMsg = NULL;
-  if (!Query_Parse(q, &errMsg)) {
+  if (!Query_Parse(q, &err)) {
 
-    if (errMsg) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", errMsg);
-      RedisModule_ReplyWithError(ctx, errMsg);
-      free(errMsg);
+    if (err) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+      RedisModule_ReplyWithError(ctx, err);
+      ERR_FREE(err);
     } else {
       /* Simulate an empty response - this means an empty query */
       RedisModule_ReplyWithArray(ctx, 1);
@@ -479,6 +480,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
     goto end;
   }
+
   if (!(req->opts.flags & Search_Verbatim)) {
     Query_Expand(q, req->opts.expander);
   }
@@ -661,12 +663,13 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return;
   }
 
-  const char *err = NULL;
+  char *err = NULL;
   AggregateRequest req_s = {NULL}, *req = &req_s;
   int hasCursor = 0;
 
   if (AggregateRequest_Start(req, sctx, argv, argc, &err) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, err ? err : "Could not perform request");
+    ERR_FREE(err);
     goto done;
   }
 
@@ -675,6 +678,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap.cursor.maxIdle, &err);
     if (!cursor) {
       RedisModule_ReplyWithError(ctx, err ? err : "Could not open cursor");
+      ERR_FREE(err);
       goto done;
     }
 
@@ -947,6 +951,7 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (req == NULL) {
     RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
     RedisModule_ReplyWithError(ctx, err ? err : "Error parsing request");
+
     goto end;
   }
 
@@ -974,10 +979,10 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   QueryPlan_Run(plan, ctx);
   if (err) {
     RedisModule_ReplyWithError(ctx, err);
-    free(err);
   }
 
 end:
+  ERR_FREE(err);
 
   if (plan) QueryPlan_Free(plan);
   if (sctx) SearchCtx_Free(sctx);
@@ -1070,7 +1075,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
   if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, err ? err : "Could not create new index");
+
+    RedisModule_ReplyWithError(ctx, err ? err : "Could not create new index");
+    ERR_FREE(err);
+    return REDISMODULE_OK;
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1493,7 +1501,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad,
                       errMsg);
-      free(errMsg);
+      ERR_FREE(errMsg);
       return REDISMODULE_ERR;
     }
     RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
