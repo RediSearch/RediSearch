@@ -386,4 +386,5 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | dayofmonth(timestamp) | Convert a Unix timestamp to the day of month number (1 .. 31). |
 | dayofyear(timestamp) | Convert a Unix timestamp to the day of year number (0 .. 365). |
 | year(timestamp) | Convert a Unix timestamp to the current year (e.g. 2018). |
+| monthofyear(timestamp) | Convert a Unix timestamp to the current month (0 .. 11). |
 
