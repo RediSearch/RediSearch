@@ -28,7 +28,7 @@ RediSearch supports a few run-time configuration options that should be determin
 
 ## TIMEOUT
 
-The maximum amount of time **in Millisecods** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
+The maximum amount of time **in Milliseconds** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
 The defalt is 500ms. 
 
 **NOTE**: This works only in concurrent mode, so enabling SAFEMODE disables ths option.
@@ -48,7 +48,7 @@ $ redis-server --loadmodule ./redisearch.so TIMEOUT 100
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
-This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted durin query processing).
+This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted during query processing).
 
 ### Default:
 Off (not present)
