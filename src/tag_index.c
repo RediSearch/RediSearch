@@ -5,6 +5,7 @@
 #include "redis_index.h"
 #include "rmutil/util.h"
 #include "util/misc.h"
+#include "util/arr.h"
 #include <assert.h>
 
 /* See tag_index.h for documentation  */
@@ -54,11 +55,11 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
 char *strtolower(char *str);
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
+char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
-  if (!p) return NULL;
-  Vector *ret = NewVector(char *, 4);
+  if (!p || sz == 0) return NULL;
+  char **ret = array_new(char *, 4);
   char *pp = p = strndup(p, sz);
   while (p) {
     // get the next token
@@ -72,7 +73,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
         tok = strtolower(tok);
       }
       tok = strndup(tok, toklen);
-      Vector_Push(ret, tok);
+      ret = array_append(ret, tok);
     }
   }
   free(pp);
@@ -95,17 +96,14 @@ static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docI
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
-
-  char *tok;
+size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId) {
+  if (!values) return 0;
   size_t ret = 0;
-  for (size_t i = 0; i < Vector_Size(values); i++) {
-    Vector_Get(values, i, &tok);
+  array_foreach(values, tok, {
     if (tok && *tok != '\0') {
-      // printf("Indexing token '%s'\n", tok);
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
     }
-  }
+  });
 
   return ret;
 }
