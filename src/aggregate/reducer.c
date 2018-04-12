@@ -125,7 +125,7 @@ static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc
 static Reducer *NewRandomSampleArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                     const char *alias, char **err) {
   if (argc != 2 || !RSValue_IsString(args[0])) {
-    *err = strdup("Invalid arguments for QUANTILE");
+    *err = strdup("Invalid arguments for RANDOM_SAMPLE");
     return NULL;
   }
   const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));

@@ -666,7 +666,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   int hasCursor = 0;
 
   if (AggregateRequest_Start(req, sctx, argv, argc, &err) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(sctx->redisCtx, err);
+    RedisModule_ReplyWithError(ctx, err ? err : "Could not perform request");
     goto done;
   }
 
@@ -674,7 +674,7 @@ void _AggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Using a cursor here!
     Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap.cursor.maxIdle, &err);
     if (!cursor) {
-      RedisModule_ReplyWithError(ctx, err);
+      RedisModule_ReplyWithError(ctx, err ? err : "Could not open cursor");
       goto done;
     }
 

@@ -135,7 +135,8 @@ ResultProcessor *buildGroupBy(AggregateGroupStep *grp, RedisSearchCtx *sctx,
   return NewGrouperProcessor(g, upstream);
 
 fail:
-  RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s", *err);
+  if (sctx && sctx->redisCtx)
+    RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s", *err);
 
   Grouper_Free(g);
   return NULL;
@@ -228,8 +229,8 @@ fail:
   if (prev) {
     ResultProcessor_Free(prev);
   }
-
-  RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
+  if (sctx && sctx->redisCtx)
+    RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
   return NULL;
 }
 
@@ -281,7 +282,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
 
   Query_Expand(req->parseCtx, opts.expander);
   req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, &req->ap,
-                              (char **)&err);
+                              (char **)err);
   if (!req->plan) {
     MAYBE_SET_ERR(QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;
