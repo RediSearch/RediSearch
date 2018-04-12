@@ -311,6 +311,18 @@ If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer wor
 
     If you with to get the top or bottom value in the group sorted by the same value, you are better off using the `MIN/MAX` reducers, but the same effect will be achieved by doing `REDUCE FIRST_VALUE 4 @foo BY @foo DESC`.
 
+- #### RANDOM_SAMPLE
+
+  - **Format**:
+
+    ```
+    REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
+    ```
+
+  - **Description**:
+
+    Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.
+
 
 
 ## APPLY Expressions
@@ -365,6 +377,13 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
 | timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
-| parsetime(x, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
-|                     |                                                              |
+| parsetime(timesharing, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
+| day(timestamp) | Round a Unix timestamp to midnight (00:00) start of the current day. |
+| hour(timestamp) | Round a Unix timestamp to the beginning of the current hour. |
+| minute(timestamp) | Round a Unix timestamp to the beginning of the current minute. |
+| month(timestamp) | Round a unix timestamp to the beginning of the current month. |
+| dayofweek(timestamp) | Convert a Unix timestamp to the day number (Sunday = 0). |
+| dayofmonth(timestamp) | Convert a Unix timestamp to the day of month number (1 .. 31). |
+| dayofyear(timestamp) | Convert a Unix timestamp to the day of year number (0 .. 365). |
+| year(timestamp) | Convert a Unix timestamp to the current year (e.g. 2018). |
 
