@@ -143,6 +143,24 @@ static Reducer *NewRandomSampleArgs(RedisSearchCtx *ctx, RSValue **args, size_t 
   return NewRandomSample(ctx, size, property, alias);
 }
 
+static Reducer *NewHllArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for HLL");
+    return NULL;
+  }
+  return NewHLL(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
+}
+
+static Reducer *NewHllSumArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                              char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for HLL_SUM");
+    return NULL;
+  }
+  return NewHLLSum(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
+}
+
 typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, RSValue **args, size_t argc,
                                    const char *alias, char **err);
 
@@ -163,6 +181,8 @@ static struct {
     {"stddev", NewStddevArgs, RSValue_Number},
     {"first_value", NewFirstValueArgs, RSValue_String},
     {"random_sample", NewRandomSampleArgs, RSValue_Array},
+    {"hll", NewHllArgs, RSValue_String},
+    {"hll_sum", NewHllSumArgs, RSValue_Number},
 
     {NULL, NULL},
 };
