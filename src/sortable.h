@@ -31,7 +31,7 @@ typedef struct RSSortingVector {
  * part of the spec */
 typedef struct {
   int len : 8;
-  struct {
+  struct sortField {
     const char *name;
     RSValueType type;
   } fields[];

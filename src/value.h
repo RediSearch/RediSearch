@@ -155,6 +155,10 @@ static inline RSValue *RSValue_MakePersistent(RSValue *v) {
   if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
     v->strval.str = strndup(v->strval.str, v->strval.len);
     v->strval.stype = RSString_Malloc;
+  } else if (v->t == RSValue_Array) {
+    for (size_t i = 0; i < v->arrval.len; i++) {
+      RSValue_MakePersistent(v->arrval.vals[i]);
+    }
   }
   return v;
 }

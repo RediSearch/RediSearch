@@ -181,7 +181,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(int len) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(const char *));
+  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(struct sortField));
   tbl->len = len;
   return tbl;
 }
