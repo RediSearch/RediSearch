@@ -32,7 +32,7 @@ static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     if (n) {
       RSValue **arr = calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {
-        arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
+        arr[i] = RSValue_IncrRef(RS_ConstStringVal(terms[i]->str, terms[i]->len));
       }
       RSValue *v = RS_ArrVal(arr, n);
       RSValue_MakeReference(result, v);
