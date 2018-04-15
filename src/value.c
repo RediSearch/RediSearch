@@ -690,8 +690,9 @@ void RSFieldMap_Print(RSFieldMap *m) {
   for (uint16_t i = 0; i < m->len; i++) {
     printf("%s: ", m->fields[i].key);
     RSValue_Print(m->fields[i].val);
-    printf("\n");
+    printf(", ");
   }
+  printf("\n");
 }
 
 /*
