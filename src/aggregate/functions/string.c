@@ -11,11 +11,24 @@
 
 static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
+  int maxTerms = 0;
+  if (argc == 1) {
+    double d;
+    if (RSValue_ToNumber(&argv[0], &d)) {
+      if (d > 0) {
+        maxTerms = (int)d;
+      }
+    }
+  }
+
   SearchResult *res = ctx->res;
+  if (maxTerms == 0) maxTerms = 100;
+  maxTerms = MIN(100, maxTerms);
+
   // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
   if (res && res->indexResult) {
-    static RSQueryTerm *terms[100] = {};
-    size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, 100);
+    RSQueryTerm *terms[maxTerms];
+    size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, maxTerms);
     if (n) {
       RSValue **arr = calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {

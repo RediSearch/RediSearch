@@ -68,24 +68,12 @@ int testGroupBy() {
   RETURN_TEST_SUCCESS;
 }
 
-void AggregatePlan_Print(AggregatePlan *plan) {
-  char **args = AggregatePlan_Serialize(plan);
-  for (int i = 0; i < array_len(args); i++) {
-
-    sds s = sdscatrepr(sdsnew(""), args[i], strlen(args[i]));
-    printf("%s ", s);
-    sdsfree(s);
-  }
-  array_free_ex(args, free(*(void **)ptr););
-  printf("\n");
-}
-
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
       39, "FT.AGGREGATE", "idx", "foo bar", "APPLY", "@foo", "AS", "@bar", "GROUPBY", "2", "@foo",
       "@bar", "REDUCE", "count_distinct", "1", "@foo", "REDUCE", "count", "0", "AS", "num",
       "SORTBY", "4", "@foo", "ASC", "@bar", "DESC", "MAX", "5", "APPLY", "@num/3", "AS", "subnum",
-      "APPLY", "time(@subnum)", "AS", "datenum", "LIMIT", "0", "100");
+      "APPLY", "timefmt(@subnum)", "AS", "datenum", "LIMIT", "0", "100");
 
   CmdArg *cmd = NULL;
   char *err;
@@ -113,6 +101,7 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 
+/*
 int testDistribute() {
   CmdString *argv = CmdParser_NewArgListV(
       22, "FT.AGGREGATE", "idx", "foo", "GROUPBY", "1", "@bar", "REDUCE", "AVG", "1", "@foo", "AS",
@@ -193,9 +182,10 @@ int testRevertToBasic() {
 
   RETURN_TEST_SUCCESS;
 }
+*/
 TEST_MAIN({
-  TESTFUNC(testRevertToBasic);
+  // TESTFUNC(testRevertToBasic);
   TESTFUNC(testGroupBy);
   TESTFUNC(testAggregatePlan);
-  TESTFUNC(testDistribute);
+  // TESTFUNC(testDistribute);
 })

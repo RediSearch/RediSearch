@@ -222,12 +222,26 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, ch
   return 1;
 }
 
+/* Convert field type rsvalue type */
+RSValueType fieldTypeToValueType(FieldType ft) {
+  switch (ft) {
+    case FIELD_NUMERIC:
+      return RSValue_Number;
+    case FIELD_FULLTEXT:
+    case FIELD_TAG:
+      return RSValue_String;
+    case FIELD_GEO:
+      // geo is not sortable so we don't care as of now...
+      return RSValue_Null;
+  }
+}
 void _spec_buildSortingTable(IndexSpec *spec, int len) {
   spec->sortables = NewSortingTable(len);
   for (int i = 0; i < spec->numFields; i++) {
     if (FieldSpec_IsSortable(&spec->fields[i])) {
       // printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
-      SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name);
+      SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name,
+                                fieldTypeToValueType(spec->fields[i].type));
     }
   }
 }

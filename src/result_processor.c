@@ -165,7 +165,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   // the index result of the search result is not thread safe. It will be copied by the sorter later
   // on if we need it to be thread safe
-  res->indexResult = q->opts.needIndexResult ? r : NULL;
+  res->indexResult = r;  // q->opts.needIndexResult ? r : NULL;
 
   res->score = 0;
   res->sv = dmd->sortVector;
@@ -526,7 +526,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // not reached beginning of results
   if (pc->count < pc->offset) {
 
-    IndexResult_Free(r->indexResult);
+    // IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
 
@@ -535,7 +535,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
-    IndexResult_Free(r->indexResult);
+    // IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
     return RS_RESULT_EOF;

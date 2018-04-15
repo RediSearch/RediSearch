@@ -6,7 +6,6 @@
 #include <ctype.h>
 #include <err.h>
 
-
 AggregateStep *AggregatePlan_NewStep(AggregateStepType t) {
   AggregateStep *step = malloc(sizeof(*step));
   step->type = t;
@@ -257,22 +256,27 @@ int AggregateSchema_Contains(AggregateSchema schema, const char *property) {
   return 0;
 }
 
-AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint) {
+AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint,
+                                 RSSortingTable *tbl) {
   switch (expr->t) {
     case RSExpr_Function: {
-      RSValueType funcType = GetExprType(expr);
+      RSValueType funcType = GetExprType(expr, tbl);
       for (int i = 0; i < expr->func.args->len; i++) {
-        arr = extractExprTypes(expr->func.args->args[i], arr, funcType);
+        arr = extractExprTypes(expr->func.args->args[i], arr, funcType, tbl);
       }
       break;
     }
-    case RSExpr_Property:
-      arr = AggregateSchema_Set(arr, expr->property.key, typeHint, Property_Field, 0);
+    case RSExpr_Property: {
+
+      arr = AggregateSchema_Set(arr, expr->property.key,
+                                SortingTable_GetFieldType(tbl, expr->property.key, typeHint),
+                                Property_Field, 0);
       break;
+    }
     case RSExpr_Op:
       // ops are between numeric properties, so the hint is number
-      arr = extractExprTypes(expr->op.left, arr, RSValue_Number);
-      arr = extractExprTypes(expr->op.right, arr, RSValue_Number);
+      arr = extractExprTypes(expr->op.left, arr, RSValue_Number, tbl);
+      arr = extractExprTypes(expr->op.right, arr, RSValue_Number, tbl);
       break;
     case RSExpr_Literal:
     default:
@@ -287,36 +291,55 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
   while (current) {
     switch (current->type) {
       case AggregateStep_Apply:
-        arr = extractExprTypes(current->apply.parsedExpr, arr, RSValue_String);
-        arr = AggregateSchema_Set(arr, current->apply.alias, GetExprType(current->apply.parsedExpr),
-                                  Property_Projection, 1);
-        break;
-
+        // for literals we just add their type
+        if (current->apply.parsedExpr && current->apply.parsedExpr->t == RSExpr_Literal) {
+          arr = AggregateSchema_Set(arr, current->apply.alias, current->apply.parsedExpr->literal.t,
+                                    Property_Projection, 1);
+        } else {  // descend into the compound expression, and try to find out the type of the
+                  // sub-expressions
+          arr = extractExprTypes(current->apply.parsedExpr, arr, RSValue_String, tbl);
+          arr = AggregateSchema_Set(arr, current->apply.alias,
+                                    GetExprType(current->apply.parsedExpr, tbl),
+                                    Property_Projection, 1);
+          break;
+        }
       case AggregateStep_Load:
         for (int i = 0; i < current->load.keys->len; i++) {
-          arr = AggregateSchema_Set(arr, current->load.keys->keys[i].key, RSValue_String,
-                                    Property_Field, 1);
+          arr = AggregateSchema_Set(
+              arr, current->load.keys->keys[i].key,
+              SortingTable_GetFieldType(tbl, current->load.keys->keys[i].key, RSValue_String),
+              Property_Field, 1);
         }
         break;
       case AggregateStep_Sort:
         for (int i = 0; i < current->sort.keys->len; i++) {
-          arr = AggregateSchema_Set(arr, current->sort.keys->keys[i].key, RSValue_String,
-                                    Property_Field, 0);
+          // for sort we may need the keys but they are either the output of apply/reduce, or
+          // properties
+          arr = AggregateSchema_Set(
+              arr, current->sort.keys->keys[i].key,
+              SortingTable_GetFieldType(tbl, current->load.keys->keys[i].key, RSValue_String),
+              Property_Field, 0);
         }
         break;
       case AggregateStep_Group:
         for (int i = 0; i < current->group.properties->len; i++) {
-          arr = AggregateSchema_Set(arr, current->group.properties->keys[i].key, RSValue_String,
-                                    Property_Field, 0);
+          arr =
+              AggregateSchema_Set(arr, current->group.properties->keys[i].key,
+                                  SortingTable_GetFieldType(
+                                      tbl, current->group.properties->keys[i].key, RSValue_String),
+                                  Property_Field, 0);
         }
+        // Now go over the reducers as well
         for (int i = 0; i < array_len(current->group.reducers); i++) {
           AggregateGroupReduce *red = &current->group.reducers[i];
-
+          // descend to each reducer's arguments
           for (int j = 0; j < array_len(red->args); j++) {
             if (RSValue_IsString(red->args[j])) {
+              // if the reducer's arg is a property, optionally add that
               const char *c = RSValue_StringPtrLen(red->args[j], NULL);
               if (c && *c == '@') {
-                AggregateSchema_Set(arr, c, RSValue_String, Property_Field, 0);
+                AggregateSchema_Set(arr, c, SortingTable_GetFieldType(tbl, c, RSValue_String),
+                                    Property_Field, 0);
               }
             }
           }

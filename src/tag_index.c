@@ -160,7 +160,11 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
     return NULL;
   }
 
-  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, NULL);
+  RSToken tok = {.str = (char *)value, .len = len};
+
+  RSQueryTerm *t = NewQueryTerm(&tok, 0);
+
+  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, t);
   if (!r) {
     return NULL;
   }

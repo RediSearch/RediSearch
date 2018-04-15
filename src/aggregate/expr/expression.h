@@ -76,6 +76,6 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
 
 /* Get the return type of an expression. In the case of a property we do not try to guess but rather
  * just return String */
-RSValueType GetExprType(RSExpr *expr);
+RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl);
 
 #endif

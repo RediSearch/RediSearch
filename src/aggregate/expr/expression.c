@@ -225,7 +225,7 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
 
 /* Get the return type of an expression. In the case of a property we do not try to guess but rather
  * just return String */
-RSValueType GetExprType(RSExpr *expr) {
+RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl) {
   if (!expr) return RSValue_Null;
   switch (expr->t) {
     case RSExpr_Function:
@@ -235,7 +235,10 @@ RSValueType GetExprType(RSExpr *expr) {
       return RSValue_Number;
     case RSExpr_Literal:
       return expr->literal.t;
-    case RSExpr_Property:
-      return RSValue_String;
+    case RSExpr_Property: {
+      // best effort based on sorting table, default to string
+      // safe if tbl is null
+      return SortingTable_GetFieldType(tbl, RSKEY(expr->property.key), RSValue_String);
+    }
   }
 }
