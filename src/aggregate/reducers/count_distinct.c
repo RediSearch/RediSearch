@@ -3,6 +3,7 @@
 #include <util/khash.h>
 #include <util/fnv.h>
 #include <dep/hll/hll.h>
+#include <rmutil/sds.h>
 
 #define HLL_PRECISION_BITS 8
 
@@ -59,18 +60,12 @@ static void countDistinct_FreeInstance(void *p) {
   kh_destroy(khid, ctr->dedup);
 }
 
-static inline void countDistinct_Free(Reducer *r) {
-  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
-  free(r->alias);
-  free(r);
-}
-
 Reducer *NewCountDistinct(RedisSearchCtx *ctx, const char *alias, const char *key) {
   Reducer *r = NewReducer(ctx, (void *)key);
 
   r->Add = countDistinct_Add;
   r->Finalize = countDistinct_Finalize;
-  r->Free = countDistinct_Free;
+  r->Free = Reducer_GenericFreeWithStaticPrivdata;
   r->FreeInstance = countDistinct_FreeInstance;
   r->NewInstance = countDistinct_NewInstance;
   r->alias = FormatAggAlias(alias, "count_distinct", key);
@@ -118,20 +113,134 @@ static void countDistinctish_FreeInstance(void *p) {
   hll_destroy(&ctr->hll);
 }
 
-static inline void countDistinctish_Free(Reducer *r) {
-  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
-  free(r->alias);
-  free(r);
+/** Serialized HLL format */
+typedef struct __attribute__((packed)) {
+  uint32_t flags;  // Currently unused
+  uint8_t bits;
+  // uint32_t size -- NOTE - always 1<<bits
+} HLLSerializedHeader;
+
+static int hllFinalize(void *ctx, const char *key, SearchResult *res) {
+  struct distinctishCounter *ctr = ctx;
+  // Serialize field map.
+  HLLSerializedHeader hdr = {.flags = 0, .bits = ctr->hll.bits};
+  char *str = malloc(sizeof(hdr) + ctr->hll.size);
+  size_t hdrsize = sizeof(hdr);
+  memcpy(str, &hdr, hdrsize);
+  memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
+  RSFieldMap_Add(&res->fields, key, RS_StringVal(str, sizeof(hdr) + ctr->hll.size));
+  return 1;
+}
+
+static Reducer *newHllCommon(RedisSearchCtx *ctx, const char *alias, const char *key, int isRaw) {
+  Reducer *r = NewReducer(ctx, (void *)key);
+  r->Add = countDistinctish_Add;
+  r->Free = Reducer_GenericFreeWithStaticPrivdata;
+  r->FreeInstance = countDistinctish_FreeInstance;
+  r->NewInstance = countDistinctish_NewInstance;
+
+  if (isRaw) {
+    r->Finalize = hllFinalize;
+    r->alias = FormatAggAlias(alias, "hll", key);
+  } else {
+    r->Finalize = countDistinctish_Finalize;
+    r->alias = FormatAggAlias(alias, "count_distinctish", key);
+  }
+  return r;
 }
 
 Reducer *NewCountDistinctish(RedisSearchCtx *ctx, const char *alias, const char *key) {
-  Reducer *r = NewReducer(ctx, (void *)key);
+  return newHllCommon(ctx, alias, key, 0);
+}
 
-  r->Add = countDistinctish_Add;
-  r->Finalize = countDistinctish_Finalize;
-  r->Free = countDistinctish_Free;
-  r->FreeInstance = countDistinctish_FreeInstance;
-  r->NewInstance = countDistinctish_NewInstance;
-  r->alias = FormatAggAlias(alias, "count_distinctish", key);
+Reducer *NewHLL(RedisSearchCtx *ctx, const char *alias, const char *key) {
+  return newHllCommon(ctx, alias, key, 1);
+}
+
+typedef struct {
+  RSKey key;
+  RSSortingTable *sortables;
+  struct HLL hll;
+} hllSumCtx;
+
+static int hllSum_Add(void *ctx, SearchResult *res) {
+  hllSumCtx *ctr = ctx;
+  RSValue *val = SearchResult_GetValue(res, ctr->sortables, &ctr->key);
+
+  if (val == NULL || !RSValue_IsString(val)) {
+    // Not a string!
+    return 0;
+  }
+
+  size_t len;
+  const char *buf = RSValue_StringPtrLen(val, &len);
+  // Verify!
+
+  const HLLSerializedHeader *hdr = (const void *)buf;
+  const char *registers = buf + sizeof(*hdr);
+
+  // Need at least the header size
+  if (len < sizeof(*hdr)) {
+    return 0;
+  }
+
+  // Can't be an insane bit value - we don't want to overflow either!
+  size_t regsz = len - sizeof(*hdr);
+  if (hdr->bits > 64) {
+    return 0;
+  }
+
+  // Expected length should be determined from bits (whose value we've also
+  // verified)
+  if (regsz != 1 << hdr->bits) {
+    return 0;
+  }
+
+  if (ctr->hll.bits) {
+    if (hdr->bits != ctr->hll.bits) {
+      return 0;
+    }
+    // Merge!
+    struct HLL tmphll = {
+        .bits = hdr->bits, .size = 1 << hdr->bits, .registers = (uint8_t *)registers};
+    if (hll_merge(&ctr->hll, &tmphll) != 0) {
+      return 0;
+    }
+  } else {
+    // Not yet initialized - make this our first register and continue.
+    hll_init(&ctr->hll, hdr->bits);
+    memcpy(ctr->hll.registers, registers, regsz);
+  }
+  return 1;
+}
+
+static int hllSum_Finalize(void *ctx, const char *key, SearchResult *res) {
+  hllSumCtx *ctr = ctx;
+  RSFieldMap_SetNumber(&res->fields, key, ctr->hll.bits ? (uint64_t)hll_count(&ctr->hll) : 0);
+  return 1;
+}
+
+static void *hllSum_NewInstance(ReducerCtx *ctx) {
+  hllSumCtx *ctr = ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));
+  ctr->hll.bits = 0;
+  ctr->hll.registers = NULL;
+  ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
+  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
+  return ctr;
+}
+
+static void hllSum_FreeInstance(void *p) {
+  hllSumCtx *ctr = p;
+  hll_destroy(&ctr->hll);
+}
+
+Reducer *NewHLLSum(RedisSearchCtx *ctx, const char *alias, const char *key) {
+  Reducer *r = NewReducer(ctx, (void *)key);
+  r->Add = hllSum_Add;
+  r->Finalize = hllSum_Finalize;
+  r->NewInstance = hllSum_NewInstance;
+  r->FreeInstance = hllSum_FreeInstance;
+  r->Free = Reducer_GenericFreeWithStaticPrivdata;
+  r->alias = FormatAggAlias(alias, "hll_sum", key);
   return r;
 }
