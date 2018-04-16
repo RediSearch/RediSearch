@@ -141,4 +141,6 @@ void AggregatePlan_Free(AggregatePlan *plan);
 /* Print the plan */
 void AggregatePlan_Print(AggregatePlan *plan);
 
+/* Callback to dump the schema to redis */
+int AggregatePlan_DumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata);
 #endif

@@ -292,7 +292,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
       if (r->term.term) {
         const char *s = r->term.term->str;
         // make sure we have a term string and it's not an expansion
-        if (s && *s != '+') {
+        if (s) {
           arr[(*len)++] = r->term.term;
         }
 

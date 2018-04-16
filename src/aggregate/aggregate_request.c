@@ -247,20 +247,6 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
   return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
 }
 
-int dumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata) {
-  RedisModuleCtx *ctx = sctx->redisCtx;
-  AggregateSchema sc = privdata;
-  if (!ctx || !sc) return 0;
-  RedisModule_ReplyWithArray(ctx, array_len(sc));
-  for (size_t i = 0; i < array_len(sc); i++) {
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithStringBuffer(ctx, sc[i].property, strlen(sc[i].property));
-    const char *t = RSValue_TypeName(sc[i].type);
-    RedisModule_ReplyWithStringBuffer(ctx, t, strlen(t));
-  }
-  return 1;
-}
-
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
                            int argc, char **err) {
 
@@ -295,7 +281,9 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
     return REDISMODULE_ERR;
   }
 
-  Query_Expand(req->parseCtx, opts.expander);
+  if (!req->ap.verbatim) {
+    Query_Expand(req->parseCtx, opts.expander);
+  }
   req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, &req->ap,
                               (char **)err);
   if (!req->plan) {
@@ -305,7 +293,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
 
   if (req->ap.withSchema) {
     AggregateSchema sc = AggregatePlan_GetSchema(&req->ap, SEARCH_CTX_SORTABLES(req->plan->ctx));
-    QueryPlan_SetHook(req->plan, QueryPlanHook_Pre, dumpSchema, sc, array_free);
+    QueryPlan_SetHook(req->plan, QueryPlanHook_Pre, AggregatePlan_DumpSchema, sc, array_free);
   }
   return REDISMODULE_OK;
 }

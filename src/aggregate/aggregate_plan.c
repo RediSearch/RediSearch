@@ -242,7 +242,7 @@ AggregateSchema AggregateSchema_Set(AggregateSchema schema, const char *property
       return schema;
     }
   }
-  schema = array_append(schema, ((AggregateProperty){property, t, kind}));
+  schema = array_append(schema, ((AggregateProperty){RSKEY(property), t, kind}));
   return schema;
 }
 
@@ -447,7 +447,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       plan->index = CMDARG_STRPTR(child);
       continue;
 
-    } else if (child->type == CmdArg_Flag) {
+    } else if (!strcasecmp(key, "WITHSCHEMA") || !strcasecmp(key, "VERBATIM")) {
       // skip verbatim and withschema
       continue;
     } else if (!strcasecmp(key, "query")) {
@@ -578,12 +578,13 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
     switch (current->type) {
       case AggregateStep_Query:
         arrPushStrdup(&vec, current->query.str);
-        if (plan->hasCursor) {
-          plan_serializeCursor(plan, &vec);
-        }
 
         if (plan->verbatim) arrPushStrdup(&vec, "VERBATIM");
         if (plan->withSchema) arrPushStrdup(&vec, "WITHSCHEMA");
+
+        if (plan->hasCursor) {
+          plan_serializeCursor(plan, &vec);
+        }
 
         break;
 
@@ -708,4 +709,18 @@ void AggregatePlan_Free(AggregatePlan *plan) {
     current = next;
   }
   plan->head = plan->tail = NULL;
+}
+
+int AggregatePlan_DumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata) {
+  RedisModuleCtx *ctx = sctx->redisCtx;
+  AggregateSchema sc = privdata;
+  if (!ctx || !sc) return 0;
+  RedisModule_ReplyWithArray(ctx, array_len(sc));
+  for (size_t i = 0; i < array_len(sc); i++) {
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithStringBuffer(ctx, sc[i].property, strlen(sc[i].property));
+    const char *t = RSValue_TypeName(sc[i].type);
+    RedisModule_ReplyWithStringBuffer(ctx, t, strlen(t));
+  }
+  return 1;
 }
