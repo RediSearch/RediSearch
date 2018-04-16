@@ -777,3 +777,22 @@ err:
   va_end(ap);
   return 0;
 }
+
+const char *RSValue_TypeName(RSValueType t) {
+  switch (t) {
+    case RSValue_Array:
+      return "array";
+    case RSValue_Number:
+      return "number";
+    case RSValue_String:
+      return "string";
+    case RSValue_Null:
+      return "(null)";
+    case RSValue_RedisString:
+      return "redis-string";
+    case RSValue_Reference:
+      return "reference";
+    default:
+      return "!!UNKNOWN TYPE!!";
+  }
+}

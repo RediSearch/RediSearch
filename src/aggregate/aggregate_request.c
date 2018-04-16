@@ -61,6 +61,8 @@ void Aggregate_BuildSchema() {
 
   CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArgAnnotated('s', "query_string"),
                          CmdSchema_Required);
+  CmdSchema_AddFlag(requestSchema, "WITHSCHEMA");
+  CmdSchema_AddFlag(requestSchema, "VERBATIM");
 
   CmdSchema_AddNamedWithHelp(
       requestSchema, "LOAD",
@@ -245,6 +247,20 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
   return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
 }
 
+int dumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata) {
+  RedisModuleCtx *ctx = sctx->redisCtx;
+  AggregateSchema sc = privdata;
+  if (!ctx || !sc) return 0;
+  RedisModule_ReplyWithArray(ctx, array_len(sc));
+  for (size_t i = 0; i < array_len(sc); i++) {
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithStringBuffer(ctx, sc[i].property, strlen(sc[i].property));
+    const char *t = RSValue_TypeName(sc[i].type);
+    RedisModule_ReplyWithStringBuffer(ctx, t, strlen(t));
+  }
+  return 1;
+}
+
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
                            int argc, char **err) {
 
@@ -267,6 +283,10 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   RSSearchOptions opts = RS_DEFAULT_SEARCHOPTS;
   // mark the query as an aggregation query
   opts.flags |= Search_AggregationQuery;
+  // pass VERBATIM to the aggregate query
+  if (req->ap.verbatim) {
+    opts.flags |= Search_Verbatim;
+  }
 
   req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
@@ -283,6 +303,10 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
     return REDISMODULE_ERR;
   }
 
+  if (req->ap.withSchema) {
+    AggregateSchema sc = AggregatePlan_GetSchema(&req->ap, SEARCH_CTX_SORTABLES(req->plan->ctx));
+    QueryPlan_SetHook(req->plan, QueryPlanHook_Pre, dumpSchema, sc, array_free);
+  }
   return REDISMODULE_OK;
 }
 

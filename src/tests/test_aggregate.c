@@ -1,3 +1,5 @@
+#include <rmutil/alloc.h>
+
 #include <stdio.h>
 #include <assert.h>
 #include <aggregate/aggregate.h>
@@ -81,6 +83,57 @@ int mock_Next_Arr(ResultProcessorCtx *ctx, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
+int testPlanSchema() {
+
+  RSSortingTable *tbl = NewSortingTable(2);
+  SortingTable_SetFieldName(tbl, 0, "txt", RSValue_String);
+  SortingTable_SetFieldName(tbl, 1, "num", RSValue_Number);
+
+  const char *args[] = {"FT.AGGREGATE", "idx",    "*",       "VERBATIM",    "APPLY", "@txt",
+                        "AS",           "txt2",   "APPLY",   "upper(@txt)", "AS",    "upper",
+                        "APPLY",        "@num/2", "AS",      "halfnum",     "APPLY", "sqrt(@num)",
+                        "AS",           "sqrt",   "GROUPBY", "2",           "@txt",  "@num",
+                        "reduce",       "count",  "0",       "as",          "count", "reduce",
+                        "tolist",       "1",      "@txt",    "as",          "list"};
+  int len = sizeof(args) / sizeof(char *);
+  CmdString *argv = CmdParser_NewArgListC(args, len);
+  CmdArg *cmd = NULL;
+  char *err;
+  Aggregate_BuildSchema();
+  CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, len, &err, 1);
+  puts(err);
+  ASSERT(!err);
+  ASSERT(cmd);
+
+  AggregatePlan plan;
+  int rc = AggregatePlan_Build(&plan, cmd, &err);
+  if (err) puts(err);
+  ASSERT(rc);
+  ASSERT(!err);
+
+  AggregateSchema sc = AggregatePlan_GetSchema(&plan, tbl);
+
+  AggregateProperty expected[] = {
+      {"txt", RSValue_String, Property_Field},
+      {"txt2", RSValue_String, Property_Projection},
+      {"upper", RSValue_String, Property_Projection},
+      {"num", RSValue_Number, Property_Field},
+      {"halfnum", RSValue_Number, Property_Projection},
+      {"sqrt", RSValue_Number, Property_Projection},
+      {"count", RSValue_Number, Property_Aggregate},
+      {"list", RSValue_Array, Property_Aggregate},
+
+  };
+  for (int i = 0; i < array_len(sc); i++) {
+    ASSERT_STRING_EQ(expected[i].property, sc[i].property);
+    ASSERT_EQUAL(expected[i].kind, sc[i].kind);
+    ASSERT_EQUAL(expected[i].type, sc[i].type);
+
+    printf("%s, %s, %d\n", sc[i].property, RSValue_TypeName(sc[i].type), sc[i].kind);
+  }
+  array_free(sc);
+  RETURN_TEST_SUCCESS;
+}
 int testGroupSplit() {
 
   char *values[] = {("foo"), ("bar"), ("baz")};
@@ -240,9 +293,12 @@ int testRevertToBasic() {
 }
 */
 TEST_MAIN({
+  RMUTil_InitAlloc();
+
   // TESTFUNC(testRevertToBasic);
-  TESTFUNC(testGroupSplit);
-  TESTFUNC(testGroupBy);
-  TESTFUNC(testAggregatePlan);
+  // TESTFUNC(testGroupSplit);
+  // TESTFUNC(testGroupBy);
+  // TESTFUNC(testAggregatePlan);
+  TESTFUNC(testPlanSchema);
   // TESTFUNC(testDistribute);
 })

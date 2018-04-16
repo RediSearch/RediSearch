@@ -119,9 +119,13 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
       break;
     }
 
-    // printf("Read result %d, rc %d\n", r.docId, rc);
+    // First result!
     if (count == 0) {
       RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
+      // call pre hook if needed
+      if (qex->preHook.callback) {
+        count += qex->preHook.callback(qex->ctx, &qex->execCtx, qex->preHook.privdata);
+      }
       RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
@@ -150,6 +154,9 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     count++;
   }
 
+  if (qex->postHook.callback) {
+    count += qex->postHook.callback(qex->ctx, &qex->execCtx, qex->postHook.privdata);
+  }
   RedisModule_ReplySetArrayLength(output, count);
 }
 
@@ -203,6 +210,12 @@ void QueryPlan_Free(QueryPlan *plan) {
   if (plan->conc) {
     ConcurrentSearchCtx_Free(plan->conc);
     free(plan->conc);
+  }
+  if (plan->preHook.privdata) {
+    if (plan->preHook.free) plan->preHook.free(plan->preHook.privdata);
+  }
+  if (plan->postHook.privdata) {
+    if (plan->postHook.free) plan->postHook.free(plan->postHook.privdata);
   }
 
   free(plan);
@@ -265,4 +278,13 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
 
 void QueryPlan_Run(QueryPlan *plan, RedisModuleCtx *outputCtx) {
   Query_SerializeResults(plan, outputCtx);
+}
+void QueryPlan_SetHook(QueryPlan *plan, QueryPlanHookType ht, QueryHookCallback cb, void *privdata,
+                       void (*freefn)(void *)) {
+  if (ht == QueryPlanHook_Pre) {
+    plan->preHook = (QueryPlanHook){.callback = cb, .privdata = privdata, .free = freefn};
+
+  } else {
+    plan->postHook = (QueryPlanHook){.callback = cb, .privdata = privdata, .free = freefn};
+  }
 }

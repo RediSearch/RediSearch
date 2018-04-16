@@ -438,10 +438,17 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
   const char *key;
   int n = 1;
 
+  plan->withSchema = CmdArg_GetFlag(cmd, "WITHSCHEMA");
+  plan->verbatim = CmdArg_GetFlag(cmd, "VERBATIM");
+
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     AggregateStep *next = NULL;
     if (!strcasecmp(key, "idx")) {
       plan->index = CMDARG_STRPTR(child);
+      continue;
+
+    } else if (child->type == CmdArg_Flag) {
+      // skip verbatim and withschema
       continue;
     } else if (!strcasecmp(key, "query")) {
       next = AggregatePlan_NewStep(AggregateStep_Query);
@@ -563,6 +570,7 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
   arrPushStrdup(&vec, RS_AGGREGATE_CMD);
 
   if (plan->index) arrPushStrdup(&vec, plan->index);
+
   // Serialize the cursor if needed
 
   AggregateStep *current = plan->head;
@@ -573,6 +581,10 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
         if (plan->hasCursor) {
           plan_serializeCursor(plan, &vec);
         }
+
+        if (plan->verbatim) arrPushStrdup(&vec, "VERBATIM");
+        if (plan->withSchema) arrPushStrdup(&vec, "WITHSCHEMA");
+
         break;
 
       case AggregateStep_Group:

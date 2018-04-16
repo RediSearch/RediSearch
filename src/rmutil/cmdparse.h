@@ -267,7 +267,7 @@ CmdString *CmdParser_NewArgListV(size_t size, ...);
 
 /* Convert an array of C NULL terminated strings to an arg list. Does not do extra
  * reallocations, so only the array itself needs to be freed */
-CmdString *CmdParser_NewArgListC(const char **args, int size);
+CmdString *CmdParser_NewArgListC(const char **args, size_t size);
 
 typedef struct {
   CmdArg *arg;
@@ -293,9 +293,12 @@ CmdArgIterator CmdArg_Children(CmdArg *arg);
  * successful, 0 if not */
 int CmdArg_ParseDouble(CmdArg *arg, double *d);
 
-/* Parse an argument as a integer. Argument may already be a int or a double in which case it gets
- * returned, or a string in which case we try to parse it. Returns 1 if the conversion/parsing was
- * successful, 0 if not */
+/* return 1 if a flag with a given name exists in parent and is set to true */
+int CmdArg_GetFlag(CmdArg *parent, const char *flag);
+
+/* Parse an argument as a integer. Argument may already be a int or a double in which case it
+ * gets returned, or a string in which case we try to parse it. Returns 1 if the
+ * conversion/parsing was successful, 0 if not */
 int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 
 #define CMDARG_TYPE(arg) (arg ? arg->type : CmdArg_NullPtr)

@@ -3,56 +3,70 @@
 #include <value.h>
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
+
+/* A structure representing an aggregation execution plan and all its various steps.
+ * This is used to safely manipulate and validate plans */
 struct AggregatePlan;
 
+/* Load step - load properties */
 typedef struct {
   RSMultiKey *keys;
   FieldList fl;
 } AggregateLoadStep;
 
+/* query step - search for query text */
 typedef struct {
   char *str;
 
 } AggregateQueryStep;
 
+/* Group step single reducer, a function and its args */
 typedef struct {
   const char *reducer;
   RSValue **args;
   char *alias;
 } AggregateGroupReduce;
 
+/* Group step - group by properties and reduce by several reducers */
 typedef struct {
   RSMultiKey *properties;
   AggregateGroupReduce *reducers;
   int idx;
 } AggregateGroupStep;
 
+/* Apply step - evaluate an expression per record */
 typedef struct {
   char *rawExpr;
   RSExpr *parsedExpr;
   char *alias;
 } AggregateApplyStep;
 
+/* Schema property kind (not type!) is this a field from the result, a projection or an aggregation?
+ */
 typedef enum {
   Property_Field = 1,
   Property_Aggregate = 2,
   Property_Projection = 3,
 } AggregatePropertyKind;
 
+/* Aggregation property for the schema */
 typedef struct {
   const char *property;
   RSValueType type;
   AggregatePropertyKind kind;
 } AggregateProperty;
 
+/* A schema is just an array of properties */
 typedef AggregateProperty *AggregateSchema;
 
+/* Sortby step - by one or more properties */
 typedef struct {
   RSMultiKey *keys;
   uint64_t ascMap;
   long long max;
 } AggregateSortStep;
 
+/* limit paging */
 typedef struct {
   long long offset;
   long long num;
@@ -69,10 +83,12 @@ typedef enum {
   AggregateStep_Dummy,  // dummy step representing an empty plan's head
 } AggregateStepType;
 
+/* Distribute step - send a sub-plan to all shards and collect the results */
 typedef struct {
   struct AggregatePlan *plan;
 } AggregateDistributeStep;
 
+/* unifying all steps */
 typedef struct AggregateStep {
   union {
     AggregateApplyStep apply;
@@ -89,11 +105,15 @@ typedef struct AggregateStep {
 
 } AggregateStep;
 
+/* A plan is a linked list of all steps */
 typedef struct AggregatePlan {
   const char *index;
   AggregateStep *head;
   AggregateStep *tail;
   int hasCursor;
+  int withSchema;
+  int verbatim;
+  // cursor configuraion
   struct {
     size_t count;
     int maxIdle;

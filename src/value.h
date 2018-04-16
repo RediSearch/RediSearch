@@ -135,6 +135,8 @@ RSValue *RS_ConstStringValC(char *str);
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 
+const char *RSValue_TypeName(RSValueType t);
+
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
