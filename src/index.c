@@ -319,6 +319,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   ctx->its = its;
   ctx->num = num;
   ctx->lastDocId = 0;
+  ctx->lastFoundId = 0;
   ctx->len = 0;
   ctx->maxSlop = maxSlop;
   ctx->inOrder = inOrder;
@@ -397,6 +398,9 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   // if the requested id was found on all children - we return OK
   if (nfound == ic->num) {
     // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
+
+    // Update the last found id
+    ic->lastFoundId = ic->current->docId;
     if (hit) *hit = ic->current;
     return INDEXREAD_OK;
   }
@@ -468,6 +472,9 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       if (hit != NULL) {
         *hit = ic->current;
       }
+      // Update the last valid found id
+      ic->lastFoundId = ic->current->docId;
+
       // advance the doc id so next time we'll read a new record
       ic->lastDocId++;
 
@@ -499,7 +506,8 @@ int II_HasNext(void *ctx) {
 }
 
 t_docId II_LastDocId(void *ctx) {
-  return ((IntersectContext *)ctx)->lastDocId;
+  // return last FOUND id, not last read id form any child
+  return ((IntersectContext *)ctx)->lastFoundId;
 }
 
 size_t II_Len(void *ctx) {
@@ -566,6 +574,7 @@ int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 
   // read the next entry from the child
   int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
+
   // OK means not found
   if (rc == INDEXREAD_OK) {
     return INDEXREAD_NOTFOUND;
