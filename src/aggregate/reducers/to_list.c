@@ -53,10 +53,10 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
-      arr[i++] = RSValue_IncrRef(ptr);
+      arr[i++] = ptr;
     }
   }
-  RSFieldMap_Set(&res->fields, key, (RS_ArrVal(arr, i)));
+  RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, i));
   TrieMapIterator_Free(it);
   return 1;
 }

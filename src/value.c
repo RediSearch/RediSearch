@@ -356,10 +356,13 @@ inline RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
   RSValue *v = RS_NewValue(RSValue_Array);
   v->arrval.vals = vals;
   v->arrval.len = len;
+  for (uint32_t i = 0; i < len; i++) {
+    RSValue_IncrRef(v->arrval.vals[i]);
+  }
   return v;
 }
 
-inline RSValue *RS_VStringArray(uint32_t sz, ...) {
+RSValue *RS_VStringArray(uint32_t sz, ...) {
   RSValue **arr = calloc(sz, sizeof(*arr));
   va_list ap;
   va_start(ap, sz);
@@ -372,7 +375,7 @@ inline RSValue *RS_VStringArray(uint32_t sz, ...) {
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
-inline RSValue *RS_StringArray(char **strs, uint32_t sz) {
+RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
@@ -381,6 +384,14 @@ inline RSValue *RS_StringArray(char **strs, uint32_t sz) {
   return RS_ArrVal(arr, sz);
 }
 
+RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
+  RSValue **arr = calloc(sz, sizeof(RSValue *));
+
+  for (uint32_t i = 0; i < sz; i++) {
+    arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
+  }
+  return RS_ArrVal(arr, sz);
+}
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 /* Create a new NULL RSValue */
 inline RSValue *RS_NullVal() {

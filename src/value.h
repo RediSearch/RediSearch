@@ -223,6 +223,9 @@ RSValue *RS_VStringArray(uint32_t sz, ...);
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz);
 
+/* Initialize all strings in the array with a given string type */
+RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
+
 /* Create a new NULL RSValue */
 RSValue *RS_NullVal();
 
