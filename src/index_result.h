@@ -49,7 +49,6 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
- 
 }
 /* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
  * caution */
