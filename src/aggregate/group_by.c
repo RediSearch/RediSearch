@@ -90,6 +90,7 @@ static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
   }
 }
 
+/* Wrapper for block allocator callback */
 static void baGroupClean(void *ptr, void *arg) {
   gtGroupClean(ptr, NULL, NULL);
 }
@@ -130,26 +131,20 @@ static int grouper_Yield(Grouper *g, SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
-Group *getGroup(Grouper *g, uint64_t hval, int *isnew) {
-  Group *group = NULL;
-
-  khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
-  if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
-    group = GroupAlloc(g);
-    kh_set(khid, g->groups, hval, group);
-    *isnew = 1;
-  } else {
-    group = kh_value(g->groups, k);
+static inline void Group_HandleValues(Grouper *g, Group *gr, SearchResult *res) {
+  for (size_t i = 0; i < g->numReducers; i++) {
+    g->reducers[i]->Add(GROUP_CTX(gr, i), res);
   }
-  return group;
 }
 
-static void extractGroups(Grouper *g, SearchResult *res, RSValue **arr, int idx, int arridx,
-                          int len, uint64_t hval) {
+/* Extract the group keys from the result and add to them */
+static void Grouper_ExtractGroups(Grouper *g, SearchResult *res, RSValue **arr, int idx, int arridx,
+                                  int len, uint64_t hval) {
   // end of the line - create/add to group
   if (idx == len) {
     Group *group = NULL;
 
+    // Get or create the group
     khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
     if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
       group = GroupAlloc(g);
@@ -159,9 +154,8 @@ static void extractGroups(Grouper *g, SearchResult *res, RSValue **arr, int idx,
       group = kh_value(g->groups, k);
     }
 
-    for (size_t i = 0; i < g->numReducers; i++) {
-      g->reducers[i]->Add(GROUP_CTX(group, i), res);
-    }
+    // send the result to the group and its reducers
+    Group_HandleValues(g, group, res);
     return;
   }
 
@@ -169,18 +163,18 @@ static void extractGroups(Grouper *g, SearchResult *res, RSValue **arr, int idx,
   RSValue *v = RSValue_Dereference(arr[idx]);
   // regular value - just move one step
   if (v->t != RSValue_Array) {
-    extractGroups(g, res, arr, idx + 1, 0, len, RSValue_Hash(v, hval));
+    Grouper_ExtractGroups(g, res, arr, idx + 1, 0, len, RSValue_Hash(v, hval));
   } else {
 
     // advance one in the overall array hashing current value in current array
     RSValue *tmp = arr[idx];
     arr[idx] = RSValue_ArrayItem(v, arridx);
     uint64_t hh = RSValue_Hash(arr[idx], hval);
-    extractGroups(g, res, arr, idx + 1, 0, len, hh);
+    Grouper_ExtractGroups(g, res, arr, idx + 1, 0, len, hh);
     arr[idx] = tmp;
     if (arridx + 1 < RSValue_ArrayLen(v)) {
       // advance to the next array element
-      extractGroups(g, res, arr, idx, arridx + 1, len, hval);
+      Grouper_ExtractGroups(g, res, arr, idx, arridx + 1, len, hval);
     }
   }
 }
@@ -205,11 +199,11 @@ static int Grouper_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   }
 
   // Group *group;
-  RSValue *vals[g->keys->len + 1];
+  RSValue *vals[g->keys->len];
   for (size_t i = 0; i < g->keys->len; i++) {
     vals[i] = SearchResult_GetValue(res, g->sortTable, &g->keys->keys[i]);
   }
-  extractGroups(g, res, vals, 0, 0, g->keys->len, 0);
+  Grouper_ExtractGroups(g, res, vals, 0, 0, g->keys->len, 0);
 
   res->indexResult = NULL;
   SearchResult_FreeInternal(res);
