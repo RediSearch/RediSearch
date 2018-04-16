@@ -7,20 +7,16 @@
  *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
+  if (it->atEOF || it->offset >= it->size) {
     it->atEOF = 1;
     return INDEXREAD_EOF;
   }
 
-  it->lastDocId = it->docIds[it->offset];
-  ++it->offset;
-  if (it->offset == it->size) {
-    it->atEOF = 1;
-  }
+  it->lastDocId = it->docIds[it->offset++];
+
   // TODO: Filter here
   it->res->docId = it->lastDocId;
   *r = it->res;
-  // AggregateResult_AddChild(r, &it->res);
 
   return INDEXREAD_OK;
 }
@@ -33,8 +29,7 @@ void IL_Abort(void *ctx) {
  * matches */
 int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
-    it->atEOF = 1;
+  if (it->atEOF || it->offset >= it->size) {
     return INDEXREAD_EOF;
   }
 
@@ -62,7 +57,7 @@ int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
     i = (bottom + top) / 2;
   }
   it->offset = i + 1;
-  if (it->offset == it->size) {
+  if (it->offset >= it->size) {
     it->atEOF = 1;
   }
 
@@ -71,7 +66,6 @@ int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
 
   *r = it->res;
 
-  // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {
     return INDEXREAD_OK;
   }
