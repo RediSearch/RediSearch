@@ -145,14 +145,31 @@ size_t AggregateGroupStep_NumReducers(AggregateGroupStep *g) {
   return array_len(g->reducers);
 }
 
-char *AggregatePlan_GetReducerAlias(AggregateGroupStep *g, const char *func) {
+char *AggregatePlan_GetReducerAlias(AggregateGroupStep *g, const char *func, RSValue **argv,
+                                    int argc) {
 
-  char *ret;
-  asprintf(&ret, "grp%d_%s%d", g->idx, func, array_len(g->reducers));
-  for (char *c = ret; *c; c++) {
-    *c = tolower(*c);
+  sds out = sdsnew(func);
+  // only put parentheses if we actually have args
+  if (argc) out = sdscat(out, "(");
+  char buf[255];
+
+  for (size_t i = 0; i < argc; i++) {
+    size_t l;
+    const char *s = RSValue_ConvertStringPtrLen(argv[i], &l, buf, sizeof(buf));
+    out = sdscatlen(out, s, l);
+    if (i + 1 < argc) {
+      out = sdscat(out, ",");
+    }
   }
-  return ret;
+
+  // only put parentheses if we actually have args
+  if (argc) out = sdscat(out, ")");
+  sdstolower(out);
+
+  // duplicate everything. yeah this is lame but this function is not in a tight loop
+  char *dup = strndup(out, sdslen(out));
+  sdsfree(out);
+  return dup;
 }
 
 char *AggregateGroupStep_AddReducer(AggregateGroupStep *g, const char *func, char *alias, int argc,
@@ -168,7 +185,7 @@ char *AggregateGroupStep_AddReducer(AggregateGroupStep *g, const char *func, cha
   }
   va_end(ap);
   if (!alias) {
-    alias = AggregatePlan_GetReducerAlias(g, func);
+    alias = AggregatePlan_GetReducerAlias(g, func, arr, argc);
   } else {
     alias = strdup(alias);
   }
@@ -194,7 +211,8 @@ void buildReducer(AggregateGroupStep *g, AggregateGroupReduce *gr, CmdArg *red, 
   }
   gr->alias = CMDARG_ORNULL(CmdArg_FirstOf(red, "AS"), CMDARG_STRPTR);
   if (!gr->alias) {
-    gr->alias = AggregatePlan_GetReducerAlias(g, gr->reducer);
+    gr->alias =
+        AggregatePlan_GetReducerAlias(g, gr->reducer, gr->args, gr->args ? array_len(gr->args) : 0);
   } else {
     gr->alias = strdup(gr->alias);
   }
