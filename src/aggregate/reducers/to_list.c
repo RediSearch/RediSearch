@@ -7,7 +7,7 @@ struct tolistCtx {
 };
 
 void *tolist_NewInstance(ReducerCtx *rctx) {
-  struct tolistCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 1024 * sizeof(*ctx));
+  struct tolistCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 100 * sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = RS_KEY(rctx->property);
   ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
@@ -65,11 +65,8 @@ void freeValues(void *ptr) {
   RSValue_Free(ptr);
   // free(ptr);
 }
-// Free just frees up the processor. If left as NULL we simply use free()
-void tolist_Free(Reducer *r) {
-  free(r->ctx.privdata);
-  free(r);
-}
+
+
 void tolist_FreeInstance(void *p) {
   struct tolistCtx *tlc = p;
 
@@ -80,7 +77,7 @@ Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias
   Reducer *r = malloc(sizeof(*r));
   r->Add = tolist_Add;
   r->Finalize = tolist_Finalize;
-  r->Free = tolist_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = tolist_FreeInstance;
   r->NewInstance = tolist_NewInstance;
   r->alias = FormatAggAlias(alias, "tolist", property);

@@ -12,8 +12,9 @@ typedef struct {
   RSSortingTable *sortables;
 } quantileCtx;
 
+
 static void *quantile_NewInstance(ReducerCtx *ctx) {
-  quantileCtx *qctx = calloc(1, sizeof(*qctx));
+  quantileCtx *qctx = ReducerCtx_Alloc(ctx, sizeof(*qctx), 100*sizeof(*qctx));
   qctx->params = ctx->privdata;
   qctx->strm = NewQuantileStream(&qctx->params->pct, 1, 500);
   qctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
@@ -51,7 +52,6 @@ static int quantile_Finalize(void *ctx, const char *key, SearchResult *res) {
 static void quantile_FreeInstance(void *p) {
   quantileCtx *qctx = p;
   QS_Free(qctx->strm);
-  free(qctx);
 }
 
 Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alias, double pct) {

@@ -79,9 +79,7 @@ static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
   for (size_t i = 0; i < group->len; i++) {
     if (group->ctxs[i].free) {
       group->ctxs[i].free(group->ctxs[i].ptr);
-    } else {
-      break;  // no need to continue if the first group context doesn't
-    }
+    } 
   }
   group->len = 0;
   if (group->values) {

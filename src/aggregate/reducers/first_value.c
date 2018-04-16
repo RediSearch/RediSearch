@@ -71,12 +71,6 @@ static void fv_FreeInstance(void *p) {
   RSValue_Free(&fvx->sortValue);
 }
 
-static inline void fv_Free(Reducer *r) {
-  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
-  free(r->ctx.privdata);
-  free(r->alias);
-  free(r);
-}
 
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias) {
@@ -90,7 +84,7 @@ Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey
 
   r->Add = fv_Add;
   r->Finalize = fv_Finalize;
-  r->Free = fv_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = fv_FreeInstance;
   r->NewInstance = fv_NewInstance;
   r->alias = FormatAggAlias(alias, "first_value", key);

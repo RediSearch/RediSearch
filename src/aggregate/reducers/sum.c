@@ -9,8 +9,7 @@ struct sumCtx {
 };
 
 void *sum_NewInstance(ReducerCtx *rctx) {
-  struct sumCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 1024);  // malloc(sizeof(*ctr));
-
+  struct sumCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 100*sizeof(*ctx));  // malloc(sizeof(*ctr));
   ctx->count = 0;
   ctx->total = 0;
   ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
@@ -56,16 +55,17 @@ void sum_FreeInstance(void *p) {
   free(c);
 }
 
+static int sentinel =  0;
 Reducer *newSumCommon(RedisSearchCtx *ctx, const char *property, const char *alias, int isAvg) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;
-  r->Free = Reducer_GenericFree;
+  r->Free = Reducer_GenericFreeWithStaticPrivdata;
   r->FreeInstance = NULL;
   r->NewInstance = sum_NewInstance;
   r->alias = FormatAggAlias(alias, isAvg ? "avg" : "sum", property);
   // Note, malloc for one byte because it's freed at the end. Simple pointer won't do
-  r->ctx = (ReducerCtx){.ctx = ctx, .property = property, .privdata = isAvg ? malloc(1) : NULL};
+  r->ctx = (ReducerCtx){.ctx = ctx, .property = property, .privdata = isAvg ? &sentinel : NULL};
 
   return r;
 }
