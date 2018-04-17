@@ -519,7 +519,10 @@ end:
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AggregateRequest *req = cursor->execState;
   if (!num) {
-    num = RSGlobalConfig.cursorReadSize;
+    num = req->ap.cursor.count;
+    if (!num) {
+      num = RSGlobalConfig.cursorReadSize;
+    }
   }
   req->plan->opts.chunksize = num;
   clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
