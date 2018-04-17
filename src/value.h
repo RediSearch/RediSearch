@@ -169,7 +169,8 @@ static inline RSValue *RSValue_MakePersistent(RSValue *v) {
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v);
 
-int RSValue_ParseNumber(const char *p, size_t l, RSValue *v);
+/* New value from string, trying to parse it as a number */
+RSValue *RSValue_ParseNumber(const char *p, size_t l);
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if

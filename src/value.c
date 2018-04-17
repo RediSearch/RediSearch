@@ -219,19 +219,16 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
   }
 }
 
-int RSValue_ParseNumber(const char *p, size_t l, RSValue *v) {
-  v = RSValue_Dereference(v);
+RSValue *RSValue_ParseNumber(const char *p, size_t l) {
+
   char *e;
   errno = 0;
   double d = strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
-    return 0;
+    return NULL;
   }
-  v->t = RSValue_Number;
-  v->numval = d;
-
-  return 1;
+  return RS_NumVal(d);
 }
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
