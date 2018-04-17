@@ -81,12 +81,12 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
  *
  * Garbage collection is throttled within a given interval as well.
  */
-static int Cursors_GCInternal(CursorList *cl) {
+static int Cursors_GCInternal(CursorList *cl, int force) {
   uint64_t now = curTimeNs();
   int numCollected = 0;
   if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
     return -1;
-  } else if (now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
+  } else if (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
     return -1;
   }
 
@@ -105,7 +105,7 @@ static int Cursors_GCInternal(CursorList *cl) {
 
 int Cursors_CollectIdle(CursorList *cl) {
   CursorList_Lock(cl);
-  int rc = Cursors_GCInternal(cl);
+  int rc = Cursors_GCInternal(cl, 1);
   CursorList_Unlock(cl);
   return rc;
 }
@@ -124,7 +124,7 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
 
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL) {
-    Cursors_GCInternal(cl);
+    Cursors_GCInternal(cl, 0);
   }
 }
 
@@ -155,7 +155,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval,
   }
 
   if (spec->used >= spec->cap) {
-    Cursors_GCInternal(cl);
+    Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
       /** Collect idle cursors now */
       SET_ERR(err, "Too many cursors allocated for index");
