@@ -388,3 +388,108 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | year(timestamp) | Convert a Unix timestamp to the current year (e.g. 2018). |
 | monthofyear(timestamp) | Convert a Unix timestamp to the current month (0 .. 11). |
 
+## Cursor API
+
+```
+FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]
+FT.CURSOR READ {idx} {cid} [COUNT {read size}]
+FT.CURSOR DEL {idx} {cid}
+```
+
+You can use cursors with `FT.AGGREGATE`, with the `WITHCURSOR` keyword. Cursors allow you to
+consume only part of the response, allowing you to fetch additional results as needed.
+This is much quicker than using `LIMIT` with offset, since the query is executed only
+once, and its state is stored on the server.
+
+To use cursors, specify the `WITHCURSOR` keyword in `FT.AGGREGATE`, e.g.
+
+```
+FT.AGGREGATE idx * WITHCURSOR
+```
+
+This will return a response of an array with two elements. The first element is
+the actual (partial) results, and the second is the cursor ID. The cursor ID
+can then be fed to `FT.CURSOR READ` repeatedly, until the cursor ID is 0, in
+which case all results have been returned.
+
+To read from an existing cursor, use `FT.CURSOR READ`, e.g.
+
+```
+FT.CURSOR READ idx 342459320
+```
+
+Assuming `342459320` is the cursor ID returned from the `FT.AGGREGATE` request.
+
+Here is an example in pseudo-code:
+
+```
+response, cursor = FT.AGGREGATE "idx" "redis" "WITHCURSOR";
+while (1) {
+  processResponse(response)
+  if (!cursor) {
+    break;
+  }
+  response, cursor = FT.CURSOR read "idx" cursor
+}
+```
+
+Note that even if the cursor is 0, a partial result may still be returned.
+
+### Cursor Settings
+
+#### Read Size
+
+You can control how many rows are read per each cursor fetch by using the
+`COUNT` parameter. This parameter can be specified both in `FT.AGGREGATE`
+(immediately after `WITHCURSOR`) or in `FT.CURSOR READ`.
+
+```
+FT.AGGREGATE idx query WITHCURSOR COUNT 10
+```
+
+Will read 10 rows at a time.
+
+You can override this setting by also specifying `COUNT` in `CURSOR READ`, e.g.
+
+```
+FT.CURSOR READ idx 342459320 COUNT 50
+```
+
+Will return at most 50 results.
+
+The default read size is 1000
+
+
+#### Timeouts and limits
+
+Because cursors are stateful resources which occupy memory on the server, they
+have a limited lifetime. In order to safeguard against orphaned/stale cursors,
+cursors have an idle timeout value. If no activity occurs on the cursor before
+the idle timeout, the cursor is deleted. The idle timer resets to 0 whenever
+the cursor is read from using `CURSOR READ`.
+
+The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify
+the idle timeout using the `MAXIDLE` keyword when creating the cursor. Note that
+the value cannot exceed the default 30s.
+
+```
+FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
+```
+
+Will set the limit for 10 seconds.
+
+
+### Other Cursor commands
+
+Cursors can be explicity deleted using the `CURSOR DEL` command, e.g.
+
+```
+FT.CURSOR DEL idx 342459320
+```
+
+Note that cursors are automatically deleted if all their results have been
+returned, or if they have been timed out.
+
+All idle cursors can be forcefully purged at once using `FT.CURSOR GC idx 0` command.
+By default, RediSearch uses a lazy throttled approach to garbage collection, which
+collects idle cursors every 500 operations, or every second - whichever is later.
