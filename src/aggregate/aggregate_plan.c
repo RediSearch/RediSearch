@@ -274,6 +274,17 @@ int AggregateSchema_Contains(AggregateSchema schema, const char *property) {
   return 0;
 }
 
+AggregateProperty *AggregateSchema_Get(AggregateSchema sc, const char *prop) {
+  if (!sc || !prop) return NULL;
+  for (size_t i = 0; i < array_len(sc); i++) {
+
+    if (!strcasecmp(RSKEY(sc[i].property), RSKEY(prop))) {
+      return &sc[i];
+    }
+  }
+  return NULL;
+}
+
 AggregateSchema extractExprTypes(RSExpr *expr, AggregateSchema arr, RSValueType typeHint,
                                  RSSortingTable *tbl) {
   switch (expr->t) {
@@ -730,8 +741,7 @@ void AggregatePlan_Free(AggregatePlan *plan) {
   plan->head = plan->tail = NULL;
 }
 
-int AggregatePlan_DumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata) {
-  RedisModuleCtx *ctx = sctx->redisCtx;
+int AggregatePlan_DumpSchema(RedisModuleCtx *ctx, QueryProcessingCtx *qpc, void *privdata) {
   AggregateSchema sc = privdata;
   if (!ctx || !sc) return 0;
   RedisModule_ReplyWithArray(ctx, array_len(sc));

@@ -21,7 +21,7 @@
  */
 #define QP_OUTPUT_FLAG_ERROR 0x02
 
-typedef int (*QueryHookCallback)(RedisSearchCtx *ctx, QueryProcessingCtx *qcx, void *privdata);
+typedef int (*QueryHookCallback)(RedisModuleCtx *ctx, QueryProcessingCtx *qcx, void *privdata);
 /* Hooks are callbacks that can be called before or after the query execution */
 typedef struct {
   // The callback should return the number of responses it wrote to the context

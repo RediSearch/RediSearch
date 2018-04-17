@@ -132,6 +132,8 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
  * function types. The schema can be freed with array_free */
 AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
 
+AggregateProperty *AggregateSchema_Get(AggregateSchema sc, const char *prop);
+
 /* return 1 if a schema contains a property */
 int AggregateSchema_Contains(AggregateSchema schema, const char *property);
 
@@ -142,5 +144,5 @@ void AggregatePlan_Free(AggregatePlan *plan);
 void AggregatePlan_Print(AggregatePlan *plan);
 
 /* Callback to dump the schema to redis */
-int AggregatePlan_DumpSchema(RedisSearchCtx *sctx, QueryProcessingCtx *qpc, void *privdata);
+int AggregatePlan_DumpSchema(RedisModuleCtx *sctx, QueryProcessingCtx *qpc, void *privdata);
 #endif

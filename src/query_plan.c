@@ -89,7 +89,10 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
   int count = 0;
+  // this just means it's a cursored request
   const int isCursor = qex->opts.flags & Search_IsCursor;
+  // this means this is the first cursor call
+  const int firstCursor = qex->execCtx.totalResults == 0;
   size_t limit = 0, nrows = 0;
 
   if (isCursor) {
@@ -123,8 +126,8 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     if (count == 0) {
       RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
       // call pre hook if needed
-      if (qex->preHook.callback) {
-        count += qex->preHook.callback(qex->ctx, &qex->execCtx, qex->preHook.privdata);
+      if (qex->preHook.callback && firstCursor) {
+        count += qex->preHook.callback(output, &qex->execCtx, qex->preHook.privdata);
       }
       RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
       count++;
@@ -154,8 +157,8 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     count++;
   }
 
-  if (qex->postHook.callback) {
-    count += qex->postHook.callback(qex->ctx, &qex->execCtx, qex->postHook.privdata);
+  if (qex->postHook.callback && firstCursor) {
+    count += qex->postHook.callback(output, &qex->execCtx, qex->postHook.privdata);
   }
   RedisModule_ReplySetArrayLength(output, count);
 }
