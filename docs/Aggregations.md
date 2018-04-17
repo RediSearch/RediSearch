@@ -361,13 +361,14 @@ Note that these operators apply only to numeric values and numeric sub expressio
 
 ## List Of String Functions
 
-| Function                 |                                                              |                                                          |
-| ------------------------ | ------------------------------------------------------------ | -------------------------------------------------------- |
-| upper(s)                 | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
-| lower(s)                 | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
-| substr(s, offset, count) | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
-| format( fmt, ...)        | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
-| matched_terms([max_terms=100])          | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()` |
+| Function                         |                                                              |                                                          |
+| -------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
+| upper(s)                         | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
+| lower(s)                         | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
+| substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
+| format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
+| matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
+| split(s, [sep=","], [strip=" "]) | Split a string by sep (which is a string, not a single character), and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array. | split("foo,bar")                                         |
 
 
 ## List Of Date/Time Functions
