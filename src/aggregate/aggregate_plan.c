@@ -319,8 +319,9 @@ AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl
           arr = AggregateSchema_Set(arr, current->apply.alias,
                                     GetExprType(current->apply.parsedExpr, tbl),
                                     Property_Projection, 1);
-          break;
         }
+        break;
+
       case AggregateStep_Load:
         for (int i = 0; i < current->load.keys->len; i++) {
           arr = AggregateSchema_Set(
