@@ -205,8 +205,8 @@ int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, ch
   while (*offset < argc) {
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
-      if (sp->type == FIELD_GEO || sp->type == FIELD_TAG) {
-        SET_ERR(err, "Tag and Geo fields cannot be sortable");
+      if (sp->type == FIELD_GEO) {
+        SET_ERR(err, "Geo fields cannot be sortable");
         return 0;
       }
       sp->options |= FieldSpec_Sortable;

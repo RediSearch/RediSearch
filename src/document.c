@@ -353,8 +353,14 @@ FIELD_INDEXER(geoIndexer) {
 FIELD_PREPROCESSOR(tagPreprocessor) {
 
   fdata->tags = TagIndex_Preprocess(&fs->tagOpts, field);
+
   if (fdata->tags == NULL) {
     return 0;
+  }
+  if (FieldSpec_IsSortable(fs)) {
+    size_t fl;
+    const char *c = RedisModule_StringPtrLen(field->text, &fl);
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
   return 0;
 }
