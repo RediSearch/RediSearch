@@ -238,15 +238,16 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
 
   size_t len;
   char *str = (char *)RSValue_StringPtrLen(&argv[0], &len);
-
+  char *ep = str + len;
   size_t l = 0;
   char *next;
   char *tok = str;
 
   // extract at most 1024 values
   static RSValue *tmp[1024];
-  while (l < 1024 && (next = strnstr(tok, sep, len)) != NULL) {
-    size_t sl = next - tok;
+  while (l < 1024 && tok < ep) {
+    next = strpbrk(tok, sep);
+    size_t sl = next ? (next - tok) : ep - tok;
 
     if (sl > 0) {
       size_t outlen;
@@ -260,13 +261,14 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
     }
 
     // advance tok while it's not in the sep
+    if (!next) break;
+
     tok = next + 1;
-    len -= (sl + 1);
   }
 
-  if (len > 0) {
-    tmp[l++] = RS_ConstStringVal(tok, len);
-  }
+  // if (len > 0) {
+  //   tmp[l++] = RS_ConstStringVal(tok, len);
+  // }
 
   RSValue **vals = calloc(l, sizeof(*vals));
   for (size_t i = 0; i < l; i++) {

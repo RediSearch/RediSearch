@@ -297,6 +297,23 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
                              'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
 
+    def _testSplit(self):
+
+        res = self.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
+                       'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
+                       'APPLY', 'split("hello world,  foo,,,bar,", "", "")', 'AS', 'strs3',
+                       'APPLY', 'split("hello world,  foo,,,bar,")', 'AS', 'strs4',
+                       'APPLY', 'split("hello world,  foo,,,bar,",",")', 'AS', 'strs5',
+                       'APPLY', 'split("")', 'AS', 'empty',
+                       'LIMIT', '0', '1'
+                       )
+        self.assertListEqual([1L, ['strs', ['hello world', 'foo', 'bar'],
+                                   'strs2', ['hello', 'world', 'foo,,,bar'],
+                                   'strs3', ['hello world,  foo,,,bar,'],
+                                   'strs4', ['hello world', 'foo', 'bar'],
+                                   'strs5', ['hello world', 'foo', 'bar'],
+                                   'empty', []]], res)
+
     def _testFirstValue(self):
         res = self.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                        'GROUPBY', 1, '@brand',
@@ -318,8 +335,9 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         for name, f in self.__class__.__dict__.iteritems():
             if name.startswith('_test'):
                 f(self)
-                sys.stdout.write('.')
+                sys.stdout.write('Aggregate.{} ... '.format(f.__name__[1:]))
                 sys.stdout.flush()
+                print('ok')
 
 
 if __name__ == '__main__':
