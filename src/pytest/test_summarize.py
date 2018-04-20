@@ -119,6 +119,16 @@ class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
                     'RETURN', 3, 'foo', 'bar', 'baz', 'SUMMARIZE')
         self.assertEqual([1L, 'doc1', ['foo', 'pill... ', 'bar', 'pillow... ', 'baz', 'piller... ']], res)
 
+    def testOverflow1(self):
+        #"FT.CREATE" "netflix" "SCHEMA" "title" "TEXT" "WEIGHT" "1" "rating" "TEXT" "WEIGHT" "1" "level" "TEXT" "WEIGHT" "1" "description" "TEXT" "WEIGHT" "1" "year" "NUMERIC" "uscore" "NUMERIC" "usize" "NUMERIC"
+        #FT.ADD" "netflix" "15ad80086ccc7f" "1" "FIELDS" "title" "The Vampire Diaries" "rating" "TV-14" "level" "Parents strongly cautioned. May be unsuitable for children ages 14 and under." "description" "90" "year" "2017" "uscore" "91" "usize" "80"
+        self.cmd('FT.CREATE', 'netflix', 'SCHEMA', 'title', 'TEXT', 'rating', 'TEXT', 'leve', 'TEXT', 'description', 'TEXT', 'year', 'NUMERIC', 'uscore', 'NUMERIC', 'usize', 'NUMERIC')
+        self.cmd('FT.ADD', "netflix", "15ad80086ccc7f", "1.0", "FIELDS", "title", "The Vampire Diaries", "rating", "TV-14", "level",
+            "Parents strongly cautioned. May be unsuitable for children ages 14 and under.",
+            "description", "90", "year", "2017", "uscore", "91", "usize", "80")
+        res = self.cmd('ft.search', 'netflix', 'vampire', 'highlight')
+        self.assertEqual([1L, '15ad80086ccc7f', ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level', 'Parents strongly cautioned. May be unsuitable for children ages 14 and under.', 'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']], res)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
