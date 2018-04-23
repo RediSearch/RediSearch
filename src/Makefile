@@ -22,7 +22,6 @@ LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -Bsymbolic-functions -ldl -lpthread
-	CFLAGS += -mpopcnt
 else
 	LINKER = $(LD)
 	CFLAGS += -mmacosx-version-min=10.6

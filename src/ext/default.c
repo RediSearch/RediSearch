@@ -161,6 +161,16 @@ double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetad
   // if (dmd->score == 0 || h == NULL) return 0;
   return _dismaxRecursive(h);
 }
+/* taken from redis - bitops.c */
+static const unsigned char bitsinbyte[256] = {
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
@@ -173,20 +183,11 @@ double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocu
   size_t ret = 0;
   size_t len = ctx->payload.len;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
-  if (ctx->payload.len % sizeof(unsigned long) != 0) {
-    const char *a = ctx->payload.data;
-    const char *b = dmd->payload->data;
-    for (size_t i = 0; i < len; i++) {
-      ret += __builtin_popcount(a[i] ^ b[i]);
-    }
-  } else {
-    len /= sizeof(unsigned long);
-    // calculate in chunks of 64 bit
-    const unsigned long *a = (const unsigned long *)ctx->payload.data;
-    const unsigned long *b = (const unsigned long *)dmd->payload->data;
-    for (size_t i = 0; i < len; i++) {
-      ret += __builtin_popcountl(a[i] ^ b[i]);
-    }
+
+  const unsigned char *a = (unsigned char *)ctx->payload.data;
+  const unsigned char *b = (unsigned char *)dmd->payload->data;
+  for (size_t i = 0; i < len; i++) {
+    ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
   }
   // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
   return 1.0 / (double)(ret + 1);
