@@ -90,8 +90,4 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
 /* Load a sorting vector from RDB */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
 
-struct Buffer;
-void SortingVector_Serialize(const RSSortingVector *sv, struct Buffer *out);
-RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n);
-
 #endif
