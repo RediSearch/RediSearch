@@ -91,6 +91,28 @@ class TagsTestCase(ModuleTestCase('../redisearch.so')):
 
             r.flushdb()
 
+    def testTagFieldCase(self):
+        with self.redis() as r:
+            r.flushdb()
+
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'TAgs', 'tag'))
+
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                            'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
+            for _ in r.retry_with_rdb_reload():
+
+                self.assertListEqual([0], r.execute_command(
+                    'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
+                self.assertListEqual([1, 'doc1'], r.execute_command(
+                    'FT.SEARCH', 'idx', '@TAgs:{HELLO WORLD}', 'NOCONTENT'))
+                self.assertListEqual([1, 'doc1'], r.execute_command(
+                    'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
+                self.assertListEqual([0], r.execute_command(
+                    'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
+
+            r.flushdb()
+
     def testInvalidSyntax(self):
         with self.redis() as r:
             r.flushdb()
