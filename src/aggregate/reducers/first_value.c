@@ -39,7 +39,7 @@ static int fv_Add(void *ctx, SearchResult *res) {
   if (RSValue_IsNull(sortval)) {
     if (!fvx->hasValue) {
       fvx->hasValue = 1;
-      RSValue_MakeReference(&fvx->value, val ? val : RS_NullVal());
+      RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
     }
     return 1;
   }
@@ -50,8 +50,8 @@ static int fv_Add(void *ctx, SearchResult *res) {
   if (!fvx->hasValue || (!isnull && rc > 0) || (isnull && rc < 0)) {
     RSValue_Free(&fvx->sortValue);
     RSValue_Free(&fvx->value);
-    RSValue_MakeReference(&fvx->sortValue, sortval);
-    RSValue_MakeReference(&fvx->value, val ? val : RS_NullVal());
+    RSValue_MakeReference(&fvx->sortValue, RSValue_MakePersistent(sortval));
+    RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
     fvx->hasValue = 1;
   }
 
@@ -71,12 +71,6 @@ static void fv_FreeInstance(void *p) {
   RSValue_Free(&fvx->sortValue);
 }
 
-static inline void fv_Free(Reducer *r) {
-  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
-  free(r->ctx.privdata);
-  free(r->alias);
-  free(r);
-}
 
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias) {
@@ -90,7 +84,7 @@ Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey
 
   r->Add = fv_Add;
   r->Finalize = fv_Finalize;
-  r->Free = fv_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = fv_FreeInstance;
   r->NewInstance = fv_NewInstance;
   r->alias = FormatAggAlias(alias, "first_value", key);

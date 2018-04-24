@@ -49,7 +49,6 @@ typedef struct RSExpr {
 
 typedef struct {
   SearchResult *r;
-  RSFunctionRegistry *fr;
   RSSortingTable *sortables;
   RedisSearchCtx *sctx;
   RSFunctionEvalCtx *fctx;
@@ -70,6 +69,13 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
 RSExpr *RS_NewProp(const char *str, size_t len);
 void RSExpr_Free(RSExpr *expr);
 void RSExpr_Print(RSExpr *expr);
-RSExpr *RSExpr_Parse(const char *expr, size_t len, RSFunctionRegistry *funcs, char **err);
+
+/* Parse an expression string, returning a prased expression tree on success. On failure (syntax
+ * err, etc) we set and error in err, and return NULL */
+RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+
+/* Get the return type of an expression. In the case of a property we do not try to guess but rather
+ * just return String */
+RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl);
 
 #endif

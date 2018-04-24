@@ -15,14 +15,7 @@ static void *stddev_NewInstance(ReducerCtx *ctx) {
   return dctx;
 }
 
-static int stddev_Add(void *ctx, SearchResult *res) {
-  devCtx *dctx = ctx;
-  double d;
-  RSValue *v = SearchResult_GetValue(res, dctx->sortables, &dctx->property);
-  if (v == NULL || !RSValue_ToNumber(v, &d)) {
-    return 1;
-  }
-
+void stddev_addInternal(devCtx *dctx, double d) {
   // https://www.johndcook.com/blog/standard_deviation/
   dctx->n++;
   if (dctx->n == 1) {
@@ -35,6 +28,26 @@ static int stddev_Add(void *ctx, SearchResult *res) {
     // set up for next iteration
     dctx->oldM = dctx->newM;
     dctx->oldS = dctx->newS;
+  }
+}
+
+static int stddev_Add(void *ctx, SearchResult *res) {
+  devCtx *dctx = ctx;
+  double d;
+  RSValue *v = SearchResult_GetValue(res, dctx->sortables, &dctx->property);
+  if (v) {
+    if (v->t != RSValue_Array) {
+      if (RSValue_ToNumber(v, &d)) {
+        stddev_addInternal(dctx, d);
+      }
+    } else {
+      uint32_t sz = RSValue_ArrayLen(v);
+      for (uint32_t i = 0; i < sz; i++) {
+        if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
+          stddev_addInternal(dctx, d);
+        }
+      }
+    }
   }
   return 1;
 }

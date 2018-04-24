@@ -13,6 +13,7 @@
 #include "query_plan.h"
 #include <sys/param.h>
 #include <rmutil/cmdparse.h>
+#include <err.h>
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               char **errStr) {
@@ -51,7 +52,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if ((sumIdx = RMUtil_ArgExists("SUMMARIZE", argv, argc, 3)) > 0) {
     size_t tmpOffset = sumIdx;
     if (ParseSummarize(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
-      *errStr = "Couldn't parse `SUMMARIZE`";
+      SET_ERR(errStr, "Couldn't parse `SUMMARIZE`");
       goto err;
     }
   }
@@ -60,7 +61,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     // Parse the highlighter spec
     size_t tmpOffset = sumIdx;
     if (ParseHighlight(argv, argc, &tmpOffset, &req->opts.fields) != REDISMODULE_OK) {
-      *errStr = "Couldn't parse `HIGHLIGHT`";
+      SET_ERR(errStr, "Couldn't parse `HIGHLIGHT`");
       goto err;
     }
   }
@@ -69,7 +70,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   long long offset = 0, limit = 10;
   if (RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &offset, &limit) == REDISMODULE_OK) {
     if (offset < 0 || limit <= 0 || (offset + limit > SEARCH_REQUEST_RESULTS_MAX)) {
-      *errStr = "Invalid LIMIT parameters";
+      SET_ERR(errStr, "Invalid LIMIT parameters");
       goto err;
     }
   }
@@ -83,7 +84,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   req->opts.fieldMask = RS_FIELDMASK_ALL;
   if ((vargs = RMUtil_ParseVarArgs(argv, argc, 3, "INFIELDS", &nargs))) {
     if (nargs == RMUTIL_VARARGS_BADARG) {
-      *errStr = "Bad argument for `INFIELDS`";
+      SET_ERR(errStr, "Bad argument for `INFIELDS`");
       goto err;
     }
     req->opts.fieldMask = IndexSpec_ParseFieldMask(ctx->spec, vargs, nargs);
@@ -95,7 +96,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if (filterIdx > 0) {
     req->numericFilters = ParseMultipleFilters(ctx, &argv[filterIdx], argc - filterIdx);
     if (req->numericFilters == NULL) {
-      *errStr = "Invalid numeric filter";
+      SET_ERR(errStr, "Invalid numeric filter");
       goto err;
     }
   }
@@ -105,7 +106,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if (gfIdx > 0 && gfIdx + 6 <= argc) {
     req->geoFilter = malloc(sizeof(GeoFilter));
     if (GeoFilter_Parse(req->geoFilter, &argv[gfIdx + 1], 5) == REDISMODULE_ERR) {
-      *errStr = "Invalid geo filter";
+      SET_ERR(errStr, "Invalid geo filter");
       goto err;
     }
   }
@@ -117,7 +118,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 3, "c", &req->opts.language);
     if (req->opts.language &&
         !IsSupportedLanguage(req->opts.language, strlen(req->opts.language))) {
-      *errStr = "Unsupported Stemmer Language";
+      SET_ERR(errStr, "Unsupported Stemmer Language");
       req->opts.language = NULL;
       goto err;
     }
@@ -154,7 +155,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   if (req->opts.scorer) {
     req->opts.scorer = strdup(req->opts.scorer);
     if (Extensions_GetScoringFunction(NULL, req->opts.scorer) == NULL) {
-      *errStr = "Invalid scorer name";
+      SET_ERR(errStr, "Invalid scorer name");
       goto err;
     }
   }
@@ -170,7 +171,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   // parse the id filter arguments
   if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "INKEYS", &nargs))) {
     if (nargs == RMUTIL_VARARGS_BADARG) {
-      *errStr = "Bad argument for `INKEYS`";
+      SET_ERR(errStr, "Bad argument for `INKEYS`");
       goto err;
     }
     req->idFilter = NewIdFilter(vargs, nargs, &ctx->spec->docs);
@@ -179,7 +180,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   // parse RETURN argument
   if ((vargs = RMUtil_ParseVarArgs(argv, argc, 2, "RETURN", &nargs))) {
     if (nargs == RMUTIL_VARARGS_BADARG) {
-      *errStr = "Bad argument for `RETURN`";
+      SET_ERR(errStr, "Bad argument for `RETURN`");
       goto err;
     }
     if (!nargs) {
@@ -194,7 +195,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   }
 
   if (req->opts.fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
-    *errStr = "HIGHLIGHT and SUMMARIZE not supported for this index";
+    SET_ERR(errStr, "HIGHLIGHT and SUMMARIZE not supported for this index");
     goto err;
   }
 

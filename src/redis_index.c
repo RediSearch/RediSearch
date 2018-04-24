@@ -5,6 +5,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
+#include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
@@ -61,10 +62,6 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
-void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  // TODO: Write something more optimal
-  RMUtil_DefaultAofRewrite(aof, key, value);
-}
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
@@ -81,7 +78,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = InvertedIndex_RdbLoad,
                                .rdb_save = InvertedIndex_RdbSave,
-                               .aof_rewrite = InvertedIndex_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .mem_usage = InvertedIndex_MemUsage,
                                .free = InvertedIndex_Free};
 

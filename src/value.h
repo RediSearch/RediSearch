@@ -35,15 +35,16 @@ typedef enum {
   RSString_Malloc = 0x01,
   RSString_RMAlloc = 0x02,
   RSString_SDS = 0x03,
+  // Volatile strings are strings that need to be copied when retained
+  RSString_Volatile = 0x04,
 } RSStringType;
 
 #define RSVALUE_STATIC ((RSValue){.allocated = 0})
 
+#pragma pack(4)
 // Variant value union
 typedef struct rsvalue {
-  RSValueType t : 8;
-  int refcount : 23;
-  uint8_t allocated : 1;
+
   union {
     // numeric value
     double numval;
@@ -51,9 +52,9 @@ typedef struct rsvalue {
     // string value
     struct {
       char *str;
-      uint32_t len : 30;
+      uint32_t len : 29;
       // sub type for string
-      RSStringType stype : 2;
+      RSStringType stype : 3;
     } strval;
 
     // array value
@@ -68,8 +69,11 @@ typedef struct rsvalue {
     // reference to another value
     struct rsvalue *ref;
   };
-
+  RSValueType t : 8;
+  int refcount : 23;
+  uint8_t allocated : 1;
 } RSValue;
+#pragma pack()
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
@@ -79,16 +83,6 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
   ++v->refcount;
   return v;
 }
-
-static inline RSValue *RSValue_DecrRef(RSValue *v) {
-  --v->refcount;
-  return v;
-}
-
-/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on
- * arrays. On numeric values it's no slower than shallow copy. Redis strings ar not recreated
- */
-#define RSValue_Copy RSValue_IncrRef
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -124,6 +118,8 @@ static inline RSValue *RSValue_Dereference(RSValue *v) {
  * the value needs to be detached */
 RSValue *RS_StringVal(char *str, uint32_t len);
 
+RSValue *RS_StringValFmt(const char *fmt, ...);
+
 /* Same as RS_StringVal but with explicit string type */
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
@@ -139,6 +135,8 @@ RSValue *RS_ConstStringValC(char *str);
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 
+const char *RSValue_TypeName(RSValueType t);
+
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
@@ -151,11 +149,28 @@ static inline int RSValue_IsNull(const RSValue *value) {
   return 0;
 }
 
+/* Make sure a value can be long lived. If the underlying value is a volatile string that might go
+ * away in the next iteration, we copy it at that stage. This doesn't change the ref count.
+ * A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
+ * discarding the pointer here is "safe" */
+static inline RSValue *RSValue_MakePersistent(RSValue *v) {
+  if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
+    v->strval.str = strndup(v->strval.str, v->strval.len);
+    v->strval.stype = RSString_Malloc;
+  } else if (v->t == RSValue_Array) {
+    for (size_t i = 0; i < v->arrval.len; i++) {
+      RSValue_MakePersistent(v->arrval.vals[i]);
+    }
+  }
+  return v;
+}
+
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v);
 
-int RSValue_ParseNumber(const char *p, size_t l, RSValue *v);
+/* New value from string, trying to parse it as a number */
+RSValue *RSValue_ParseNumber(const char *p, size_t l);
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
@@ -211,6 +226,9 @@ RSValue *RS_VStringArray(uint32_t sz, ...);
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz);
 
+/* Initialize all strings in the array with a given string type */
+RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
+
 /* Create a new NULL RSValue */
 RSValue *RS_NullVal();
 
@@ -220,6 +238,10 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2);
 
 static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
   return arr->arrval.vals[index];
+}
+
+static inline uint32_t RSValue_ArrayLen(RSValue *arr) {
+  return arr ? arr->arrval.len : 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */
@@ -247,16 +269,25 @@ typedef struct {
       .sortableIdx = RSKEY_UNCACHED, \
   })
 
+#define RS_KEY_STRDUP(s) RS_KEY(strdup(s))
+
 typedef struct {
   uint16_t len;
+  int keysAllocated : 1;
   RSKey keys[];
 } RSMultiKey;
 
 RSMultiKey *RS_NewMultiKey(uint16_t len);
 
 RSMultiKey *RS_NewMultiKeyVariadic(int len, ...);
-/* Create a multi-key from a string array */
-RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching);
+/* Create a multi-key from a string array.
+ *  If allowCaching is 1, the keys are set to allow for index caching.
+ *  If duplicateStrings is 1, the key strings are copied
+ */
+RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicateStrings);
+
+RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys);
+
 void RSMultiKey_Free(RSMultiKey *k);
 
 /* A result field is a key/value pair of variant type, used inside a value map */
@@ -312,4 +343,13 @@ void RSFieldMap_Free(RSFieldMap *m, int freeKeys);
 
 void RSFieldMap_Print(RSFieldMap *m);
 
+/* Read an array of RSVAlues into an array of strings or numbers based on fmt. Return 1 on success.
+ * fmt:
+ *  - s: will be parsed as a string
+ *  - l: Will be parsed as a long integer
+ *  - d: Will be parsed as a double
+ *  - !: will be skipped
+ *  - ?: means evrything after is optional
+ */
+int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #endif

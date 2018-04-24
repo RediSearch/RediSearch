@@ -229,11 +229,6 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/**
- * Restores a term. Used by the TERMADD command.
- */
-void IndexSpec_RestoreTerm(IndexSpec *sp, const char *term, size_t len, double score);
-
 /* Get a random term from the index spec using weighted random. Weighted random is done by sampling
  * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
  * enough */
@@ -255,7 +250,6 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
-void IndexSpec_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // void IndexSpec_Free(void *value);
 

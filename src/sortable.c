@@ -183,7 +183,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(int len) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(const char *));
+  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(struct sortField));
   tbl->len = len;
   return tbl;
 }
@@ -193,20 +193,33 @@ void SortingTable_Free(RSSortingTable *t) {
 }
 
 /* Set a field in the table by index. This is called during the schema parsing */
-void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name) {
+void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name, RSValueType t) {
   if (!tbl) return;
   if (idx >= tbl->len) {
     return;
   }
-  tbl->fields[idx] = name;
+
+  tbl->fields[idx].name = name;
+  tbl->fields[idx].type = t;
 }
 
+RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType deflt) {
+  if (tbl) {
+
+    for (int i = 0; i < tbl->len; i++) {
+      if (!strcasecmp(tbl->fields[i].name, name)) {
+        return tbl->fields[i].type;
+      }
+    }
+  }
+  return deflt;
+}
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
 
   if (!tbl) return -1;
   for (int i = 0; i < tbl->len; i++) {
-    if (!strcasecmp(tbl->fields[i], field)) {
+    if (!strcasecmp(tbl->fields[i].name, field)) {
       return i;
     }
   }

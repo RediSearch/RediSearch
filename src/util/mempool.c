@@ -2,6 +2,7 @@
 #include "mempool.h"
 #include <sys/param.h>
 #include <stdio.h>
+#include <pthread.h>
 
 typedef struct mempool_t {
   void **entries;
@@ -10,6 +11,7 @@ typedef struct mempool_t {
   size_t max;  // max size for pool
   mempool_alloc_fn alloc;
   mempool_free_fn free;
+  pthread_mutex_t lock;
 } mempool_t;
 
 mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn freefn) {
@@ -29,15 +31,19 @@ mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
 }
 
 void *mempool_get(mempool_t *p) {
+  void *ret = NULL;
   if (p->top > 0) {
-    return p->entries[--p->top];
+    ret = p->entries[--p->top];
+
+  } else {
+    ret = p->alloc();
   }
-  return p->alloc();
+  return ret;
 }
 
-void mempool_release(mempool_t *p, void *ptr) {
-  if (p->top == p->cap) {
+inline void mempool_release(mempool_t *p, void *ptr) {
 
+  if (p->top == p->cap) {
     // This is a limited pool, and we can't outgrow ourselves now, just free the ptr immediately
     if (p->max && p->max == p->top) {
       p->free(ptr);

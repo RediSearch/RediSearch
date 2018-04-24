@@ -23,7 +23,7 @@ int testParser() {
   char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
 
   char *err = NULL;
-  RSExpr *root = RSExpr_Parse(e, strlen(e), NULL, &err);
+  RSExpr *root = RSExpr_Parse(e, strlen(e), &err);
   if (err != NULL) {
     FAIL("Error parsing expression: %s", err);
   }
@@ -40,20 +40,20 @@ int testParser() {
 }
 
 int testFunction() {
-  RSFunctionRegistry funcs = {0};
-  RegisterMathFunctions(&funcs);
+  // RSFunctionRegistry funcs = {0};
+  RegisterMathFunctions();
 
   char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
 
   char *err = NULL;
-  RSExpr *root = RSExpr_Parse(e, strlen(e), &funcs, &err);
+  RSExpr *root = RSExpr_Parse(e, strlen(e), &err);
   if (err != NULL) {
     FAIL("Error parsing expression: %s", err);
   }
   ASSERT(root != NULL);
   RSExpr_Print(root);
 
-  RSExprEvalCtx ctx = {.fr = &funcs};
+  RSExprEvalCtx ctx = {};
   RSValue val;
   int rc = RSExpr_Eval(&ctx, root, &val, &err);
   if (err != NULL) {
@@ -78,8 +78,8 @@ int testPropertyFetch() {
   RSFieldMap_Add(&rs->fields, "foo", RS_NumVal(10));
   RSFieldMap_Add(&rs->fields, "bar", RS_NumVal(10));
 
-  RSExpr *root = RSExpr_Parse(e, strlen(e), &funcs, &err);
-  RSExprEvalCtx ctx = {.fr = &funcs, .r = rs};
+  RSExpr *root = RSExpr_Parse(e, strlen(e), &err);
+  RSExprEvalCtx ctx = {.r = rs};
   RSValue val;
   int rc = RSExpr_Eval(&ctx, root, &val, &err);
   if (err != NULL) {

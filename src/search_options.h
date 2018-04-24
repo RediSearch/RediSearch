@@ -4,6 +4,7 @@
 #include <stopwords.h>
 #include <redisearch.h>
 #include <sortable.h>
+#include "config.h"
 
 typedef enum {
   // No summaries
@@ -65,6 +66,7 @@ typedef enum {
 
   Search_WithSortKeys = 0x40,
   Search_AggregationQuery = 0x80,
+  Search_IsCursor = 0x100
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
@@ -102,6 +104,9 @@ typedef struct {
   size_t offset;
   size_t num;
 
+  /* Cursor read limit */
+  size_t chunksize;
+
   char *expander;
 
   char *scorer;
@@ -109,26 +114,29 @@ typedef struct {
   /* Does any stage in the query plan beyond the fiters nees the index results? Only scoring
    * functions need them, so for aggregate queries it makes our lives simpler to not assign it */
   int needIndexResult;
-
+  long long timeoutMS;
+  RSTimeoutPolicy timeoutPolicy;
   FieldList fields;
 } RSSearchOptions;
 
-#define RS_DEFAULT_SEARCHOPTS          \
-  ((RSSearchOptions){                  \
-      .stopwords = NULL,               \
-      .language = NULL,                \
-      .payload = NULL,                 \
-      .fieldMask = RS_FIELDMASK_ALL,   \
-      .flags = RS_DEFAULT_QUERY_FLAGS, \
-      .slop = -1,                      \
-      .concurrentMode = 1,             \
-      .sortBy = NULL,                  \
-      .offset = 0,                     \
-      .num = 10,                       \
-      .expander = NULL,                \
-      .scorer = NULL,                  \
-      .needIndexResult = 0,            \
-      .fields = (FieldList){},         \
+#define RS_DEFAULT_SEARCHOPTS                 \
+  ((RSSearchOptions){                         \
+      .stopwords = NULL,                      \
+      .language = NULL,                       \
+      .payload = NULL,                        \
+      .fieldMask = RS_FIELDMASK_ALL,          \
+      .flags = RS_DEFAULT_QUERY_FLAGS,        \
+      .slop = -1,                             \
+      .concurrentMode = 1,                    \
+      .sortBy = NULL,                         \
+      .offset = 0,                            \
+      .num = 10,                              \
+      .expander = NULL,                       \
+      .scorer = NULL,                         \
+      .needIndexResult = 0,                   \
+      .timeoutMS = 0,                         \
+      .timeoutPolicy = TimeoutPolicy_Default, \
+      .fields = (FieldList){},                \
   })
 
 #endif

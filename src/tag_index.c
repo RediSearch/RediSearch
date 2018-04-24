@@ -4,6 +4,8 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
+#include "util/misc.h"
+#include "util/arr.h"
 #include <assert.h>
 
 // Tags are limited to 4096 each
@@ -55,11 +57,11 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
 char *strtolower(char *str);
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
+char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
-  if (!p) return NULL;
-  Vector *ret = NewVector(char *, 4);
+  if (!p || sz == 0) return NULL;
+  char **ret = array_new(char *, 4);
   char *pp = p = strndup(p, sz);
   while (p) {
     // get the next token
@@ -73,7 +75,7 @@ Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *da
         tok = strtolower(tok);
       }
       tok = strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      Vector_Push(ret, tok);
+      ret = array_append(ret, tok);
     }
   }
   free(pp);
@@ -96,17 +98,14 @@ static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docI
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId) {
-
-  char *tok;
+size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId) {
+  if (!values) return 0;
   size_t ret = 0;
-  for (size_t i = 0; i < Vector_Size(values); i++) {
-    Vector_Get(values, i, &tok);
+  array_foreach(values, tok, {
     if (tok && *tok != '\0') {
-      // printf("Indexing token '%s'\n", tok);
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
     }
-  }
+  });
 
   return ret;
 }
@@ -163,7 +162,11 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
     return NULL;
   }
 
-  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, NULL);
+  RSToken tok = {.str = (char *)value, .len = len};
+
+  RSQueryTerm *t = NewQueryTerm(&tok, 0);
+
+  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, t);
   if (!r) {
     return NULL;
   }
@@ -272,10 +275,6 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 void TagIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-void TagIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  RMUtil_DefaultAofRewrite(aof, key, value);
-}
-
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
   TrieMap_Free(idx->values, InvertedIndex_Free);
@@ -302,7 +301,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TagIndex_RdbLoad,
                                .rdb_save = TagIndex_RdbSave,
-                               .aof_rewrite = TagIndex_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = TagIndex_Free,
                                .mem_usage = TagIndex_MemUsage};
 

@@ -353,9 +353,14 @@ FIELD_INDEXER(geoIndexer) {
 FIELD_PREPROCESSOR(tagPreprocessor) {
 
   fdata->tags = TagIndex_Preprocess(&fs->tagOpts, field);
+
   if (fdata->tags == NULL) {
-    *errorString = "Could not index tag field";
-    return -1;
+    return 0;
+  }
+  if (FieldSpec_IsSortable(fs)) {
+    size_t fl;
+    const char *c = RedisModule_StringPtrLen(field->text, &fl);
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
   return 0;
 }
@@ -376,12 +381,7 @@ cleanup:
   RedisModule_CloseKey(idxKey);
   RedisModule_FreeString(ctx->redisCtx, kname);
   if (fdata->tags) {
-    for (size_t i = 0; i < Vector_Size(fdata->tags); i++) {
-      char *tok = NULL;
-      Vector_Get(fdata->tags, i, &tok);
-      free(tok);
-    }
-    Vector_Free(fdata->tags);
+    array_free_ex(fdata->tags, free(*(void **)ptr));
   }
   return rc;
 }

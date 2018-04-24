@@ -29,13 +29,12 @@
 
 /* Query processing state */
 typedef enum {
-  QueryState_OK,
-  QueryState_Aborted,
-  QueryState_Error,
+  QPState_Running,
+  QPState_Aborted,
   // TimedOut state differs from aborted in that it lets the processors drain their accumulated
   // results instead of stopping in our tracks and returning nothing.
-  QueryState_TimedOut,
-} QueryState;
+  QPState_TimedOut,
+} QueryProcessingState;
 
 /* Query processing context. It is shared by all result processors */
 typedef struct {
@@ -51,7 +50,7 @@ typedef struct {
   // an optional error string if something went wrong - currently not used
   char *errorString;
   // the state - used for aborting queries
-  QueryState state;
+  QueryProcessingState state;
 
   IndexIterator *rootFilter;
 
@@ -103,7 +102,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
   if (res->fields) {
     RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
     if (!RSValue_IsNull(ret)) {
-      return ret;
+      return RSValue_Dereference(ret);
     }
   }
   // First try to get the group value by sortables

@@ -5,7 +5,7 @@
 #include "util/khtable.h"
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
-
+#include "util/arr.h"
 // Preprocessors can store field data to this location
 typedef union FieldData {
   double numeric;  // i.e. the numeric value of the field
@@ -13,7 +13,7 @@ typedef union FieldData {
     char *slon;
     char *slat;
   } geo;  // lon/lat pair
-  Vector *tags;
+  char **tags;
 } fieldData;
 
 typedef struct DocumentIndexer {

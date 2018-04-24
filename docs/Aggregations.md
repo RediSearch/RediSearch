@@ -123,7 +123,7 @@ FT.AGGREGATE myIndex "*"
   SORTBY 2 @hour ASC
 ```
 
-And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function `time` that formats unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one  is equivalent to specifying `%FT%TZ` to `strftime`.
+And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function `timefmt` that formats unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one  is equivalent to specifying `%FT%TZ` to `strftime`.
 
 ```
 FT.AGGREGATE myIndex "*"
@@ -134,7 +134,7 @@ FT.AGGREGATE myIndex "*"
   	
   SORTBY 2 @hour ASC
   
-  APPLY time(@hour) AS hour
+  APPLY timefmt(@hour) AS hour
 ```
 
 
@@ -311,6 +311,18 @@ If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer wor
 
     If you with to get the top or bottom value in the group sorted by the same value, you are better off using the `MIN/MAX` reducers, but the same effect will be achieved by doing `REDUCE FIRST_VALUE 4 @foo BY @foo DESC`.
 
+- #### RANDOM_SAMPLE
+
+  - **Format**:
+
+    ```
+    REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
+    ```
+
+  - **Description**:
+
+    Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.
+
 
 
 ## APPLY Expressions
@@ -349,13 +361,14 @@ Note that these operators apply only to numeric values and numeric sub expressio
 
 ## List Of String Functions
 
-| Function                 |                                                              |                                                          |
-| ------------------------ | ------------------------------------------------------------ | -------------------------------------------------------- |
-| upper(s)                 | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
-| lower(s)                 | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
-| substr(s, offset, count) | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
-| format( fmt, ...)        | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
-
+| Function                         |                                                              |                                                          |
+| -------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
+| upper(s)                         | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
+| lower(s)                         | Return the lowercase conversion of 2                         | `lower("HELLO WORLD")`                                   |
+| substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
+| format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
+| matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
+| split(s, [sep=","], [strip=" "]) | Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array. | split("foo,bar")                                         |
 
 
 ## List Of Date/Time Functions
@@ -364,7 +377,120 @@ Note that these operators apply only to numeric values and numeric sub expressio
 
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| time(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
-| parsetime(x, [fmt]) | The opposite of time() - parse a time format using a given format string |
-|                     |                                                              |
+| timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
+| parsetime(timesharing, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
+| day(timestamp) | Round a Unix timestamp to midnight (00:00) start of the current day. |
+| hour(timestamp) | Round a Unix timestamp to the beginning of the current hour. |
+| minute(timestamp) | Round a Unix timestamp to the beginning of the current minute. |
+| month(timestamp) | Round a unix timestamp to the beginning of the current month. |
+| dayofweek(timestamp) | Convert a Unix timestamp to the day number (Sunday = 0). |
+| dayofmonth(timestamp) | Convert a Unix timestamp to the day of month number (1 .. 31). |
+| dayofyear(timestamp) | Convert a Unix timestamp to the day of year number (0 .. 365). |
+| year(timestamp) | Convert a Unix timestamp to the current year (e.g. 2018). |
+| monthofyear(timestamp) | Convert a Unix timestamp to the current month (0 .. 11). |
 
+## Cursor API
+
+```
+FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]
+FT.CURSOR READ {idx} {cid} [COUNT {read size}]
+FT.CURSOR DEL {idx} {cid}
+```
+
+You can use cursors with `FT.AGGREGATE`, with the `WITHCURSOR` keyword. Cursors allow you to
+consume only part of the response, allowing you to fetch additional results as needed.
+This is much quicker than using `LIMIT` with offset, since the query is executed only
+once, and its state is stored on the server.
+
+To use cursors, specify the `WITHCURSOR` keyword in `FT.AGGREGATE`, e.g.
+
+```
+FT.AGGREGATE idx * WITHCURSOR
+```
+
+This will return a response of an array with two elements. The first element is
+the actual (partial) results, and the second is the cursor ID. The cursor ID
+can then be fed to `FT.CURSOR READ` repeatedly, until the cursor ID is 0, in
+which case all results have been returned.
+
+To read from an existing cursor, use `FT.CURSOR READ`, e.g.
+
+```
+FT.CURSOR READ idx 342459320
+```
+
+Assuming `342459320` is the cursor ID returned from the `FT.AGGREGATE` request.
+
+Here is an example in pseudo-code:
+
+```
+response, cursor = FT.AGGREGATE "idx" "redis" "WITHCURSOR";
+while (1) {
+  processResponse(response)
+  if (!cursor) {
+    break;
+  }
+  response, cursor = FT.CURSOR read "idx" cursor
+}
+```
+
+Note that even if the cursor is 0, a partial result may still be returned.
+
+### Cursor Settings
+
+#### Read Size
+
+You can control how many rows are read per each cursor fetch by using the
+`COUNT` parameter. This parameter can be specified both in `FT.AGGREGATE`
+(immediately after `WITHCURSOR`) or in `FT.CURSOR READ`.
+
+```
+FT.AGGREGATE idx query WITHCURSOR COUNT 10
+```
+
+Will read 10 rows at a time.
+
+You can override this setting by also specifying `COUNT` in `CURSOR READ`, e.g.
+
+```
+FT.CURSOR READ idx 342459320 COUNT 50
+```
+
+Will return at most 50 results.
+
+The default read size is 1000
+
+
+#### Timeouts and limits
+
+Because cursors are stateful resources which occupy memory on the server, they
+have a limited lifetime. In order to safeguard against orphaned/stale cursors,
+cursors have an idle timeout value. If no activity occurs on the cursor before
+the idle timeout, the cursor is deleted. The idle timer resets to 0 whenever
+the cursor is read from using `CURSOR READ`.
+
+The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify
+the idle timeout using the `MAXIDLE` keyword when creating the cursor. Note that
+the value cannot exceed the default 30s.
+
+```
+FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
+```
+
+Will set the limit for 10 seconds.
+
+
+### Other Cursor commands
+
+Cursors can be explicity deleted using the `CURSOR DEL` command, e.g.
+
+```
+FT.CURSOR DEL idx 342459320
+```
+
+Note that cursors are automatically deleted if all their results have been
+returned, or if they have been timed out.
+
+All idle cursors can be forcefully purged at once using `FT.CURSOR GC idx 0` command.
+By default, RediSearch uses a lazy throttled approach to garbage collection, which
+collects idle cursors every 500 operations, or every second - whichever is later.

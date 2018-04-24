@@ -15,7 +15,7 @@ def to_dict(res):
 
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
 
-    #ingested = False
+    # ingested = False
 
     def ingest(self):
         try:
@@ -45,7 +45,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def _testGroupBy(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
-               'REDUCE', 'count', '0',
+               'REDUCE', 'count', '0', 'AS', 'count',
                'SORTBY', 2, '@count', 'desc',
                'LIMIT', '0', '5'
                ]
@@ -64,7 +64,6 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         res = self.cmd(*cmd)
         self.assertIsNotNone(res)
         row = to_dict(res[1])
-        # print row
         self.assertEqual(88, int(float(row['minPrice'])))
 
         cmd = ['ft.aggregate', 'games', 'sony',
@@ -104,7 +103,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def _testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@categories',
-               'REDUCE', 'COUNT_DISTINCT', '1', '@title',
+               'REDUCE', 'COUNT_DISTINCT', '1', '@title', 'AS', 'count_distinct(title)',
                'REDUCE', 'COUNT', '0'
                ]
         res = self.cmd(*cmd)[1:]
@@ -113,7 +112,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@categories',
-               'REDUCE', 'COUNT_DISTINCTISH', '1', '@title',
+               'REDUCE', 'COUNT_DISTINCTISH', '1', '@title', 'AS', 'count_distinctish(title)',
                'REDUCE', 'COUNT', '0'
                ]
         res = self.cmd(*cmd)[1:]
@@ -140,7 +139,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def _testStdDev(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
-               'REDUCE', 'STDDEV', '1', '@price',
+               'REDUCE', 'STDDEV', '1', '@price', 'AS', 'stddev(price)',
                'REDUCE', 'AVG', '1', '@price', 'AS', 'avgPrice',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50Price',
                'REDUCE', 'COUNT', '0',
@@ -156,14 +155,46 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
     def _testParseTime(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
-               'REDUCE', 'COUNT', '0',
-               'APPLY', 'time(1517417144)', 'AS', 'dt',
+               'REDUCE', 'COUNT', '0', 'AS', 'count',
+               'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                'APPLY', 'parse_time("%FT%TZ", @dt)', 'as', 'parsed_dt',
                'LIMIT', '0', '1']
         res = self.cmd(*cmd)
 
         self.assertEqual(['brand', '', 'count', '1518', 'dt',
                           '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
+
+    def _testRandomSample(self):
+        cmd = ['FT.AGGREGATE',  'games', '*', 'GROUPBY', '1', '@brand',
+               'REDUCE', 'COUNT', '0', 'AS', 'num',
+               'REDUCE', 'RANDOM_SAMPLE', '2', '@price', '10',
+               'SORTBY', '2', '@num', 'DESC', 'MAX', '10']
+        for row in self.cmd(*cmd)[1:]:
+            self.assertIsInstance(row[5], list)
+            self.assertGreater(len(row[5]), 0)
+            self.assertGreaterEqual(row[3], len(row[5]))
+
+            self.assertLessEqual(len(row[5]), 10)
+
+    def _testTimeFunctions(self):
+
+        cmd = ['FT.AGGREGATE',  'games', '*',
+
+               'APPLY', '1517417144', 'AS', 'dt',
+               'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
+               'APPLY', 'day(@dt)', 'AS', 'day',
+               'APPLY', 'hour(@dt)', 'AS', 'hour',
+               'APPLY', 'minute(@dt)', 'AS', 'minute',
+               'APPLY', 'month(@dt)', 'AS', 'month',
+               'APPLY', 'dayofweek(@dt)', 'AS', 'dayofweek',
+               'APPLY', 'dayofmonth(@dt)', 'AS', 'dayofmonth',
+               'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
+               'APPLY', 'year(@dt)', 'AS', 'year',
+
+               'LIMIT', '0', '1']
+        res = self.cmd(*cmd)
+        self.assertListEqual([1L, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
+                                   'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
     def _testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
@@ -183,8 +214,8 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
 
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
-               'REDUCE', 'count', '0',
-               'REDUCE', 'sum', 1, '@price',
+               'REDUCE', 'count', '0', 'AS', 'count',
+               'REDUCE', 'sum', 1, '@price', 'AS', 'sum(price)',
                'SORTBY', 2, '@sum(price)', 'desc',
                'LIMIT', '0', '5'
                ]
@@ -266,6 +297,23 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
                              'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
 
+    def _testSplit(self):
+
+        res = self.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
+                       'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
+                       'APPLY', 'split("hello world,  foo,,,bar,", "", "")', 'AS', 'strs3',
+                       'APPLY', 'split("hello world,  foo,,,bar,")', 'AS', 'strs4',
+                       'APPLY', 'split("hello world,  foo,,,bar,",",")', 'AS', 'strs5',
+                       'APPLY', 'split("")', 'AS', 'empty',
+                       'LIMIT', '0', '1'
+                       )
+        self.assertListEqual([1L, ['strs', ['hello world', 'foo', 'bar'],
+                                   'strs2', ['hello', 'world', 'foo,,,bar'],
+                                   'strs3', ['hello world,  foo,,,bar,'],
+                                   'strs4', ['hello world', 'foo', 'bar'],
+                                   'strs5', ['hello world', 'foo', 'bar'],
+                                   'empty', []]], res)
+
     def _testFirstValue(self):
         res = self.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                        'GROUPBY', 1, '@brand',
@@ -283,11 +331,14 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                               ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']], res)
 
     def testAll(self):
+
         for name, f in self.__class__.__dict__.iteritems():
             if name.startswith('_test'):
                 f(self)
-                sys.stdout.write('.')
+                sys.stdout.write('Aggregate.{} ... '.format(f.__name__[1:]))
                 sys.stdout.flush()
+                print('ok')
+
 
 if __name__ == '__main__':
 

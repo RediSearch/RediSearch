@@ -7,7 +7,7 @@ struct tolistCtx {
 };
 
 void *tolist_NewInstance(ReducerCtx *rctx) {
-  struct tolistCtx *ctx = malloc(sizeof(*ctx));
+  struct tolistCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 100 * sizeof(*ctx));
   ctx->values = NewTrieMap();
   ctx->property = RS_KEY(rctx->property);
   ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
@@ -19,10 +19,25 @@ int tolist_Add(void *ctx, SearchResult *res) {
 
   RSValue *v = SearchResult_GetValue(res, tlc->sortables, &tlc->property);
   if (v) {
-    uint64_t hval = RSValue_Hash(v, 0);
-    if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+    // for non array values we simply add the value to the list */
+    if (v->t != RSValue_Array) {
+      uint64_t hval = RSValue_Hash(v, 0);
+      if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), RSValue_IncrRef(v), NULL);
+        TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
+                    RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
+      }
+    } else {  // For array values we add each distinct element to the list
+      uint32_t len = RSValue_ArrayLen(v);
+      for (uint32_t i = 0; i < len; i++) {
+        RSValue *av = RSValue_ArrayItem(v, i);
+        uint64_t hval = RSValue_Hash(av, 0);
+        if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+
+          TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
+                      RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
+        }
+      }
     }
   }
   return 1;
@@ -38,35 +53,31 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
-      arr[i++] = RSValue_IncrRef(ptr);
+      arr[i++] = ptr;
     }
   }
-  RSFieldMap_Set(&res->fields, key, (RS_ArrVal(arr, i)));
+  RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, i));
   TrieMapIterator_Free(it);
   return 1;
 }
 
 void freeValues(void *ptr) {
   RSValue_Free(ptr);
-  //free(ptr);
+  // free(ptr);
 }
-// Free just frees up the processor. If left as NULL we simply use free()
-void tolist_Free(Reducer *r) {
-  free(r->ctx.privdata);
-  free(r);
-}
+
+
 void tolist_FreeInstance(void *p) {
   struct tolistCtx *tlc = p;
 
   TrieMap_Free(tlc->values, freeValues);
-  free(tlc);
 }
 
 Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = tolist_Add;
   r->Finalize = tolist_Finalize;
-  r->Free = tolist_Free;
+  r->Free = Reducer_GenericFree;
   r->FreeInstance = tolist_FreeInstance;
   r->NewInstance = tolist_NewInstance;
   r->alias = FormatAggAlias(alias, "tolist", property);

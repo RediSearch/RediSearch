@@ -43,10 +43,10 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *op
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
 /* Drop the index and all the associated keys.
-*
-*  If deleteDocuments is non zero, we will delete the saved documents (if they exist).
-*  Only set this if there are no other indexes in the same redis instance.
-*/
+ *
+ *  If deleteDocuments is non zero, we will delete the saved documents (if they exist).
+ *  Only set this if there are no other indexes in the same redis instance.
+ */
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments);
 
 /* Drop all the index's internal keys using this scan handler */
@@ -55,9 +55,9 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 /* Collect memory stas on the index */
 int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 /**
-* Format redis key for a term.
-* TODO: Add index name to it
-*/
+ * Format redis key for a term.
+ * TODO: Add index name to it
+ */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
@@ -68,7 +68,6 @@ void InvertedIndex_Free(void *idx);
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver);
 void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value);
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value);
-void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 int InvertedIndex_RegisterType(RedisModuleCtx *ctx);
 unsigned long InvertedIndex_MemUsage(const void *value);
 

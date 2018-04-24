@@ -277,6 +277,38 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
   return dist ? sqrt(dist) : agg->numChildren - 1;
 }
 
+void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
+  if (*len == cap) return;
+
+  switch (r->type) {
+    case RSResultType_Intersection:
+    case RSResultType_Union:
+
+      for (int i = 0; i < r->agg.numChildren; i++) {
+        result_GetMatchedTerms(r->agg.children[i], arr, cap, len);
+      }
+      break;
+    case RSResultType_Term:
+      if (r->term.term) {
+        const char *s = r->term.term->str;
+        // make sure we have a term string and it's not an expansion
+        if (s) {
+          arr[(*len)++] = r->term.term;
+        }
+
+        // fprintf(stderr, "Term! %zd\n", *len);
+      }
+    default:
+      return;
+  }
+}
+
+size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
+  size_t arrlen = 0;
+  result_GetMatchedTerms(r, arr, cap, &arrlen);
+  return arrlen;
+}
+
 int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
                                      int maxSlop) {
   while (1) {

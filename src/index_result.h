@@ -63,6 +63,10 @@ void IndexResult_Free(RSIndexResult *r);
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(RSIndexResult *r);
 
+/* Fill an array of max capacity cap with all the matching text terms for the result. The number of
+ * matching terms is returned */
+size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap);
+
 /* Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
  * need to be ordered as in the query or not */
 int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder);

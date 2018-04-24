@@ -24,13 +24,13 @@
 */
 #include <stdio.h>
 /************ Begin %include sections from the grammar ************************/
-#line 26 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 26 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 
 #include "token.h"
 #include "expression.h"
 #include "parser.h"
 
-#line 34 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 34 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
 ** in a format understandable to "makeheaders".  This section is blank unless
@@ -108,15 +108,15 @@ typedef union {
 #define RSExprParser_ParseARG_FETCH  RSExprParseCtx *ctx  = yypParser->ctx 
 #define RSExprParser_ParseARG_STORE yypParser->ctx  = ctx 
 #define YYNSTATE             19
-#define YYNRULE              16
+#define YYNRULE              17
 #define YY_MAX_SHIFT         18
 #define YY_MIN_SHIFTREDUCE   30
-#define YY_MAX_SHIFTREDUCE   45
-#define YY_MIN_REDUCE        46
-#define YY_MAX_REDUCE        61
-#define YY_ERROR_ACTION      62
-#define YY_ACCEPT_ACTION     63
-#define YY_NO_ACTION         64
+#define YY_MAX_SHIFTREDUCE   46
+#define YY_MIN_REDUCE        47
+#define YY_MAX_REDUCE        63
+#define YY_ERROR_ACTION      64
+#define YY_ACCEPT_ACTION     65
+#define YY_NO_ACTION         66
 /************* End control #defines *******************************************/
 
 /* Define the yytestcase() macro to be a no-op if is not already defined
@@ -190,13 +190,13 @@ typedef union {
 *********** Begin parsing tables **********************************************/
 #define YY_ACTTAB_COUNT (67)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */     9,    5,    7,    6,    3,    4,   41,   31,   46,    9,
- /*    10 */     5,    7,    6,    3,    4,   18,    1,   48,   39,   16,
- /*    20 */     8,   13,   42,   39,   38,   40,   12,   17,   48,    9,
- /*    30 */     5,    7,    6,    3,    4,    7,    6,    3,    4,   48,
- /*    40 */    39,   39,   63,   11,   37,   48,   48,   39,   39,   48,
+ /*     0 */     9,    5,    7,    6,    3,    4,   41,   31,   47,    9,
+ /*    10 */     5,    7,    6,    3,    4,   18,    1,   49,   39,   16,
+ /*    20 */     8,   13,   42,   39,   38,   40,   12,   17,   49,    9,
+ /*    30 */     5,    7,    6,    3,    4,    7,    6,    3,    4,   49,
+ /*    40 */    39,   39,   65,   11,   37,   49,   49,   39,   39,   49,
  /*    50 */    36,   15,   39,   39,   39,   34,   33,   10,   39,   43,
- /*    60 */    48,   14,   48,   48,   48,   48,    2,
+ /*    60 */    49,   14,   49,   49,   49,   49,    2,
 };
 static const YYCODETYPE yy_lookahead[] = {
  /*     0 */     1,    2,    3,    4,    5,    6,   12,    8,    0,    1,
@@ -223,8 +223,8 @@ static const signed char yy_reduce_ofst[] = {
  /*     0 */    23,    1,    6,   24,   30,   31,   35,   36,   37,   41,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */    62,   62,   62,   62,   62,   62,   62,   62,   62,   62,
- /*    10 */    62,   62,   61,   60,   48,   51,   62,   62,   62,
+ /*     0 */    64,   61,   64,   64,   64,   64,   64,   64,   64,   64,
+ /*    10 */    64,   64,   63,   62,   49,   52,   64,   64,   64,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -356,8 +356,9 @@ static const char *const yyRuleName[] = {
  /*  11 */ "number ::= MINUS NUMBER",
  /*  12 */ "expr ::= PROPERTY",
  /*  13 */ "expr ::= FUNC LP arglist RP",
- /*  14 */ "arglist ::= expr",
- /*  15 */ "arglist ::= arglist COMMA expr",
+ /*  14 */ "arglist ::=",
+ /*  15 */ "arglist ::= expr",
+ /*  16 */ "arglist ::= arglist COMMA expr",
 };
 #endif /* NDEBUG */
 
@@ -480,23 +481,23 @@ static void yy_destructor(
     case 19: /* program */
     case 20: /* expr */
 {
-#line 18 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 18 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 RSExpr_Free((yypminor->yy19)); 
-#line 486 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 487 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
 }
       break;
     case 17: /* number */
 {
-#line 21 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 21 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 
-#line 493 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 494 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
 }
       break;
     case 18: /* arglist */
 {
-#line 24 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 24 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 RSArgList_Free((yypminor->yy4)); 
-#line 500 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 501 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -762,6 +763,7 @@ static const struct {
   { 17, 2 },
   { 20, 1 },
   { 20, 4 },
+  { 18, 0 },
   { 18, 1 },
   { 18, 3 },
 };
@@ -828,84 +830,84 @@ static void yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* program ::= expr */
-#line 39 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 39 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { ctx->root = yymsp[0].minor.yy19; }
-#line 834 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 836 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
         break;
       case 1: /* expr ::= LP expr RP */
-#line 41 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 41 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yymsp[-2].minor.yy19 = yymsp[-1].minor.yy19; }
-#line 839 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 841 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
         break;
       case 2: /* expr ::= expr PLUS expr */
-#line 42 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 42 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy19 = RS_NewOp('+', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 844 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 846 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 3: /* expr ::= expr DIVIDE expr */
-#line 43 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 43 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 {  yylhsminor.yy19 = RS_NewOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 850 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 852 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 4: /* expr ::= expr TIMES expr */
-#line 44 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 44 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 {  yylhsminor.yy19 = RS_NewOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19);}
-#line 856 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 858 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 5: /* expr ::= expr MINUS expr */
-#line 45 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 45 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 {  yylhsminor.yy19 = RS_NewOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 862 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 864 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 6: /* expr ::= expr POW expr */
-#line 46 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 46 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 {  yylhsminor.yy19 = RS_NewOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 868 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 870 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 7: /* expr ::= expr MOD expr */
-#line 47 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 47 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy19 = RS_NewOp('%', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 874 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 876 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 8: /* expr ::= STRING */
-#line 49 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 49 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy19 =  RS_NewStringLiteral((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 880 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 882 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 9: /* expr ::= number */
-#line 50 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 50 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy19 = RS_NewNumberLiteral(yymsp[0].minor.yy32); }
-#line 886 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 888 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 10: /* number ::= NUMBER */
-#line 51 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 51 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy32 = yymsp[0].minor.yy0.numval; }
-#line 892 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 894 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy32 = yylhsminor.yy32;
         break;
       case 11: /* number ::= MINUS NUMBER */
-#line 52 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 52 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yymsp[-1].minor.yy32 = -yymsp[0].minor.yy0.numval; }
-#line 898 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 900 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
         break;
       case 12: /* expr ::= PROPERTY */
-#line 54 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 54 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy19 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 903 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 905 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 13: /* expr ::= FUNC LP arglist RP */
-#line 55 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 55 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 {
-    RSFunction cb = RSFunctionRegistry_Get(ctx->funcs, yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
+    RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
         asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;
@@ -914,21 +916,26 @@ static void yy_reduce(
          yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy4, cb);
     }
 }
-#line 918 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 920 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
         break;
-      case 14: /* arglist ::= expr */
-#line 66 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+      case 14: /* arglist ::= */
+#line 66 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
+{ yymsp[1].minor.yy4 = RS_NewArgList(NULL); }
+#line 926 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
+        break;
+      case 15: /* arglist ::= expr */
+#line 67 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { yylhsminor.yy4 = RS_NewArgList(yymsp[0].minor.yy19); }
-#line 924 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 931 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[0].minor.yy4 = yylhsminor.yy4;
         break;
-      case 15: /* arglist ::= arglist COMMA expr */
-#line 67 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+      case 16: /* arglist ::= arglist COMMA expr */
+#line 68 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
 { 
     yylhsminor.yy4 = RSArgList_Append(yymsp[-2].minor.yy4, yymsp[0].minor.yy19);
 }
-#line 932 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 939 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
   yymsp[-2].minor.yy4 = yylhsminor.yy4;
         break;
       default:
@@ -988,12 +995,12 @@ static void yy_syntax_error(
   RSExprParser_ParseARG_FETCH;
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-#line 33 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.y"
+#line 33 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.y"
   
 
     asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
-#line 997 "/Users/dvirvolk/code/RediSearch/src/aggregate/expr/parser.c"
+#line 1004 "/Users/dvirvolk/code/RSCoordinator/src/dep/RediSearch/src/aggregate/expr/parser.c"
 /************ End %syntax_error code ******************************************/
   RSExprParser_ParseARG_STORE; /* Suppress warning about unused %extra_argument variable */
 }

@@ -3,8 +3,45 @@
 #include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>
 #include <ctype.h>
+#include <util/arr.h>
 #include "function.h"
+#include <err.h>
+
 #define STRING_BLOCK_SIZE 512
+
+static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                             char **err) {
+  int maxTerms = 0;
+  if (argc == 1) {
+    double d;
+    if (RSValue_ToNumber(&argv[0], &d)) {
+      if (d > 0) {
+        maxTerms = (int)d;
+      }
+    }
+  }
+
+  SearchResult *res = ctx->res;
+  if (maxTerms == 0) maxTerms = 100;
+  maxTerms = MIN(100, maxTerms);
+
+  // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
+  if (res && res->indexResult) {
+    RSQueryTerm *terms[maxTerms];
+    size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, maxTerms);
+    if (n) {
+      RSValue **arr = calloc(n, sizeof(RSValue *));
+      for (size_t i = 0; i < n; i++) {
+        arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
+      }
+      RSValue *v = RS_ArrVal(arr, n);
+      RSValue_MakeReference(result, v);
+      return EXPR_EVAL_OK;
+    }
+  }
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
 
 /* lower(str) */
 static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
@@ -59,7 +96,7 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
   if (!str) {
-    *err = strdup("Invalid type for substr, expected string");
+    SET_ERR(err, "Invalid type for substr, expected string");
     return EXPR_EVAL_ERR;
   }
 
@@ -87,7 +124,7 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
   if (argc < 1) {
-    *err = strdup("Need at least one argument for format");
+    SET_ERR(err, "Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
@@ -105,7 +142,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 
     if (fmt[ii] == fmtsz - 1) {
       // ... %"
-      *err = strdup("Bad format string!");
+      SET_ERR(err, "Bad format string!");
       goto error;
     }
 
@@ -121,7 +158,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     }
 
     if (argix == argc) {
-      *err = strdup("Not enough arguments for format");
+      SET_ERR(err, "Not enough arguments for format");
       goto error;
     }
 
@@ -149,7 +186,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
         out = sdscatlen(out, str, sz);
       }
     } else {
-      *err = strdup("Unknown format specifier passed");
+      SET_ERR(err, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -163,16 +200,91 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 
 error:
   if (!*err) {
-    *err = strdup("Error in format");
+    SET_ERR(err, "Error in format");
   }
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;
 }
 
-void RegisterStringFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "lower", stringfunc_tolower);
-  RSFunctionRegistry_RegisterFunction(reg, "upper", stringfunc_toupper);
-  RSFunctionRegistry_RegisterFunction(reg, "substr", stringfunc_substr);
-  RSFunctionRegistry_RegisterFunction(reg, "format", stringfunc_format);
+char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
+  char *start, *end, *sp, *ep;
+
+  sp = start = s;
+  ep = end = s + sl - 1;
+  while (sp <= end && strchr(cset, *sp)) sp++;
+  while (ep > sp && strchr(cset, *ep)) ep--;
+  *outlen = (sp > ep) ? 0 : ((ep - sp) + 1);
+
+  return sp;
+}
+static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                            char **err) {
+  if (argc < 1 || argc > 3) {
+    SET_ERR(err, "Invalid number of arguments for split");
+    return EXPR_EVAL_ERR;
+  }
+  VALIDATE_ARG_ISSTRING("format", argv, 0);
+  const char *sep = ",";
+  const char *strp = " ";
+  if (argc >= 2) {
+    VALIDATE_ARG_ISSTRING("format", argv, 1);
+    sep = RSValue_StringPtrLen(&argv[1], NULL);
+  }
+  if (argc == 3) {
+    VALIDATE_ARG_ISSTRING("format", argv, 2);
+    strp = RSValue_StringPtrLen(&argv[2], NULL);
+  }
+
+  size_t len;
+  char *str = (char *)RSValue_StringPtrLen(&argv[0], &len);
+  char *ep = str + len;
+  size_t l = 0;
+  char *next;
+  char *tok = str;
+
+  // extract at most 1024 values
+  static RSValue *tmp[1024];
+  while (l < 1024 && tok < ep) {
+    next = strpbrk(tok, sep);
+    size_t sl = next ? (next - tok) : ep - tok;
+
+    if (sl > 0) {
+      size_t outlen;
+      // trim the strip set
+      char *s = strtrim(tok, sl, &outlen, strp);
+      if (outlen) {
+        // we mark the strings as volatile so they'll be copied if persisted
+        // otherwise we'd have to copy them...
+        tmp[l++] = RS_StringValT(s, outlen, RSString_Volatile);
+      }
+    }
+
+    // advance tok while it's not in the sep
+    if (!next) break;
+
+    tok = next + 1;
+  }
+
+  // if (len > 0) {
+  //   tmp[l++] = RS_ConstStringVal(tok, len);
+  // }
+
+  RSValue **vals = calloc(l, sizeof(*vals));
+  for (size_t i = 0; i < l; i++) {
+    vals[i] = tmp[i];
+  }
+
+  RSValue *ret = RS_ArrVal(vals, l);
+  RSValue_MakeReference(result, ret);
+  return EXPR_EVAL_OK;
+}
+
+void RegisterStringFunctions() {
+  RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("substr", stringfunc_substr, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("split", stringfunc_split, RSValue_Array);
+  RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
 }

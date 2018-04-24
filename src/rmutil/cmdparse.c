@@ -112,6 +112,15 @@ static CmdArg *NewCmdObject(size_t cap) {
   return ret;
 }
 
+/* return 1 if a flag with a given name exists in parent and is set to true */
+int CmdArg_GetFlag(CmdArg *parent, const char *flag) {
+  CmdArg *f = CmdArg_FirstOf(parent, flag);
+  if (f && f->type == CmdArg_Flag) {
+    return f->b;
+  }
+  return 0;
+}
+
 void CmdArg_Free(CmdArg *arg) {
   switch (arg->type) {
     case CmdArg_String:
@@ -877,6 +886,15 @@ CmdString *CmdParser_NewArgListV(size_t size, ...) {
   return ret;
 }
 
+CmdString *CmdParser_NewArgListC(const char **argv, size_t argc) {
+
+  CmdString *ret = calloc(argc, sizeof(CmdString));
+  for (size_t i = 0; i < argc; i++) {
+    ret[i] = CMD_STRING((char *)argv[i]);
+  }
+  return ret;
+}
+
 CmdArgIterator CmdArg_Select(CmdArg *arg, const char *key) {
   return (CmdArgIterator){
       .arg = arg,
@@ -934,6 +952,28 @@ CmdArg *CmdArg_FirstOf(CmdArg *arg, const char *key) {
     }
   }
   return NULL;
+}
+
+/* count the number of children of an object that correspond to a specific key */
+size_t CmdArg_Count(CmdArg *arg, const char *key) {
+  if (arg->type != CmdArg_Object) return 0;
+  size_t ret = 0;
+  for (size_t i = 0; i < arg->obj.len; i++) {
+    if (!strcasecmp(key, arg->obj.entries[i].k)) {
+      ++ret;
+    }
+  }
+  return ret;
+}
+
+size_t CmdArg_NumChildren(CmdArg *arg) {
+  if (arg->type == CmdArg_Array) {
+    return arg->a.len;
+  } else if (arg->type == CmdArg_Object) {
+    return arg->obj.len;
+  } else {
+    return 0;
+  }
 }
 
 /*

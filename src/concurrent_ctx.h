@@ -70,7 +70,7 @@ typedef struct {
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
  * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
  * By default the pool starts with just one thread, and scales up as needed  */
-#define CONCURRENT_SEARCH_POOL_SIZE 8
+#define CONCURRENT_SEARCH_POOL_SIZE 20
 
 /**
  * The maximum number of threads performing indexing on documents.
@@ -125,8 +125,11 @@ static inline void ConcurrentSearch_SetKey(ConcurrentSearchCtx *ctx, RedisModule
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
 
-#define CONCURRENT_POOL_INDEX 1
-#define CONCURRENT_POOL_SEARCH 2
+/* Create a new thread pool, and return its identifying id */
+int ConcurrentSearch_CreatePool(int numThreads);
+
+extern int CONCURRENT_POOL_INDEX;
+extern int CONCURRENT_POOL_SEARCH;
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
@@ -156,8 +159,34 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
-int ConcurrentSearch_HandleRedisCommand(int poolType, RedisModuleCmdFunc handler,
+void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
+
+struct ConcurrentCmdCtx;
+typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
+                                     struct ConcurrentCmdCtx *);
+
+#define CMDCTX_KEEP_RCTX 0x01
+#define CMDCTX_NO_GIL 0x02
+
+/**
+ * Take ownership of the underlying Redis command context. Once ownership is
+ * claimed, the context needs to be freed (at some point in the future) via
+ * RM_FreeThreadSafeContext()
+ *
+ * TODO/FIXME:
+ * The context is tied to a BlockedCLient, but it shouldn't actually utilize it.
+ * Need to add an API to Redis to better manage a thread safe context, or to
+ * otherwise 'detach' it from the Client so that trying to perform I/O on it
+ * would result in an error rather than simply using a dangling pointer.
+ */
+void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
+
+int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+/* Same as handleRedis command, but set flags for the concurrent context */
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
