@@ -2,16 +2,16 @@
 #include "../tag_index.h"
 #include "../rmutil/alloc.h"
 #include "time_sample.h"
-
+#include "../util/arr.h"
 int testTagIndexCreate() {
   TagIndex *idx = NewTagIndex();
   ASSERT(idx);
   // ASSERT_STRING_EQ(idx->)
   int N = 100000;
-  Vector *v = NewVector(char *, 8);
-  Vector_Push(v, strdup("hello"));
-  Vector_Push(v, strdup("world"));
-  Vector_Push(v, strdup("foo"));
+  char **v = array_newlen(char *, 3);
+  v[0] = strdup("hello");
+  v[1] = strdup("world");
+  v[2] = strdup("foo");
   size_t totalSZ = 0;
   for (t_docId d = 1; d <= N; d++) {
     size_t sz = TagIndex_Index(idx, v, d);
@@ -22,7 +22,7 @@ int testTagIndexCreate() {
     ASSERT(sz == 0);
   }
 
-  ASSERT_EQUAL(idx->values->cardinality, Vector_Size(v));
+  ASSERT_EQUAL(idx->values->cardinality, array_len(v));
   ASSERT_EQUAL(305496, totalSZ);
 
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, NULL, NULL, NULL);
@@ -43,7 +43,7 @@ int testTagIndexCreate() {
          TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQUAL(N + 1, n);
   it->Free(it);
-  Vector_Free(v);
+  array_free(v);
   return 0;
 }
 

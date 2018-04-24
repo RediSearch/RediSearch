@@ -819,7 +819,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
 
 IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
                                 RSQueryTerm *term) {
-  if (term) {
+  if (term && docTable) {
     // compute IDF based on num of docs in the header
     term->idf = CalculateIDF(docTable->size, idx->numDocs);
   }
