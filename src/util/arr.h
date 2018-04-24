@@ -24,6 +24,7 @@
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 /* Definition of malloc & friedns that can be overridden before including arr.h.
  * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
