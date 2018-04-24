@@ -28,7 +28,8 @@ pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Command Reference': 'Commands.md'
-    - 'Configuration': 'Configuring.md'       
+    - 'Configuration': 'Configuring.md'      
+    - 'Administration': "Administration.md"
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'
