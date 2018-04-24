@@ -101,7 +101,7 @@ int testPlanSchema() {
   char *err;
   Aggregate_BuildSchema();
   CmdParser_ParseCmd(GetAggregateRequestSchema(), &cmd, argv, len, &err, 1);
-  puts(err);
+  if (err) puts(err);
   ASSERT(!err);
   ASSERT(cmd);
 
