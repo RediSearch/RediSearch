@@ -21,6 +21,10 @@
       
         <meta name="lang:search.language" content="en">
       
+        <meta name="lang:search.pipeline.stopwords" content="True">
+      
+        <meta name="lang:search.pipeline.trimmer" content="True">
+      
         <meta name="lang:search.result.none" content="No matching documents">
       
         <meta name="lang:search.result.one" content="1 matching document">
@@ -30,7 +34,7 @@
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
       <link rel="shortcut icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-0.17.2, mkdocs-material-2.2.6">
+      <meta name="generator" content="mkdocs-0.17.3, mkdocs-material-2.7.2">
     
     
       
@@ -38,15 +42,16 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/application.6525f7f6.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application.8d40d89b.css">
       
-        <link rel="stylesheet" href="../assets/stylesheets/application-palette.792431c1.css">
+        <link rel="stylesheet" href="../assets/stylesheets/application-palette.6079476c.css">
       
     
     
       <script src="../assets/javascripts/modernizr.1aa3b519.js"></script>
     
     
+      <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
       
         <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
         <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
@@ -59,21 +64,41 @@
   
     
     
-    
-      <body data-md-color-primary="indigo" data-md-color-accent="red">
-    
+    <body dir="ltr" data-md-color-primary="indigo" data-md-color-accent="red">
   
     <svg class="md-svg">
       <defs>
         
         
-          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448" viewBox="0 0 416 448" id="github"><path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19T128 352t-18.125-8.5-10.75-19T96 304t3.125-20.5 10.75-19T128 256t18.125 8.5 10.75 19T160 304zm160 0q0 10-3.125 20.5t-10.75 19T288 352t-18.125-8.5-10.75-19T256 304t3.125-20.5 10.75-19T288 256t18.125 8.5 10.75 19T320 304zm40 0q0-30-17.25-51T296 232q-10.25 0-48.75 5.25Q229.5 240 208 240t-39.25-2.75Q130.75 232 120 232q-29.5 0-46.75 21T56 304q0 22 8 38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0 37.25-1.75t35-7.375 30.5-15 20.25-25.75T360 304zm56-44q0 51.75-15.25 82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5T212 416q-19.5 0-35.5-.75t-36.875-3.125-38.125-7.5-34.25-12.875T37 371.5t-21.5-28.75Q0 312 0 260q0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25 30.875Q171.5 96 212 96q37 0 70 8 26.25-20.5 46.75-30.25T376 64q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34 99.5z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448"
+    viewBox="0 0 416 448" id="github">
+  <path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19-18.125
+        8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19 18.125-8.5
+        18.125 8.5 10.75 19 3.125 20.5zM320 304q0 10-3.125 20.5t-10.75
+        19-18.125 8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19
+        18.125-8.5 18.125 8.5 10.75 19 3.125 20.5zM360
+        304q0-30-17.25-51t-46.75-21q-10.25 0-48.75 5.25-17.75 2.75-39.25
+        2.75t-39.25-2.75q-38-5.25-48.75-5.25-29.5 0-46.75 21t-17.25 51q0 22 8
+        38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0
+        37.25-1.75t35-7.375 30.5-15 20.25-25.75 8-38.375zM416 260q0 51.75-15.25
+        82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5-41.75
+        1.125q-19.5 0-35.5-0.75t-36.875-3.125-38.125-7.5-34.25-12.875-30.25-20.25-21.5-28.75q-15.5-30.75-15.5-82.75
+        0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25
+        30.875q36.75-8.75 77.25-8.75 37 0 70 8 26.25-20.5
+        46.75-30.25t47.25-9.75q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34
+        99.5z" />
+</svg>
         
       </defs>
     </svg>
-    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="drawer">
-    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search">
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
+    
+      <a href="#redisearch"_"aggregations" tabindex="1" class="md-skip">
+        Skip to content
+      </a>
+    
     
       <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
@@ -109,11 +134,13 @@
             
 <div class="md-search" data-md-component="search" role="dialog">
   <label class="md-search__overlay" for="search"></label>
-  <div class="md-search__inner">
+  <div class="md-search__inner" role="search">
     <form class="md-search__form" name="search">
-      <input type="text" class="md-search__input" name="query" required placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query">
+      <input type="text" class="md-search__input" name="query" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query" data-md-state="active">
       <label class="md-icon md-search__icon" for="search"></label>
-      <button type="reset" class="md-icon md-search__icon" data-md-component="reset">&#xE5CD;</button>
+      <button type="reset" class="md-icon md-search__icon" data-md-component="reset" tabindex="-1">
+        &#xE5CD;
+      </button>
     </form>
     <div class="md-search__output">
       <div class="md-search__scrollwrap" data-md-scrollfix>
@@ -175,7 +202,7 @@
   <label class="md-nav__title md-nav__title--site" for="drawer">
     <span class="md-nav__button md-logo">
       
-        <img src="../logo_small.png" width="24" height="24">
+        <img src="../logo_small.png" width="48" height="48">
       
     </span>
     RediSearch Documentation
@@ -257,18 +284,30 @@
       
       
 
+
+  <li class="md-nav__item">
+    <a href="../Administration/" title="Administration" class="md-nav__link">
+      Administration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
   
 
 
   <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-5" type="checkbox" id="nav-5" checked>
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
     
-    <label class="md-nav__link" for="nav-5">
+    <label class="md-nav__link" for="nav-6">
       Reference
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-5">
+      <label class="md-nav__title" for="nav-6">
         Reference
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -477,6 +516,13 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#random"_"sample" title="RANDOM_SAMPLE" class="md-nav__link">
+    RANDOM_SAMPLE
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -540,6 +586,55 @@
   </a>
   
 </li>
+      
+        <li class="md-nav__item">
+  <a href="#cursor"_"api" title="Cursor API" class="md-nav__link">
+    Cursor API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cursor"_"settings" title="Cursor Settings" class="md-nav__link">
+    Cursor Settings
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#read"_"size" title="Read Size" class="md-nav__link">
+    Read Size
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts"_"and"_"limits" title="Timeouts and limits" class="md-nav__link">
+    Timeouts and limits
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other"_"cursor"_"commands" title="Other Cursor commands" class="md-nav__link">
+    Other Cursor commands
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+      
       
       
       
@@ -646,13 +741,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
     
-    <label class="md-nav__link" for="nav-6">
+    <label class="md-nav__link" for="nav-7">
       Clients
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-6">
+      <label class="md-nav__title" for="nav-7">
         Clients
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -718,13 +813,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
     
-    <label class="md-nav__link" for="nav-7">
+    <label class="md-nav__link" for="nav-8">
       Design Documents
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-7">
+      <label class="md-nav__title" for="nav-8">
         Design Documents
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -754,13 +849,13 @@
 
   <li class="md-nav__item md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
     
-    <label class="md-nav__link" for="nav-8">
+    <label class="md-nav__link" for="nav-9">
       Articles
     </label>
     <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
-      <label class="md-nav__title" for="nav-8">
+      <label class="md-nav__title" for="nav-9">
         Articles
       </label>
       <ul class="md-nav__list" data-md-scrollfix>
@@ -962,6 +1057,13 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#random"_"sample" title="RANDOM_SAMPLE" class="md-nav__link">
+    RANDOM_SAMPLE
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1025,6 +1127,55 @@
   </a>
   
 </li>
+      
+        <li class="md-nav__item">
+  <a href="#cursor"_"api" title="Cursor API" class="md-nav__link">
+    Cursor API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cursor"_"settings" title="Cursor Settings" class="md-nav__link">
+    Cursor Settings
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#read"_"size" title="Read Size" class="md-nav__link">
+    Read Size
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts"_"and"_"limits" title="Timeouts and limits" class="md-nav__link">
+    Timeouts and limits
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other"_"cursor"_"commands" title="Other Cursor commands" class="md-nav__link">
+    Other Cursor commands
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+      
       
       
       
@@ -1157,7 +1308,7 @@
 </pre></div>
 
 
-<p>And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function <code>time</code> that formats unix timestamps. You can specify a format to be passed to the system's <code>strftime</code> function (<a href="http://strftime.org/">see documentation</a>), but not specifying one  is equivalent to specifying <code>%FT%TZ</code> to <code>strftime</code>.</p>
+<p>And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function <code>timefmt</code> that formats unix timestamps. You can specify a format to be passed to the system's <code>strftime</code> function (<a href="http://strftime.org/">see documentation</a>), but not specifying one  is equivalent to specifying <code>%FT%TZ</code> to <code>strftime</code>.</p>
 <div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
   APPLY &quot;@timestamp - (@timestamp % 3600)&quot; AS hour
 
@@ -1166,7 +1317,7 @@
 
   SORTBY 2 @hour ASC
 
-  APPLY time(@hour) AS hour
+  APPLY timefmt(@hour) AS hour
 </pre></div>
 
 
@@ -1314,6 +1465,17 @@
 <p>If no <code>BY</code> is specified, we return the first value we encounter in the group.</p>
 <p>If you with to get the top or bottom value in the group sorted by the same value, you are better off using the <code>MIN/MAX</code> reducers, but the same effect will be achieved by doing <code>REDUCE FIRST_VALUE 4 @foo BY @foo DESC</code>.</p>
 </li>
+<li>
+<h4 id="random&quot;_&quot;sample">RANDOM_SAMPLE<a class="headerlink" href="#random&quot;_&quot;sample" title="Permanent link">&para;</a></h4>
+</li>
+<li>
+<p><strong>Format</strong>:</p>
+<p><code>REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}</code></p>
+</li>
+<li>
+<p><strong>Description</strong>:</p>
+<p>Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.</p>
+</li>
 </ul>
 <h2 id="apply&quot;_&quot;expressions">APPLY Expressions<a class="headerlink" href="#apply&quot;_&quot;expressions" title="Permanent link">&para;</a></h2>
 <p><code>APPLY</code> performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transforamtion. </p>
@@ -1406,6 +1568,16 @@
 <td>Use the arguments following <code>fmt</code> to format a string. <br />Currently the only format argument supported is <code>%s</code> and it applies to all types of arguments.</td>
 <td><code>format("Hello, %s, you are %s years old", @name, @age)</code></td>
 </tr>
+<tr>
+<td>matched_terms([max_terms=100])</td>
+<td>Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order.</td>
+<td><code>matched_terms()</code></td>
+</tr>
+<tr>
+<td>split(s, [sep=","], [strip=" "])</td>
+<td>Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array.</td>
+<td>split("foo,bar")</td>
+</tr>
 </tbody>
 </table>
 <h2 id="list&quot;_&quot;of&quot;_&quot;datetime&quot;_&quot;functions">List Of Date/Time Functions<a class="headerlink" href="#list&quot;_&quot;of&quot;_&quot;datetime&quot;_&quot;functions" title="Permanent link">&para;</a></h2>
@@ -1419,25 +1591,140 @@
 </thead>
 <tbody>
 <tr>
-<td>time(x, [fmt])</td>
+<td>timefmt(x, [fmt])</td>
 <td>Return a formatted time string based on a numeric timestamp value x. <br /> See <a href="http://strftime.org/">strftime</a> for formatting options. <br />Not specifying <code>fmt</code> is equivalent to <code>%FT%TZ</code>.</td>
 </tr>
 <tr>
-<td>parsetime(x, [fmt])</td>
-<td>The opposite of time() - parse a time format using a given format string</td>
+<td>parsetime(timesharing, [fmt])</td>
+<td>The opposite of timefmt() - parse a time format using a given format string</td>
 </tr>
 <tr>
-<td></td>
-<td></td>
+<td>day(timestamp)</td>
+<td>Round a Unix timestamp to midnight (00:00) start of the current day.</td>
+</tr>
+<tr>
+<td>hour(timestamp)</td>
+<td>Round a Unix timestamp to the beginning of the current hour.</td>
+</tr>
+<tr>
+<td>minute(timestamp)</td>
+<td>Round a Unix timestamp to the beginning of the current minute.</td>
+</tr>
+<tr>
+<td>month(timestamp)</td>
+<td>Round a unix timestamp to the beginning of the current month.</td>
+</tr>
+<tr>
+<td>dayofweek(timestamp)</td>
+<td>Convert a Unix timestamp to the day number (Sunday = 0).</td>
+</tr>
+<tr>
+<td>dayofmonth(timestamp)</td>
+<td>Convert a Unix timestamp to the day of month number (1 .. 31).</td>
+</tr>
+<tr>
+<td>dayofyear(timestamp)</td>
+<td>Convert a Unix timestamp to the day of year number (0 .. 365).</td>
+</tr>
+<tr>
+<td>year(timestamp)</td>
+<td>Convert a Unix timestamp to the current year (e.g. 2018).</td>
+</tr>
+<tr>
+<td>monthofyear(timestamp)</td>
+<td>Convert a Unix timestamp to the current month (0 .. 11).</td>
 </tr>
 </tbody>
 </table>
+<h2 id="cursor&quot;_&quot;api">Cursor API<a class="headerlink" href="#cursor&quot;_&quot;api" title="Permanent link">&para;</a></h2>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]
+FT.CURSOR READ {idx} {cid} [COUNT {read size}]
+FT.CURSOR DEL {idx} {cid}
+</pre></div>
+
+
+<p>You can use cursors with <code>FT.AGGREGATE</code>, with the <code>WITHCURSOR</code> keyword. Cursors allow you to
+consume only part of the response, allowing you to fetch additional results as needed.
+This is much quicker than using <code>LIMIT</code> with offset, since the query is executed only
+once, and its state is stored on the server.</p>
+<p>To use cursors, specify the <code>WITHCURSOR</code> keyword in <code>FT.AGGREGATE</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx * WITHCURSOR
+</pre></div>
+
+
+<p>This will return a response of an array with two elements. The first element is
+the actual (partial) results, and the second is the cursor ID. The cursor ID
+can then be fed to <code>FT.CURSOR READ</code> repeatedly, until the cursor ID is 0, in
+which case all results have been returned.</p>
+<p>To read from an existing cursor, use <code>FT.CURSOR READ</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR READ idx 342459320
+</pre></div>
+
+
+<p>Assuming <code>342459320</code> is the cursor ID returned from the <code>FT.AGGREGATE</code> request.</p>
+<p>Here is an example in pseudo-code:</p>
+<div class="codehilite"><pre><span></span>response, cursor = FT.AGGREGATE &quot;idx&quot; &quot;redis&quot; &quot;WITHCURSOR&quot;;
+while (1) {
+  processResponse(response)
+  if (!cursor) {
+    break;
+  }
+  response, cursor = FT.CURSOR read &quot;idx&quot; cursor
+}
+</pre></div>
+
+
+<p>Note that even if the cursor is 0, a partial result may still be returned.</p>
+<h3 id="cursor&quot;_&quot;settings">Cursor Settings<a class="headerlink" href="#cursor&quot;_&quot;settings" title="Permanent link">&para;</a></h3>
+<h4 id="read&quot;_&quot;size">Read Size<a class="headerlink" href="#read&quot;_&quot;size" title="Permanent link">&para;</a></h4>
+<p>You can control how many rows are read per each cursor fetch by using the
+<code>COUNT</code> parameter. This parameter can be specified both in <code>FT.AGGREGATE</code>
+(immediately after <code>WITHCURSOR</code>) or in <code>FT.CURSOR READ</code>.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx query WITHCURSOR COUNT 10
+</pre></div>
+
+
+<p>Will read 10 rows at a time.</p>
+<p>You can override this setting by also specifying <code>COUNT</code> in <code>CURSOR READ</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR READ idx 342459320 COUNT 50
+</pre></div>
+
+
+<p>Will return at most 50 results.</p>
+<p>The default read size is 1000</p>
+<h4 id="timeouts&quot;_&quot;and&quot;_&quot;limits">Timeouts and limits<a class="headerlink" href="#timeouts&quot;_&quot;and&quot;_&quot;limits" title="Permanent link">&para;</a></h4>
+<p>Because cursors are stateful resources which occupy memory on the server, they
+have a limited lifetime. In order to safeguard against orphaned/stale cursors,
+cursors have an idle timeout value. If no activity occurs on the cursor before
+the idle timeout, the cursor is deleted. The idle timer resets to 0 whenever
+the cursor is read from using <code>CURSOR READ</code>.</p>
+<p>The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify
+the idle timeout using the <code>MAXIDLE</code> keyword when creating the cursor. Note that
+the value cannot exceed the default 30s.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
+</pre></div>
+
+
+<p>Will set the limit for 10 seconds.</p>
+<h3 id="other&quot;_&quot;cursor&quot;_&quot;commands">Other Cursor commands<a class="headerlink" href="#other&quot;_&quot;cursor&quot;_&quot;commands" title="Permanent link">&para;</a></h3>
+<p>Cursors can be explicity deleted using the <code>CURSOR DEL</code> command, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR DEL idx 342459320
+</pre></div>
+
+
+<p>Note that cursors are automatically deleted if all their results have been
+returned, or if they have been timed out.</p>
+<p>All idle cursors can be forcefully purged at once using <code>FT.CURSOR GC idx 0</code> command.
+By default, RediSearch uses a lazy throttled approach to garbage collection, which
+collects idle cursors every 500 operations, or every second - whichever is later.</p>
                 
                   
                 
               
               
                 
+
+
               
             </article>
           </div>
@@ -1501,14 +1788,14 @@
       
     </div>
     
-      <script src="../assets/javascripts/application.cae2244d.js"></script>
+      <script src="../assets/javascripts/application.b438e6c5.js"></script>
       
-      <script>app.initialize({version:"0.17.2",url:{base:".."}})</script>
+      <script>app.initialize({version:"0.17.3",url:{base:".."}})</script>
       
     
     
       
-        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})});var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})</script>
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-89573912-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
       
     
   </body>
