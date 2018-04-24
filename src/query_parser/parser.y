@@ -352,8 +352,11 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        char *s = strdupcase(B.s, B.len);
-        A = NewTagNode(s, strlen(s));
+        // Tag field names must be case sensitive, we we can't do strdupcase
+        char *s = strndup(B.s, B.len);
+        size_t slen = unescapen((char*)s, B.len);
+
+        A = NewTagNode(s, slen);
         QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
         
         // Set the children count on C to 0 so they won't get recursively free'd
