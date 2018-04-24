@@ -76,6 +76,7 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     if (dmd->sortVector) {
       SortingVector_Free(dmd->sortVector);
     }
+    dmd->sortVector = NULL;
     dmd->flags &= ~Document_HasSortVector;
     return 1;
   }
@@ -133,8 +134,12 @@ t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
 
   sds keyPtr = sdsnewlen(key.str, key.len);
 
-  t->docs[docId] = (RSDocumentMetadata){
-      .keyPtr = keyPtr, .score = score, .flags = flags, .payload = dpl, .maxFreq = 1};
+  t->docs[docId] = (RSDocumentMetadata){.keyPtr = keyPtr,
+                                        .score = score,
+                                        .flags = flags,
+                                        .payload = dpl,
+                                        .maxFreq = 1,
+                                        .sortVector = NULL};
   ++t->size;
   t->memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, key, docId);
@@ -252,6 +257,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   t->size = sz;
   for (size_t i = 1; i < sz; i++) {
     size_t len;
+    t->docs[i] = (RSDocumentMetadata){0};
     char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
     if (encver < INDEX_MIN_BINKEYS_VERSION) {
       // Previous versions would encode the NUL byte
@@ -282,6 +288,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       t->docs[i].payload->len--;
       t->memsize += t->docs[i].payload->len + sizeof(RSPayload);
     }
+    t->docs[i].sortVector = NULL;
     if (t->docs[i].flags & Document_HasSortVector) {
       t->docs[i].sortVector = SortingVector_RdbLoad(rdb, encver);
       t->sortablesSize += RSSortingVector_GetMemorySize(t->docs[i].sortVector);

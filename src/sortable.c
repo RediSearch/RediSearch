@@ -73,9 +73,11 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
       case RS_SORTABLE_STR: {
         char *ns = normalizeStr((char *)p);
         tbl->values[idx] = RSValue_IncrRef(RS_StringValT(ns, strlen(ns), RSString_RMAlloc));
+        break;
       }
       case RS_SORTABLE_NIL:
       default:
+        tbl->values[idx] = RSValue_IncrRef(RS_NullVal());
         break;
     }
   }

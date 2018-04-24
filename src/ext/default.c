@@ -161,6 +161,37 @@ double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetad
   // if (dmd->score == 0 || h == NULL) return 0;
   return _dismaxRecursive(h);
 }
+/* taken from redis - bitops.c */
+static const unsigned char bitsinbyte[256] = {
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
+
+/* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
+ * works if both have the payloads the same length */
+double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+                             double minScore) {
+  // the strings must be of the same length > 0
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->payload.len) {
+    return 0;
+  }
+  size_t ret = 0;
+  size_t len = ctx->payload.len;
+  // if the strings are not aligned to 64 bit - calculate the diff byte by
+
+  const unsigned char *a = (unsigned char *)ctx->payload.data;
+  const unsigned char *b = (unsigned char *)dmd->payload->data;
+  for (size_t i = 0; i < len; i++) {
+    ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
+  }
+  // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
+  return 1.0 / (double)(ret + 1);
+}
 
 typedef struct {
   int isCn;
@@ -302,6 +333,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
+  /* Register HAMMING scorer */
+  if (ctx->RegisterScoringFunction(HAMMINGDISTANCE_SCORER, HammingDistanceScorer, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
   /* Register TFIDF.DOCNORM */
   if (ctx->RegisterScoringFunction(TFIDF_DOCNORM_SCORER_NAME, TFIDFNormDocLenScorer, NULL, NULL) ==
       REDISEARCH_ERR) {

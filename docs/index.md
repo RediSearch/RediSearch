@@ -6,7 +6,7 @@ RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, 
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).
-    * [Latest Release: 1.0.8](https://github.com/RedisLabsModules/RediSearch/releases)
+    * [Latest Release: 1.0.9](https://github.com/RedisLabsModules/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
     * [Quick Start Guide](/Quick_Start)
     * [Mailing list / Forum](https://groups.google.com/forum/#!forum/redisearch)
@@ -46,7 +46,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Exact Phrase Search, Slop based search.
 * Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
-* Limiting searches to specific document fields (**up to 32 TEXT fields supported**).
+* Limiting searches to specific document fields (**Up to ~~32~~ 128 TEXT fields supported; Unlimited TAG and NUMERIC fields**).
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands. 
 * Unicode support (UTF-8 input required)

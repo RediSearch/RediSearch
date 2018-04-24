@@ -8,6 +8,7 @@
 #define DISMAX_SCORER_NAME "DISMAX"
 #define BM25_SCORER_NAME "BM25"
 #define DOCSCORE_SCORER "DOCSCORE"
+#define HAMMINGDISTANCE_SCORER "HAMMING"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 

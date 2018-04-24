@@ -317,7 +317,8 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode(ctx, strdupcase(B.s, B.len), B.len);
+    B.s = strdupcase(B.s, B.len);
+    A = NewPrefixNode(ctx, B.s, strlen(B.s));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -331,14 +332,14 @@ modifier(A) ::= MODIFIER(B) . {
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
-    char *s = strndup(B.s, B.len);
+    char *s = strdupcase(B.s, B.len);
     Vector_Push(A, s);
-    s = strndup(C.s, C.len);
+    s = strdupcase(C.s, C.len);
     Vector_Push(A, s);
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-    char *s = strndup(C.s, C.len);
+    char *s = strdupcase(C.s, C.len);
     Vector_Push(B, s);
     A = B;
 }
@@ -351,7 +352,8 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        A = NewTagNode(strndup(B.s, B.len), B.len);
+        char *s = strdupcase(B.s, B.len);
+        A = NewTagNode(s, strlen(s));
         QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
         
         // Set the children count on C to 0 so they won't get recursively free'd
@@ -365,6 +367,10 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
+tag_list(A) ::= LB prefix(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryPhraseNode_AddChild(A, B);
+}
 
 tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
@@ -375,6 +381,12 @@ tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }
+
+tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+    QueryPhraseNode_AddChild(B, C);
+    A = B;
+}
+
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryPhraseNode_AddChild(B, C);
     A = B;

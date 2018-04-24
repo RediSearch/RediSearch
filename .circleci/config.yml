@@ -86,6 +86,7 @@ jobs:
           command: >-
             aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
             public-read --recursive --exclude "*" --include "*.zip"
+  
   deploy_docs:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -97,7 +98,7 @@ jobs:
       - run:
           name: Deploy Docs to S3
           command: >-
-            aws s3 cp site s3://modules.redislabs.com/redisearch/ --acl
+            aws s3 cp site s3://modules.redislabs.com/$WEBSITE_FOLDER/ --acl
             public-read --recursive 
 workflows:
   version: 2
@@ -133,4 +134,4 @@ workflows:
       - deploy_docs:
           filters:
             branches:
-              only: __master__
+              only: master

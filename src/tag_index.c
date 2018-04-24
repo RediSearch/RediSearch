@@ -8,6 +8,8 @@
 #include "util/arr.h"
 #include <assert.h>
 
+// Tags are limited to 4096 each
+#define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
 TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
@@ -72,7 +74,7 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
       if (!(opts->flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      tok = strndup(tok, toklen);
+      tok = strndup(tok, MIN(toklen, MAX_TAG_LEN));
       ret = array_append(ret, tok);
     }
   }
@@ -247,7 +249,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     assert(inv != NULL);
-    TrieMap_Add(idx->values, s, slen, inv, NULL);
+    TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
     rm_free(s);
   }
   return idx;

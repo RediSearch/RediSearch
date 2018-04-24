@@ -26,6 +26,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertExists(r, prefix + ':idx/world')
                 self.assertExists(r, prefix + ':idx/lorem')
 
+    def testUnionIdList(self):
+        """
+        Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306
+        """
+        with self.redis() as r:
+            r.flushdb()
+            N = 100
+            self.assertOk(r.execute_command(
+                "ft.create", "test", "SCHEMA",  "tags", "TAG", "waypoint", "GEO"))
+            self.assertOk(r.execute_command(
+                "ft.add", "test", "1", "1", "FIELDS", "tags", "alberta", "waypoint", "-113.524,53.5244"))
+            self.assertOk(r.execute_command(
+                "ft.add", "test", "2", "1", "FIELDS", "tags", "ontario", "waypoint", "-79.395,43.661667"))
+            res = r.execute_command(
+                'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
+            self.assertEqual(res, [2, '2', '1'])
+
     def testUnion(self):
 
         with self.redis() as r:
@@ -1746,6 +1763,16 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.assertResponseError():
             self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE',
                      'blah', 'FIELDS', 'language', 'gibber')
+    
+    def testUninitSortvector(self):
+        # This would previously crash
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
+        for x in range(2000):
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS', 'f1', 'HELLO')
+
+        self.cmd('SAVE')
+        for x in range(10):
+            self.cmd('DEBUG RELOAD')
 
 
 def grouper(iterable, n, fillvalue=None):

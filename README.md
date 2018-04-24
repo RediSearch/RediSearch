@@ -7,7 +7,7 @@
 
 ### See Full Documentation at [http://redisearch.io](http://redisearch.io)
 
-### Latest Release: [1.0.8](https://github.com/RedisLabsModules/RediSearch/releases)
+### Latest Release: [1.0.9](https://github.com/RedisLabsModules/RediSearch/releases)
 
 # Overview
 
@@ -58,7 +58,7 @@ Official (Redis Labs) and community Clients:
 * Exact Phrase Search.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
-* Limiting searches to specific document fields (up to 32 fields supported).
+* Limiting searches to specific document fields (up to 128 fields supported).
 * Numeric filters and ranges.
 * Geographical search utilizing redis' own GEO commands.
 * Supports any utf-8 encoded text.

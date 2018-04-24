@@ -319,6 +319,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   ctx->its = its;
   ctx->num = num;
   ctx->lastDocId = 0;
+  ctx->lastFoundId = 0;
   ctx->len = 0;
   ctx->maxSlop = maxSlop;
   ctx->inOrder = inOrder;
@@ -397,6 +398,9 @@ int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   // if the requested id was found on all children - we return OK
   if (nfound == ic->num) {
     // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
+
+    // Update the last found id
+    ic->lastFoundId = ic->current->docId;
     if (hit) *hit = ic->current;
     return INDEXREAD_OK;
   }
@@ -468,6 +472,9 @@ int II_Read(void *ctx, RSIndexResult **hit) {
       if (hit != NULL) {
         *hit = ic->current;
       }
+      // Update the last valid found id
+      ic->lastFoundId = ic->current->docId;
+
       // advance the doc id so next time we'll read a new record
       ic->lastDocId++;
 
@@ -499,7 +506,8 @@ int II_HasNext(void *ctx) {
 }
 
 t_docId II_LastDocId(void *ctx) {
-  return ((IntersectContext *)ctx)->lastDocId;
+  // return last FOUND id, not last read id form any child
+  return ((IntersectContext *)ctx)->lastFoundId;
 }
 
 size_t II_Len(void *ctx) {
@@ -535,7 +543,6 @@ void NI_Free(IndexIterator *it) {
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
  * return OK */
 int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
-
   NotContext *nc = ctx;
 
   // do not skip beyond max doc id
@@ -547,22 +554,25 @@ int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   if (!nc->child) {
     goto ok;
   }
-  nc->lastDocId = nc->child->LastDocId(nc->child->ctx);
 
-  // if the child's iterator is ahead of the current docId, we can assume the docId is not there and
-  // return a pseudo okay
-  if (nc->lastDocId > docId) {
+  // Get the child's last read docId
+  t_docId childId = nc->child->LastDocId(nc->child->ctx);
+
+  // If the child is ahead of the skipto id, it means the child doesn't have this id.
+  // So we are okay!
+  if (childId > docId) {
     goto ok;
   }
 
-  // if the last read docId is the one we are looking for, it's an anti match!
-  if (nc->lastDocId == docId) {
+  // If the child docId is the one we are looking for, it's an anti match!
+  if (childId == docId) {
     nc->current->docId = docId;
+    nc->lastDocId = docId;
     *hit = nc->current;
     return INDEXREAD_NOTFOUND;
   }
 
-  // read the next entry
+  // read the next entry from the child
   int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
 
   // OK means not found
@@ -573,6 +583,7 @@ int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
 ok:
   // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
   nc->current->docId = docId;
+  nc->lastDocId = docId;
   *hit = nc->current;
   return INDEXREAD_OK;
 }
@@ -580,7 +591,6 @@ ok:
 /* Read from a NOT iterator. This is applicable only if the only or leftmost node of a query is a
  * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
 int NI_Read(void *ctx, RSIndexResult **hit) {
-
   NotContext *nc = ctx;
   if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
 
