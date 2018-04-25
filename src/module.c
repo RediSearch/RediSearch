@@ -627,7 +627,7 @@ static void _CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     int rc = Cursors_CollectIdle(&RSCursors);
     RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
-    printf("Unknow command %s\n", cmd);
+    printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
 }

@@ -99,7 +99,7 @@ AggregateStep *newSortStep(CmdArg *srt, char **err) {
       // switch back to state 0, ASC/DESC cannot follow ASC
       state = 0;
     } else {
-      // Unkown token - neither a property nor ASC/DESC
+      // Unknown token - neither a property nor ASC/DESC
       goto err;
     }
   }
