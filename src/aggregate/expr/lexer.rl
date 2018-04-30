@@ -33,9 +33,19 @@ comma = ',';
 escape = '\\';
 quote = '"';
 squote = "'";
+eq = '==';
+not = '!';
+
+ne = '!=';
+lt = '<';
+le = '<=';
+gt = '>';
+ge = '>=';
+land = '&&';
+lor = '||';
 escaped_character = escape (punct | space | escape);
 string_literal =	(quote . ((any - quote - '\n' )|escaped_character)* . quote) | (squote . ((any - squote - '\n' )|escaped_character)* . squote);
-func = alpha.(alnum|'_')* $0;
+symbol = alpha.(alnum|'_')* $0;
 property = '@'.(((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $ 1;
 
 main := |*
@@ -63,11 +73,11 @@ main := |*
     }
   };
 
-  func => {
+  symbol => {
     tok.pos = ts-ctx.raw;
     tok.len = te - ts;
     tok.s = ts;
-    RSExprParser_Parse(pParser, FUNC, tok, &ctx);
+    RSExprParser_Parse(pParser, SYMBOL, tok, &ctx);
     if (!ctx.ok) {
       fbreak;
     }
@@ -92,6 +102,7 @@ main := |*
       fbreak;
     }
   };
+  
   rp => { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, RP, tok, &ctx);
@@ -103,6 +114,69 @@ main := |*
   minus =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MINUS, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+  lt =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, LT, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+  le =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, LE, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+  gt =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, GT, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+   ge =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, GE, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+   eq =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, EQ, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+  not =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, NOT, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+   ne =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, NE, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+   land =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, AND, tok, &ctx);  
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+    lor =>  { 
+    tok.pos = ts-ctx.raw;
+    RSExprParser_Parse(pParser, OR, tok, &ctx);  
     if (!ctx.ok) {
       fbreak;
     }
@@ -202,12 +276,14 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
 
   if (ctx.ok) {
     RSExprParser_Parse(pParser, 0, tok, &ctx);
+  } else if (ctx.root) {
+    RSExpr_Free(ctx.root);
+    ctx.root = NULL;
   }
   RSExprParser_ParseFree(pParser, free);
   if (err) {
     *err = ctx.errorMsg;
   }
-
  
   return ctx.root;
 }

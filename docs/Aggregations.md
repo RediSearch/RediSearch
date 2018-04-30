@@ -17,7 +17,8 @@ The basic idea of an aggregate query is this:
   * **Group and Reduce**: grouping by fields in the results, and applying reducer functions on each group.
   * **Sort**: sort the results based on one or more fields.
   * **Apply Transformations**: Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones
-  * **Limit**: limit the result, regardless of sorting the result. 
+  * **Limit**: Limit the result, regardless of sorting the result. 
+  * **Filter**: Filter the results (post-query) based on predicates relating to its values. 
 
 The pipeline is dynamic and reentrant, and every operation can be repeated. For example you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
 
@@ -33,6 +34,7 @@ The aggregate request's syntax is defined as follows:
 FT.AGGREGATE
   {index_name:string}
   {query_string:string}
+  [WITHSCHEMA] [VERBATIM]
   [LOAD {nargs:integer} {property:string} ...]
   [GROUPBY
     {nargs:integer} {property:string} ...
@@ -50,6 +52,7 @@ FT.AGGREGATE
     {EXPR:string}
     AS {name:string}
   ] ...
+  [FILTER {EXPR:string}] ...
   [LIMIT {offset:integer} {num:integer} ] ...
 ```
 
@@ -76,6 +79,7 @@ FT.AGGREGATE
 
   However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
+* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.
 
 ## Quick Example
 
@@ -388,6 +392,26 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | dayofyear(timestamp) | Convert a Unix timestamp to the day of year number (0 .. 365). |
 | year(timestamp) | Convert a Unix timestamp to the current year (e.g. 2018). |
 | monthofyear(timestamp) | Convert a Unix timestamp to the current month (0 .. 11). |
+
+## FILTER expressions
+
+FILTER expressions filter the results using predicates relating to values in the result set.
+
+The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se. 
+
+Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions `==`, `!=`, `<`, `<=`, `>`, `>=`. Two or more predicates can be combined with logical AND (`&&`) and OR (`||`). A single predicate can be negated with a NOT prefix (`!`).  
+
+For example, filtering all results where the user name is 'foo' and the age is less than 20 is expressed  as:
+
+```
+FT.AGGREGATE 
+  ...
+  FILTER "@name=='foo' && @age < 20"
+  ...
+```
+
+Several filter steps can be added, although at the same stage in the pipeline, it is more efficient to combine several predicates into a single filter step.
+
 
 ## Cursor API
 

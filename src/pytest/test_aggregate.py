@@ -229,6 +229,32 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
                               '35', 'sum(price)', '2329.21'],
                           ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.12']], res)
 
+    def _testFilter(self):
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'count', '0', 'AS', 'count',
+               'FILTER', '@count > 5'
+               ]
+
+        res = self.cmd(*cmd)
+        for row in res[1:]:
+            row = to_dict(row)
+            self.assertGreater(int(row['count']), 5)
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'count', '0', 'AS', 'count',
+               'FILTER', '@count < 5',
+               'FILTER', '@count > 2 && @brand != ""'
+               ]
+
+        res = self.cmd(*cmd)
+        for row in res[1:]:
+            row = to_dict(row)
+            self.assertLess(int(row['count']), 5)
+            self.assertGreater(int(row['count']), 2)
+
     def _testToList(self):
 
         cmd = ['ft.aggregate', 'games', '*',

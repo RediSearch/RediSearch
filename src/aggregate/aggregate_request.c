@@ -99,6 +99,10 @@ void Aggregate_BuildSchema() {
                      CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
                      CmdSchema_Optional | CmdSchema_Repeating);
 
+  // FILTER expr -> return only results matching post filter
+  CmdSchema_AddNamed(requestSchema, "FILTER", CmdSchema_NewArg('s'),
+                     CmdSchema_Optional | CmdSchema_Repeating);
+
   CmdSchemaNode *cursorSchema =
       CmdSchema_AddSubSchema(requestSchema, "WITHCURSOR", CmdSchema_Optional, "Use cursor");
 
@@ -154,6 +158,10 @@ ResultProcessor *buildProjection(AggregateApplyStep *a, ResultProcessor *upstrea
   return NewProjector(sctx, upstream, a->alias, a->rawExpr, strlen(a->rawExpr), err);
 }
 
+ResultProcessor *buildFilter(AggregateFilterStep *f, ResultProcessor *upstream,
+                             RedisSearchCtx *sctx, char **err) {
+  return NewFilter(sctx, upstream, f->rawExpr, strlen(f->rawExpr), err);
+}
 ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char **err) {
 
   if (l->offset < 0 || l->num <= 0) {
@@ -206,6 +214,10 @@ ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSea
       case AggregateStep_Limit:
 
         next = addLimit(&current->limit, next, err);
+        break;
+
+      case AggregateStep_Filter:
+        next = buildFilter(&current->filter, next, sctx, err);
         break;
       case AggregateStep_Load:
         if (current->load.keys->len > 0 && sctx != NULL) {

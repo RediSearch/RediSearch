@@ -53,4 +53,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r);
 
 ResultProcessor *GetProjector(ResultProcessor *upstream, const char *name, const char *alias,
                               CmdArg *args, char **err);
+
+ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *expr,
+                           size_t len, char **err);
 #endif

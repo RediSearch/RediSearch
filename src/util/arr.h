@@ -121,7 +121,7 @@ static void array_free(array_t arr) {
 #define array_foreach(arr, as, blk)                 \
   ({                                                \
     for (uint32_t i = 0; i < array_len(arr); i++) { \
-      __auto_type as = arr[i];                      \
+      typeof(*arr) as = arr[i];                     \
       blk;                                          \
     }                                               \
   })
