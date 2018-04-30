@@ -41,6 +41,12 @@ typedef struct {
   char *alias;
 } AggregateApplyStep;
 
+/* Filter step - evaluate a post filter */
+typedef struct {
+  char *rawExpr;
+  RSExpr *parsedExpr;
+} AggregateFilterStep;
+
 /* Schema property kind (not type!) is this a field from the result, a projection or an aggregation?
  */
 typedef enum {
@@ -80,6 +86,7 @@ typedef enum {
   AggregateStep_Limit,
   AggregateStep_Load,
   AggregateStep_Distribute,
+  AggregateStep_Filter,
   AggregateStep_Dummy,  // dummy step representing an empty plan's head
 } AggregateStepType;
 
@@ -98,6 +105,7 @@ typedef struct AggregateStep {
     AggregateSortStep sort;
     AggregateDistributeStep dist;
     AggregateQueryStep query;
+    AggregateFilterStep filter;
   };
   AggregateStepType type;
   struct AggregateStep *next;

@@ -1,10 +1,12 @@
 
 %name RSExprParser_Parse
 
-%left PLUS MINUS.
-%left DIVIDE TIMES MOD POW.
 %left AND OR NOT.
 %left EQ NE LT LE GT GE.
+
+%left PLUS MINUS.
+%left DIVIDE TIMES MOD POW.
+
 %right LP.
 %left RP.
 
@@ -63,7 +65,6 @@ expr(A) ::= NOT expr(B). { A = RS_NewPredicate(RSCondition_Not, B, NULL); }
 
 expr(A) ::= STRING(B). { A =  RS_NewStringLiteral((char*)B.s, B.len); }
 expr(A) ::= number(B). { A = RS_NewNumberLiteral(B); }
-expr(A) ::= TOK_NULL. { A =  RS_NewNullLiteral(); }
 
 number(A) ::= NUMBER(B). { A = B.numval; }
 number(A) ::= MINUS NUMBER(B). { A = -B.numval; }

@@ -296,9 +296,9 @@ TEST_MAIN({
   RMUTil_InitAlloc();
 
   // TESTFUNC(testRevertToBasic);
-  // TESTFUNC(testGroupSplit);
-  // TESTFUNC(testGroupBy);
-  // TESTFUNC(testAggregatePlan);
+  TESTFUNC(testGroupSplit);
+  TESTFUNC(testGroupBy);
+  TESTFUNC(testAggregatePlan);
   TESTFUNC(testPlanSchema);
   // TESTFUNC(testDistribute);
 })

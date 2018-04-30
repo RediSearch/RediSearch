@@ -367,6 +367,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 ```
 FT.AGGREGATE  {index_name}
   {query_string}
+  [WITHSCHEMA] [VERBATIM]
   [LOAD {nargs} {property} ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -375,6 +376,7 @@ FT.AGGREGATE  {index_name}
   [SORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
   [APPLY {expr} AS {alias}] ...
   [LIMIT {offset} {num}] ...
+  [FILTER {expr}] ...
 ```
 
 ### Description
@@ -403,6 +405,8 @@ Run a search query on an index, and perform aggregate transformations on the res
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
 
     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+
+* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. 
 
 ### Complexity
 

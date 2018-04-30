@@ -1,6 +1,3 @@
-#ifndef RS_PROJECTOR_H_
-#define RS_PROJECTOR_H_
-
 #include <redisearch.h>
 #include <result_processor.h>
 #include <dep/triemap/triemap.h>
@@ -70,5 +67,3 @@ ResultProcessor *NewProjector(RedisSearchCtx *sctx, ResultProcessor *upstream, c
   proc->Free = Projector_Free;
   return proc;
 }
-
-#endif

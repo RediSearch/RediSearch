@@ -38,6 +38,19 @@ AggregateStep *AggregatePlan_NewApplyStep(const char *alias, const char *expr, c
   return ret;
 }
 
+AggregateStep *AggregatePlan_NewFilterStep(const char *expr, char **err) {
+  RSExpr *pe = RSExpr_Parse(expr, strlen(expr), err);
+  if (!pe) {
+    return NULL;
+  }
+  AggregateStep *ret = AggregatePlan_NewStep(AggregateStep_Filter);
+  ret->filter = (AggregateFilterStep){
+      .rawExpr = (char *)expr,
+      .parsedExpr = pe,
+  };
+  return ret;
+}
+
 AggregateStep *AggregatePlan_NewApplyStepFmt(const char *alias, char **err, const char *fmt, ...) {
   char *exp;
   va_list ap;
@@ -62,6 +75,18 @@ AggregateStep *newApplyStepArgs(CmdArg *arg, char **err) {
   const char *exp = strdup(CMDARG_STRPTR(expr));
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
   return AggregatePlan_NewApplyStep(alias ? strdup(alias) : NULL, exp, err);
+}
+
+AggregateStep *newFilterStep(CmdArg *arg, char **err) {
+
+  if (CMDARG_TYPE(arg) != CmdArg_String) {
+    SET_ERR(err, "Missing or invalid filter expression");
+    return NULL;
+  }
+
+  const char *exp = strdup(CMDARG_STRPTR(arg));
+
+  return AggregatePlan_NewFilterStep(exp, err);
 }
 
 AggregateStep *newSortStep(CmdArg *srt, char **err) {
@@ -493,6 +518,8 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       next = newLimit(child, err);
     } else if (!strcasecmp(key, "LOAD")) {
       next = newLoadStep(child, err);
+    } else if (!strcasecmp(key, "FILTER")) {
+      next = newFilterStep(child, err);
     } else if (!strcasecmp(key, "WITHCURSOR")) {
       plan_setCursor(plan, child);
       continue;
@@ -572,6 +599,11 @@ void serializeApply(AggregateApplyStep *a, char ***v) {
   arrPushStrdup(v, a->alias);
 }
 
+void serializeFilter(AggregateFilterStep *f, char ***v) {
+  arrPushStrdup(v, "FILTER");
+  arrPushStrdup(v, f->rawExpr);
+}
+
 void serializeLimit(AggregateLimitStep *l, char ***v) {
   arrPushStrdup(v, "LIMIT");
   arrPushStrfmt(v, "%lld", l->offset);
@@ -627,6 +659,10 @@ char **AggregatePlan_Serialize(AggregatePlan *plan) {
 
       case AggregateStep_Apply:
         serializeApply(&current->apply, &vec);
+        break;
+
+      case AggregateStep_Filter:
+        serializeFilter(&current->filter, &vec);
         break;
 
       case AggregateStep_Limit:
@@ -712,7 +748,10 @@ void AggregateStep_Free(AggregateStep *s) {
       free(s->apply.rawExpr);
       if (s->apply.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
       break;
-
+    case AggregateStep_Filter:
+      free(s->filter.rawExpr);
+      if (s->filter.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
+      break;
     case AggregateStep_Load:
       RSMultiKey_Free(s->load.keys);
       if (s->load.fl.numFields) {

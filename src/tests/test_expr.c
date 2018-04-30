@@ -69,7 +69,7 @@ int testEval(const char *e, SearchResult *r, int expected, char **err) {
   RSExpr *root = RSExpr_Parse(e, strlen(e), err);
   if (root == NULL) return 0;
 
-  RSExpr_Print(root);
+  // RSExpr_Print(root);
 
   RSExprEvalCtx ctx = {.r = r};
   RSValue val;
@@ -77,9 +77,9 @@ int testEval(const char *e, SearchResult *r, int expected, char **err) {
   if (*err != NULL) {
     return 0;
   }
-  printf(" => ");
-  RSValue_Print(&val);
-  printf("\n-----\n");
+  // printf(" => ");
+  // RSValue_Print(&val);
+  // printf("\n-----\n");
   if ((int)val.numval != expected) return 0;
   return 1;
 }
