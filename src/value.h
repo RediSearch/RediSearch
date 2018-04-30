@@ -111,7 +111,7 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 }
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(RSValue *v) {
-  return v->t == RSValue_Reference ? v->ref : v;
+  return v && v->t == RSValue_Reference ? v->ref : v;
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
@@ -234,7 +234,34 @@ RSValue *RS_NullVal();
 
 RSValue *RS_NewValueFromCmdArg(CmdArg *arg);
 
+/* Compare 2 values for sorting */
 int RSValue_Cmp(RSValue *v1, RSValue *v2);
+
+/* Return 1 if the two values are equal */
+int RSValue_Equal(RSValue *v1, RSValue *v2);
+
+/* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
+ * considered false */
+static inline int RSValue_BoolTest(RSValue *v) {
+  if (RSValue_IsNull(v)) return 0;
+
+  v = RSValue_Dereference(v);
+  switch (v->t) {
+    case RSValue_Array:
+      return v->arrval.len != 0;
+    case RSValue_Number:
+      return v->numval != 0;
+    case RSValue_String:
+      return v->strval.len != 0;
+    case RSValue_RedisString: {
+      size_t l = 0;
+      const char *p = RedisModule_StringPtrLen(v->rstrval, &l);
+      return l != 0;
+    }
+    default:
+      return 0;
+  }
+}
 
 static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
   return arr->arrval.vals[index];

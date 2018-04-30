@@ -430,6 +430,7 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
     }
   }
 }
+
 int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   assert(v1);
   assert(v2);
@@ -473,6 +474,10 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
+int RSValue_Equal(RSValue *v1, RSValue *v2) {
+  return RSValue_Cmp(v1, v2) == 0;
+}
+
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   if (!v) {
@@ -508,13 +513,12 @@ void RSValue_Print(RSValue *v) {
   if (!v) {
     printf("nil");
   }
-  printf("{%d}", v->t);
   switch (v->t) {
     case RSValue_String:
-      printf("%.*s", v->strval.len, v->strval.str);
+      printf("\"%.*s\"", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
-      printf("%s", RedisModule_StringPtrLen(v->rstrval, NULL));
+      printf("\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
       printf("%.12g", v->numval);
