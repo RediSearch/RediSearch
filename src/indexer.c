@@ -26,6 +26,35 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
   }
 }
 
+static void indexSynonyms(RedisSearchCtx *ctx, IndexEncoder encoder,
+                            ForwardIndexEntry *entry) {
+#define BUFF_SIZE 100
+  char temp_buff[BUFF_SIZE];
+  if(!ctx->spec->smap){
+    return;
+  }
+
+  TermData* t_data = SynonymMap_GetIdsBySynonym(ctx->spec->smap, entry->term, entry->len);
+  if(!t_data){
+    return;
+  }
+
+  const char* old_entry_term = entry->term;
+  uint32_t old_len = entry->len;
+  entry->term = temp_buff;
+  for(int i = 0 ; i < array_len(t_data->ids) ; ++i){
+    entry->len = SynonymMap_IdToStr(t_data->ids[i], (char*)entry->term, BUFF_SIZE);
+    RedisModuleKey* key;
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &key);
+    writeIndexEntry(ctx->spec, invidx, encoder, entry);
+    if (key) {
+        RedisModule_CloseKey(key);
+    }
+  }
+  entry->term = old_entry_term;
+  entry->len = old_len;
+}
+
 // Number of terms for each block-allocator block
 #define TERMS_PER_BLOCK 128
 
@@ -180,6 +209,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
+        indexSynonyms(ctx, encoder, fwent);
       }
 
       if (idxKey) {
@@ -219,6 +249,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       entry->docId = aCtx->doc.docId;
       assert(entry->docId);
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      indexSynonyms(ctx, encoder, entry);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);

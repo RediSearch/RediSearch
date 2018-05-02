@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <sys/param.h>
 #include "../redisearch.h"
+#include "../spec.h"
+#include "../query.h"
+#include "../synonym_map.h"
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
 #include "../tokenize.h"
@@ -313,6 +316,29 @@ void defaultExpanderFree(void *p) {
   free(dd);
 }
 
+/******************************************************************************************
+ *
+ * Synonyms based query expander
+ *
+ ******************************************************************************************/
+void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+#define BUFF_LEN 100
+  IndexSpec* spec = ctx->query->sctx->spec;
+  if(!spec->smap){
+    return;
+  }
+
+  TermData* t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+
+  for(int i = 0 ; i < array_len(t_data->ids) ; ++i){
+    char buff[BUFF_LEN];
+    int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
+    ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
+  }
+}
+
+void SynonymExpanderFree(void *p) {}
+
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
@@ -351,6 +377,12 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Snowball Stemmer is the default expander */
   if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
