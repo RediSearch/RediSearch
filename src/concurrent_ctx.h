@@ -85,7 +85,7 @@ typedef struct {
 
 /** The number of execution "ticks" per elapsed time check. This is intended to reduce the number of
  * calls to clock_gettime() */
-#define CONCURRENT_TICK_CHECK 25
+#define CONCURRENT_TICK_CHECK 50
 
 /** The timeout after which we try to switch to another query thread - in Nanoseconds */
 #define CONCURRENT_TIMEOUT_NS 100000

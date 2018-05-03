@@ -22,34 +22,6 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   return p;
 }
 
-/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
- * we check the concurrent context and perhaps switch if needed.
- *
- * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
- *
- * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
- * will be handled by this function
- * */
-inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
-  int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
-
-  do {
-
-    // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching && cxc) {
-      CONCURRENT_CTX_TICK(cxc);
-      // need to abort - return EOF
-      if (rp->ctx.qxc->state == QPState_Aborted) {
-        return RS_RESULT_EOF;
-      }
-    }
-    rc = rp->Next(&rp->ctx, res);
-
-  } while (rc == RS_RESULT_QUEUED);
-  return rc;
-}
-
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
  * chain until we find a processor with a Total callback. This allows processors to avoid

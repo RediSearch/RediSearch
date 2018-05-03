@@ -171,7 +171,33 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
  * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
  * will be handled by this function
  * */
-int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching);
+/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
+ * we check the concurrent context and perhaps switch if needed.
+ *
+ * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
+ *
+ * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
+ * will be handled by this function
+ * */
+static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
+  int rc;
+  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
+
+  do {
+
+    // If we can switch - we check the concurrent context switch BEFORE calling the upstream
+    if (allowSwitching && cxc) {
+      CONCURRENT_CTX_TICK(cxc);
+      // need to abort - return EOF
+      if (rp->ctx.qxc->state == QPState_Aborted) {
+        return RS_RESULT_EOF;
+      }
+    }
+    rc = rp->Next(&rp->ctx, res);
+
+  } while (rc == RS_RESULT_QUEUED);
+  return rc;
+}
 
 /* Shortcut macro - call ResultProcessor_Next and return EOF if it returned EOF - otherwise it has
  * to return OK */
