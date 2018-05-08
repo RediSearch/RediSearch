@@ -2,7 +2,7 @@
 %left TILDE.
 %left TAGLIST.
 %left QUOTE.
-
+%left ARROW.
 %left COLON.
 %left MINUS.
 %left NUMBER.
@@ -11,7 +11,7 @@
 %left TERMLIST.
 %left TERM. 
 %left PREFIX.
-
+%left ATTRIBUTE.
 %right LP.
 %left RP.
 // needs to be above lp/rp
@@ -39,6 +39,7 @@
 #include <strings.h>
 #include <assert.h>
 #include "parse.h"
+#include "../util/arr.h"
 #include "../rmutil/vector.h"
 #include "../query_node.h"
 
@@ -91,6 +92,12 @@ size_t unescapen(char *s, size_t sz) {
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
 
+%type attribute { QueryAttribute }
+%destructor attribute { free((char*)$$.value); }
+
+%type attribute_list {QueryAttribute *}
+%destructor attribute_list { array_free_ex($$, free((char*)((QueryAttribute*)ptr )->value)); }
+
 %type prefix { QueryNode * } 
 %destructor prefix { QueryNode_Free($$); }
 
@@ -103,6 +110,7 @@ size_t unescapen(char *s, size_t sz) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
+//%type 
 %type geo_filter { GeoFilter *}
 %destructor geo_filter { GeoFilter_Free($$); }
 
@@ -149,7 +157,7 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     } else {
 
         if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
-            B->fieldMask == RS_FIELDMASK_ALL ) {
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
         } else {     
             A = NewPhraseNode(0);
@@ -171,20 +179,20 @@ expr(A) ::= union(B) . [ORX] {
 union(A) ::= expr(B) OR expr(C) . [OR] {
     if (B == NULL && C == NULL) {
         A = NULL;
-    } else if (B && B->type == QN_UNION && B->fieldMask == RS_FIELDMASK_ALL) {
+    } else if (B && B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
         A = B;
     } else {
         A = NewUnionNode();
         QueryUnionNode_AddChild(A, B);
         if (B) 
-         A->fieldMask |= B->fieldMask;
+         A->opts.fieldMask |= B->opts.fieldMask;
 
     } 
     if (C) {
 
         QueryUnionNode_AddChild(A, C);
-        A->fieldMask |= C->fieldMask;
-        QueryNode_SetFieldMask(A, A->fieldMask);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     
 }
@@ -193,8 +201,8 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     
     A = B;
     QueryUnionNode_AddChild(A, C); 
-    A->fieldMask |= C->fieldMask;
-    QueryNode_SetFieldMask(C, A->fieldMask);
+    A->opts.fieldMask |= C->opts.fieldMask;
+    QueryNode_SetFieldMask(C, A->opts.fieldMask);
 
 
 }
@@ -219,7 +227,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 
     //     A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
     //     if (ctx->sctx->spec) {
-    //         A->fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
+    //         A->opts.fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
     //     }
     // }
 
@@ -228,7 +236,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     if (C == NULL) {
         A = NULL;
     } else {
-        //C->fieldMask = 0;
+        //C->opts.fieldMask = 0;
         t_fieldMask mask = 0; 
         if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(B); i++) {
@@ -249,19 +257,58 @@ expr(A) ::= LP expr(B) RP . {
 }
 
 /////////////////////////////////////////////////////////////////
+// Attributes
+/////////////////////////////////////////////////////////////////
+
+attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
+    
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = strndup(C.s, C.len), .vallen = C.len };
+}
+
+attribute_list(A) ::= attribute(B) . {
+    A = array_new(QueryAttribute, 2);
+    A = array_append(A, B);
+}
+
+attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
+    A = array_append(B, C);
+}
+
+attribute_list(A) ::= attribute_list(B) SEMICOLON . {
+    A = B;
+}
+
+attribute_list(A) ::= . {
+    A = NULL;
+}
+
+expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
+
+    if (C) {
+        char *err = NULL;
+        if (!QueryNode_ApplyAttributes(B, C, array_len(C), &err)) {
+            ctx->ok = 0;
+            ctx->errorMsg = err;
+        }
+    }
+    array_free_ex($$, free((char*)((QueryAttribute*)ptr )->value));
+    A = B;
+}
+
+/////////////////////////////////////////////////////////////////
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
     B->pn.exact =1;
-    B->flags |= QueryNode_Verbatim;
+    B->opts.flags |= QueryNode_Verbatim;
 
     A = B;
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
     A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
-    A->flags |= QueryNode_Verbatim;
+    A->opts.flags |= QueryNode_Verbatim;
     
 }
 
@@ -432,6 +479,8 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
         ctx->errorMsg = strdup(err);
     }
 }
+
+
 
 
 /////////////////////////////////////////////////////////////////

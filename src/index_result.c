@@ -5,7 +5,7 @@
 #include <sys/param.h>
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
-RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
+RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
@@ -14,6 +14,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
       .freq = 0,
       .fieldMask = 0,
       .isCopy = 0,
+      .weight = weight,
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
                                  .typeMask = 0x0000,
@@ -22,17 +23,17 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
 }
 
 /* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap) {
-  return __newAggregateResult(cap, RSResultType_Intersection);
+RSIndexResult *NewIntersectResult(size_t cap, double weight) {
+  return __newAggregateResult(cap, RSResultType_Intersection, weight);
 }
 
 /* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap) {
-  return __newAggregateResult(cap, RSResultType_Union);
+RSIndexResult *NewUnionResult(size_t cap, double weight) {
+  return __newAggregateResult(cap, RSResultType_Union, weight);
 }
 
 /* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
+RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){.type = RSResultType_Term,
@@ -40,6 +41,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
                          .fieldMask = 0,
                          .isCopy = 0,
                          .freq = 0,
+                         .weight = 1,
                          .term = (RSTermRecord){
                              .term = term,
                              .offsets = (RSOffsetVector){},
@@ -55,11 +57,13 @@ RSIndexResult *NewNumericResult() {
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
+                         .weight = 1,
+
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
 
-RSIndexResult *NewVirtualResult() {
+RSIndexResult *NewVirtualResult(double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
@@ -67,6 +71,8 @@ RSIndexResult *NewVirtualResult() {
       .docId = 0,
       .fieldMask = 0,
       .freq = 0,
+      .weight = weight,
+
       .isCopy = 0,
   };
   return res;

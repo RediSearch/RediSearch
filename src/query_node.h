@@ -99,8 +99,28 @@ typedef struct {
 typedef enum {
   QueryNode_Verbatim = 0x01,
 } QueryNodeFlags;
-/* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it is,
- * and a union of all possible nodes  */
+
+/* Query attribute is a dynamic attribute that can be applied to any query node.
+ * Currently supported are weight, slop, and inorder
+ */
+typedef struct {
+  const char *name;
+  size_t namelen;
+  const char *value;
+  size_t vallen;
+} QueryAttribute;
+
+/* Various modifiers and options that can apply to the entire query or any sub-query of it */
+typedef struct {
+  QueryNodeFlags flags;
+  t_fieldMask fieldMask;
+  int maxSlop;
+  int inOrder;
+  double weight;
+} QueryNodeOptions;
+
+/* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it
+ * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
   union {
     QueryPhraseNode pn;
@@ -115,11 +135,13 @@ typedef struct RSQueryNode {
     QueryWildcardNode wc;
     QueryTagNode tag;
   };
-  t_fieldMask fieldMask;
+
   /* The node type, for resolving the union access */
   QueryNodeType type;
-  QueryNodeFlags flags;
+  QueryNodeOptions opts;
 } QueryNode;
+
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, char **err);
 
 /* Add a child to a phrase node */
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);

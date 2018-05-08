@@ -110,14 +110,14 @@ t_docId *__gr_load(GeoIndex *gi, GeoFilter *gf, size_t *num) {
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf) {
+IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf, double weight) {
   size_t sz;
   t_docId *docIds = __gr_load(gi, gf, &sz);
   if (!docIds) {
     return NULL;
   }
 
-  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz);
+  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz, weight);
   rm_free(docIds);
   return ret;
 }

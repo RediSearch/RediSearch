@@ -37,5 +37,5 @@ IndexIterator *NewIdFilterIterator(IdFilter *f) {
     return NULL;
   }
 
-  return NewIdListIterator(f->ids, f->size);
+  return NewIdListIterator(f->ids, f->size, 1);
 }

@@ -83,7 +83,7 @@ int testQueryParser() {
   assertValidQuery("@ti_tle:barack obama  @body:us", ctx);
   assertValidQuery("@title:barack @body:obama", ctx);
   assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
-  assertValidQuery("hello%world;good+bye foo.bar", ctx);
+  assertValidQuery("hello world&good+bye foo.bar", ctx);
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
   // escaping and unicode in field names
   assertValidQuery("@Business\\:\\-\\ Name:Wells Fargo", ctx);
@@ -172,7 +172,7 @@ int testQueryParser() {
   ASSERT_EQUAL(n->type, QN_PHRASE);
   ASSERT_EQUAL(n->pn.exact, 0);
   ASSERT_EQUAL(n->pn.numChildren, 4);
-  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT(n->pn.children[0]->type == QN_UNION);
   ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
@@ -253,7 +253,7 @@ int testGeoQuery() {
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT((n->fieldMask == RS_FIELDMASK_ALL));
+  ASSERT((n->opts.fieldMask == RS_FIELDMASK_ALL));
   ASSERT_EQUAL(n->pn.numChildren, 2);
 
   QueryNode *gn = n->pn.children[1];
@@ -285,7 +285,7 @@ int testFieldSpec() {
   ASSERT(err == NULL);
   ASSERT(n != NULL);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, 0x01)
+  ASSERT_EQUAL(n->opts.fieldMask, 0x01)
   Query_Free(q);
 
   qt = "(@title:hello) (@body:world)";
@@ -302,9 +302,9 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
-  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
+  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL)
+  ASSERT_EQUAL(n->pn.children[0]->opts.fieldMask, 0x01)
+  ASSERT_EQUAL(n->pn.children[1]->opts.fieldMask, 0x02)
   Query_Free(q);
 
   // test field modifiers
@@ -317,11 +317,11 @@ int testFieldSpec() {
   printf("%s ====> ", qt);
   QueryNode_Print(q, n, 0);
   ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->fieldMask, RS_FIELDMASK_ALL)
+  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL)
   ASSERT_EQUAL(n->pn.numChildren, 3)
-  ASSERT_EQUAL(n->pn.children[0]->fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->fieldMask, 0x02)
-  ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
+  ASSERT_EQUAL(n->pn.children[0]->opts.fieldMask, 0x01)
+  ASSERT_EQUAL(n->pn.children[1]->opts.fieldMask, 0x02)
+  ASSERT_EQUAL(n->pn.children[2]->opts.fieldMask, 0x00)
   // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
   Query_Free(q);
 

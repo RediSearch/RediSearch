@@ -349,7 +349,7 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
   }
   Vector_Free(v);
 
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1);
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1);
 
   return it;
 }

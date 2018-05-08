@@ -23,7 +23,8 @@
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
-                                          IndexDecoderCtx decoderCtx, RSIndexResult *record);
+                                          IndexDecoderCtx decoderCtx, RSIndexResult *record,
+                                          double weight);
 
 /* Add a new block to the index with a given document id as the initial id */
 static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
@@ -666,7 +667,7 @@ IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
   res->num.value = 0;
 
   IndexDecoderCtx ctx = {.ptr = flt};
-  return NewIndexReaderGeneric(idx, readNumeric, ctx, res);
+  return NewIndexReaderGeneric(idx, readNumeric, ctx, res, 1);
 }
 
 int IR_Read(void *ctx, RSIndexResult **e) {
@@ -801,7 +802,8 @@ size_t IR_NumDocs(void *ctx) {
 }
 
 static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
-                                          IndexDecoderCtx decoderCtx, RSIndexResult *record) {
+                                          IndexDecoderCtx decoderCtx, RSIndexResult *record,
+                                          double weight) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
   ret->currentBlock = 0;
   ret->lastId = 0;
@@ -811,6 +813,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
   ret->record = record;
   ret->len = 0;
   ret->atEnd = 0;
+  ret->weight = weight;
   ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
   ret->decoder = decoder;
   ret->decoderCtx = decoderCtx;
@@ -818,7 +821,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
 }
 
 IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                                RSQueryTerm *term) {
+                                RSQueryTerm *term, double weight) {
   if (term && docTable) {
     // compute IDF based on num of docs in the header
     term->idf = CalculateIDF(docTable->size, idx->numDocs);
@@ -830,13 +833,13 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
     return NULL;
   }
 
-  RSIndexResult *record = NewTokenRecord(term);
+  RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(idx, decoder, dctx, record);
+  return NewIndexReaderGeneric(idx, decoder, dctx, record, weight);
 }
 
 void IR_Free(IndexReader *ir) {
@@ -909,7 +912,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
   BufferReader br = NewBufferReader(blk->data);
   BufferWriter bw = NewBufferWriter(&repair);
 
-  RSIndexResult *res = NewTokenRecord(NULL);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
   int frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;

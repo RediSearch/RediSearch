@@ -40,15 +40,17 @@ void UI_Rewind(void *ctx) {
   }
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit) {
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
+                                double weight) {
   // create union context
   UnionContext *ctx = calloc(1, sizeof(UnionContext));
   ctx->its = its;
+  ctx->weight = weight;
   ctx->num = num;
   ctx->docTable = dt;
   ctx->atEnd = 0;
   ctx->docIds = calloc(num, sizeof(t_docId));
-  ctx->current = NewUnionResult(num);
+  ctx->current = NewUnionResult(num, weight);
   ctx->len = 0;
   ctx->quickExit = quickExit;
   // bind the union iterator calls
@@ -231,7 +233,6 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
 
   // copy our aggregate to the upstream hit
-
   // if we only have one record, we cane just push it upstream not wrapped in our own record,
   // this will speed up evaluating offsets
   if (found == 1 && ui->current->agg.numChildren == 1) {
@@ -313,7 +314,7 @@ void II_Rewind(void *ctx) {
 }
 
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
-                                   t_fieldMask fieldMask, int maxSlop, int inOrder) {
+                                   t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
 
   IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
   ctx->its = its;
@@ -325,8 +326,9 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   ctx->inOrder = inOrder;
   ctx->fieldMask = fieldMask;
   ctx->atEnd = 0;
+  ctx->weight = weight;
   ctx->docIds = calloc(num, sizeof(t_docId));
-  ctx->current = NewIntersectResult(num);
+  ctx->current = NewIntersectResult(num, weight);
   ctx->docTable = dt;
 
   // bind the iterator calls
@@ -664,16 +666,17 @@ t_docId NI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId) {
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
 
   NotContext *nc = malloc(sizeof(*nc));
-  nc->current = NewVirtualResult();
+  nc->current = NewVirtualResult(weight);
   nc->current->fieldMask = RS_FIELDMASK_ALL;
   nc->current->docId = 0;
   nc->child = it;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
   nc->len = 0;
+  nc->weight = weight;
 
   IndexIterator *ret = malloc(sizeof(*it));
   ret->ctx = nc;
@@ -746,6 +749,7 @@ int OI_Read(void *ctx, RSIndexResult **hit) {
   if (nc->child) {
     if (nc->child->Read(nc->child->ctx, &nc->current) == INDEXREAD_OK) {
       if (hit) {
+        nc->current->weight = nc->weight;
         *hit = nc->current;
       }
       return INDEXREAD_OK;
@@ -795,16 +799,17 @@ void OI_Rewind(void *ctx) {
   }
 }
 
-IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId) {
+IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
 
   OptionalMatchContext *nc = malloc(sizeof(*nc));
-  nc->virt = NewVirtualResult();
+  nc->virt = NewVirtualResult(weight);
   nc->virt->freq = 0;
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->current = nc->virt;
   nc->child = it;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
+  nc->weight = weight;
 
   IndexIterator *ret = malloc(sizeof(*ret));
   ret->ctx = nc;
@@ -914,7 +919,7 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   WildcardIteratorCtx *c = malloc(sizeof(*c));
   c->current = 1;
   c->topId = maxId;
-  c->res = NewVirtualResult();
+  c->res = NewVirtualResult(1);
   c->res->freq = 1;
   c->res->fieldMask = RS_FIELDMASK_ALL;
 
