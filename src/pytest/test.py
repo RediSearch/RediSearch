@@ -43,6 +43,33 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
             self.assertEqual(res, [2, '2', '1'])
 
+    def testAttributes(self):
+
+        self.client.flushdb()
+        self.assertOk(self.cmd('ft.create', 'idx', 'schema',
+                               'title', 'text', 'body', 'text'))
+        self.assertOk(self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                                'title', 't1 t2', 'body', 't3 t4 t5'))
+        self.assertOk(self.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                               'body', 't1 t2', 'title', 't3 t5'))
+
+        res = self.cmd(
+            'ft.search', 'idx', '(@title:(t1 t2) => {$weight: 0.2}) |(@body:(t1 t2) => {$weight: 0.5})', 'nocontent')
+        self.assertListEqual([2L, 'doc2', 'doc1'], res)
+        res = self.cmd(
+            'ft.search', 'idx', '(@title:(t1 t2) => {$weight: 2.5}) |(@body:(t1 t2) => {$weight: 0.5})', 'nocontent')
+        self.assertListEqual([2L, 'doc1', 'doc2'], res)
+
+        res = self.cmd(
+            'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent')
+        self.assertListEqual([2L, 'doc2', 'doc1'], res)
+        res = self.cmd(
+            'ft.search', 'idx', '(t5 t3) => {$slop: 0}', 'nocontent')
+        self.assertListEqual([1L, 'doc2'], res)
+        res = self.cmd(
+            'ft.search', 'idx', '(t5 t3) => {$slop: 0; $inorder:true}', 'nocontent')
+        self.assertListEqual([0], res)
+
     def testUnion(self):
 
         with self.redis() as r:
@@ -1763,12 +1790,13 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         with self.assertResponseError():
             self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'LANGUAGE',
                      'blah', 'FIELDS', 'language', 'gibber')
-    
+
     def testUninitSortvector(self):
         # This would previously crash
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
         for x in range(2000):
-            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS', 'f1', 'HELLO')
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(
+                x), 1.0, 'FIELDS', 'f1', 'HELLO')
 
         self.cmd('SAVE')
         for x in range(10):
