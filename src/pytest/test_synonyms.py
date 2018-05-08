@@ -203,6 +203,20 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
             for _ in self.client.retry_with_rdb_reload():
                 self.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0L], 'child', [0L], 'boy', [0L]])
 
+    def testTwoSynonymsSearch(self):
+        with self.redis() as r:
+            r.flushdb()
+            self.assertOk(r.execute_command(
+                'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+            self.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
+            self.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                            'title', 'he is a boy child boy',
+                                            'body', 'another test'))
+
+            res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYN')
+            # synonyms are applied from the moment they were added, previuse docs are not reindexed
+            self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy child boy', 'body', 'another test']])
+
     def testSynonymsIntensiveLoad(self):
         iterations = 1000
         with self.redis() as r:

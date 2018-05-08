@@ -131,6 +131,12 @@ void ForwardIndexFree(ForwardIndex *idx) {
     idx->stemmer->Free(idx->stemmer);
   }
 
+  if (idx->smap){
+    SynonymMap_Free(idx->smap);
+  }
+
+  idx->smap = NULL;
+
   rm_free(idx);
 }
 
@@ -203,6 +209,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 //   e->freq = e->freq / idx->maxFreq;
 // }
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+#define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw);
@@ -216,6 +223,22 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
                              tokCtx->fieldScore, tokCtx->fieldId, 1,
                              tokInfo->flags & Token_CopyStem);
   }
+
+  if (tokCtx->idx->smap){
+    TermData* t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
+    if (t_data){
+      printf("adding sysnonym on word %.*s\r\n", tokInfo->tokLen, tokInfo->tok);
+      char synonym_buff[SYNONYM_BUFF_LEN];
+      size_t synonym_len;
+      for (int i = 0 ; i < array_len(t_data->ids) ; ++i){
+        synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
+        printf("synonym added %.*s\r\n", synonym_len, synonym_buff);
+        ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
+                                 tokCtx->fieldScore, tokCtx->fieldId, 0, 1);
+      }
+    }
+  }
+
   return 0;
 }
 

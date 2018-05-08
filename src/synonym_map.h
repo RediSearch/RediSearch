@@ -21,12 +21,15 @@ typedef struct{
 static const int SynMapKhid = 90;
 KHASH_MAP_INIT_INT64(SynMapKhid, TermData*);
 
-typedef struct{
-	uint32_t curr_id;
-	khash_t(SynMapKhid) *h_table;
+typedef struct SynonymMap_s{
+  uint32_t ref_count;
+  uint32_t curr_id;
+  khash_t(SynMapKhid) *h_table;
+  bool is_read_only;
+  struct SynonymMap_s* read_only_copy;
 }SynonymMap;
 
-SynonymMap *SynonymMap_New();
+SynonymMap *SynonymMap_New(bool is_read_only);
 void SynonymMap_Free(SynonymMap* smap);
 uint32_t SynonymMap_GetMaxId(SynonymMap* smap);
 uint32_t SynonymMap_AddRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size);
@@ -36,6 +39,8 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len);
 TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size);
 size_t SynonymMap_IdToStr(uint32_t id, char* buff, size_t len);
+
+SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
 
 #define SynonymMap_GetIdsBySynonym_cstr(smap, synonym) SynonymMap_GetIdsBySynonym(smap, synonym, strlen(synonym))
 

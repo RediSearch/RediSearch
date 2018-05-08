@@ -446,7 +446,7 @@ void IndexSpec_Free(void *ctx) {
     spec->stopwords = NULL;
   }
 
-  if(spec->smap){
+  if (spec->smap){
     SynonymMap_Free(spec->smap);
   }
 
@@ -493,8 +493,8 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 }
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp){
-  if(!sp->smap){
-    sp->smap = SynonymMap_New();
+  if (!sp->smap){
+    sp->smap = SynonymMap_New(false);
     sp->flags |= Index_HasSmap;
   }
 }
@@ -714,7 +714,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModule_FreeString(ctx, specKey);
 
   sp->smap = NULL;
-  if(sp->flags & Index_HasSmap){
+  if (sp->flags & Index_HasSmap){
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
   }
   return sp;
@@ -742,7 +742,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
     StopWordList_RdbSave(rdb, sp->stopwords);
   }
 
-  if(sp->flags & Index_HasSmap){
+  if (sp->flags & Index_HasSmap){
     SynonymMap_RdbSave(rdb, sp->smap);
   }
 }

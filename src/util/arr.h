@@ -115,7 +115,7 @@ static inline void* array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   assert((cap == -1 || cap >= len) && "trimming len is greater then capacity");
   assert((len <= arr_hdr->len) && "trimming len is greater then current len");
   arr_hdr->len = len;
-  if(cap != -1){
+  if (cap != -1){
       arr_hdr->cap = cap;
       arr_hdr = array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
   }

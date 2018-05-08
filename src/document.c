@@ -135,6 +135,12 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
+  if (sp->smap){
+    aCtx->fwIdx->smap = SynonymMap_GetReadOnlyCopy(sp->smap);
+  }else{
+    aCtx->fwIdx->smap = NULL;
+  }
+
   aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
   StopWordList_Ref(sp->stopwords);
 
