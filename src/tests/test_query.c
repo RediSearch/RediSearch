@@ -157,6 +157,26 @@ int testQueryParser() {
 
   // test utf-8 query
   assertValidQuery("שלום עולם", ctx);
+
+  // Test attribute
+  assertValidQuery("(foo bar) => {$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery("foo => {$weight: 0.5} bar => {$weight: 0.1}", ctx);
+
+  assertValidQuery("@title:(foo bar) => {$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery(
+      "@title:(foo bar) => {$weight: 0.5; $slop: 2} @body:(foo bar) => {$weight: 0.5; $slop: 2}",
+      ctx);
+  assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
+  assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
+  assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);
+  assertValidQuery("@num:[0 100] => {$weight: 0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$weight: -0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+
+  assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+
   IndexSpec_Free(ctx.spec);
 
   char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
@@ -342,6 +362,37 @@ int testFieldSpec() {
   return 0;
 }
 
+int testAttributes() {
+  char *err = NULL;
+
+  static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
+  RedisSearchCtx ctx = {
+      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+
+  char *qt =
+      "(@title:(foo bar) => {$weight: 0.5} @body:lol => {$weight: 0.2}) => "
+      "{$weight:0.3; $slop:2; $inorder:true}";
+
+  RSSearchOptions opts = SEARCH_OPTS(ctx);
+  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
+  QueryNode *n = Query_Parse(q, &err);
+
+  if (err) FAIL("Error parsing query: %s", err);
+  QueryNode_Print(q, n, 0);
+  ASSERT(err == NULL);
+  ASSERT(n != NULL);
+
+  ASSERT_EQUAL(0.3, n->opts.weight);
+  ASSERT_EQUAL(2, n->opts.maxSlop);
+  ASSERT_EQUAL(1, n->opts.inOrder);
+
+  ASSERT_EQUAL(n->type, QN_PHRASE);
+  ASSERT_EQUAL(n->pn.numChildren, 2)
+  ASSERT_EQUAL(0.5, n->pn.children[0]->opts.weight)
+  ASSERT_EQUAL(0.2, n->pn.children[1]->opts.weight)
+
+  RETURN_TEST_SUCCESS;
+}
 int testTags() {
 
   char *err = NULL;
@@ -402,6 +453,7 @@ TEST_MAIN({
   TESTFUNC(testQueryParser);
   TESTFUNC(testPureNegative);
   TESTFUNC(testFieldSpec);
+  TESTFUNC(testAttributes);
   // benchmarkQueryParser();
 
 });

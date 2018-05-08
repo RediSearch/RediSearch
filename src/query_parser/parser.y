@@ -2,7 +2,6 @@
 %left TILDE.
 %left TAGLIST.
 %left QUOTE.
-%left ARROW.
 %left COLON.
 %left MINUS.
 %left NUMBER.
@@ -19,6 +18,7 @@
 %left AND.
 %left OR.
 %left ORX.
+%left ARROW.
 
 %token_type {QueryToken}  
 
