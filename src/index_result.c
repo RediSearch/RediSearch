@@ -41,7 +41,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
                          .fieldMask = 0,
                          .isCopy = 0,
                          .freq = 0,
-                         .weight = 1,
+                         .weight = weight,
                          .term = (RSTermRecord){
                              .term = term,
                              .offsets = (RSOffsetVector){},

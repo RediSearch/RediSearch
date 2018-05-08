@@ -291,7 +291,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
             ctx->errorMsg = err;
         }
     }
-    array_free_ex($$, free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, free((char*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 

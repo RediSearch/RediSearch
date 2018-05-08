@@ -314,6 +314,44 @@ int testUnion() {
   return 0;
 }
 
+int testWeight() {
+  InvertedIndex *w = createIndex(10, 1);
+  InvertedIndex *w2 = createIndex(10, 2);
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
+  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+
+  // printf("Reading!\n");
+  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r1);
+  irs[1] = NewReadIterator(r2);
+
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8);
+  RSIndexResult *h = NULL;
+  int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
+  int i = 0;
+  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    // printf("%d <=> %d\n", h.docId, expected[i]);
+    ASSERT(h->docId == expected[i++]);
+    ASSERT_EQUAL(h->weight, 0.8);
+    if (h->agg.numChildren == 2) {
+      ASSERT_EQUAL(h->agg.children[0]->weight, 0.5);
+      ASSERT_EQUAL(h->agg.children[1]->weight, 1);
+    } else {
+      if (i <= 10) {
+        ASSERT_EQUAL(h->agg.children[0]->weight, 0.5);
+      } else {
+        ASSERT_EQUAL(h->agg.children[0]->weight, 1);
+      }
+    }
+  }
+
+  ui->Free(ui);
+  // IndexResult_Free(&h);
+  InvertedIndex_Free(w);
+  InvertedIndex_Free(w2);
+  return 0;
+}
+
 int testNot() {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
@@ -1107,6 +1145,8 @@ TEST_MAIN({
 
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
+
+  TESTFUNC(testWeight);
   TESTFUNC(testVarintFieldMask);
 
   TESTFUNC(testPureNot);

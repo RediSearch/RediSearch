@@ -170,7 +170,9 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
+  // reset the current hitf
   AggregateResult_Reset(ui->current);
+  ui->current->weight = ui->weight;
   int numActive = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
@@ -233,13 +235,7 @@ int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
   }
 
   // copy our aggregate to the upstream hit
-  // if we only have one record, we cane just push it upstream not wrapped in our own record,
-  // this will speed up evaluating offsets
-  if (found == 1 && ui->current->agg.numChildren == 1) {
-    *hit = ui->current->agg.children[0];
-  } else {
-    *hit = ui->current;
-  }
+  *hit = ui->current;
   if (found > 0) {
     return INDEXREAD_OK;
   }

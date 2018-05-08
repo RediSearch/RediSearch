@@ -396,6 +396,12 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     int inOrder = q->opts->flags & Search_InOrder;
     if (qn->opts.inOrder) inOrder = 1;
 
+    // If in order was specified and not slop, set slop to maximum possible value.
+    // Otherwise we can't check if the results are in order
+    if (inOrder && slop == -1) {
+      slop = __INT_MAX__;
+    }
+
     ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
                               q->opts->fieldMask & qn->opts.fieldMask, slop, inOrder,
                               qn->opts.weight);
@@ -846,8 +852,19 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
   }
 
   s = sdscat(s, "}");
-  if (qs->opts.weight != 1) {
-    s = sdscatprintf(s, " ($weight: %g;)", qs->opts.weight);
+  // print attributes if not the default
+  if (qs->opts.weight != 1 || qs->opts.maxSlop != -1 || qs->opts.inOrder) {
+    s = sdscat(s, " => {");
+    if (qs->opts.weight != 1) {
+      s = sdscatprintf(s, " $weight: %g;", qs->opts.weight);
+    }
+    if (qs->opts.maxSlop != -1) {
+      s = sdscatprintf(s, " $slop: %d;", qs->opts.maxSlop);
+    }
+    if (qs->opts.inOrder || qs->opts.maxSlop != -1) {
+      s = sdscatprintf(s, " $inorder: %s;", qs->opts.inOrder ? "true" : "false");
+    }
+    s = sdscat(s, " }");
   }
   s = sdscat(s, "\n");
   return s;
@@ -885,7 +902,6 @@ void Query_Free(QueryParseCtx *q) {
 
 int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
 
-  printf("%.*s => %s\n", attr->namelen, attr->name, attr->value);
   // Apply slop: [-1 ... INF]
   if (STR_EQCASE(attr->name, attr->namelen, "slop")) {
 
