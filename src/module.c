@@ -1421,12 +1421,12 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
 
   long long id;
-  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK){
+  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "wrong parameters, id is not an integer");
     return REDISMODULE_OK;
   }
 
-  if (id < 0 || id > UINT32_MAX){
+  if (id < 0 || id > UINT32_MAX) {
     RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
     return REDISMODULE_OK;
   }
@@ -1437,7 +1437,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)){
+  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)) {
     RedisModule_ReplyWithError(ctx, "given id does not exists");
     return REDISMODULE_OK;
   }
@@ -1458,21 +1458,21 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  if (!sp->smap){
+  if (!sp->smap) {
     RedisModule_ReplyWithArray(ctx, 0);
     return REDISMODULE_OK;
   }
 
   size_t size;
-  TermData** terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
+  TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
   RedisModule_ReplyWithArray(ctx, size * 2);
 
-  for (int i = 0 ; i < size ; ++i){
-    TermData* t_data = terms_data[i];
+  for (int i = 0; i < size; ++i) {
+    TermData *t_data = terms_data[i];
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
     RedisModule_ReplyWithArray(ctx, array_len(t_data->ids));
-    for (size_t j = 0 ; j < array_len(t_data->ids) ; ++j){
+    for (size_t j = 0; j < array_len(t_data->ids); ++j) {
       RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
     }
   }

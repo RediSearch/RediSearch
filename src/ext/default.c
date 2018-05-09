@@ -323,25 +323,26 @@ void defaultExpanderFree(void *p) {
  ******************************************************************************************/
 void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 #define BUFF_LEN 100
-  IndexSpec* spec = ctx->query->sctx->spec;
-  if (!spec->smap){
+  IndexSpec *spec = ctx->query->sctx->spec;
+  if (!spec->smap) {
     return;
   }
 
-  TermData* t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
 
-  if (t_data == NULL){
+  if (t_data == NULL) {
     return;
   }
 
-  for (int i = 0 ; i < array_len(t_data->ids) ; ++i){
+  for (int i = 0; i < array_len(t_data->ids); ++i) {
     char buff[BUFF_LEN];
     int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
     ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
   }
 }
 
-void SynonymExpanderFree(void *p) {}
+void SynonymExpanderFree(void *p) {
+}
 
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {

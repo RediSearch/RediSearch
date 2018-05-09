@@ -31,7 +31,7 @@ typedef struct ForwardIndex {
   uint32_t totalFreq;
   uint32_t idxFlags;
   Stemmer *stemmer;
-  SynonymMap* smap;
+  SynonymMap *smap;
   BlkAlloc terms;
   BlkAlloc entries;
   mempool_t *vvwPool;

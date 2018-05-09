@@ -131,7 +131,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
     idx->stemmer->Free(idx->stemmer);
   }
 
-  if (idx->smap){
+  if (idx->smap) {
     SynonymMap_Free(idx->smap);
   }
 
@@ -224,13 +224,13 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
                              tokInfo->flags & Token_CopyStem);
   }
 
-  if (tokCtx->idx->smap){
-    TermData* t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
-    if (t_data){
+  if (tokCtx->idx->smap) {
+    TermData *t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
+    if (t_data) {
       printf("adding sysnonym on word %.*s\r\n", tokInfo->tokLen, tokInfo->tok);
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
-      for (int i = 0 ; i < array_len(t_data->ids) ; ++i){
+      for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
         printf("synonym added %.*s\r\n", synonym_len, synonym_buff);
         ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,

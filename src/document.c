@@ -135,9 +135,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
-  if (sp->smap){
+  if (sp->smap) {
     aCtx->fwIdx->smap = SynonymMap_GetReadOnlyCopy(sp->smap);
-  }else{
+  } else {
     aCtx->fwIdx->smap = NULL;
   }
 

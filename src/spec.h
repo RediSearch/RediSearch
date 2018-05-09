@@ -181,7 +181,7 @@ typedef struct {
 
   void *gc;
 
-  SynonymMap* smap;
+  SynonymMap *smap;
 
 } IndexSpec;
 
