@@ -8,7 +8,7 @@
  * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.
  * They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
  * callbacks and context matching the appropriate implementation.
-  */
+ */
 
 /* A raw offset vector iterator */
 typedef struct {
@@ -125,6 +125,10 @@ RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
     case RSResultType_Intersection:
     case RSResultType_Union:
     default:
+      // if we only have one sub result, just iterate that...
+      if (res->agg.numChildren == 1) {
+        return RSIndexResult_IterateOffsets(res->agg.children[0]);
+      }
       return _aggregateResult_iterate(&res->agg);
       break;
   }

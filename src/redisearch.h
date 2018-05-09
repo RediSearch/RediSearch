@@ -267,6 +267,9 @@ typedef struct RSIndexResult {
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want
   int isCopy;
+
+  /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
+  double weight;
 } RSIndexResult;
 
 #pragma pack()
@@ -300,8 +303,8 @@ typedef struct {
   /* Index statistics to be used by scoring functions */
   RSIndexStats indexStats;
 
-  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms, that
-   * can be used to factor the result score */
+  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
+   * that can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
 } RSScoringFunctionCtx;
 

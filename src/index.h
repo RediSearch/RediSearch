@@ -44,11 +44,15 @@ typedef struct {
   int atEnd;
   // If set to 1, we exit skips after the first hit found and not merge further results
   int quickExit;
+
+  double weight;
+
 } UnionContext;
 
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit);
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
+                                double weight);
 RSIndexResult *UI_Current(void *ctx);
 int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 int UI_Next(void *ctx);
@@ -77,6 +81,7 @@ typedef struct {
   DocTable *docTable;
   t_fieldMask fieldMask;
   int atEnd;
+  double weight;
 } IntersectContext;
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
@@ -84,7 +89,7 @@ typedef struct {
  * maxSlop is set and inOrder is 1, we assert that the terms are in
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, t_fieldMask fieldMask,
-                                   int maxSlop, int inOrder);
+                                   int maxSlop, int inOrder, double weight);
 
 int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
 int II_Next(void *ctx);
@@ -102,11 +107,12 @@ typedef struct {
   t_docId lastDocId;
   t_docId maxDocId;
   size_t len;
+  double weight;
 } NotContext;
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId);
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
 typedef struct {
   IndexIterator *child;
@@ -115,11 +121,11 @@ typedef struct {
   t_fieldMask fieldMask;
   t_docId lastDocId;
   t_docId maxDocId;
-
+  double weight;
 } OptionalMatchContext;
 
 /* Create a NOT iterator by wrapping another index iterator */
-IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId);
+IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
 /* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only
  * - purely negative queries. If the root of the query is a negative expression, we cannot process

@@ -155,7 +155,7 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
                                    ConcurrentSearchCtx *csx, RedisModuleKey *k,
-                                   RedisModuleString *keyName) {
+                                   RedisModuleString *keyName, double weight) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv) {
@@ -166,7 +166,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
 
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
 
-  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, t);
+  IndexReader *r = NewTermIndexReader(iv, dt, RS_FIELDMASK_ALL, t, weight);
   if (!r) {
     return NULL;
   }

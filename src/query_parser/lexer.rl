@@ -28,6 +28,8 @@ rp = ')';
 lb = '{';
 rb = '}';
 colon = ':';
+semicolon = ';';
+arrow = '=>';
 minus = '-';
 tilde = '~';
 star = '*';
@@ -38,6 +40,7 @@ escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
 prefix = term.star $1;
 mod = '@'.term $ 1;
+attr = '$'.term $ 1;
 
 main := |*
 
@@ -62,11 +65,28 @@ main := |*
       fbreak;
     }
   };
+  attr => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1);
+    tok.s = ts+1;
+    RSQuery_Parse(pParser, ATTRIBUTE, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
+  arrow => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts+1;
+    RSQuery_Parse(pParser, ARROW, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
   inf => { 
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
-    
     tok.numval = *ts == '-' ? -INFINITY : INFINITY;
     RSQuery_Parse(pParser, NUMBER, tok, q);
     if (!q->ok) {
@@ -123,7 +143,13 @@ main := |*
       fbreak;
     }
    };
-  
+    semicolon => { 
+     tok.pos = ts-q->raw;
+     RSQuery_Parse(pParser, SEMICOLON, tok, q);
+     if (!q->ok) {
+      fbreak;
+    }
+   };
 
   minus =>  { 
     tok.pos = ts-q->raw;
@@ -178,7 +204,7 @@ main := |*
       fbreak;
     }
   };
-    prefix => {
+  prefix => {
     tok.len = te-ts - 1;
     tok.s = ts;
     tok.numval = 0;
@@ -215,11 +241,14 @@ QueryNode *Query_Parse(QueryParseCtx *q, char **err) {
   
   %% write exec;
   
-
   if (q->ok) {
     RSQuery_Parse(pParser, 0, tok, q);
-  }
+  } 
   RSQuery_ParseFree(pParser, free);
+  if(!q->ok && q->root) {
+    QueryNode_Free(q->root);
+    q->root = NULL;
+  }
   if (err) {
     *err = q->errorMsg;
   }

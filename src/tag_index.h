@@ -107,7 +107,7 @@ size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId);
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
                                    ConcurrentSearchCtx *csx, RedisModuleKey *k,
-                                   RedisModuleString *keyName);
+                                   RedisModuleString *keyName, double weight);
 
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,

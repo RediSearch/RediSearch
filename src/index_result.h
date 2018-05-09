@@ -21,17 +21,17 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->agg.typeMask = 0;
 }
 /* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap);
+RSIndexResult *NewIntersectResult(size_t cap, double weight);
 
 /* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap);
+RSIndexResult *NewUnionResult(size_t cap, double weight);
 
-RSIndexResult *NewVirtualResult();
+RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
 /* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term);
+RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
 /* Append a child to an aggregate result */
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {

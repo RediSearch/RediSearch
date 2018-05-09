@@ -26,16 +26,16 @@
 double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 
   if (r->type == RSResultType_Term) {
-    return ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
+    return r->weight * ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     double ret = 0;
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += tfidfRecursive(r->agg.children[i], dmd);
     }
-    return ret;
+    return r->weight * ret;
   }
-  return (double)r->freq;
+  return r->weight * (double)r->freq;
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
@@ -95,10 +95,10 @@ static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocum
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += bm25Recursive(ctx, r->agg.children[i], dmd);
     }
-    return ret;
+    return r->weight * ret;
   }
   // default for virtual type -just disregard the idf
-  return r->freq ? f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen)) : 0;
+  return r->weight * (r->freq ? f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen)) : 0);
 }
 
 /* BM25 scoring function */
@@ -152,7 +152,7 @@ double _dismaxRecursive(RSIndexResult *r) {
       }
       break;
   }
-  return ret;
+  return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,

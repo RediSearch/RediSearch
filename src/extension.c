@@ -131,7 +131,8 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
   /* Replace current node with a new union node if needed */
   if (qn->type != QN_UNION) {
     QueryNode *un = NewUnionNode();
-    un->fieldMask = qn->fieldMask;
+
+    un->opts.fieldMask = qn->opts.fieldMask;
 
     /* Append current node to the new union node as a child */
     QueryUnionNode_AddChild(un, qn);
@@ -139,7 +140,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
-  exp->fieldMask = qn->fieldMask;
+  exp->opts.fieldMask = qn->opts.fieldMask;
   /* Now the current node must be a union node - so we just add a new token node to it */
   QueryUnionNode_AddChild(*ctx->currentNode, exp);
   // q->numTokens++;

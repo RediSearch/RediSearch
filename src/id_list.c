@@ -115,7 +115,7 @@ void IL_Rewind(void *p) {
   il->offset = 0;
 }
 
-IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
+IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
@@ -127,7 +127,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
   it->atEOF = 0;
   it->lastDocId = 0;
-  it->res = NewVirtualResult();
+  it->res = NewVirtualResult(weight);
   it->res->fieldMask = RS_FIELDMASK_ALL;
 
   it->offset = 0;

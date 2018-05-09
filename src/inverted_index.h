@@ -92,6 +92,9 @@ typedef struct indexReadCtx {
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
+
+  /* boosting weight */
+  double weight;
 } IndexReader;
 
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);
@@ -121,12 +124,12 @@ IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 /* Create a new index reader on an inverted index buffer,
-* optionally with a skip index, docTable and scoreIndex.
-* If singleWordMode is set to 1, we ignore the skip index and use the score
-* index.
-*/
+ * optionally with a skip index, docTable and scoreIndex.
+ * If singleWordMode is set to 1, we ignore the skip index and use the score
+ * index.
+ */
 IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                                RSQueryTerm *term);
+                                RSQueryTerm *term, double weight);
 
 /* free an index reader */
 void IR_Free(IndexReader *ir);

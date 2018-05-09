@@ -35,6 +35,6 @@ int GeoFilter_IsValid(GeoFilter *f, char **err);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf);
+IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf, double weight);
 
 #endif

@@ -18,7 +18,7 @@ typedef struct indexIterator {
   RSIndexResult *(*Current)(void *ctx);
 
   /* Read the next entry from the iterator, into hit *e.
-  *  Returns INDEXREAD_EOF if at the end */
+   *  Returns INDEXREAD_EOF if at the end */
   int (*Read)(void *ctx, RSIndexResult **e);
 
   /* Skip to a docid, potentially reading the entry into hit, if the docId
