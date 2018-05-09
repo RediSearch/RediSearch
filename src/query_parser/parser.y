@@ -10,6 +10,7 @@
 %left TERMLIST.
 %left TERM. 
 %left PREFIX.
+%left PERCENT.
 %left ATTRIBUTE.
 %right LP.
 %left RP.
@@ -223,14 +224,6 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
 }
 
 
-    // expr(A) ::= modifier(B) COLON TERM(C). [MODIFIER]  {
-
-    //     A = NewTokenNode(ctx, strdupcase(C.s, C.len), -1);
-    //     if (ctx->sctx->spec) {
-    //         A->opts.fieldMask = IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len); 
-    //     }
-    // }
-
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
     
     if (C == NULL) {
@@ -367,6 +360,16 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewPrefixNode(ctx, B.s, strlen(B.s));
 }
+
+/////////////////////////////////////////////////////////////////
+// Fuzzy terms
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::=  PERCENT TERM(B) PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+}
+
 
 /////////////////////////////////////////////////////////////////
 // Field Modidiers

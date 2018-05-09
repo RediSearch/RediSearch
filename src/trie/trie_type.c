@@ -112,14 +112,14 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
-TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist) {
+TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes(prefix, &rlen);
+  rune *runes = strToFoldedRunes((char *)prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     return NULL;
   }
   DFAFilter *fc = malloc(sizeof(*fc));
-  *fc = NewDFAFilter(runes, rlen, maxDist, 1);
+  *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
   free(runes);
