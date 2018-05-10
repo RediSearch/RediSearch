@@ -23,27 +23,67 @@ DocTable NewDocTable(size_t cap, size_t maxSize) {
                     .dim = NewDocIdMap()};
 }
 
-/* Get the metadata for a doc Id from the DocTable.
- *  If docId is not inside the table, we return NULL */
-inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
-  if (docId == 0 || docId > t->maxDocId) {
+static inline uint32_t DocTable_GetBucket(DocTable *t, t_docId docId) {
+  return docId < t->maxSize ? docId : docId % t->maxSize;
+}
+
+static inline int DocTable_ValidateDocId(DocTable *t, t_docId docId) {
+  return docId == 0 || docId > t->maxDocId;
+}
+
+static inline RSDocumentMetadata *DocTable_GetBucketAndOffset(DocTable *t, t_docId docId,
+                                                              uint32_t *retBucket,
+                                                              uint16_t *retOffset) {
+  uint32_t bucket;
+  uint32_t *bucketPtr = &bucket;
+  uint16_t offset;
+  uint16_t *offsetPtr = &offset;
+  if (retBucket) {
+    bucketPtr = retBucket;
+  }
+  if (retOffset) {
+    offsetPtr = retOffset;
+  }
+  if (DocTable_ValidateDocId(t, docId)) {
     return NULL;
   }
-  t_docId bucket = docId < t->maxSize ? docId : docId % t->maxSize;
 
-  DMDArray *arr = t->buckets[bucket];
+  *bucketPtr = DocTable_GetBucket(t, docId);
+  assert(*bucketPtr < t->cap);
+
+  DMDArray *arr = t->buckets[*bucketPtr];
   if (!arr) return NULL;
-  for (uint16_t i = 0; i < arr->len; i++) {
-    if (arr->docs[i].id == docId) {
-      return &arr->docs[i];
+  for (*offsetPtr = 0; *offsetPtr < arr->len; (*offsetPtr)++) {
+    if (arr->docs[*offsetPtr].id == docId) {
+      return &arr->docs[*offsetPtr];
     }
   }
   return NULL;
 }
 
+static void inline DocTable_Remove(DocTable *t, uint32_t bucket, uint16_t offset) {
+  assert(t->cap > bucket);
+  assert(t->buckets[bucket]);
+  assert(t->buckets[bucket]->len > offset);
+  if (t->buckets[bucket]->len == 1) {
+    // last element, we should remove the whole bucket
+    rm_free(t->buckets[bucket]);
+    t->buckets[bucket] = NULL;
+    return;
+  }
+  // replace the removed doc with the last document and decreas the len by one
+  t->buckets[bucket]->docs[offset] = t->buckets[bucket]->docs[(t->buckets[bucket]->len--) - 1];
+}
+
+/* Get the metadata for a doc Id from the DocTable.
+ *  If docId is not inside the table, we return NULL */
+inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
+  return DocTable_GetBucketAndOffset(t, docId, NULL, NULL);
+}
+
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata dmd) {
-  t_docId bucket = docId < t->maxSize ? docId : docId % t->maxSize;
-  if (bucket >= t->cap) {
+  uint32_t bucket = DocTable_GetBucket(t, docId);
+  if (bucket >= t->cap && t->cap < t->maxSize) {
     size_t oldcap = t->cap;
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
     t->cap = MIN(t->cap, t->maxSize);
@@ -59,16 +99,10 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata d
     arr->cap = 1;
     arr->len = 0;
   } else if (arr->len == arr->cap) {
-    // if (arr->cap == 0xffff) {
-
-    // }
+    // todo: if(arr->cap == 0xffff) panic!!!, we can not overcome this error
     arr->cap += 1;
     arr = rm_realloc(arr, sizeof(DMDArray) + sizeof(RSDocumentMetadata) * arr->cap);
-    // printf("Increased bucket size to %zd\n", arr->cap);
   }
-  // printf("arr len %d/%d max size %zd, size %zd, cap %zd\n", arr->len, arr->cap, t->maxSize,
-  // t->size,
-  //        t->cap);
   arr->docs[arr->len++] = dmd;
   t->buckets[bucket] = arr;
 }
@@ -225,75 +259,95 @@ void dmd_free(RSDocumentMetadata *md) {
   }
   sdsfree(md->keyPtr);
 }
+
 void DocTable_Free(DocTable *t) {
-  // we start at docId 1, not 0
-  // for (int i = 1; i < t->size; i++) {
-  //   dmd_free(&t->docs[i]);
-  // }
-  // if (t->docs) {
-  //   rm_free(t->docs);
-  // }
+  for (int i = 0; i < t->cap; ++i) {
+    DMDArray *arr = t->buckets[i];
+    if (!arr) {
+      continue;
+    }
+    for (int j = 0; j < arr->len; ++j) {
+      dmd_free(&arr->docs[j]);
+    }
+    rm_free(arr);
+  }
+  rm_free(t->buckets);
   DocIdMap_Free(&t->dim);
 }
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key) {
-  return 1;
-  // t_docId docId = DocIdMap_Get(&t->dim, key);
-  // if (docId && docId <= t->maxDocId) {
+  t_docId docId = DocIdMap_Get(&t->dim, key);
+  if (docId && docId <= t->maxDocId) {
 
-  //   RSDocumentMetadata *md = &t->docs[docId];
-  //   if (md->payload) {
-  //     rm_free(md->payload->data);
-  //     rm_free(md->payload);
-  //     md->payload = NULL;
-  //   }
+    uint32_t bucket;
+    uint16_t offset;
+    RSDocumentMetadata *md = DocTable_GetBucketAndOffset(t, docId, &bucket, &offset);
+    assert(md);
+    if (md->payload) {
+      rm_free(md->payload->data);
+      rm_free(md->payload);
+      md->payload = NULL;
+    }
+    // todo: check if there are additional memory that need to be free on the RSDocumentMetadata
 
-  //   md->flags |= Document_Deleted;
-  //   return DocIdMap_Delete(&t->dim, key);
-  // }
-  // return 0;
+    // todo: the deleted flag is no longer needed
+    md->flags |= Document_Deleted;
+
+    int ret_val = DocIdMap_Delete(&t->dim, key);
+    DocTable_Remove(t, bucket, offset);
+    --t->size;
+    return ret_val;
+  }
+  return 0;
 }
 
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
-  // RedisModule_SaveUnsigned(rdb, t->size);
-  // RedisModule_SaveUnsigned(rdb, t->maxDocId);
-  // for (int i = 1; i < t->size; i++) {
-  //   const RSDocumentMetadata *dmd = t->docs + i;
+  RedisModule_SaveUnsigned(rdb, t->size);
+  RedisModule_SaveUnsigned(rdb, t->maxSize);
+  RedisModule_SaveUnsigned(rdb, t->maxDocId);
 
-  //   RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
-  //   RedisModule_SaveUnsigned(rdb, dmd->flags);
-  //   RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
-  //   RedisModule_SaveUnsigned(rdb, dmd->len);
-  //   RedisModule_SaveFloat(rdb, dmd->score);
-  //   if (dmd->flags & Document_HasPayload && dmd->payload) {
-  //     // save an extra space for the null terminator to make the payload null terminated on load
-  //     RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
-  //   }
+  uint32_t elements_written = 0;
+  for (uint32_t i = 0; i < t->cap; ++i) {
+    if (!t->buckets[i]) {
+      continue;
+    }
+    for (uint16_t j = 0; j < t->buckets[i]->len; ++j) {
+      const RSDocumentMetadata *dmd = &t->buckets[i]->docs[j];
 
-  //   if (dmd->flags & Document_HasSortVector) {
-  //     SortingVector_RdbSave(rdb, dmd->sortVector);
-  //   }
+      RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
+      RedisModule_SaveUnsigned(rdb, dmd->id);
+      RedisModule_SaveUnsigned(rdb, dmd->flags);
+      RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
+      RedisModule_SaveUnsigned(rdb, dmd->len);
+      RedisModule_SaveFloat(rdb, dmd->score);
+      if (dmd->flags & Document_HasPayload && dmd->payload) {
+        // save an extra space for the null terminator to make the payload null terminated on
+        RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
+      }
 
-  //   if (dmd->flags & Document_HasOffsetVector) {
-  //     Buffer tmp;
-  //     Buffer_Init(&tmp, 16);
-  //     RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
-  //     RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
-  //     Buffer_Free(&tmp);
-  //   }
-  // }
+      if (dmd->flags & Document_HasSortVector) {
+        SortingVector_RdbSave(rdb, dmd->sortVector);
+      }
+
+      if (dmd->flags & Document_HasOffsetVector) {
+        Buffer tmp;
+        Buffer_Init(&tmp, 16);
+        RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
+        RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
+        Buffer_Free(&tmp);
+      }
+      ++elements_written;
+    }
+  }
+  assert(elements_written + 1 == t->size);
 }
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
-  size_t sz = RedisModule_LoadUnsigned(rdb);
+  t->size = RedisModule_LoadUnsigned(rdb);
+  t->maxSize = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
 
-  // if (sz > t->cap) {
-  //   t->cap = sz;
-  //   t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDArray));
-  // }
-  t->size = sz;
-  for (size_t i = 1; i < sz; i++) {
+  for (size_t i = 1; i < t->size; i++) {
     size_t len;
 
     RSDocumentMetadata dmd = (RSDocumentMetadata){0};
@@ -302,7 +356,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       // Previous versions would encode the NUL byte
       len--;
     }
-    dmd.id = i;
+    dmd.id = encver <= INDEX_MAX_VERSION_WITH_OLD_DOC_TABLE ? i : RedisModule_LoadUnsigned(rdb);
     dmd.keyPtr = sdsnewlen(tmpPtr, len);
     rm_free(tmpPtr);
 
