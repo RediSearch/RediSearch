@@ -106,7 +106,7 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 ## Fuzzy Matching 
 
-The dictionary of all terms in the index can also be used to perform [Fuzzy Matchin]{https://en.wikipedia.org/wiki/Approximate_string_matching}. Fuzzy matches is performed base [levenshtein distance]{https://en.wikipedia.org/wiki/Levenshtein_distance}. Fuzzy Matchin on a term is perfomed by surounding the term with '%'. For example:
+The dictionary of all terms in the index can also be used to perform [Fuzzy Matchin](https://en.wikipedia.org/wiki/Approximate_string_matching). Fuzzy matches is performed base on [levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance). Fuzzy Matchin on a term is perfomed by surrounding the term with '%'. For example:
 
 ```
 %hello% world
