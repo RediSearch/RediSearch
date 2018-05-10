@@ -457,10 +457,16 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
     DocTable *dt = &ctx->spec->docs;
 
-    // for (size_t i = 1; i < dt->size; i++) {
-    //   const RSDocumentMetadata *dmd = dt->docs + i;
-    //   Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
-    // }
+    for (size_t i = 1; i < dt->cap; ++i) {
+      DMDArray *arr = dt->buckets[i];
+      if (!arr) {
+        continue;
+      }
+      for (int j = 0; j < arr->len; ++j) {
+        const RSDocumentMetadata *dmd = &arr->docs[j];
+        Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
+      }
+    }
   }
 
   // Delete any dangling term keys
