@@ -367,7 +367,7 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 
 expr(A) ::=  PERCENT TERM(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 
