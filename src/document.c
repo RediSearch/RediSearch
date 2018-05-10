@@ -481,20 +481,23 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
       DocTable_Get(&sctx->spec->docs, DocTable_GetId(&sctx->spec->docs, MakeDocKeyR(doc.docKey)));
 
   // Make sure the field list only includes fields which are not already in the sorting vector
-  size_t n = 0;
+  size_t loadFields = 0;
   if (md && md->sortVector) {
     // If a field is in the sorting vector, we simply skip it. n is the total fields not in the
     // sorting vector
     for (size_t i = 0; i < array_len(fields); i++) {
       if (RSSortingTable_GetFieldIdx(sctx->spec->sortables, fields[i]) == -1) {
-        fields[n++] = fields[i];
+        fields[loadFields++] = fields[i];
       }
     }
+  } else {
+    // If we don't have a sorting vector - we need to load all the fields.
+    loadFields = array_len(fields);
   }
 
-  // n > 0 means that some fields needed are not sortable and should be loaded from the hash
-  if (n > 0) {
-    if (Redis_LoadDocumentEx(sctx, key, fields, n, &doc, NULL) == REDISMODULE_ERR) {
+  // loadFields > 0 means that some fields needed are not sortable and should be loaded from hash
+  if (loadFields > 0) {
+    if (Redis_LoadDocumentEx(sctx, key, fields, loadFields, &doc, NULL) == REDISMODULE_ERR) {
       SET_ERR(err, "Could not load document");
       array_free(fields);
       return REDISMODULE_ERR;
@@ -516,7 +519,6 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   // All this is needed to eval the expression
   RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();
   fctx->res = &res;
-
   RSExprEvalCtx evctx = (RSExprEvalCtx){
       .r = &res,
       .sortables = sctx ? (sctx->spec ? sctx->spec->sortables : NULL) : NULL,
@@ -525,15 +527,15 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RSValue out = RSVALUE_STATIC;
   int rc = REDISMODULE_OK;
 
-  // now actually eval the expression
+  // Now actually eval the expression
   if (EXPR_EVAL_ERR == RSExpr_Eval(&evctx, e, &out, err)) {
     rc = REDISMODULE_ERR;
   } else {
-    // the result is the boolean value of the expression's output
+    // The result is the boolean value of the expression's output
     *result = RSValue_BoolTest(&out);
   }
 
-  // cleanup
+  // Cleanup
   array_free(fields);
   RSFunctionEvalCtx_Free(fctx);
   RSFieldMap_Free(fm, 0);
