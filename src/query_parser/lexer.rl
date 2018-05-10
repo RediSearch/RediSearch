@@ -33,6 +33,7 @@ arrow = '=>';
 minus = '-';
 tilde = '~';
 star = '*';
+percent = '%';
 rsqb = ']';
 lsqb = '[';
 escape = '\\';
@@ -115,6 +116,7 @@ main := |*
       fbreak;
     }
   };
+
   rp => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RP, tok, q);
@@ -172,6 +174,13 @@ main := |*
       fbreak;
     }
   };
+   percent => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, PERCENT, tok, q);
+    if (!q->ok) {
+      fbreak;
+    }
+  };
   lsqb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -216,6 +225,7 @@ main := |*
       fbreak;
     }
   };
+
   
 *|;
 }%%

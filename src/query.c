@@ -88,9 +88,13 @@ void QueryNode_Free(QueryNode *n) {
       if (n->gn.gf) {
         GeoFilter_Free(n->gn.gf);
       }
-
+      break;
+    case QN_FUZZY:
+      QueryTokenNode_Free(&n->fz.tok);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
+
       break;
 
     case QN_TAG:
@@ -140,6 +144,23 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
   q->numTokens++;
 
   ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist) {
+  QueryNode *ret = NewQueryNode(QN_FUZZY);
+  q->numTokens++;
+
+  ret->fz = (QueryFuzzyNode){
+      .tok =
+          (RSToken){
+              .str = (char *)s,
+              .len = len,
+              .expanded = 0,
+              .flags = 0,
+          },
+      .maxDist = maxDist,
+  };
   return ret;
 }
 
@@ -295,22 +316,10 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewReadIterator(ir);
 }
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
- * of them */
-static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_PREFX) {
-    return NULL;
-  }
-
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
-    return NULL;
-  }
-  Trie *terms = q->sctx->spec->terms;
-
-  if (!terms) return NULL;
-
-  TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
+static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
+                                           size_t len, int maxDist, int prefixMode,
+                                           QueryNodeOptions *opts) {
+  TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -333,11 +342,15 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
+    if (q->sctx && q->sctx->redisCtx) {
+      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
+    }
+
     RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->opts->fieldMask & qn->opts.fieldMask, q->conc, 1);
+                                       q->opts->fieldMask & opts->fieldMask, q->conc, 1);
 
     free(tok.str);
     if (!ir) {
@@ -361,7 +374,32 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 1, qn->opts.weight);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
+}
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+ * of them */
+static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
+  assert(qn->type == QN_PREFX);
+
+  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
+    return NULL;
+  }
+  Trie *terms = q->sctx->spec->terms;
+
+  if (!terms) return NULL;
+
+  return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
+}
+
+static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
+  assert(qn->type == QN_FUZZY);
+
+  Trie *terms = q->sctx->spec->terms;
+
+  if (!terms) return NULL;
+
+  return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, qn->fz.maxDist, 0, &qn->opts);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -630,6 +668,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalNotNode(q, n);
     case QN_PREFX:
       return Query_EvalPrefixNode(q, n);
+    case QN_FUZZY:
+      return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
       return Query_EvalNumericNode(q, &n->nn);
     case QN_OPTIONAL:
@@ -849,6 +889,9 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
       s = sdscat(s, "<WILDCARD>");
       break;
+    case QN_FUZZY:
+      s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
+      return s;
   }
 
   s = sdscat(s, "}");

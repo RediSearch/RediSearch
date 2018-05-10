@@ -39,7 +39,10 @@ typedef enum {
   QN_WILDCARD,
 
   /* Tag node, a list of tags for a specific tag field */
-  QN_TAG
+  QN_TAG,
+
+  /* Fuzzy term - expand with levenshtein distance */
+  QN_FUZZY,
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -79,6 +82,11 @@ typedef struct {
 typedef RSToken QueryTokenNode;
 
 typedef RSToken QueryPrefixNode;
+
+typedef struct {
+  RSToken tok;
+  int maxDist;
+} QueryFuzzyNode;
 
 typedef struct {
 } QueryWildcardNode;
@@ -134,6 +142,7 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryWildcardNode wc;
     QueryTagNode tag;
+    QueryFuzzyNode fz;
   };
 
   /* The node type, for resolving the union access */

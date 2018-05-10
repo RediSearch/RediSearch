@@ -37,9 +37,10 @@ void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize);
 
-/* Iterate a prefix in the trie, using maxDist edit distance, returning a trie iterator that the
- * caller needs to free */
-TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist);
+/* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the
+ * caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
+ * Otherwise we return an iterator to all strings within maxDist Levenshtein distance */
+TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode);
 
 /* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
  * trie is empty and we cannot do that */
