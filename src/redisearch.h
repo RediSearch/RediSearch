@@ -74,6 +74,8 @@ typedef struct {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
+
+  t_docId id;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
