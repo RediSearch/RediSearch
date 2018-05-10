@@ -231,6 +231,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
 
+int Document_EvalExpression(RedisSearchCtx *sctx, Document *doc, const char *expr);
 /**
  * Load a single document
  * fields is an array of fields to load from a document.

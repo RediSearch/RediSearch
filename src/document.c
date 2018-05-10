@@ -173,6 +173,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 #define SELF_EXEC_THRESHOLD 1024
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+
 static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Handle partial update of fields
   if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
@@ -452,6 +453,43 @@ cleanup:
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
+}
+
+#include "aggregate/expr/expression.h"
+int Document_EvalTestExpression(RedisSearchCtx *sctx, Document *doc, const char *expr, int *result,
+                                char **err) {
+  RSExpr *e = RSExpr_Parse(expr, strlen(expr), err);
+  if (!e) {
+    return REDISMODULE_ERR;
+  }
+
+  RSFieldMap *fields = RS_NewFieldMap(doc->numFields);
+  for (int i = 0; i < doc->numFields; i++) {
+    RSFieldMap_Add(&fields, doc->fields[i].name, RS_RedisStringVal(doc->fields[i].text));
+  }
+  SearchResult res = (SearchResult){
+      .docId = doc->docId,
+      .fields = fields,
+  };
+
+  RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();
+  fctx->res = &res;
+
+  RSExprEvalCtx evctx = (RSExprEvalCtx){
+      .r = &res,
+      .sortables = sctx ? (sctx->spec ? sctx->spec->sortables : NULL) : NULL,
+      .fctx = fctx,
+  };
+  RSValue out = RSVALUE_STATIC;
+  if (EXPR_EVAL_ERR == RSExpr_Eval(&evctx, e, &out, err)) {
+    return REDISMODULE_ERR;
+  }
+
+  *result = RSValue_BoolTest(&out);
+  RSFunctionEvalCtx_Free(fctx);
+  RSFieldMap_Free(fields, 0);
+  RSExpr_Free(e);
+  return REDISMODULE_OK;
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
