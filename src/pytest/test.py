@@ -26,6 +26,23 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                 self.assertExists(r, prefix + ':idx/world')
                 self.assertExists(r, prefix + ':idx/lorem')
 
+    def testConditionalUpdate(self):
+        self.client.flushdb()
+        self.assertOk(self.cmd(
+            'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
+        self.assertOk(self.cmd('ft.add', 'idx', '1', '1',
+                               'fields', 'foo', 'hello', 'bar', '123'))
+        self.assertOk(self.cmd('ft.add', 'idx', '1', '1', 'replace', 'if',
+                               '@foo == "hello"', 'fields', 'foo', 'world', 'bar', '123'))
+        self.assertEqual('NOADD', self.cmd('ft.add', 'idx', '1', '1', 'replace',
+                                           'if', '@foo == "hello"', 'fields', 'foo', 'world', 'bar', '123'))
+        self.assertEqual('NOADD', self.cmd('ft.add', 'idx', '1', '1', 'replace',
+                                           'if', '1 == 2', 'fields', 'foo', 'world', 'bar', '123'))
+        self.assertOk(self.cmd('ft.add', 'idx', '1', '1', 'replace', 'partial', 'if',
+                               '@foo == "world"', 'fields', 'bar', '234'))
+        self.assertOk(self.cmd('ft.add', 'idx', '1', '1', 'replace', 'if',
+                               '@bar == 234', 'fields', 'foo', 'hello', 'bar', '123'))
+
     def testUnionIdList(self):
         """
         Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306

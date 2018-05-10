@@ -86,6 +86,7 @@ FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
+  [IF {condition}]
   FIELDS {field} {value} [{field} {value}...]
 ```
 
@@ -117,6 +118,14 @@ ete an older version of the document if it exists.
 - **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
+- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
+  Update the document only if a boolean expression applies to the document **before the update**, 
+  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234". 
+
+  The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
+
+  See [Aggregations](/Aggregations) for more details on the expression language. 
+
 - **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
@@ -146,6 +155,8 @@ O(n), where n is the number of tokens in the document
 ### Returns
 
 OK on success, or an error if something went wrong.
+
+A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 !!! warning "FT.ADD with  REPLACE and PARTIAL"
         

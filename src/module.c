@@ -61,10 +61,8 @@ static int CheckConcurrentSupport(RedisModuleCtx *ctx) {
 }
 
 /*
-## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [LANGUAGE <lang>] [PAYLOAD {payload}] FIELDS
-<field>
-<text> ....]
-Add a documet to the index.
+## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
+[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
 
 ## Parameters:
 
@@ -105,7 +103,8 @@ English.
    > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
 
-Returns OK on success, or an error if something went wrong.
+Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
+true or an error if something went wrong.
 */
 static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
   int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
@@ -160,14 +159,37 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
+  RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+
+  // Parse optional IF "expr" flag before FIELDS
+  const char *expr = NULL;
+  if (RMUtil_ParseArgsAfter("IF", argv, fieldsIdx, "c", &expr) == REDISMODULE_OK) {
+    char *err = NULL;
+    int res = 0;
+    if (Document_EvalExpression(&sctx, argv[2], expr, &res, &err) == REDISMODULE_OK) {
+      if (res == 0) {
+        RedisModule_ReplyWithSimpleString(ctx, "NOADD");
+        goto cleanup;
+      }
+    } else {
+      char buf[1024];
+      snprintf(buf, sizeof(buf), "Could not evaluate IF expression: %s", err);
+      RedisModule_ReplyWithError(ctx, buf);
+      ERR_FREE(err);
+      goto cleanup;
+    }
+  }
 
   Document doc;
+
   Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
   if (!Document_CanAdd(&doc, sp, replace)) {
     Document_FreeDetached(&doc, ctx);
     RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
   }
+
+  // If the document contains an IF expression, try to evaluate it now
   if (!nosave) {
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
     if (Redis_SaveDocument(&sctx, &doc) != REDISMODULE_OK) {
@@ -196,7 +218,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (nosave) {
     options |= DOCUMENT_ADD_NOSAVE;
   }
-  RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+
   if (!canBlock) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }

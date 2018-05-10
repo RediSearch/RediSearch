@@ -138,4 +138,11 @@ static void array_free(array_t arr) {
     }                                                 \
   })
 
+/* Pop the top element from the array, reduce the size and return it */
+#define array_pop(arr)               \
+  ({                                 \
+    assert(array_hdr(arr)->len > 0); \
+    arr[(array_hdr(arr)->len)--];    \
+  })
+
 #endif
