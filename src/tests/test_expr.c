@@ -2,6 +2,7 @@
 #include "time_sample.h"
 #include <aggregate/expr/expression.h>
 #include <aggregate/functions/function.h>
+#include <util/arr.h>
 
 int testExpr() {
 
@@ -36,6 +37,24 @@ int testParser() {
   ASSERT_EQUAL(EXPR_EVAL_OK, rc);
   ASSERT_EQUAL(RSValue_Number, val.t);
   RSValue_Print(&val);
+  RETURN_TEST_SUCCESS;
+}
+
+int testGetFields() {
+  char *e = "@foo + sqrt(@bar) / @baz + ' '";
+
+  char *err = NULL;
+  RSExpr *root = RSExpr_Parse(e, strlen(e), &err);
+  if (err != NULL) {
+    FAIL("Error parsing expression: %s", err);
+  }
+
+  const char **fields = Expr_GetRequiredFields(root);
+  ASSERT_EQUAL(3, array_len(fields));
+  ASSERT_STRING_EQ("foo", fields[0]);
+  ASSERT_STRING_EQ("bar", fields[1]);
+  ASSERT_STRING_EQ("baz", fields[2]);
+  array_free(fields);
   RETURN_TEST_SUCCESS;
 }
 
@@ -194,5 +213,6 @@ TEST_MAIN({
   TESTFUNC(testParser);
   TESTFUNC(testFunction);
   TESTFUNC(testPropertyFetch);
+  TESTFUNC(testGetFields);
 
 });

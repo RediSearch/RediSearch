@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include "expression.h"
 #include "result_processor.h"
+#include "util/arr.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
@@ -329,6 +330,40 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
       return evalPredicate(ctx, &e->pred, result, err);
   }
   return EXPR_EVAL_ERR;
+}
+
+void expr_GetFieldsInternal(RSExpr *expr, const char ***arr) {
+  if (!expr) {
+    return;
+  }
+  switch (expr->t) {
+    case RSExpr_Property:
+      *arr = array_append(*arr, expr->property.key);
+      break;
+    case RSExpr_Function:
+      for (size_t i = 0; i < expr->func.args->len; i++) {
+        expr_GetFieldsInternal(expr->func.args->args[i], arr);
+      }
+      break;
+    case RSExpr_Op:
+      expr_GetFieldsInternal(expr->op.left, arr);
+      expr_GetFieldsInternal(expr->op.right, arr);
+      break;
+    case RSExpr_Predicate:
+      expr_GetFieldsInternal(expr->pred.left, arr);
+      expr_GetFieldsInternal(expr->pred.right, arr);
+      break;
+    default:
+      break;
+  }
+}
+
+/* Return all the field names needed by the expression. Returns an array that should be freed with
+ * array_free */
+const char **Expr_GetRequiredFields(RSExpr *expr) {
+  const char **ret = array_new(const char *, 2);
+  expr_GetFieldsInternal(expr, &ret);
+  return ret;
 }
 
 /* Get the return type of an expression. In the case of a property we do not try to guess but

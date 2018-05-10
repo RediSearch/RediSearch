@@ -122,4 +122,8 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
  * just return String */
 RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl);
 
+/* Return all the field names needed by the expression. Returns an array that should be freed with
+ * array_free */
+const char **Expr_GetRequiredFields(RSExpr *expr);
+
 #endif

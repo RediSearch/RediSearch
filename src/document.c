@@ -15,6 +15,7 @@
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
+#include "aggregate/expr/expression.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -455,23 +456,64 @@ cleanup:
   return ourRv;
 }
 
-#include "aggregate/expr/expression.h"
-int Document_EvalTestExpression(RedisSearchCtx *sctx, Document *doc, const char *expr, int *result,
-                                char **err) {
+/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
+ * from the sorting table or from the hash representation of the document.
+ *
+ * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
+ * of it internally
+ *
+ * Returns  REDISMODULE_ERR on failure, OK otherwise*/
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+                            int *result, char **err) {
+
+  // Try to parser the expression first, fail if we can't
   RSExpr *e = RSExpr_Parse(expr, strlen(expr), err);
   if (!e) {
     return REDISMODULE_ERR;
   }
 
-  RSFieldMap *fields = RS_NewFieldMap(doc->numFields);
-  for (int i = 0; i < doc->numFields; i++) {
-    RSFieldMap_Add(&fields, doc->fields[i].name, RS_RedisStringVal(doc->fields[i].text));
-  }
-  SearchResult res = (SearchResult){
-      .docId = doc->docId,
-      .fields = fields,
-  };
+  // Get the fields needed to evaluate the expression, so we'll know what to load (if any)
+  const char **fields = Expr_GetRequiredFields(e);
 
+  Document doc = {.docKey = key};
+  // Get the metadata, which should include sortables
+  RSDocumentMetadata *md =
+      DocTable_Get(&sctx->spec->docs, DocTable_GetId(&sctx->spec->docs, MakeDocKeyR(doc.docKey)));
+
+  // Make sure the field list only includes fields which are not already in the sorting vector
+  size_t n = 0;
+  if (md && md->sortVector) {
+    // If a field is in the sorting vector, we simply skip it. n is the total fields not in the
+    // sorting vector
+    for (size_t i = 0; i < array_len(fields); i++) {
+      if (RSSortingTable_GetFieldIdx(sctx->spec->sortables, fields[i]) == -1) {
+        fields[n++] = fields[i];
+      }
+    }
+  }
+
+  // n > 0 means that some fields needed are not sortable and should be loaded from the hash
+  if (n > 0) {
+    if (Redis_LoadDocumentEx(sctx, key, fields, n, &doc, NULL) == REDISMODULE_ERR) {
+      SET_ERR(err, "Could not load document");
+      array_free(fields);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  // Create a field map from the document fields
+  RSFieldMap *fm = RS_NewFieldMap(doc.numFields);
+  for (int i = 0; i < doc.numFields; i++) {
+    RSFieldMap_Add(&fm, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
+  }
+
+  // create a mock search result
+  SearchResult res = (SearchResult){
+      .docId = doc.docId,
+      .fields = fm,
+      .md = md,
+  };
+  // All this is needed to eval the expression
   RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();
   fctx->res = &res;
 
@@ -481,15 +523,23 @@ int Document_EvalTestExpression(RedisSearchCtx *sctx, Document *doc, const char 
       .fctx = fctx,
   };
   RSValue out = RSVALUE_STATIC;
+  int rc = REDISMODULE_OK;
+
+  // now actually eval the expression
   if (EXPR_EVAL_ERR == RSExpr_Eval(&evctx, e, &out, err)) {
-    return REDISMODULE_ERR;
+    rc = REDISMODULE_ERR;
+  } else {
+    // the result is the boolean value of the expression's output
+    *result = RSValue_BoolTest(&out);
   }
 
-  *result = RSValue_BoolTest(&out);
+  // cleanup
+  array_free(fields);
   RSFunctionEvalCtx_Free(fctx);
-  RSFieldMap_Free(fields, 0);
+  RSFieldMap_Free(fm, 0);
   RSExpr_Free(e);
-  return REDISMODULE_OK;
+  Document_Free(&doc);
+  return rc;
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
