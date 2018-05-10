@@ -66,20 +66,29 @@ void DocIdMap_Free(DocIdMap *m);
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
  * same key. This may result in document duplication in results  */
+
+typedef struct {
+  uint16_t len;
+  uint16_t cap;
+  RSDocumentMetadata docs[];
+} DMDArray;
+
 typedef struct {
   size_t size;
+  // the maximum size this table is allowed to grow to
+  size_t maxSize;
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
   size_t sortablesSize;
 
-  RSDocumentMetadata *docs;
+  DMDArray **buckets;
   DocIdMap dim;
 
 } DocTable;
 
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap);
+DocTable NewDocTable(size_t cap, size_t maxSize);
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
