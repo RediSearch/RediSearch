@@ -27,12 +27,13 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
                                           double weight);
 
 /* Add a new block to the index with a given document id as the initial id */
-static void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+static IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
-  idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = 0, .numDocs = 0};
+  idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = firstId, .numDocs = 0};
   INDEX_LAST_BLOCK(idx).data = NewBuffer(INDEX_BLOCK_INITIAL_CAP);
+  return &INDEX_LAST_BLOCK(idx);
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
@@ -92,7 +93,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
     // reset the state of the reader
     t_docId lastId = ir->lastId;
     ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
-    ir->lastId = 0;
+    ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
@@ -100,15 +101,15 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   }
 }
 
-  /******************************************************************************
-   * Index Encoders Implementations.
-   *
-   * We have 9 distinct ways to encode the index records. Based on the index flags we select the
-   * correct encoder when writing to the index
-   *
-   ******************************************************************************/
+/******************************************************************************
+ * Index Encoders Implementations.
+ *
+ * We have 9 distinct ways to encode the index records. Based on the index flags we select the
+ * correct encoder when writing to the index
+ *
+ ******************************************************************************/
 
-#define ENCODER(f) static size_t f(BufferWriter *bw, t_docId delta, RSIndexResult *res)
+#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, RSIndexResult *res)
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
@@ -185,11 +186,11 @@ ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
 }
 
-  /**
-   * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
-   * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
-   * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
-   */
+/**
+ * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(1) -  Number{5,6,7,8}
+ * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
+ */
 
 #define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
@@ -393,24 +394,27 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // this can happen with duplicate tags for example
   if (idx->lastId && idx->lastId == docId) return 0;
 
+  t_docId delta = 0;
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // see if we need to grow the current block
   if (blk->numDocs >= INDEX_BLOCK_SIZE) {
-    InvertedIndex_AddBlock(idx, docId);
-    blk = &INDEX_LAST_BLOCK(idx);
+    blk = InvertedIndex_AddBlock(idx, docId);
+  } else if (blk->numDocs == 0) {
+    blk->firstId = blk->lastId = docId;
   }
 
-  // // this is needed on the first block
-  if (blk->firstId == 0) {
-    blk->firstId = docId;
+  delta = docId - blk->lastId;
+  if (delta > UINT32_MAX) {
+    blk = InvertedIndex_AddBlock(idx, docId);
+    delta = 0;
   }
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
   //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId,
   //  (int)idx->flags);
-  size_t ret = encoder(&bw, docId - blk->lastId, entry);
+  size_t ret = encoder(&bw, delta, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
@@ -456,40 +460,40 @@ int IR_HasNext(void *ctx) {
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
-  ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
+  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
-  /******************************************************************************
-   * Index Decoder Implementations.
-   *
-   * We have 9 distinct ways to decode the index records. Based on the index flags we select the
-   * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
-   * filtering, returning 1 if the record is ok or 0 if it is filtered.
-   *
-   * Term indexes can filter based on fieldMask, and
-   *
-   ******************************************************************************/
+/******************************************************************************
+ * Index Decoder Implementations.
+ *
+ * We have 9 distinct ways to decode the index records. Based on the index flags we select the
+ * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
+ * filtering, returning 1 if the record is ok or 0 if it is filtered.
+ *
+ * Term indexes can filter based on fieldMask, and
+ *
+ ******************************************************************************/
 
 #define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
 
 #define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx.num) != 0)
 
 DECODER(readFreqsFlags) {
-  qint_decode3(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask);
+  qint_decode3(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask);
   // qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
   CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFreqsFlagsWide) {
   uint32_t maskSz;
-  qint_decode(br, (uint32_t *)res, 2);
+  qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   res->fieldMask = ReadVarintFieldMask(br);
   CHECK_FLAGS(ctx, res);
 }
 
 DECODER(readFreqOffsetsFlags) {
-  // qint_decode(br, (uint32_t *)res, 4);
-  qint_decode4(br, &res->docId, &res->freq, (uint32_t *)&res->fieldMask, &res->offsetsSz);
+  qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
+               &res->offsetsSz);
 
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
@@ -497,10 +501,9 @@ DECODER(readFreqOffsetsFlags) {
 }
 
 DECODER(readFreqOffsetsFlagsWide) {
-  // qint_decode(br, (uint32_t *)res, 4);
   uint32_t maskSz;
 
-  qint_decode3(br, &res->docId, &res->freq, &res->offsetsSz);
+  qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
@@ -550,12 +553,12 @@ DECODER(readNumeric) {
 }
 
 DECODER(readFreqs) {
-  qint_decode(br, (uint32_t *)res, 2);
+  qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   return 1;
 }
 
 DECODER(readFlags) {
-  qint_decode2(br, &res->docId, (uint32_t *)&res->fieldMask);
+  qint_decode2(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask);
   CHECK_FLAGS(ctx, res);
 }
 
@@ -567,7 +570,7 @@ DECODER(readFlagsWide) {
 }
 
 DECODER(readFlagsOffsets) {
-  qint_decode3(br, &res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
+  qint_decode3(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
@@ -575,7 +578,7 @@ DECODER(readFlagsOffsets) {
 
 DECODER(readFlagsOffsetsWide) {
 
-  qint_decode2(br, &res->docId, &res->offsetsSz);
+  qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(br);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
 
@@ -584,14 +587,14 @@ DECODER(readFlagsOffsetsWide) {
 }
 
 DECODER(readOffsets) {
-  qint_decode2(br, &res->docId, &res->offsetsSz);
+  qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   return 1;
 }
 
 DECODER(readFreqsOffsets) {
-  qint_decode3(br, &res->docId, &res->freq, &res->offsetsSz);
+  qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
   Buffer_Skip(br, res->offsetsSz);
   return 1;
@@ -688,7 +691,10 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     int rv = ir->decoder(&ir->br, ir->decoderCtx, ir->record);
-    ir->lastId = ir->record->docId += ir->lastId;
+
+    // We write the docid as a 32 bit number when decoding it with qint.
+    ir->lastId = (*(uint32_t *)&ir->record->docId) += ir->lastId;
+
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
     if (!rv) {
@@ -748,7 +754,7 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   ir->currentBlock = i;
 
 found:
-  ir->lastId = 0;
+  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
   return 1;
 }
@@ -762,7 +768,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   IndexReader *ir = ctx;
 
   // printf("IR %s skipTo %d\n", ir->term->str, docId);
@@ -806,7 +812,6 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
                                           double weight) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
   ret->currentBlock = 0;
-  ret->lastId = 0;
   ret->idx = idx;
 
   ret->gcMarker = idx->gcMarker;
@@ -814,6 +819,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
   ret->len = 0;
   ret->atEnd = 0;
   ret->weight = weight;
+  ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
   ret->decoder = decoder;
   ret->decoderCtx = decoderCtx;
@@ -871,9 +877,9 @@ void IR_Rewind(void *ctx) {
   IndexReader *ir = ctx;
   ir->atEnd = 0;
   ir->currentBlock = 0;
-  ir->lastId = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
@@ -903,9 +909,11 @@ typedef struct {
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *bytesCollected) {
-  t_docId lastReadId = 0;
-  blk->lastId = 0;
+static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
+                             size_t *bytesCollected) {
+  t_docId lastReadId = blk->firstId;
+
+  blk->lastId = blk->firstId = 0;
   Buffer repair = *blk->data;
   repair.offset = 0;
 
@@ -923,11 +931,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
     fprintf(stderr, "Could not get decoder/encoder for index\n");
     return -1;
   }
+
   while (!BufferReader_AtEnd(&br)) {
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
-    lastReadId = res->docId += lastReadId;
+    res->docId = lastReadId = (*(uint32_t *)&res->docId) + lastReadId;
     RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
@@ -944,12 +953,19 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
 
         // In this case we are already closing holes, so we need to write back the record at the
         // writer's position. We also calculate the delta again
+        if (!blk->lastId) {
+          blk->lastId = res->docId;
+        }
         encoder(&bw, res->docId - blk->lastId, res);
 
       } else {
         // Nothing to do - this block is not fragmented as of now, so we just advance the writer
         bw.buf->offset += sz;
         bw.pos += sz;
+      }
+
+      if (blk->firstId == 0) {
+        blk->firstId = res->docId;
       }
       blk->lastId = res->docId;
     }
@@ -968,23 +984,24 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, size_t *b
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
                          size_t *bytesCollected, size_t *recordsRemoved) {
   int n = 0;
-
-  while (startBlock < idx->size && (num <= 0 || n < num)) {
+  for (; startBlock < idx->size && (num <= 0 || n < num); ++startBlock, ++n) {
+    IndexBlock *blk = idx->blocks + startBlock;
+    if (blk->lastId - blk->firstId > UINT32_MAX) {
+      // Skip over blocks which have a wide variation. In the future we might
+      // want to split a block into two (or more) on high-delta boundaries.
+      continue;
+    }
     int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, bytesCollected);
     // We couldn't repair the block - return 0
     if (repaired == -1) {
       return 0;
-    }
-
-    if (repaired > 0) {
+    } else if (repaired > 0) {
       // Record the number of records removed for gc stats
       *recordsRemoved += repaired;
 
       // Increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;
     }
-    n++;
-    startBlock++;
   }
 
   return startBlock < idx->size ? startBlock : 0;

@@ -101,7 +101,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
-typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, RSIndexResult *record);
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
@@ -149,7 +149,7 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
+int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 RSIndexResult *IR_Current(void *ctx);
 
