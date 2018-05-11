@@ -1180,6 +1180,7 @@ int testDeltaSplits() {
 
   IR_Free(ir);
   InvertedIndex_Free(idx);
+  RETURN_TEST_SUCCESS;
 }
 
 TEST_MAIN({
