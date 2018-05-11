@@ -412,8 +412,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  //  printf("Writing docId %d, delta %d, flags %x\n", docId, docId - idx->lastId,
-  //  (int)idx->flags);
+  // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, entry);
 
   idx->lastId = docId;
@@ -693,7 +692,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     int rv = ir->decoder(&ir->br, ir->decoderCtx, ir->record);
 
     // We write the docid as a 32 bit number when decoding it with qint.
-    ir->lastId = (*(uint32_t *)&ir->record->docId) += ir->lastId;
+    uint32_t delta = *(uint32_t *)&ir->record->docId;
+    ir->lastId = ir->record->docId = delta + ir->lastId;
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
