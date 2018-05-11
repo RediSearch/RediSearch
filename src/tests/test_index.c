@@ -1140,6 +1140,48 @@ int testVarintFieldMask() {
   }
   RETURN_TEST_SUCCESS;
 }
+
+int testDeltaSplits() {
+  InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
+  ForwardIndexEntry ent = {0};
+  ent.docId = 1;
+  ent.fieldMask = RS_FIELDMASK_ALL;
+
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 1);
+
+  ent.docId = 200;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 1);
+
+  ent.docId = 1LLU << 48;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 2);
+  ent.docId++;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 2);
+
+  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  RSIndexResult *h = NULL;
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL(1, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL(200, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL((1LLU << 48), h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL((1LLU << 48) + 1, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_EOF, IR_Read(ir, &h));
+
+  IR_Free(ir);
+  InvertedIndex_Free(idx);
+}
+
 TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
@@ -1170,4 +1212,5 @@ TEST_MAIN({
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
   TESTFUNC(testSortable);
+  TESTFUNC(testDeltaSplits);
 });
