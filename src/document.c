@@ -294,7 +294,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     uint32_t lastTokPos = 0;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
-      printf("got token %.*s\n", tok.tokLen, tok.tok);
       forwardIndexTokenFunc(&tokCtx, &tok);
       lastTokPos = newTokPos;
     }
