@@ -136,6 +136,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   }
 
   if (sp->smap) {
+    // we get a read only copy of the synonym map for accessing in the index thread with out worring
+    // about thready safe issues
     aCtx->fwIdx->smap = SynonymMap_GetReadOnlyCopy(sp->smap);
   } else {
     aCtx->fwIdx->smap = NULL;

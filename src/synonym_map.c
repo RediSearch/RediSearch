@@ -2,7 +2,7 @@
 #include "rmalloc.h"
 #include "util/fnv.h"
 
-#define INITIAL_CAPACITY 16
+#define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~"
 
 static const uint64_t calculate_hash(const char* str, size_t len) {

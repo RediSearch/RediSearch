@@ -794,3 +794,45 @@ Description
 This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. 
 
 ---
+
+## FT.SYNADD
+
+Format
+
+```
+FT.SYNADD <index name> <term1> <term2> ...
+```
+
+Description
+
+The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
+
+---
+
+## FT.SYNUPDATE
+
+Format
+
+```
+FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
+```
+
+Description
+
+The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
+
+---
+
+## FT.SYNUPDATE
+
+Format
+
+```
+FT.SYNDUMP <index name>
+```
+
+Description
+
+The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
+
+---

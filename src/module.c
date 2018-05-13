@@ -1399,6 +1399,13 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.SYNADD <index> <term1> <term2> ...
+ *
+ * Add a synonym group to the given index. The synonym data structure is compose of synonyms groups.
+ * Each Synonym group has a unique id. The SYNADD command creates a new synonym group with the given
+ * terms and return its id.
+ */
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);
 
@@ -1417,6 +1424,13 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.SYNUPDATE <index> <id> <term1> <term2> ...
+ *
+ * Update an already existing synonym group with the given terms.
+ * Its only to add new terms to a synonym group.
+ * return true on success.
+ */
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
 
@@ -1449,6 +1463,18 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.SYNDUMP <index>
+ *
+ * Dump the synonym data structure in the following format:
+ *    - term1
+ *        - id1
+ *        - id2
+ *    - term2
+ *        - id3
+ *    - term3
+ *        - id4
+ */
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 

@@ -81,9 +81,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry,
-      .Compare = khtCompare,
-      .Hash = khtHash,
+      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -227,12 +225,10 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   if (tokCtx->idx->smap) {
     TermData *t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
     if (t_data) {
-      printf("adding sysnonym on word %.*s\r\n", tokInfo->tokLen, tokInfo->tok);
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
       for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
-        printf("synonym added %.*s\r\n", synonym_len, synonym_buff);
         ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
                                  tokCtx->fieldScore, tokCtx->fieldId, 0, 1);
       }

@@ -254,7 +254,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
@@ -302,7 +302,7 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
 }
 
-void defaultExpanderFree(void *p) {
+void StemmerExpanderFree(void *p) {
   if (!p) {
     return;
   }
@@ -344,6 +344,21 @@ void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 void SynonymExpanderFree(void *p) {
 }
 
+/******************************************************************************************
+ *
+ * Default query expander
+ *
+ ******************************************************************************************/
+void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+  StemmerExpander(ctx, token);
+  SynonymExpand(ctx, token);
+}
+
+void DefaultExpanderFree(void *p) {
+  StemmerExpanderFree(p);
+  SynonymExpanderFree(p);
+}
+
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
@@ -381,13 +396,19 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
+  if (ctx->RegisterQueryExpander(STEMMER_EXPENDER_NAME, StemmerExpander, StemmerExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
   /* Synonyms expender */
   if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

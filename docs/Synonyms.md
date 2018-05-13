@@ -15,31 +15,10 @@ contains three groups, each group contains three synonym terms:
 When those three groups are located inside the synonym data structure, it is possible to search for 'child' and receive documents
 contains 'boy', 'girl', 'child' and 'baby'.
 
-## Commands
-### Add synonym group
-The following command is used to create a new synonyms group:
-```
-FT.SYNADD <index name> <term1> <term2> ...
-```
-The command returns the synonym group id which can later be used to add additional terms to that synonym group.
-Only documents which was indexed after the adding operation will be effected.
+## The Synonym Search Technique
 
-### Update synonym group
-The following command is used to update an existing synonym group with additional terms:
-```
-FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
-```
-Only documents which was indexed after the update will be effected.
+We use a simple HashMap to map between the terms and the group ids. On indexing we check if the current term appears in the synonym map, if it does we take all the group ids the term is belong to. For each group id we add another record to the inverted index called "\~\<id\>" which contains the same information as the term itself. On searching we check if the searched term appears in the synonym map, if it does we take all the group ids the term is belong to. For each group id we search for "\~\<id\>" and return the combined results. This technique will make sure we return all the synonyms of a given term.
 
-### Dump synonyms data structure
-The following command is used to dump the synonyms data structure:
-```
-FT.SYNDUMP <index name>
-```
-Returns a list of synonym terms and their synonym group ids.
+## Handling Concurrency
 
-## Enabling synonyms on search
-By default synonyms are not enabled when searching. In order to enable it add the EXPENDER argument to the search command with value SYN
-```
-FT.SEARCH <index> <query> EXPANDER SYN
-```
+Since the indexing is performed in another thread, the synonym map might change during the indexing which might cause data corruption or crashes during indexing/searches. To solve this issue we are creating a read only copy for indexing. The read only is maintained using ref count. As long as the synonym map did not change, the original synonym map hold a reference to its read only copy so it will not be free. Once the data inside the synonym map has changed, the synonym map drop the reference to its read only copy. This insures that when all the indexers will be done using the read only copy, then the read only copy will automatically freed. Also it insures that the next time an indexer will ask for a read only copy, the synonym map will create a new copy (contains the new data) and returns it.

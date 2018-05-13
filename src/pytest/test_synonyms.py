@@ -19,7 +19,7 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'he is a boy',
                                             'body', 'this is a test'))
 
-            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
     def testTermOnTwoSynonymsGroup(self):
@@ -34,9 +34,9 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'he is a boy',
                                             'body', 'this is a test'))
 
-            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
-            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
     def testSynonymGroupWithThreeSynonyms(self):
@@ -50,9 +50,9 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'he is a boy',
                                             'body', 'this is a test'))
 
-            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
-            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
     def testSynonymWithMultipleDocs(self):
@@ -70,7 +70,7 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'she is a girl',
                                             'body', 'the child sister'))
 
-            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
             self.assertEqual(res, [2L, 'doc2', ['title', 'she is a girl', 'body', 'the child sister'], 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
     def testSynonymUpdate(self):
@@ -89,7 +89,7 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'he is another baby',
                                             'body', 'another test'))
 
-            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
             # synonyms are applied from the moment they were added, previuse docs are not reindexed
             self.assertEqual(res, [1L, 'doc2', ['title', 'he is another baby', 'body', 'another test']])
 
@@ -213,7 +213,7 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                             'title', 'he is a boy child boy',
                                             'body', 'another test'))
 
-            res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYN')
+            res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
             # synonyms are applied from the moment they were added, previuse docs are not reindexed
             self.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy child boy', 'body', 'another test']])
 
@@ -231,5 +231,5 @@ class SynonymsTestCase(ModuleTestCase('../redisearch.so')):
                                                 'body', 'this is a test'))
             for _ in self.client.retry_with_rdb_reload():
                 for i in range(iterations):
-                    res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYN')
+                    res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
                     self.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
