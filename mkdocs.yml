@@ -32,6 +32,7 @@ pages:
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'
+      - 'Tokenization and Escaping': 'Escaping.md'
       - 'Sortable Values': 'Sorting.md'
       - 'Tag Fields': 'Tags.md'
       - 'Highlighting Results': Highlight.md
