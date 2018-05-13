@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="http://redisearch.io/Chinese/">
+        <link rel="canonical" href="http://redisearch.io/Escaping/">
       
       
       
@@ -38,7 +38,7 @@
     
     
       
-        <title>Chinese Support - RediSearch Documentation</title>
+        <title>Tokenization and Escaping - RediSearch Documentation</title>
       
     
     
@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#chinese"_"support"_"in"_"redis"_"search" tabindex="1" class="md-skip">
+      <a href="#controlling"_"text"_"tokenization"_"and"_"escaping" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -121,7 +121,7 @@
                 RediSearch Documentation
               </span>
               <span class="md-header-nav__topic">
-                Chinese Support
+                Tokenization and Escaping
               </span>
             
           
@@ -296,10 +296,12 @@
       
       
 
+  
 
-  <li class="md-nav__item md-nav__item--nested">
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
     
     <label class="md-nav__link" for="nav-6">
       Reference
@@ -351,11 +353,49 @@
           
           
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Escaping/" title="Tokenization and Escaping" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Tokenization and Escaping
+      </label>
+    
+    <a href="./" title="Tokenization and Escaping" class="md-nav__link md-nav__link--active">
       Tokenization and Escaping
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The Rules of Text Field Tokenization" class="md-nav__link">
+    The Rules of Text Field Tokenization
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
         
@@ -596,56 +636,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Chinese Support
-      </label>
-    
-    <a href="./" title="Chinese Support" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Chinese/" title="Chinese Support" class="md-nav__link">
       Chinese Support
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#example"_"using"_"chinese"_"in"_"redis"_"search" title="Example: Using Chinese in Redis Search" class="md-nav__link">
-    Example: Using Chinese in Redis Search
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
-    Using custom dictionaries
-  </a>
-  
-</li>
-      
-      
-      
-      
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -670,15 +665,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#example"_"using"_"chinese"_"in"_"redis"_"search" title="Example: Using Chinese in Redis Search" class="md-nav__link">
-    Example: Using Chinese in Redis Search
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
-    Using custom dictionaries
+  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The Rules of Text Field Tokenization" class="md-nav__link">
+    The Rules of Text Field Tokenization
   </a>
   
 </li>
@@ -699,69 +687,30 @@
             <article class="md-content__inner md-typeset">
               
                 
-                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Chinese.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Escaping.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="chinese&quot;_&quot;support&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search">Chinese support in Redis Search<a class="headerlink" href="#chinese&quot;_&quot;support&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search" title="Permanent link">&para;</a></h1>
-<p>Support for adding documents in Chinese is available starting at version 0.99.0.</p>
-<p>Chinese support allows Chinese documents to be added and tokenized using segmentation
-rather than simple tokenization using whitespace and/or punctuation.</p>
-<p>Indexing a Chinese document is different than indexing a document in most other
-languages because of how tokens are extracted. While most languages can have
-their tokens distinguished by separation characters and whitespace, this
-is not common in Chinese.</p>
-<p>Chinese tokenization is done by scanning the input text and checking every
-character or sequence of characters against a dictionary of predefined terms
-and determining the most likely (based on the surrounding terms and characters)
-match.</p>
-<p>Redis Search makes use of the <a href="https://github.com/lionsoul2014/friso">Friso</a>
-chinese tokenization library for this purpose. This is largely transparent to
-the user and often no additional configuration is required.</p>
-<h2 id="example&quot;_&quot;using&quot;_&quot;chinese&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search">Example: Using Chinese in Redis Search<a class="headerlink" href="#example&quot;_&quot;using&quot;_&quot;chinese&quot;_&quot;in&quot;_&quot;redis&quot;_&quot;search" title="Permanent link">&para;</a></h2>
-<p>In pseudo-code:</p>
-<div class="codehilite"><pre><span></span>FT.CREATE idx SCHEMA txt TEXT
-FT.ADD idx docCn 1.0 LANGUAGE chinese FIELDS txt &quot;Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步，从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]&quot;
-FT.SEARCH idx &quot;数据&quot; LANGUAGE chinese HIGHLIGHT SUMMARIZE
-# Outputs:
-# <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>?... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>进行写操作。由于完全实现了发布... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>冗余很有帮助。[8...
-</pre></div>
-
-
-<p>Using the Python Client:</p>
-<div class="codehilite"><pre><span></span><span class="c1"># -*- coding: utf-8 -*-</span>
-
-<span class="kn">from</span> <span class="nn">redisearch.client</span> <span class="kn">import</span> <span class="n">Client</span><span class="p">,</span> <span class="n">Query</span>
-<span class="kn">from</span> <span class="nn">redisearch</span> <span class="kn">import</span> <span class="n">TextField</span>
-
-<span class="n">client</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="s1">&#39;idx&#39;</span><span class="p">)</span>
-<span class="k">try</span><span class="p">:</span>
-    <span class="n">client</span><span class="o">.</span><span class="n">drop_index</span><span class="p">()</span>
-<span class="k">except</span><span class="p">:</span>
-    <span class="k">pass</span>
-
-<span class="n">client</span><span class="o">.</span><span class="n">create_index</span><span class="p">([</span><span class="n">TextField</span><span class="p">(</span><span class="s1">&#39;txt&#39;</span><span class="p">)])</span>
-
-<span class="c1"># Add a document</span>
-<span class="n">client</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="s1">&#39;docCn1&#39;</span><span class="p">,</span>
-                    <span class="n">txt</span><span class="o">=</span><span class="s1">&#39;Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]&#39;</span><span class="p">,</span>
-                    <span class="n">language</span><span class="o">=</span><span class="s1">&#39;chinese&#39;</span><span class="p">)</span>
-<span class="k">print</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">Query</span><span class="p">(</span><span class="s1">&#39;数据&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">summarize</span><span class="p">()</span><span class="o">.</span><span class="n">highlight</span><span class="p">()</span><span class="o">.</span><span class="n">language</span><span class="p">(</span><span class="s1">&#39;chinese&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">txt</span>
-</pre></div>
-
-
-<p>Prints:</p>
-<div class="codehilite"><pre><span></span><span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>?... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>进行写操作。由于完全实现了发布... <span class="nt">&lt;b&gt;</span>数据<span class="nt">&lt;/b&gt;</span>冗余很有帮助。[8... 
-</pre></div>
-
-
-<h2 id="using&quot;_&quot;custom&quot;_&quot;dictionaries">Using custom dictionaries<a class="headerlink" href="#using&quot;_&quot;custom&quot;_&quot;dictionaries" title="Permanent link">&para;</a></h2>
-<p>If you wish to use a custom dictionary, you can do so at the module level when
-loading the module. The <code>FRISOINI</code> setting can point to the location of a
-<code>friso.ini</code> file which contains the relevant settings and paths to the dictionary
-files.</p>
-<p>Note that there is no "default" friso.ini file location. Redis Search comes with
-its own <code>friso.ini</code> and dictionary files which are compiled into the module
-binary at build-time.</p>
+                <h1 id="controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping">Controlling Text Tokenization and Escaping<a class="headerlink" href="#controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h1>
+<p>At the moment, RediSearch uses a very simple tokenizer for documents, and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. </p>
+<p>Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the <a href="../Tags">Tag Fields</a> documentation. </p>
+<h2 id="the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization">The Rules of Text Field Tokenization<a class="headerlink" href="#the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p>All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of <code>,.&lt;&gt;{}[]"':;!@#$%^&amp;*()-+=~</code> will break the text into terms.  So the text <code>foo-bar.baz...bag</code> will be tokenized into <code>[foo, bar, baz, bag]</code></p>
+</li>
+<li>
+<p>Escaping separators in both queries and documents is done by prepending a backslash to any separator. e.g. the text <code>hello\-world hello-world</code> will be tokenized as <code>[hello-world, hello, world]</code>. <strong>NOTE</strong> that in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as <code>hello\\-world</code>. </p>
+</li>
+<li>
+<p>Underscores (<code>_</code>) are not used as separators in either document or query. So the text <code>hello_world</code> will remain as is after tokenization. </p>
+</li>
+<li>
+<p>Repeating spaces or punctuation marks are stripped. </p>
+</li>
+<li>
+<p>In latin characters, everything gets converted to lowercase. </p>
+</li>
+</ol>
                 
                   
                 
@@ -782,7 +731,7 @@ binary at build-time.</p>
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href="../Threading/" title="Multi-Threading in RediSearch" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../Aggregations/" title="Aggregations (NEW!)" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -791,11 +740,25 @@ binary at build-time.</p>
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Multi-Threading in RediSearch
+                Aggregations (NEW!)
               </span>
             </div>
           </a>
         
+        
+          <a href="../Sorting/" title="Sortable Values" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Sortable Values
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
         
       </nav>
     </div>

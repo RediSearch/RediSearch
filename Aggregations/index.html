@@ -588,6 +588,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#filter"_"expressions" title="FILTER expressions" class="md-nav__link">
+    FILTER expressions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cursor"_"api" title="Cursor API" class="md-nav__link">
     Cursor API
   </a>
@@ -642,6 +649,18 @@
   
 </nav>
     
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Escaping/" title="Tokenization and Escaping" class="md-nav__link">
+      Tokenization and Escaping
+    </a>
   </li>
 
         
@@ -1129,6 +1148,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#filter"_"expressions" title="FILTER expressions" class="md-nav__link">
+    FILTER expressions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cursor"_"api" title="Cursor API" class="md-nav__link">
     Cursor API
   </a>
@@ -1205,7 +1231,8 @@
 <li><strong>Group and Reduce</strong>: grouping by fields in the results, and applying reducer functions on each group.</li>
 <li><strong>Sort</strong>: sort the results based on one or more fields.</li>
 <li><strong>Apply Transformations</strong>: Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones</li>
-<li><strong>Limit</strong>: limit the result, regardless of sorting the result. </li>
+<li><strong>Limit</strong>: Limit the result, regardless of sorting the result. </li>
+<li><strong>Filter</strong>: Filter the results (post-query) based on predicates relating to its values. </li>
 </ul>
 <p>The pipeline is dynamic and reentrant, and every operation can be repeated. For example you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. </p>
 <p>Figure 1: Aggregation Pipeline Example
@@ -1215,6 +1242,7 @@
 <div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="k">AGGREGATE</span>
   <span class="err">{</span><span class="n">index_name</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
   <span class="err">{</span><span class="n">query_string</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+  <span class="p">[</span><span class="n">WITHSCHEMA</span><span class="p">]</span> <span class="p">[</span><span class="n">VERBATIM</span><span class="p">]</span>
   <span class="p">[</span><span class="k">LOAD</span> <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">property</span><span class="p">:</span><span class="n">string</span><span class="err">}</span> <span class="p">...]</span>
   <span class="p">[</span><span class="n">GROUPBY</span>
     <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">property</span><span class="p">:</span><span class="n">string</span><span class="err">}</span> <span class="p">...</span>
@@ -1232,6 +1260,7 @@
     <span class="err">{</span><span class="n">EXPR</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
     <span class="k">AS</span> <span class="err">{</span><span class="n">name</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
   <span class="p">]</span> <span class="p">...</span>
+  <span class="p">[</span><span class="n">FILTER</span> <span class="err">{</span><span class="n">EXPR</span><span class="p">:</span><span class="n">string</span><span class="err">}</span><span class="p">]</span> <span class="p">...</span>
   <span class="p">[</span><span class="k">LIMIT</span> <span class="err">{</span><span class="k">offset</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">num</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="p">]</span> <span class="p">...</span>
 </pre></div>
 
@@ -1268,6 +1297,9 @@
 </li>
 </ul>
 <p>However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by <code>SORTBY MAX</code>. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as <code>SORTBY 1 @foo MAX 100 LIMIT 50 50</code>. Removing the MAX from SORTBY will result in the pipeline sorting <em>all</em> the records and then paging over results 50-100. </p>
+<ul>
+<li><strong>FILTER {expr}</strong>. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.</li>
+</ul>
 <h2 id="quick&quot;_&quot;example">Quick Example<a class="headerlink" href="#quick&quot;_&quot;example" title="Permanent link">&para;</a></h2>
 <p>Let's assume we have log of visits to our website, each record containing the following fields/properties:</p>
 <ul>
@@ -1636,6 +1668,19 @@
 </tr>
 </tbody>
 </table>
+<h2 id="filter&quot;_&quot;expressions">FILTER expressions<a class="headerlink" href="#filter&quot;_&quot;expressions" title="Permanent link">&para;</a></h2>
+<p>FILTER expressions filter the results using predicates relating to values in the result set.</p>
+<p>The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se. </p>
+<p>Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>. Two or more predicates can be combined with logical AND (<code>&amp;&amp;</code>) and OR (<code>||</code>). A single predicate can be negated with a NOT prefix (<code>!</code>).  </p>
+<p>For example, filtering all results where the user name is 'foo' and the age is less than 20 is expressed  as:</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE 
+  ...
+  FILTER &quot;@name==&#39;foo&#39; &amp;&amp; @age &lt; 20&quot;
+  ...
+</pre></div>
+
+
+<p>Several filter steps can be added, although at the same stage in the pipeline, it is more efficient to combine several predicates into a single filter step.</p>
 <h2 id="cursor&quot;_&quot;api">Cursor API<a class="headerlink" href="#cursor&quot;_&quot;api" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]
 FT.CURSOR READ {idx} {cid} [COUNT {read size}]
@@ -1752,13 +1797,13 @@ collects idle cursors every 500 operations, or every second - whichever is later
           </a>
         
         
-          <a href="../Sorting/" title="Sortable Values" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Escaping/" title="Tokenization and Escaping" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Sortable Values
+                Tokenization and Escaping
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
