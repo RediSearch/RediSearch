@@ -104,6 +104,12 @@
     </url>
         
     <url>
+     <loc>http://redisearch.io/Synonyms/</loc>
+     <lastmod>2018-05-13</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
+    <url>
      <loc>http://redisearch.io/payloads/</loc>
      <lastmod>2018-05-13</lastmod>
      <changefreq>daily</changefreq>

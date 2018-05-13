@@ -1028,6 +1028,27 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ftsynadd" title="FT.SYNADD" class="md-nav__link">
+    FT.SYNADD
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsynupdate" title="FT.SYNUPDATE" class="md-nav__link">
+    FT.SYNUPDATE
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsynupdate_1" title="FT.SYNUPDATE" class="md-nav__link">
+    FT.SYNUPDATE
+  </a>
+  
+</li>
+      
       
       
       
@@ -1198,6 +1219,18 @@
   <li class="md-nav__item">
     <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
       Stemming Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Synonyms/" title="Synonyms Support" class="md-nav__link">
+      Synonyms Support
     </a>
   </li>
 
@@ -2135,6 +2168,27 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ftsynadd" title="FT.SYNADD" class="md-nav__link">
+    FT.SYNADD
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsynupdate" title="FT.SYNUPDATE" class="md-nav__link">
+    FT.SYNUPDATE
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ftsynupdate_1" title="FT.SYNUPDATE" class="md-nav__link">
+    FT.SYNUPDATE
+  </a>
+  
+</li>
+      
       
       
       
@@ -2834,6 +2888,33 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 <p>Description</p>
 <p>This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. </p>
+<hr />
+<h2 id="ftsynadd">FT.SYNADD<a class="headerlink" href="#ftsynadd" title="Permanent link">&para;</a></h2>
+<p>Format</p>
+<div class="codehilite"><pre><span></span>FT.SYNADD &lt;index name&gt; &lt;term1&gt; &lt;term2&gt; ...
+</pre></div>
+
+
+<p>Description</p>
+<p>The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.</p>
+<hr />
+<h2 id="ftsynupdate">FT.SYNUPDATE<a class="headerlink" href="#ftsynupdate" title="Permanent link">&para;</a></h2>
+<p>Format</p>
+<div class="codehilite"><pre><span></span>FT.SYNUPDATE &lt;index name&gt; &lt;synonym group id&gt; &lt;term1&gt; &lt;term2&gt; ...
+</pre></div>
+
+
+<p>Description</p>
+<p>The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.</p>
+<hr />
+<h2 id="ftsynupdate_1">FT.SYNUPDATE<a class="headerlink" href="#ftsynupdate_1" title="Permanent link">&para;</a></h2>
+<p>Format</p>
+<div class="codehilite"><pre><span></span>FT.SYNDUMP &lt;index name&gt;
+</pre></div>
+
+
+<p>Description</p>
+<p>The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.</p>
 <hr />
                 
                   
