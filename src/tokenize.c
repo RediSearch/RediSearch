@@ -46,16 +46,22 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
     realDest = dst;          \
     memcpy(realDest, s, ii); \
   }
-
+  // set to 1 if the previous character was a backslash escape
+  int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
     if (isupper(s[ii])) {
       SWITCH_DEST();
       realDest[dstLen++] = tolower(s[ii]);
-    } else if (isblank(s[ii]) || iscntrl(s[ii])) {
+    } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
       SWITCH_DEST();
+    } else if (s[ii] == '\\' && !escaped) {
+      SWITCH_DEST();
+      escaped = 1;
+      continue;
     } else {
       dst[dstLen++] = s[ii];
     }
+    escaped = 0;
   }
 
   *len = dstLen;
@@ -113,7 +119,6 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
         t->stemLen = sl;
       }
     }
-
     return ctx->lastOffset;
   }
 
