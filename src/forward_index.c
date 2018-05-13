@@ -81,9 +81,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry,
-      .Compare = khtCompare,
-      .Hash = khtHash,
+      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -130,6 +128,12 @@ void ForwardIndexFree(ForwardIndex *idx) {
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
   }
+
+  if (idx->smap) {
+    SynonymMap_Free(idx->smap);
+  }
+
+  idx->smap = NULL;
 
   rm_free(idx);
 }
@@ -203,6 +207,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 //   e->freq = e->freq / idx->maxFreq;
 // }
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+#define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw);
@@ -216,6 +221,20 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
                              tokCtx->fieldScore, tokCtx->fieldId, 1,
                              tokInfo->flags & Token_CopyStem);
   }
+
+  if (tokCtx->idx->smap) {
+    TermData *t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
+    if (t_data) {
+      char synonym_buff[SYNONYM_BUFF_LEN];
+      size_t synonym_len;
+      for (int i = 0; i < array_len(t_data->ids); ++i) {
+        synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
+        ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
+                                 tokCtx->fieldScore, tokCtx->fieldId, 0, 1);
+      }
+    }
+  }
+
   return 0;
 }
 

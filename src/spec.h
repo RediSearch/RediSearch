@@ -9,6 +9,7 @@
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
+#include "synonym_map.h"
 
 typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
@@ -123,6 +124,7 @@ typedef enum {
   Index_StoreNumeric = 0x020,
   Index_StoreByteOffsets = 0x40,
   Index_WideSchema = 0x080,
+  Index_HasSmap = 0x100,
   Index_DocIdsOnly = 0x00,
 } IndexFlags;
 
@@ -140,7 +142,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 10
+#define INDEX_CURRENT_VERSION 11
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
@@ -178,6 +180,8 @@ typedef struct {
   StopWordList *stopwords;
 
   void *gc;
+
+  SynonymMap *smap;
 
 } IndexSpec;
 
@@ -258,5 +262,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
  * execution engine, detailing which fields the query works on. See FT.SEARCH for API details
  */
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
+
+void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
 #endif

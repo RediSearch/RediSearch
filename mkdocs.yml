@@ -41,6 +41,7 @@ pages:
       - 'Scoring Documents': 'Scoring.md'
       - 'Extension API': Extensions.md
       - 'Stemming Support': Stemming.md
+      - 'Synonyms Support': Synonyms.md
       - 'Document Payloads': payloads.md
     - Clients:
       - 'Client Libraries': 'Clients.md'

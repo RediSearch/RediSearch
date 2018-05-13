@@ -136,6 +136,14 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
     aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
   }
 
+  if (sp->smap) {
+    // we get a read only copy of the synonym map for accessing in the index thread with out worring
+    // about thready safe issues
+    aCtx->fwIdx->smap = SynonymMap_GetReadOnlyCopy(sp->smap);
+  } else {
+    aCtx->fwIdx->smap = NULL;
+  }
+
   aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
   StopWordList_Ref(sp->stopwords);
 

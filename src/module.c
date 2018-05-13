@@ -1421,6 +1421,115 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.SYNADD <index> <term1> <term2> ...
+ *
+ * Add a synonym group to the given index. The synonym data structure is compose of synonyms groups.
+ * Each Synonym group has a unique id. The SYNADD command creates a new synonym group with the given
+ * terms and return its id.
+ */
+int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  IndexSpec_InitializeSynonym(sp);
+
+  uint32_t id = SynonymMap_AddRedisStr(sp->smap, argv + 2, argc - 2);
+
+  RedisModule_ReplyWithLongLong(ctx, id);
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.SYNUPDATE <index> <id> <term1> <term2> ...
+ *
+ * Update an already existing synonym group with the given terms.
+ * Its only to add new terms to a synonym group.
+ * return true on success.
+ */
+int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 4) return RedisModule_WrongArity(ctx);
+
+  long long id;
+  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "wrong parameters, id is not an integer");
+    return REDISMODULE_OK;
+  }
+
+  if (id < 0 || id > UINT32_MAX) {
+    RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
+    return REDISMODULE_OK;
+  }
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)) {
+    RedisModule_ReplyWithError(ctx, "given id does not exists");
+    return REDISMODULE_OK;
+  }
+
+  SynonymMap_UpdateRedisStr(sp->smap, argv + 3, argc - 3, id);
+
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.SYNDUMP <index>
+ *
+ * Dump the synonym data structure in the following format:
+ *    - term1
+ *        - id1
+ *        - id2
+ *    - term2
+ *        - id3
+ *    - term3
+ *        - id4
+ */
+int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 2) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  if (!sp->smap) {
+    RedisModule_ReplyWithArray(ctx, 0);
+    return REDISMODULE_OK;
+  }
+
+  size_t size;
+  TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
+
+  RedisModule_ReplyWithArray(ctx, size * 2);
+
+  for (int i = 0; i < size; ++i) {
+    TermData *t_data = terms_data[i];
+    RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
+    RedisModule_ReplyWithArray(ctx, array_len(t_data->ids));
+    for (size_t j = 0; j < array_len(t_data->ids); ++j) {
+      RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
+    }
+  }
+
+  rm_free(terms_data);
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1593,6 +1702,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, SuggestGetCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, CursorCommand, "readonly", 2, 2, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
   return REDISMODULE_OK;
 }

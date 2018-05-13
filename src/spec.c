@@ -445,6 +445,11 @@ void IndexSpec_Free(void *ctx) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
+
+  if (spec->smap) {
+    SynonymMap_Free(spec->smap);
+  }
+
   rm_free(spec);
 }
 
@@ -487,6 +492,13 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
   return ret;
 }
 
+void IndexSpec_InitializeSynonym(IndexSpec *sp) {
+  if (!sp->smap) {
+    sp->smap = SynonymMap_New(false);
+    sp->flags |= Index_HasSmap;
+  }
+}
+
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (sp->stopwords && sp->flags & Index_HasCustomStopwords) {
@@ -524,6 +536,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   sp->terms = NewTrie();
   sp->sortables = NULL;
   sp->gc = NULL;
+  sp->smap = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -699,6 +712,11 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   CursorList_AddSpec(&RSCursors, RedisModule_StringPtrLen(specKey, NULL),
                      RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
+
+  sp->smap = NULL;
+  if (sp->flags & Index_HasSmap) {
+    sp->smap = SynonymMap_RdbLoad(rdb, encver);
+  }
   return sp;
 }
 
@@ -722,6 +740,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   // If we have custom stopwords, save them
   if (sp->flags & Index_HasCustomStopwords) {
     StopWordList_RdbSave(rdb, sp->stopwords);
+  }
+
+  if (sp->flags & Index_HasSmap) {
+    SynonymMap_RdbSave(rdb, sp->smap);
   }
 }
 

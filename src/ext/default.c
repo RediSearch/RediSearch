@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <sys/param.h>
 #include "../redisearch.h"
+#include "../spec.h"
+#include "../query.h"
+#include "../synonym_map.h"
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
 #include "../tokenize.h"
@@ -251,7 +254,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
@@ -299,7 +302,7 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
 }
 
-void defaultExpanderFree(void *p) {
+void StemmerExpanderFree(void *p) {
   if (!p) {
     return;
   }
@@ -311,6 +314,49 @@ void defaultExpanderFree(void *p) {
     sb_stemmer_delete(dd->data.latin);
   }
   free(dd);
+}
+
+/******************************************************************************************
+ *
+ * Synonyms based query expander
+ *
+ ******************************************************************************************/
+void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+#define BUFF_LEN 100
+  IndexSpec *spec = ctx->query->sctx->spec;
+  if (!spec->smap) {
+    return;
+  }
+
+  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+
+  if (t_data == NULL) {
+    return;
+  }
+
+  for (int i = 0; i < array_len(t_data->ids); ++i) {
+    char buff[BUFF_LEN];
+    int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
+    ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
+  }
+}
+
+void SynonymExpanderFree(void *p) {
+}
+
+/******************************************************************************************
+ *
+ * Default query expander
+ *
+ ******************************************************************************************/
+void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+  StemmerExpander(ctx, token);
+  SynonymExpand(ctx, token);
+}
+
+void DefaultExpanderFree(void *p) {
+  StemmerExpanderFree(p);
+  SynonymExpanderFree(p);
 }
 
 /* Register the default extension */
@@ -350,7 +396,19 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
+  if (ctx->RegisterQueryExpander(STEMMER_EXPENDER_NAME, StemmerExpander, StemmerExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

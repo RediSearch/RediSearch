@@ -60,8 +60,25 @@ int testStrings() {
   RETURN_TEST_SUCCESS;
 }
 
+int testTrimm() {
+  char *strs[] = {"foo", "bar", "baz", NULL};
+  char **a = array_new(char *, 16);
+  int i = 0;
+  for (i = 0; strs[i] != NULL; i++) {
+    a = array_append(a, strdup(strs[i]));
+    ASSERT_EQUAL(i + 1, array_len(a));
+    ASSERT_STRING_EQ(strs[i], array_tail(a));
+  }
+  a = array_trimm_cap(a, 2);
+  ASSERT_EQUAL(array_len(a), 2);
+  array_trimm_len(a, 1);
+  ASSERT_EQUAL(array_len(a), 1);
+  RETURN_TEST_SUCCESS;
+}
+
 TEST_MAIN({
   TESTFUNC(testStruct);
   TESTFUNC(testStrings);
   TESTFUNC(testScalar);
+  TESTFUNC(testTrimm);
 })
