@@ -931,7 +931,7 @@ int testIndexFlags() {
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("written %zd bytes. Offset=%zd\n", sz, h.vw->buf.offset);
-  ASSERT_EQUAL(16, sz);
+  ASSERT_EQUAL(15, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
@@ -948,8 +948,7 @@ int testIndexFlags() {
   ASSERT((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
-
-  ASSERT_EQUAL(22, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  ASSERT_EQUAL(21, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
@@ -958,7 +957,7 @@ int testIndexFlags() {
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(22, sz);
+  ASSERT_EQUAL(21, sz);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -967,7 +966,7 @@ int testIndexFlags() {
   ASSERT(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(4, sz);
+  ASSERT_EQUAL(3, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -977,7 +976,7 @@ int testIndexFlags() {
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(11, sz);
+  ASSERT_EQUAL(10, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1141,8 +1140,50 @@ int testVarintFieldMask() {
   }
   RETURN_TEST_SUCCESS;
 }
-TEST_MAIN({
 
+int testDeltaSplits() {
+  InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
+  ForwardIndexEntry ent = {0};
+  ent.docId = 1;
+  ent.fieldMask = RS_FIELDMASK_ALL;
+
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 1);
+
+  ent.docId = 200;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 1);
+
+  ent.docId = 1LLU << 48;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 2);
+  ent.docId++;
+  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  ASSERT_EQUAL(idx->size, 2);
+
+  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  RSIndexResult *h = NULL;
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL(1, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL(200, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL((1LLU << 48), h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQUAL((1LLU << 48) + 1, h->docId);
+
+  ASSERT_EQUAL(INDEXREAD_EOF, IR_Read(ir, &h));
+
+  IR_Free(ir);
+  InvertedIndex_Free(idx);
+  RETURN_TEST_SUCCESS;
+}
+
+TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
 
@@ -1172,4 +1213,5 @@ TEST_MAIN({
   TESTFUNC(testIndexFlags);
   TESTFUNC(testDocTable);
   TESTFUNC(testSortable);
+  TESTFUNC(testDeltaSplits);
 });

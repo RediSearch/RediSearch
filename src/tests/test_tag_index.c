@@ -23,7 +23,7 @@ int testTagIndexCreate() {
   }
 
   ASSERT_EQUAL(idx->values->cardinality, array_len(v));
-  ASSERT_EQUAL(305496, totalSZ);
+  ASSERT_EQUAL(300000, totalSZ);
 
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, NULL, NULL, NULL, 1);
   ASSERT(it != NULL);
