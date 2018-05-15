@@ -53,13 +53,6 @@ typedef struct {
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight);
-RSIndexResult *UI_Current(void *ctx);
-int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
-int UI_Next(void *ctx);
-int UI_Read(void *ctx, RSIndexResult **hit);
-int UI_HasNext(void *ctx);
-size_t UI_Len(void *ctx);
-t_docId UI_LastDocId(void *ctx);
 
 /* The context used by the intersection methods during iterating an intersect
  * iterator */
@@ -90,15 +83,6 @@ typedef struct {
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, t_fieldMask fieldMask,
                                    int maxSlop, int inOrder, double weight);
-
-int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
-int II_Next(void *ctx);
-int II_Read(void *ctx, RSIndexResult **hit);
-int II_HasNext(void *ctx);
-RSIndexResult *II_Current(void *ctx);
-size_t II_Len(void *ctx);
-t_docId II_LastDocId(void *ctx);
-
 /* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND for
  * hits */
 typedef struct {
