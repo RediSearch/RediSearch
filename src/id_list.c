@@ -27,7 +27,7 @@ void IL_Abort(void *ctx) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
+int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   IdListIterator *it = ctx;
   if (it->atEOF || it->offset >= it->size) {
     return INDEXREAD_EOF;

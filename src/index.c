@@ -157,7 +157,7 @@ Skip to the given docId, or one place after it
 if
 at EOF
 */
-int UI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   UnionContext *ui = ctx;
 
   // printf("UI %p skipto %d\n", ui, docId);
@@ -346,7 +346,7 @@ RSIndexResult *II_Current(void *ctx) {
   return ((IntersectContext *)ctx)->current;
 }
 
-int II_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   /* A seek with docId 0 is equivalent to a read */
   if (docId == 0) {
@@ -540,7 +540,7 @@ void NI_Free(IndexIterator *it) {
 
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
  * return OK */
-int NI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   NotContext *nc = ctx;
 
   // do not skip beyond max doc id
@@ -705,7 +705,7 @@ void OI_Free(IndexIterator *it) {
 
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
  * return OK */
-int OI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
   // If we don't have a child it means the sub iterator is of a meaningless expression.
@@ -858,7 +858,7 @@ int WI_Read(void *ctx, RSIndexResult **hit) {
 /* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has
  * no
  * meaning */
-int WI_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit) {
+static int WI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // printf("WI_Skipto %d\n", docId);
   WildcardIteratorCtx *nc = ctx;
 
