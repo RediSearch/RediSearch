@@ -43,9 +43,7 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
 }
 
 /* Map between external id an incremental id */
-typedef struct {
-  TrieMap *tm;
-} DocIdMap;
+typedef struct { TrieMap *tm; } DocIdMap;
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */
@@ -68,10 +66,9 @@ void DocIdMap_Free(DocIdMap *m);
  * same key. This may result in document duplication in results  */
 
 typedef struct {
-  uint16_t len;
-  uint16_t cap;
-  RSDocumentMetadata docs[];
-} DMDArray;
+  struct RSDocumentMetadata_s *first;
+  struct RSDocumentMetadata_s *last;
+} DMDChain;
 
 typedef struct {
   size_t size;
@@ -82,13 +79,13 @@ typedef struct {
   size_t memsize;
   size_t sortablesSize;
 
-  DMDArray **buckets;
+  DMDChain *buckets;
   DocIdMap dim;
 
 } DocTable;
 
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t maxSize);
+DocTable NewDocTable(size_t cap);
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
@@ -115,6 +112,11 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
  * document */
 int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
 
+/*
+ * return true iff the given dmdChain holds no elements
+ */
+int DMDChain_IsEmpty(DMDChain *dmdChain);
+
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
 int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
@@ -135,6 +137,9 @@ t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key);
 void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
+
+/* Decrease the ref count and free the given dmd if its ref count reached zero */
+void DocTable_FreeDmd(RSDocumentMetadata *dmd);
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
