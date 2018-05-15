@@ -453,18 +453,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments) {
 
     DocTable *dt = &ctx->spec->docs;
-
-    for (size_t i = 1; i < dt->cap; ++i) {
-      DMDChain *chain = &dt->buckets[i];
-      if (DMDChain_IsEmpty(chain)) {
-        continue;
-      }
-      RSDocumentMetadata *dmd = chain->first;
-      while (dmd) {
-        Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
-        dmd = dmd->next;
-      }
-    }
+    DocTable_ForEach(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
 
   // Delete any dangling term keys
