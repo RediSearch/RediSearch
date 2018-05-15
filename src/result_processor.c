@@ -14,9 +14,7 @@
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
-      .privdata = privdata,
-      .upstream = upstream,
-      .qxc = upstream ? upstream->ctx.qxc : NULL,
+      .privdata = privdata, .upstream = upstream, .qxc = upstream ? upstream->ctx.qxc : NULL,
   };
 
   return p;
@@ -140,6 +138,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->indexResult = r;  // q->opts.needIndexResult ? r : NULL;
 
   res->score = 0;
+  ++dmd->ref_count;  // we increase the refcount so the dmd will not be freed till we done with it
   res->sv = dmd->sortVector;
   res->md = dmd;
   if (res->fields != NULL) {
