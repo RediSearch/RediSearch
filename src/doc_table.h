@@ -84,8 +84,28 @@ typedef struct {
 
 } DocTable;
 
+#define DOC_TABLE_MAX_SIZE 1000000
+
+/* increasing the ref count of the given dmd */
+#define DocTable_IncreaseDmdRefCount(md) if(md) ++md->ref_count;
+
+#define DocTable_ForEach(dt, code) \
+  for (size_t i = 1; i < dt->cap; ++i) {\
+    DMDChain *chain = &dt->buckets[i];\
+    if (DMDChain_IsEmpty(chain)) {\
+      continue;\
+    }\
+    RSDocumentMetadata *dmd = chain->first;\
+    while (dmd) {\
+      code;\
+      dmd = dmd->next;\
+    }\
+  }
+
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap);
+DocTable NewDocTable(size_t cap, size_t max_size);
+
+#define DocTable_New(cap) NewDocTable(cap, DOC_TABLE_MAX_SIZE)
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
@@ -139,7 +159,7 @@ void DocTable_Free(DocTable *t);
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
 
 /* Decrease the ref count and free the given dmd if its ref count reached zero */
-void DocTable_FreeDmd(RSDocumentMetadata *dmd);
+void DocTable_DecreaseDmdRefCount(RSDocumentMetadata *dmd);
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);

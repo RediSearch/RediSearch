@@ -118,7 +118,6 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
 
     if (HAS_TIMEOUT_FAILURE(qex)) {
       RSFieldMap_Free(r.fields, 0);
-      DocTable_FreeDmd(r.md);
       qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
       break;
     }
@@ -137,7 +136,6 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
 
     // IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
-    DocTable_FreeDmd(r.md);
     r.fields = NULL;
 
     if (limit) {

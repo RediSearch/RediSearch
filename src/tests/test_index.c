@@ -987,7 +987,7 @@ int testIndexFlags() {
 int testDocTable() {
 
   char buf[16];
-  DocTable dt = NewDocTable(10);
+  DocTable dt = NewDocTable(10,10);
   t_docId did = 0;
   int N = 100;
   for (int i = 0; i < N; i++) {
@@ -1000,7 +1000,6 @@ int testDocTable() {
 
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
-  ASSERT(dt.cap > dt.size);
 #ifdef __x86_64__
   ASSERT_EQUAL(10980, (int)dt.memsize);
 #endif
