@@ -1,6 +1,3 @@
-#ifndef RS_PROJECTOR_H_
-#define RS_PROJECTOR_H_
-
 #include <redisearch.h>
 #include <result_processor.h>
 #include <dep/triemap/triemap.h>
@@ -37,6 +34,7 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   RESULTPROCESSOR_MAYBE_RET_EOF(ctx->upstream, res, 1);
   ProjectorCtx *pc = ctx->privdata;
   pc->ctx.r = res;
+  pc->ctx.fctx->res = res;
   char *err;
   int rc = RSExpr_Eval(&pc->ctx, pc->exp, &pc->val, &err);
   if (rc == EXPR_EVAL_OK) {
@@ -52,16 +50,14 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewProjector(RedisSearchCtx *sctx, RSFunctionRegistry *funcs,
-                              ResultProcessor *upstream, const char *alias, const char *expr,
-                              size_t len, char **err) {
+ResultProcessor *NewProjector(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *alias,
+                              const char *expr, size_t len, char **err) {
 
   ProjectorCtx *ctx = NewProjectorCtx(alias);
-  ctx->ctx.fr = funcs;
   ctx->ctx.sctx = sctx;
   ctx->ctx.sortables = sctx && sctx->spec ? sctx->spec->sortables : NULL;
   ctx->ctx.fctx = RS_NewFunctionEvalCtx();
-  ctx->exp = RSExpr_Parse(expr, len, funcs, err);
+  ctx->exp = RSExpr_Parse(expr, len, err);
   if (!ctx->exp) {
     free(ctx);
     return NULL;
@@ -71,5 +67,3 @@ ResultProcessor *NewProjector(RedisSearchCtx *sctx, RSFunctionRegistry *funcs,
   proc->Free = Projector_Free;
   return proc;
 }
-
-#endif

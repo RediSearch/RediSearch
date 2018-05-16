@@ -166,7 +166,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
 
   // if (parent->distance < a->max) {
   sparseVector *nv = SparseAutomaton_Step(a, parent->v, 1);
-
   if (nv->len > 0) {
     dfaNode *dfn = __dfn_getCache(cache, nv);
     if (dfn) {

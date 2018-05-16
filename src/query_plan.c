@@ -8,10 +8,9 @@
  *   processors
  ******************************************************************************************************/
 
-static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags) {
+static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags,
+                              RedisModuleCtx *ctx) {
   size_t count = 0;
-
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
   if (r->md && !(qex->opts.flags & Search_AggregationQuery)) {
     size_t klen;
     const char *k = DMD_KeyPtrLen(r->md, &klen);
@@ -80,34 +79,88 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
   return count;
 }
 
-int Query_SerializeResults(QueryPlan *qex) {
+/**
+ * Returns true if the query has timed out and the user has requested
+ * that we do not drain partial results.
+ */
+#define HAS_TIMEOUT_FAILURE(qex) \
+  ((qex)->execCtx.state == QPState_TimedOut && (qex)->opts.timeoutPolicy == TimeoutPolicy_Fail)
+
+static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
   int rc;
   int count = 0;
-  RedisModuleCtx *ctx = qex->ctx->redisCtx;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  // this just means it's a cursored request
+  const int isCursor = qex->opts.flags & Search_IsCursor;
+  // this means this is the first cursor call
+  const int firstCursor = qex->execCtx.totalResults == 0;
+  size_t limit = 0, nrows = 0;
+
+  if (isCursor) {
+    if ((limit = qex->opts.chunksize) == 0) {
+      /* Always set limit if we're a cursor */
+      limit = -1;
+    }
+
+    /* Reset per-chunk variables */
+    qex->pause = 0;
+    qex->count = 0;
+    qex->outputFlags = 0;
+  }
 
   do {
     SearchResult r = SEARCH_RESULT_INIT;
     rc = ResultProcessor_Next(qex->rootProcessor, &r, 1);
 
-    if (rc == RS_RESULT_EOF) break;
-    // printf("Read result %d, rc %d\n", r.docId, rc);
+    if (rc == RS_RESULT_EOF) {
+      qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
+      break;
+    }
+
+    if (HAS_TIMEOUT_FAILURE(qex)) {
+      RSFieldMap_Free(r.fields, 0);
+      qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
+      break;
+    }
+
+    // First result!
     if (count == 0) {
-      RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
+      RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
+      // call pre hook if needed
+      if (qex->preHook.callback && firstCursor) {
+        count += qex->preHook.callback(output, &qex->execCtx, qex->preHook.privdata);
+      }
+      RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
       count++;
     }
-    count += serializeResult(qex, &r, qex->opts.flags);
+    count += serializeResult(qex, &r, qex->opts.flags, output);
 
     // IndexResult_Free(r.indexResult);
     RSFieldMap_Free(r.fields, 0);
     r.fields = NULL;
-  } while (rc != RS_RESULT_EOF);
+
+    if (limit) {
+      if (++nrows >= limit || qex->pause) {
+        break;
+      }
+    }
+  } while (1);
+
   if (count == 0) {
-    RedisModule_ReplyWithLongLong(ctx, ResultProcessor_Total(qex->rootProcessor));
+    if (HAS_TIMEOUT_FAILURE(qex)) {
+      RedisModule_ReplyWithError(output, "Command timed out");
+      qex->outputFlags |= QP_OUTPUT_FLAG_ERROR;
+      return;
+    }
+
+    RedisModule_ReplyWithArray(output, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithLongLong(output, ResultProcessor_Total(qex->rootProcessor));
     count++;
   }
-  RedisModule_ReplySetArrayLength(ctx, count);
-  return REDISMODULE_OK;
+
+  if (qex->postHook.callback && firstCursor) {
+    count += qex->postHook.callback(output, &qex->execCtx, qex->postHook.privdata);
+  }
+  RedisModule_ReplySetArrayLength(output, count);
 }
 
 /* A callback called when we regain concurrent execution context, and the index spec key is
@@ -121,7 +174,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
 
-    q->execCtx.state = QueryState_Aborted;
+    q->execCtx.state = QPState_Aborted;
     q->ctx->spec = NULL;
     return;
   }
@@ -129,6 +182,7 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
   // The spec might have changed while we were sleeping - for example a realloc of the doc table
   q->ctx->spec = sp;
 
+  // FIXME: Per-query!!
   if (RSGlobalConfig.queryTimeoutMS > 0) {
     // Check the elapsed processing time
     static struct timespec now;
@@ -138,8 +192,12 @@ void Query_OnReopen(RedisModuleKey *k, void *privdata) {
                            (now.tv_nsec - q->execCtx.startTime.tv_nsec);
     // printf("Elapsed: %zdms\n", durationNS / 1000000);
     // Abort on timeout
-    if (durationNS > RSGlobalConfig.queryTimeoutMS * 1000000) {
-      q->execCtx.state = QueryState_TimedOut;
+    if (durationNS > q->opts.timeoutMS * 1000000) {
+      if (q->opts.flags & Search_IsCursor) {
+        q->pause = 1;
+      } else {
+        q->execCtx.state = QPState_TimedOut;
+      }
     }
   }
   // q->docTable = &sp->docs;
@@ -155,6 +213,12 @@ void QueryPlan_Free(QueryPlan *plan) {
   if (plan->conc) {
     ConcurrentSearchCtx_Free(plan->conc);
     free(plan->conc);
+  }
+  if (plan->preHook.privdata) {
+    if (plan->preHook.free) plan->preHook.free(plan->preHook.privdata);
+  }
+  if (plan->postHook.privdata) {
+    if (plan->postHook.free) plan->postHook.free(plan->postHook.privdata);
   }
 
   free(plan);
@@ -179,22 +243,30 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   plan->ctx = ctx;
   plan->conc = opts->concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
   plan->opts = opts ? *opts : RS_DEFAULT_SEARCHOPTS;
+  if (plan->opts.timeoutMS == 0) {
+    plan->opts.timeoutMS = RSGlobalConfig.queryTimeoutMS;
+  }
+  if (plan->opts.timeoutPolicy == TimeoutPolicy_Default) {
+    plan->opts.timeoutPolicy = RSGlobalConfig.timeoutPolicy;
+  }
 
   plan->execCtx = (QueryProcessingCtx){
       .errorString = NULL,
       .minScore = 0,
       .totalResults = 0,
-      .state = QueryState_OK,
+      .state = QPState_Running,
       .sctx = plan->ctx,
       .conc = plan->conc,
   };
   clock_gettime(CLOCK_MONOTONIC_RAW, &plan->execCtx.startTime);
   if (plan->conc) {
     ConcurrentSearchCtx_Init(ctx->redisCtx, plan->conc);
-    ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
-                            Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
+    if (plan->ctx->key) {
+      ConcurrentSearch_AddKey(plan->conc, plan->ctx->key, REDISMODULE_READ, plan->ctx->keyName,
+                              Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
+    }
   }
-  if (!queryPlan_EvalQuery(plan, parsedQuery, opts)) {
+  if (parsedQuery && !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
     QueryPlan_Free(plan);
     return NULL;
   }
@@ -207,12 +279,15 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
   return plan;
 }
 
-int QueryPlan_Run(QueryPlan *plan, char **err) {
-  plan->bc = NULL;
+void QueryPlan_Run(QueryPlan *plan, RedisModuleCtx *outputCtx) {
+  Query_SerializeResults(plan, outputCtx);
+}
+void QueryPlan_SetHook(QueryPlan *plan, QueryPlanHookType ht, QueryHookCallback cb, void *privdata,
+                       void (*freefn)(void *)) {
+  if (ht == QueryPlanHook_Pre) {
+    plan->preHook = (QueryPlanHook){.callback = cb, .privdata = privdata, .free = freefn};
 
-  *err = NULL;
-  RedisModuleCtx *ctx = plan->ctx->redisCtx;
-  int rc = Query_SerializeResults(plan);
-  *err = plan->execCtx.errorString;
-  return rc;
+  } else {
+    plan->postHook = (QueryPlanHook){.callback = cb, .privdata = privdata, .free = freefn};
+  }
 }

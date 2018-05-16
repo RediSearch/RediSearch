@@ -16,7 +16,9 @@
 #include "ext/default.h"
 #include "rmutil/sds.h"
 #include "tag_index.h"
+#include "err.h"
 #include "concurrent_ctx.h"
+#include "util/strconv.h"
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
@@ -86,9 +88,13 @@ void QueryNode_Free(QueryNode *n) {
       if (n->gn.gf) {
         GeoFilter_Free(n->gn.gf);
       }
-
+      break;
+    case QN_FUZZY:
+      QueryTokenNode_Free(&n->fz.tok);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
+
       break;
 
     case QN_TAG:
@@ -100,15 +106,19 @@ void QueryNode_Free(QueryNode *n) {
 static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
-  s->fieldMask = RS_FIELDMASK_ALL;
-  s->flags = 0;
+  s->opts = (QueryNodeOptions){
+      .fieldMask = RS_FIELDMASK_ALL,
+      .flags = 0,
+      .maxSlop = -1,
+      .inOrder = 0,
+      .weight = 1,
+  };
   return s;
 }
 
 QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RSTokenFlags flags) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
-
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
   return ret;
 }
@@ -134,6 +144,23 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
   q->numTokens++;
 
   ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist) {
+  QueryNode *ret = NewQueryNode(QN_FUZZY);
+  q->numTokens++;
+
+  ret->fz = (QueryFuzzyNode){
+      .tok =
+          (RSToken){
+              .str = (char *)s,
+              .len = len,
+              .expanded = 0,
+              .flags = 0,
+          },
+      .maxDist = maxDist,
+  };
   return ret;
 }
 
@@ -234,7 +261,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 
   QueryNode *qn = *pqn;
   // Do not expand verbatim nodes
-  if (qn->flags & QueryNode_Verbatim) {
+  if (qn->opts.flags & QueryNode_Verbatim) {
     return;
   }
 
@@ -278,8 +305,9 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
-                                     q->opts->fieldMask & qn->fieldMask, q->conc);
+  IndexReader *ir =
+      Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
+                       q->opts->fieldMask & qn->opts.fieldMask, q->conc, qn->opts.weight);
   if (ir == NULL) {
     Term_Free(term);
     return NULL;
@@ -288,22 +316,10 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewReadIterator(ir);
 }
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all of
- * them */
-static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_PREFX) {
-    return NULL;
-  }
-
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
-    return NULL;
-  }
-  Trie *terms = q->sctx->spec->terms;
-
-  if (!terms) return NULL;
-
-  TrieIterator *it = Trie_IteratePrefix(terms, qn->pfx.str, qn->pfx.len, 0);
+static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
+                                           size_t len, int maxDist, int prefixMode,
+                                           QueryNodeOptions *opts) {
+  TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -326,11 +342,15 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
+    if (q->sctx && q->sctx->redisCtx) {
+      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
+    }
+
     RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->opts->fieldMask & qn->fieldMask, q->conc);
+                                       q->opts->fieldMask & opts->fieldMask, q->conc, 1);
 
     free(tok.str);
     if (!ir) {
@@ -354,7 +374,32 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 1);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
+}
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+ * of them */
+static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
+  assert(qn->type == QN_PREFX);
+
+  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
+    return NULL;
+  }
+  Trie *terms = q->sctx->spec->terms;
+
+  if (!terms) return NULL;
+
+  return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
+}
+
+static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
+  assert(qn->type == QN_FUZZY);
+
+  Trie *terms = q->sctx->spec->terms;
+
+  if (!terms) return NULL;
+
+  return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, qn->fz.maxDist, 0, &qn->opts);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -365,25 +410,39 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   // an intersect stage with one child is the same as the child, so we just
   // return it
   if (node->numChildren == 1) {
-    node->children[0]->fieldMask &= qn->fieldMask;
+    node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   for (int i = 0; i < node->numChildren; i++) {
-    node->children[i]->fieldMask &= qn->fieldMask;
+    node->children[i]->opts.fieldMask &= qn->opts.fieldMask;
     iters[i] = Query_EvalNode(q, node->children[i]);
   }
   IndexIterator *ret;
 
   if (node->exact) {
     ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
-                              q->opts->fieldMask & qn->fieldMask, 0, 1);
+                              q->opts->fieldMask & qn->opts.fieldMask, 0, 1, qn->opts.weight);
   } else {
+    // Let the query node override the slop/order parameters
+    int slop = qn->opts.maxSlop;
+    if (slop == -1) slop = q->opts->slop;
+
+    // Let the query node override the inorder of the whole query
+    int inOrder = q->opts->flags & Search_InOrder;
+    if (qn->opts.inOrder) inOrder = 1;
+
+    // If in order was specified and not slop, set slop to maximum possible value.
+    // Otherwise we can't check if the results are in order
+    if (inOrder && slop == -1) {
+      slop = __INT_MAX__;
+    }
+
     ret = NewIntersecIterator(iters, node->numChildren, q->docTable,
-                              q->opts->fieldMask & qn->fieldMask, q->opts->slop,
-                              q->opts->flags & Search_InOrder);
+                              q->opts->fieldMask & qn->opts.fieldMask, slop, inOrder,
+                              qn->opts.weight);
   }
   return ret;
 }
@@ -402,7 +461,8 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryNotNode *node = &qn->not;
 
-  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId);
+  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId,
+                        qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -412,7 +472,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryOptionalNode *node = &qn->opt;
 
   return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL,
-                             q->docTable->maxDocId);
+                             q->docTable->maxDocId, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
@@ -426,7 +486,8 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
   return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
 }
 
-static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node) {
+static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
+                                              double weight) {
 
   FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
   if (fs == NULL || fs->type != FIELD_GEO) {
@@ -434,7 +495,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
   }
 
   GeoIndex gi = {.ctx = q->sctx, .sp = fs};
-  return NewGeoRangeIterator(&gi, node->gf);
+  return NewGeoRangeIterator(&gi, node->gf, weight);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -450,7 +511,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
-    node->children[0]->fieldMask &= qn->fieldMask;
+    node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }
 
@@ -458,7 +519,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   int n = 0;
   for (int i = 0; i < node->numChildren; i++) {
-    node->children[i]->fieldMask &= qn->fieldMask;
+    node->children[i]->opts.fieldMask &= qn->opts.fieldMask;
     IndexIterator *it = Query_EvalNode(q, node->children[i]);
     if (it) {
       iters[n++] = it;
@@ -475,13 +536,14 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
   return ret;
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              RedisModuleKey *k, RedisModuleString *kn) {
+                                              RedisModuleKey *k, RedisModuleString *kn,
+                                              double weight) {
   if (qn->type != QN_PREFX) {
     return NULL;
   }
@@ -502,9 +564,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   char *s;
   tm_len_t sl;
   void *ptr;
+
   // Find all completions of the prefix
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) && itsSz < RSGlobalConfig.maxPrefixExpansions) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, q->conc, k, kn);
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, q->conc, k, kn, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -522,20 +585,19 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 1);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight);
 }
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
-                                              RedisModuleKey *k, RedisModuleString *kn) {
+                                              RedisModuleKey *k, RedisModuleString *kn,
+                                              double weight) {
 
   switch (n->type) {
     case QN_TOKEN:
-      /*TagIndex *idx, DocTable *dt, const char *value, size_t len,
-                                         ConcurrentSearchCtx *csx, RedisModuleKey *k,
-                                         RedisModuleString *keyName);*/
-      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn);
+
+      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn, weight);
     case QN_PREFX:
-      return Query_EvalTagPrefixNode(q, idx, n, k, kn);
+      return Query_EvalTagPrefixNode(q, idx, n, k, kn, weight);
 
     case QN_PHRASE: {
       char *terms[n->pn.numChildren];
@@ -549,7 +611,8 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, n->pn.numChildren, " ");
 
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), q->conc, k, kn);
+      IndexIterator *ret =
+          TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), q->conc, k, kn, weight);
       sdsfree(s);
       return ret;
     }
@@ -570,14 +633,14 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!idx) return NULL;
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
-    return query_EvalSingleTagNode(q, idx, node->children[0], k, str);
+    return query_EvalSingleTagNode(q, idx, node->children[0], k, str, qn->opts.weight);
   }
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
   int n = 0;
   for (int i = 0; i < node->numChildren; i++) {
-    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i], k, str);
+    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i], k, str, qn->opts.weight);
     if (it) {
       iters[n++] = it;
     }
@@ -587,7 +650,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
   return ret;
 }
 
@@ -605,12 +668,14 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalNotNode(q, n);
     case QN_PREFX:
       return Query_EvalPrefixNode(q, n);
+    case QN_FUZZY:
+      return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
       return Query_EvalNumericNode(q, &n->nn);
     case QN_OPTIONAL:
       return Query_EvalOptionalNode(q, n);
     case QN_GEO:
-      return Query_EvalGeofilterNode(q, &n->gn);
+      return Query_EvalGeofilterNode(q, &n->gn, n->opts.weight);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
@@ -620,11 +685,11 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-/* Set the field mask recursively on a query node. This is called by the parser to handle situations
- * like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
+/* Set the field mask recursively on a query node. This is called by the parser to handle
+ * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
   if (!n) return;
-  n->fieldMask &= mask;
+  n->opts.fieldMask &= mask;
   switch (n->type) {
 
     case QN_PHRASE:
@@ -730,17 +795,17 @@ static sds doPad(sds s, int len) {
 static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) {
   s = doPad(s, depth);
 
-  if (qs->fieldMask == 0) {
+  if (qs->opts.fieldMask == 0) {
     s = sdscat(s, "@NULL:");
   }
 
-  if (qs->fieldMask && qs->fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
+  if (qs->opts.fieldMask && qs->opts.fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!q || !q->sctx->spec) {
-      s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->fieldMask);
+      s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->opts.fieldMask);
     } else {
       s = sdscat(s, "@");
-      t_fieldMask fm = qs->fieldMask;
+      t_fieldMask fm = qs->opts.fieldMask;
       int i = 0, n = 0;
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
@@ -766,7 +831,11 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s\n", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      s = sdscatprintf(s, "%s%s", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      if (qs->opts.weight != 1) {
+        s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
+      }
+      s = sdscat(s, "\n");
       return s;
 
     case QN_PREFX:
@@ -813,20 +882,39 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
       s = sdscat(s, "IDS { ");
       for (int i = 0; i < qs->fn.f->size; i++) {
-        s = sdscatprintf(s, "%d,", qs->fn.f->ids[i]);
+        s = sdscatprintf(s, "%llu,", qs->fn.f->ids[i]);
       }
       break;
     case QN_WILDCARD:
 
       s = sdscat(s, "<WILDCARD>");
       break;
+    case QN_FUZZY:
+      s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
+      return s;
   }
 
-  s = sdscat(s, "}\n");
+  s = sdscat(s, "}");
+  // print attributes if not the default
+  if (qs->opts.weight != 1 || qs->opts.maxSlop != -1 || qs->opts.inOrder) {
+    s = sdscat(s, " => {");
+    if (qs->opts.weight != 1) {
+      s = sdscatprintf(s, " $weight: %g;", qs->opts.weight);
+    }
+    if (qs->opts.maxSlop != -1) {
+      s = sdscatprintf(s, " $slop: %d;", qs->opts.maxSlop);
+    }
+    if (qs->opts.inOrder || qs->opts.maxSlop != -1) {
+      s = sdscatprintf(s, " $inorder: %s;", qs->opts.inOrder ? "true" : "false");
+    }
+    s = sdscat(s, " }");
+  }
+  s = sdscat(s, "\n");
   return s;
 }
 
-/* Return a string representation of the query parse tree. The string should be freed by the caller
+/* Return a string representation of the query parse tree. The string should be freed by the
+ * caller
  */
 const char *Query_DumpExplain(QueryParseCtx *q) {
   // empty query
@@ -853,4 +941,51 @@ void Query_Free(QueryParseCtx *q) {
 
   free(q->raw);
   free(q);
+}
+
+int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
+
+  // Apply slop: [-1 ... INF]
+  if (STR_EQCASE(attr->name, attr->namelen, "slop")) {
+
+    long long n;
+    if (!ParseInteger(attr->value, &n) || n < -1) {
+      SET_ERR(err, "Invalid value for slop");
+      return 0;
+    }
+    qn->opts.maxSlop = n;
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, "inorder")) {
+    // Apply inorder: true|false
+    int b;
+    if (!ParseBoolean(attr->value, &b)) {
+      SET_ERR(err, "Invalid value for 'inorder'");
+      return 0;
+    }
+    qn->opts.inOrder = b;
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, "weight")) {
+    // Apply weight: [0  ... INF]
+    double d;
+    if (!ParseDouble(attr->value, &d) || d < 0) {
+      SET_ERR(err, "Invalid value for 'weight'");
+      return 0;
+    }
+    qn->opts.weight = d;
+
+  } else {
+    FMT_ERR(err, "Invalid attribute '%.*s'", (int)attr->namelen, attr->name);
+    return 0;
+  }
+
+  return 1;
+}
+
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, char **err) {
+  for (size_t i = 0; i < len; i++) {
+    if (!QueryNode_ApplyAttribute(qn, &attrs[i], err)) {
+      return 0;
+    }
+  }
+  return 1;
 }

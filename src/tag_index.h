@@ -86,7 +86,9 @@
  *
  *
  */
-typedef struct { TrieMap *values; } TagIndex;
+typedef struct {
+  TrieMap *values;
+} TagIndex;
 
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 /* Format the key name for a tag index */
@@ -96,16 +98,16 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 TagIndex *NewTagIndex();
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-Vector *TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
+char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, Vector *values, t_docId docId);
+size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
                                    ConcurrentSearchCtx *csx, RedisModuleKey *k,
-                                   RedisModuleString *keyName);
+                                   RedisModuleString *keyName, double weight);
 
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,

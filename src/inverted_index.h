@@ -92,13 +92,16 @@ typedef struct indexReadCtx {
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
+
+  /* boosting weight */
+  double weight;
 } IndexReader;
 
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
-typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, RSIndexResult *record);
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
@@ -121,12 +124,12 @@ IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 /* Create a new index reader on an inverted index buffer,
-* optionally with a skip index, docTable and scoreIndex.
-* If singleWordMode is set to 1, we ignore the skip index and use the score
-* index.
-*/
+ * optionally with a skip index, docTable and scoreIndex.
+ * If singleWordMode is set to 1, we ignore the skip index and use the score
+ * index.
+ */
 IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
-                                RSQueryTerm *term);
+                                RSQueryTerm *term, double weight);
 
 /* free an index reader */
 void IR_Free(IndexReader *ir);
@@ -146,7 +149,7 @@ int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
-int IR_SkipTo(void *ctx, uint32_t docId, RSIndexResult **hit);
+int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 RSIndexResult *IR_Current(void *ctx);
 

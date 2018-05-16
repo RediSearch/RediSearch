@@ -1,11 +1,24 @@
 #include "value.h"
 #include "util/mempool.h"
+#include <pthread.h>
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
 
-struct mempool_t *valuePool_g = NULL;
+typedef struct {
+  mempool_t *values;
+  mempool_t *fieldmaps;
+} mempoolThreadPool;
+
+static void mempoolThreadPoolDtor(void *p) {
+  mempoolThreadPool *tp = p;
+  mempool_destroy(tp->values);
+  mempool_destroy(tp->fieldmaps);
+  free(tp);
+}
+
+pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
   return malloc(sizeof(RSValue));
@@ -15,11 +28,34 @@ static void _valueFree(void *p) {
   free(p);
 }
 
-RSValue *RS_NewValue(RSValueType t) {
-  if (!valuePool_g) {
-    valuePool_g = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
+/* The byte size of the field map */
+static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
+  return sizeof(RSFieldMap) + cap * sizeof(RSField);
+}
+
+void *_fieldMapAlloc() {
+  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
+  ret->cap = 8;
+  return ret;
+}
+
+static void __attribute__((constructor)) initKey() {
+  pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
+}
+
+static inline mempoolThreadPool *getPoolInfo() {
+  mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
+  if (tp == NULL) {
+    tp = calloc(1, sizeof(*tp));
+    tp->values = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
+    tp->fieldmaps = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
+    pthread_setspecific(mempoolKey_g, tp);
   }
-  RSValue *v = mempool_get(valuePool_g);
+  return tp;
+}
+
+RSValue *RS_NewValue(RSValueType t) {
+  RSValue *v = mempool_get(getPoolInfo()->values);
   v->t = t;
   v->refcount = 0;
   v->allocated = 1;
@@ -47,6 +83,7 @@ inline void RSValue_Free(RSValue *v) {
             sdsfree(v->strval.str);
             break;
           case RSString_Const:
+          case RSString_Volatile:
             break;
         }
         break;
@@ -64,15 +101,10 @@ inline void RSValue_Free(RSValue *v) {
     }
 
     if (v->allocated) {
-      mempool_release(valuePool_g, v);
+      mempool_release(getPoolInfo()->values, v);
     }
   }
 }
-
-/* Deep copy an object duplicate strings and array, and duplicate sub values recursively on
- * arrays. On numeric values it's no slower than shallow copy. Redis strings ar not recreated
- */
-#define RSValue_Copy RSValue_IncrRef
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
@@ -138,6 +170,16 @@ inline RSValue *RS_StringValC(char *str) {
   return RS_StringVal(str, strlen(str));
 }
 
+RSValue *RS_StringValFmt(const char *fmt, ...) {
+
+  char *buf;
+  va_list ap;
+  va_start(ap, fmt);
+  vasprintf(&buf, fmt, ap);
+  va_end(ap);
+  return RS_StringVal(buf, strlen(buf));
+}
+
 inline RSValue *RS_ConstStringValC(char *str) {
   return RS_StringValT(str, strlen(str), RSString_Const);
 }
@@ -177,19 +219,16 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
   }
 }
 
-int RSValue_ParseNumber(const char *p, size_t l, RSValue *v) {
-  v = RSValue_Dereference(v);
+RSValue *RSValue_ParseNumber(const char *p, size_t l) {
+
   char *e;
   errno = 0;
   double d = strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
-    return 0;
+    return NULL;
   }
-  v->t = RSValue_Number;
-  v->numval = d;
-
-  return 1;
+  return RS_NumVal(d);
 }
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
@@ -314,10 +353,13 @@ inline RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
   RSValue *v = RS_NewValue(RSValue_Array);
   v->arrval.vals = vals;
   v->arrval.len = len;
+  for (uint32_t i = 0; i < len; i++) {
+    RSValue_IncrRef(v->arrval.vals[i]);
+  }
   return v;
 }
 
-inline RSValue *RS_VStringArray(uint32_t sz, ...) {
+RSValue *RS_VStringArray(uint32_t sz, ...) {
   RSValue **arr = calloc(sz, sizeof(*arr));
   va_list ap;
   va_start(ap, sz);
@@ -330,7 +372,7 @@ inline RSValue *RS_VStringArray(uint32_t sz, ...) {
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
-inline RSValue *RS_StringArray(char **strs, uint32_t sz) {
+RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
@@ -339,6 +381,14 @@ inline RSValue *RS_StringArray(char **strs, uint32_t sz) {
   return RS_ArrVal(arr, sz);
 }
 
+RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
+  RSValue **arr = calloc(sz, sizeof(RSValue *));
+
+  for (uint32_t i = 0; i < sz; i++) {
+    arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
+  }
+  return RS_ArrVal(arr, sz);
+}
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 /* Create a new NULL RSValue */
 inline RSValue *RS_NullVal() {
@@ -380,6 +430,7 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
     }
   }
 }
+
 int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   assert(v1);
   assert(v2);
@@ -423,6 +474,10 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
+int RSValue_Equal(RSValue *v1, RSValue *v2) {
+  return RSValue_Cmp(v1, v2) == 0;
+}
+
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
   if (!v) {
@@ -458,13 +513,12 @@ void RSValue_Print(RSValue *v) {
   if (!v) {
     printf("nil");
   }
-  printf("{%d}", v->t);
   switch (v->t) {
     case RSValue_String:
-      printf("%.*s", v->strval.len, v->strval.str);
+      printf("\"%.*s\"", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
-      printf("%s", RedisModule_StringPtrLen(v->rstrval, NULL));
+      printf("\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
       printf("%.12g", v->numval);
@@ -489,12 +543,14 @@ void RSValue_Print(RSValue *v) {
 RSMultiKey *RS_NewMultiKey(uint16_t len) {
   RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
+  ret->keysAllocated = 0;
   return ret;
 }
 
 RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
   RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
+  ret->keysAllocated = 0;
   va_list ap;
   va_start(ap, len);
   for (int i = 0; i < len; i++) {
@@ -506,16 +562,35 @@ RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
 }
 
 /* Create a multi-key from a string array */
-RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching) {
+RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicateStrings) {
   RSMultiKey *ret = RS_NewMultiKey(arr->len);
+  ret->keysAllocated = duplicateStrings;
   for (size_t i = 0; i < arr->len; i++) {
     assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
     ret->keys[i] = RS_KEY(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i))));
+    if (duplicateStrings) {
+      ret->keys[i].key = strdup(ret->keys[i].key);
+    }
+  }
+  return ret;
+}
+
+RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys) {
+  RSMultiKey *ret = RS_NewMultiKey(k->len);
+  ret->keysAllocated = copyKeys;
+
+  for (size_t i = 0; i < k->len; i++) {
+    ret->keys[i] = RS_KEY(copyKeys ? strdup(k->keys[i].key) : k->keys[i].key);
   }
   return ret;
 }
 
 void RSMultiKey_Free(RSMultiKey *k) {
+  if (k->keysAllocated) {
+    for (size_t i = 0; i < k->len; i++) {
+      free((char *)k->keys[i].key);
+    }
+  }
   free(k);
 }
 
@@ -527,26 +602,10 @@ inline RSField RS_NewField(const char *k, RSValue *val) {
   return ret;
 }
 
-/* The byte size of the field map */
-static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
-  return sizeof(RSFieldMap) + cap * sizeof(RSField);
-}
-
-mempool_t *fieldmapPool_g = NULL;
-
-void *_fieldMapAlloc() {
-  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
-  ret->cap = 8;
-  return ret;
-}
-
 /* Create a new field map with a given initial capacity */
 RSFieldMap *RS_NewFieldMap(uint16_t cap) {
-  if (!fieldmapPool_g) {
-    fieldmapPool_g = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
-  }
   if (!cap) cap = 1;
-  RSFieldMap *m = mempool_get(fieldmapPool_g);
+  RSFieldMap *m = mempool_get(getPoolInfo()->fieldmaps);
   m->len = 0;
   return m;
 }
@@ -635,7 +694,7 @@ void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
     if (freeKeys) free((void *)m->fields[i].key);
   }
   m->len = 0;
-  mempool_release(fieldmapPool_g, m);
+  mempool_release(getPoolInfo()->fieldmaps, m);
   // free(m);
 }
 
@@ -643,6 +702,98 @@ void RSFieldMap_Print(RSFieldMap *m) {
   for (uint16_t i = 0; i < m->len; i++) {
     printf("%s: ", m->fields[i].key);
     RSValue_Print(m->fields[i].val);
-    printf("\n");
+    printf(", ");
+  }
+  printf("\n");
+}
+
+/*
+ *  - s: will be parsed as a string
+ *  - l: Will be parsed as a long integer
+ *  - d: Will be parsed as a double
+ *  - !: will be skipped
+ *  - ?: means evrything after is optional
+ */
+
+int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
+
+  va_list ap;
+  va_start(ap, fmt);
+  const char *p = fmt;
+  size_t i = 0;
+  int optional = 0;
+  while (i < argc && *p) {
+    switch (*p) {
+      case 's': {
+        char **ptr = va_arg(ap, char **);
+        if (!RSValue_IsString(args[i])) {
+          goto err;
+        }
+        *ptr = (char *)RSValue_StringPtrLen(args[i], NULL);
+        break;
+      }
+      case 'l': {
+        long long *lp = va_arg(ap, long long *);
+        double d;
+        if (!RSValue_ToNumber(args[i], &d)) {
+          goto err;
+        }
+        *lp = (long long)d;
+        break;
+      }
+      case 'd': {
+        double *dp = va_arg(ap, double *);
+        if (!RSValue_ToNumber(args[i], dp)) {
+          goto err;
+        }
+        break;
+      }
+      case '!':
+        // do nothing...
+        break;
+      case '?':
+        optional = 1;
+        // reduce i because it will be incremented soon
+        i -= 1;
+        break;
+      default:
+        goto err;
+    }
+    ++i;
+    ++p;
+  }
+  // if we have stuff left to read in the format but we haven't gotten to the optional part -fail
+  if (*p && !optional && i < argc) {
+    goto err;
+  }
+  // if we don't have anything left to read from the format but we haven't gotten to the array's
+  // end, fail
+  if (*p == 0 && i < argc) {
+    goto err;
+  }
+
+  va_end(ap);
+  return 1;
+err:
+  va_end(ap);
+  return 0;
+}
+
+const char *RSValue_TypeName(RSValueType t) {
+  switch (t) {
+    case RSValue_Array:
+      return "array";
+    case RSValue_Number:
+      return "number";
+    case RSValue_String:
+      return "string";
+    case RSValue_Null:
+      return "(null)";
+    case RSValue_RedisString:
+      return "redis-string";
+    case RSValue_Reference:
+      return "reference";
+    default:
+      return "!!UNKNOWN TYPE!!";
   }
 }

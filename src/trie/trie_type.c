@@ -2,6 +2,7 @@
 #include "../rmutil/strings.h"
 #include "../rmutil/util.h"
 #include "../util/heap.h"
+#include "../util/misc.h"
 #include "rune_util.h"
 
 #include "trie_type.h"
@@ -111,14 +112,14 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
-TrieIterator *Trie_IteratePrefix(Trie *t, char *prefix, size_t len, int maxDist) {
+TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes(prefix, &rlen);
+  rune *runes = strToFoldedRunes((char *)prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     return NULL;
   }
   DFAFilter *fc = malloc(sizeof(*fc));
-  *fc = NewDFAFilter(runes, rlen, maxDist, 1);
+  *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
   free(runes);
@@ -361,28 +362,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   }
 }
 
-void TrieType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  Trie *tree = (Trie *)value;
-
-  if (tree->root) {
-    TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
-    rune *rstr;
-    t_len len;
-    float score;
-    RSPayload payload = {.data = NULL, .len = 0};
-
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
-      size_t slen = 0;
-      char *s = runesToStr(rstr, len, &slen);
-      RedisModule_EmitAOF(aof, RS_SUGADD_CMD, "sbdbb", key, s, slen, (double)score, "PAYLOAD", 7,
-                          payload.data, payload.len);
-      free(s);
-    }
-
-    TrieIterator_Free(it);
-  }
-}
-
 void TrieType_Digest(RedisModuleDigest *digest, void *value) {
   /* TODO: The DIGEST module interface is yet not implemented. */
 }
@@ -402,7 +381,7 @@ int TrieType_Register(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TrieType_RdbLoad,
                                .rdb_save = TrieType_RdbSave,
-                               .aof_rewrite = TrieType_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = TrieType_Free};
 
   TrieType = RedisModule_CreateDataType(ctx, "trietype0", TRIE_ENCVER_CURRENT, &tm);

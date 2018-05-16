@@ -31,7 +31,10 @@ typedef struct RSSortingVector {
  * part of the spec */
 typedef struct {
   int len : 8;
-  const char *fields[];
+  struct sortField {
+    const char *name;
+    RSValueType type;
+  } fields[];
 } RSSortingTable;
 
 /* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
@@ -52,7 +55,7 @@ RSSortingTable *NewSortingTable(int len);
 void SortingTable_Free(RSSortingTable *t);
 
 /* Set a field in the table by index. This is called during the schema parsing */
-void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name);
+void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name, RSValueType t);
 
 /* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
  * default is ASC if not specified.  This function returns 1 if we found sorting args, they are
@@ -61,6 +64,9 @@ int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleStr
                             int argc);
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
+
+/* Get the type of the field by its name. If it doesn't exist, return deflt */
+RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType delt);
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */
 int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk);
@@ -83,9 +89,5 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
 
 /* Load a sorting vector from RDB */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
-
-struct Buffer;
-void SortingVector_Serialize(const RSSortingVector *sv, struct Buffer *out);
-RSSortingVector *SortingVector_LoadSerialized(const void *s, size_t n);
 
 #endif

@@ -28,18 +28,20 @@ pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Command Reference': 'Commands.md'
-    - 'Configuration': 'Configuring.md'       
+    - 'Configuration': 'Configuring.md'      
+    - 'Administration': "Administration.md"
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'
       - 'Aggregations (NEW!)': 'Aggregations.md'
-
+      - 'Tokenization and Escaping': 'Escaping.md'
       - 'Sortable Values': 'Sorting.md'
       - 'Tag Fields': 'Tags.md'
       - 'Highlighting Results': Highlight.md
       - 'Scoring Documents': 'Scoring.md'
       - 'Extension API': Extensions.md
       - 'Stemming Support': Stemming.md
+      - 'Synonyms Support': Synonyms.md
       - 'Document Payloads': payloads.md
     - Clients:
       - 'Client Libraries': 'Clients.md'

@@ -5,6 +5,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
+#include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
@@ -61,10 +62,6 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 }
-void InvertedIndex_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-  // TODO: Write something more optimal
-  RMUtil_DefaultAofRewrite(aof, key, value);
-}
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
@@ -81,7 +78,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = InvertedIndex_RdbLoad,
                                .rdb_save = InvertedIndex_RdbSave,
-                               .aof_rewrite = InvertedIndex_AofRewrite,
+                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .mem_usage = InvertedIndex_MemUsage,
                                .free = InvertedIndex_Free};
 
@@ -272,7 +269,8 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx) {
+                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
+                              double weight) {
 
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
@@ -286,7 +284,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
 
-  IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, term);
+  IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL,
                             ConcurrentKey_SharedNothing);

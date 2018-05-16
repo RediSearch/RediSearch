@@ -3,7 +3,6 @@
 #include "extension.h"
 #include "util/minmax_heap.h"
 #include "ext/default.h"
-#include "util/array.h"
 #include "query_plan.h"
 #include "highlight.h"
 
@@ -23,41 +22,13 @@ ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   return p;
 }
 
-/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
- * we check the concurrent context and perhaps switch if needed.
- *
- * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
- *
- * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
- * will be handled by this function
- * */
-inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
-  int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
-
-  do {
-
-    // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching && cxc) {
-      CONCURRENT_CTX_TICK(cxc);
-      // need to abort - return EOF
-      if (rp->ctx.qxc->state == QueryState_Aborted) {
-        return RS_RESULT_EOF;
-      }
-    }
-    rc = rp->Next(&rp->ctx, res);
-
-  } while (rc == RS_RESULT_QUEUED);
-  return rc;
-}
-
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
  * chain until we find a processor with a Total callback. This allows processors to avoid
  * implementing it if they have no calculations to add to Total (such as deeted/ignored results)
  * */
 size_t ResultProcessor_Total(ResultProcessor *rp) {
-  return rp->ctx.qxc->totalResults;
+  return rp->ctx.qxc ? rp->ctx.qxc->totalResults : 0;
 }
 
 /* Free a result processor - recursively freeing its upstream as well. If the processor does not
@@ -90,7 +61,7 @@ void SearchResult_FreeInternal(SearchResult *r) {
   if (!r) return;
   // This won't affect anything if the result is null
   if (r->indexResult) {
-    IndexResult_Free(r->indexResult);
+    // IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
   }
   if (r->fields) {
@@ -128,7 +99,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     return RS_RESULT_EOF;
   }
   // if we've timed out - abort the root processor and return EOF
-  if (q->execCtx.state == QueryState_TimedOut) {
+  if (q->execCtx.state == QPState_TimedOut) {
     q->rootFilter->Abort(q->rootFilter->ctx);
     return RS_RESULT_EOF;
   }
@@ -166,7 +137,7 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 
   // the index result of the search result is not thread safe. It will be copied by the sorter later
   // on if we need it to be thread safe
-  res->indexResult = q->opts.needIndexResult ? r : NULL;
+  res->indexResult = r;  // q->opts.needIndexResult ? r : NULL;
 
   res->score = 0;
   res->sv = dmd->sortVector;
@@ -527,7 +498,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // not reached beginning of results
   if (pc->count < pc->offset) {
 
-    IndexResult_Free(r->indexResult);
+    // IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
 
@@ -536,7 +507,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   }
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
-    IndexResult_Free(r->indexResult);
+    // IndexResult_Free(r->indexResult);
     RSFieldMap_Free(r->fields, 0);
     r->fields = NULL;
     return RS_RESULT_EOF;
@@ -571,7 +542,9 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
  *******************************************************************************************************************/
 struct loaderCtx {
   RedisSearchCtx *ctx;
-  FieldList *fields;
+  const char **fields;
+  size_t numFields;
+  int explicitReturn;
 };
 
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
@@ -588,19 +561,12 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
   RedisModuleString *idstr = DMD_CreateKeyString(r->md, lc->ctx->redisCtx);
-  if (!lc->fields->explicitReturn) {
+  if (!lc->explicitReturn) {
     Redis_LoadDocument(lc->ctx, idstr, &doc);
   } else {
-    Array fieldList;
-    Array_Init(&fieldList);
-    for (size_t ii = 0; ii < lc->fields->numFields; ++ii) {
-      Array_Write(&fieldList, &lc->fields->fields[ii].name, sizeof(char *));
-    }
 
-    Redis_LoadDocumentEx(lc->ctx, idstr, (const char **)fieldList.data, lc->fields->numFields, &doc,
-                         &rkey);
+    Redis_LoadDocumentEx(lc->ctx, idstr, lc->fields, lc->numFields, &doc, &rkey);
     RedisModule_FreeString(lc->ctx->redisCtx, idstr);
-    Array_Free(&fieldList);
   }
   // TODO: load should return strings, not redis strings
   for (int i = 0; i < doc.numFields; i++) {
@@ -615,16 +581,27 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+void loader_Free(ResultProcessor *rp) {
+  struct loaderCtx *lc = rp->ctx.privdata;
+  free(lc->fields);
+  free(lc);
+  free(rp);
+}
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields) {
   struct loaderCtx *sc = malloc(sizeof(*sc));
 
   sc->ctx = sctx;
-  sc->fields = fields;
+  sc->fields = calloc(fields->numFields, sizeof(char *));
+  sc->numFields = fields->numFields;
+  for (size_t i = 0; i < fields->numFields; i++) {
+    sc->fields[i] = fields->fields[i].name;
+  }
+  sc->explicitReturn = fields->explicitReturn;
 
   ResultProcessor *rp = NewResultProcessor(upstream, sc);
 
   rp->Next = loader_Next;
-  rp->Free = ResultProcessor_GenericFree;
+  rp->Free = loader_Free;
   return rp;
 }
 

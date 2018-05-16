@@ -22,22 +22,38 @@ RSFunctionEvalCtx *RS_NewFunctionEvalCtx() {
   BlkAlloc_Init(&ret->alloc);
   return ret;
 }
-RSFunction RSFunctionRegistry_Get(RSFunctionRegistry *reg, const char *name, size_t len) {
-  for (size_t i = 0; i < reg->len; i++) {
-    if (len == strlen(reg->funcs[i].name) && !strncasecmp(reg->funcs[i].name, name, len)) {
-      return reg->funcs[i].f;
+
+static RSFunctionRegistry functions_g = {0};
+
+RSFunction RSFunctionRegistry_Get(const char *name, size_t len) {
+
+  for (size_t i = 0; i < functions_g.len; i++) {
+    if (len == strlen(functions_g.funcs[i].name) &&
+        !strncasecmp(functions_g.funcs[i].name, name, len)) {
+      return functions_g.funcs[i].f;
     }
   }
   return NULL;
 }
 
-int RSFunctionRegistry_RegisterFunction(RSFunctionRegistry *ret, const char *name, RSFunction f) {
-  if (ret->len + 1 >= ret->cap) {
-    ret->cap += ret->cap ? ret->cap : 2;
-    ret->funcs = realloc(ret->funcs, ret->cap * sizeof(*ret->funcs));
+RSValueType RSFunctionRegistry_GetType(const char *name, size_t len) {
+  for (size_t i = 0; i < functions_g.len; i++) {
+    if (len == strlen(functions_g.funcs[i].name) &&
+        !strncasecmp(functions_g.funcs[i].name, name, len)) {
+      return functions_g.funcs[i].retType;
+    }
   }
-  ret->funcs[ret->len].f = f;
-  ret->funcs[ret->len].name = name;
-  ret->len++;
+  return RSValue_Null;
+}
+
+int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType) {
+  if (functions_g.len + 1 >= functions_g.cap) {
+    functions_g.cap += functions_g.cap ? functions_g.cap : 2;
+    functions_g.funcs = realloc(functions_g.funcs, functions_g.cap * sizeof(*functions_g.funcs));
+  }
+  functions_g.funcs[functions_g.len].f = f;
+  functions_g.funcs[functions_g.len].name = name;
+  functions_g.funcs[functions_g.len].retType = retType;
+  functions_g.len++;
   return 1;
 }

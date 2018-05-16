@@ -12,9 +12,29 @@
  *   processors
  ******************************************************************************************************/
 
+/** Indicates that all rows have been returned and no further chunks will follow */
+#define QP_OUTPUT_FLAG_DONE 0x01
+
+/**
+ * Indicates that an error has been written to the output stream. More
+ * information cannot be appended
+ */
+#define QP_OUTPUT_FLAG_ERROR 0x02
+
+typedef int (*QueryHookCallback)(RedisModuleCtx *ctx, QueryProcessingCtx *qcx, void *privdata);
+/* Hooks are callbacks that can be called before or after the query execution */
+typedef struct {
+  // The callback should return the number of responses it wrote to the context
+  QueryHookCallback callback;
+  void *privdata;
+  void (*free)(void *p);
+} QueryPlanHook;
+
+typedef enum { QueryPlanHook_Pre, QueryPlanHook_Post } QueryPlanHookType;
+
 typedef struct QueryPlan {
   RedisSearchCtx *ctx;
-  RedisModuleBlockedClient *bc;
+
   IndexIterator *rootFilter;
 
   ResultProcessor *rootProcessor;
@@ -25,6 +45,19 @@ typedef struct QueryPlan {
 
   RSSearchOptions opts;
 
+  // right now we allow a single pre and post hook
+  // TODO: Add more
+  QueryPlanHook preHook;
+  QueryPlanHook postHook;
+
+  /** Whether all rows have been returned */
+  unsigned outputFlags;
+
+  /** Whether the query should be paused temporarily */
+  unsigned pause;
+
+  /** Deferred count for RM_ReplyArray */
+  unsigned count;
 } QueryPlan;
 
 /* Set the concurrent mode of the QueryParseCtx. By default it's on, setting here to 0 will turn
@@ -39,8 +72,14 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
 
 ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err);
 
-int QueryPlan_Run(QueryPlan *plan, char **err);
+void QueryPlan_SetHook(QueryPlan *plan, QueryPlanHookType ht, QueryHookCallback cb, void *privdata,
+                       void (*free)(void *));
+
+/** Run the query plan, */
+void QueryPlan_Run(QueryPlan *plan, RedisModuleCtx *outputCtx);
 
 void QueryPlan_Free(QueryPlan *plan);
+
+#define QueryPlan_HasError(plan) ((plan)->execCtx.state != QueryState_OK)
 
 #endif

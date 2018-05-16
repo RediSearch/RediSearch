@@ -1,82 +1,90 @@
 #include "reducer.h"
+#include "aggregate.h"
 #include <rmutil/cmdparse.h>
 #include <string.h>
+#include <err.h>
 
-static Reducer *NewCountArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewCountArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                             char **err) {
   return NewCount(ctx, alias);
 }
 
-static Reducer *NewSumArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewSumArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
 
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for SUM");
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for SUM");
     return NULL;
   }
-  return NewSum(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewSum(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewToListArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
+static Reducer *NewToListArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                              char **err) {
 
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for TOLIST");
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for TOLIST");
     return NULL;
   }
-  return NewToList(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewToList(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewMinArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for MIN");
+static Reducer *NewMinArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for MIN");
     return NULL;
   }
-  return NewMin(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewMin(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewMaxArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for MAX");
+static Reducer *NewMaxArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for MAX");
     return NULL;
   }
-  return NewMax(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewMax(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewAvgArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for AVG");
+static Reducer *NewAvgArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for AVG");
     return NULL;
   }
-  return NewAvg(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewAvg(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                     char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for COUNT_DISTINCT");
+static Reducer *NewCountDistinctArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                     const char *alias, char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for COUNT_DISTINCT");
     return NULL;
   }
-  return NewCountDistinct(ctx, alias, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))));
+  return NewCountDistinct(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
 }
 
-static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                        char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for COUNT_DISTINCTISH");
+static Reducer *NewCountDistinctishArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                        const char *alias, char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for COUNT_DISTINCTISH");
     return NULL;
   }
-  return NewCountDistinctish(ctx, alias, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))));
+  return NewCountDistinctish(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
 }
 
 /* REDUCE FRIST_VALUE {nargs} @property [BY @property DESC|ASC] */
-static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                  char **err) {
+static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                  const char *alias, char **err) {
   char *prop = NULL;
   char *by = NULL;
   char *sortBy = NULL;
   char *asc = NULL;
   // Parse all and make sure we were valid
-  if (CMDPARSE_ERR == CmdArg_ArrayAssign(args, "s?sss", &prop, &by, &sortBy, &asc) ||
+  if (!RSValue_ArrayAssign(args, argc, "s?sss", &prop, &by, &sortBy, &asc) ||
       (by && strcasecmp(by, "BY")) || (asc && strcasecmp(asc, "ASC") && strcasecmp(asc, "DESC"))) {
-    *err = strdup("Invalid arguments for FIRST_VALUE");
+    SET_ERR(err, "Invalid arguments for FIRST_VALUE");
     return NULL;
   }
   // printf("prop: %s, by: %s, sortBy: %s, asc: %s\n", prop, by, sortBy, asc);
@@ -86,64 +94,117 @@ static Reducer *NewFirstValueArgs(RedisSearchCtx *ctx, CmdArray *args, const cha
   return NewFirstValue(ctx, RSKEY(prop), RSKEY(sortBy), ascend, alias);
 }
 
-static Reducer *NewStddevArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias, char **err) {
-  if (args->len != 1 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for STDDEV");
+static Reducer *NewStddevArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                              char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for STDDEV");
     return NULL;
   }
-  return NewStddev(ctx, RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0))), alias);
+  return NewStddev(ctx, RSKEY(RSValue_StringPtrLen(args[0], NULL)), alias);
 }
 
-static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
+static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
                                 char **err) {
-  if (args->len != 2 || CMDARRAY_ELEMENT(args, 0)->type != CmdArg_String) {
-    *err = strdup("Invalid arguments for QUANTILE");
+  if (argc != 2 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for QUANTILE");
     return NULL;
   }
-  const char *property = RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(args, 0)));
+  const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));
 
   double pct;
-  if (!CmdArg_ParseDouble(CMDARRAY_ELEMENT(args, 1), &pct)) {
-    *err = strdup("Could not parse percent for QUANTILE(key, pct)");
+  if (!RSValue_ToNumber(args[1], &pct)) {
+    SET_ERR(err, "Could not parse percent for QUANTILE(key, pct)");
     return NULL;
   }
 
   if (pct <= 0 || pct >= 1) {
-    *err = strdup("Quantile must be between 0.0 and 1.0 (exclusive) )");
+    SET_ERR(err, "Quantile must be between 0.0 and 1.0 (exclusive) )");
   }
   return NewQuantile(ctx, property, alias, pct);
 }
 
-typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, CmdArray *args, const char *alias,
-                                   char **err);
+static Reducer *NewRandomSampleArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                    const char *alias, char **err) {
+  if (argc != 2 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for RANDOM_SAMPLE");
+    return NULL;
+  }
+  const char *property = RSKEY(RSValue_StringPtrLen(args[0], NULL));
+
+  double d;
+  if (!RSValue_ToNumber(args[1], &d)) {
+    SET_ERR(err, "Could not parse size for random sample");
+    return NULL;
+  }
+  int size = (int)d;
+  if (size <= 0 || size >= MAX_SAMPLE_SIZE) {
+    SET_ERR(err, "Invalid size for random sample");
+  }
+  return NewRandomSample(ctx, size, property, alias);
+}
+
+static Reducer *NewHllArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                           char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for HLL");
+    return NULL;
+  }
+  return NewHLL(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
+}
+
+static Reducer *NewHllSumArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc, const char *alias,
+                              char **err) {
+  if (argc != 1 || !RSValue_IsString(args[0])) {
+    SET_ERR(err, "Invalid arguments for HLL_SUM");
+    return NULL;
+  }
+  return NewHLLSum(ctx, alias, RSKEY(RSValue_StringPtrLen(args[0], NULL)));
+}
+
+typedef Reducer *(*ReducerFactory)(RedisSearchCtx *ctx, RSValue **args, size_t argc,
+                                   const char *alias, char **err);
 
 static struct {
   const char *k;
   ReducerFactory f;
+  RSValueType retType;
 } reducers_g[] = {
-    {"sum", NewSumArgs},
-    {"min", NewMinArgs},
-    {"max", NewMaxArgs},
-    {"avg", NewAvgArgs},
-    {"count", NewCountArgs},
-    {"count_distinct", NewCountDistinctArgs},
-    {"count_distinctish", NewCountDistinctishArgs},
-    {"tolist", NewToListArgs},
-    {"quantile", NewQuantileArgs},
-    {"stddev", NewStddevArgs},
-    {"first_value", NewFirstValueArgs},
+    {"sum", NewSumArgs, RSValue_Number},
+    {"min", NewMinArgs, RSValue_Number},
+    {"max", NewMaxArgs, RSValue_Number},
+    {"avg", NewAvgArgs, RSValue_Number},
+    {"count", NewCountArgs, RSValue_Number},
+    {"count_distinct", NewCountDistinctArgs, RSValue_Number},
+    {"count_distinctish", NewCountDistinctishArgs, RSValue_Number},
+    {"tolist", NewToListArgs, RSValue_Array},
+    {"quantile", NewQuantileArgs, RSValue_Number},
+    {"stddev", NewStddevArgs, RSValue_Number},
+    {"first_value", NewFirstValueArgs, RSValue_String},
+    {"random_sample", NewRandomSampleArgs, RSValue_Array},
+    {"hll", NewHllArgs, RSValue_String},
+    {"hll_sum", NewHllSumArgs, RSValue_Number},
 
     {NULL, NULL},
 };
 
-Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
-                    char **err) {
+Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RSValue **args,
+                    size_t argc, char **err) {
   for (int i = 0; reducers_g[i].k != NULL; i++) {
     if (!strcasecmp(reducers_g[i].k, name)) {
-      return reducers_g[i].f(ctx, args, alias, err);
+      return reducers_g[i].f(ctx, args, argc, alias, err);
     }
   }
 
-  asprintf(err, "Could not find reducer '%s'", name);
+  FMT_ERR(err, "Could not find reducer '%s'", name);
   return NULL;
+}
+
+RSValueType GetReducerType(const char *name) {
+  for (int i = 0; reducers_g[i].k != NULL; i++) {
+    if (!strcasecmp(reducers_g[i].k, name)) {
+      return reducers_g[i].retType;
+    }
+  }
+
+  return RSValue_Null;
 }

@@ -53,6 +53,219 @@ err:
   return EXPR_EVAL_OK;
 }
 
+/* Fast alternative to mktime which is dog slow. From:
+https://gmbabar.wordpress.com/2010/12/01/mktime-slow-use-custom-function/ */
+time_t fast_timegm(const struct tm *ltm) {
+  // elapsed days until the beginning of every month
+  const int mon_days[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+  long tyears, tdays, leaps, utc_hrs;
+
+  tyears = ltm->tm_year - 70;  // tm->tm_year is from 1900.
+  leaps = (tyears + 2) / 4;    // no of next two lines until year 2100.
+  // i = (ltm->tm_year – 100) / 100;
+  // leaps -= ( (i/4)*3 + i%4 );
+  tdays = mon_days[ltm->tm_mon];
+
+  tdays += ltm->tm_mday - 1;  // days of month passed.
+  tdays = tdays + (tyears * 365) + leaps;
+
+  return (tdays * 86400) + (ltm->tm_hour * 3600) + (ltm->tm_min * 60) + ltm->tm_sec;
+}
+
+static int func_hour(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+  VALIDATE_ARGS("hour", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+
+  gmtime_r(&ts, &tmm);
+  tmm.tm_sec = 0;
+  tmm.tm_min = 0;
+  ts = fast_timegm(&tmm);
+  RSValue_SetNumber(result, (double)ts);
+
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_minute(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                       char **err) {
+  VALIDATE_ARGS("minute", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  RSValue_SetNumber(result, floor(d - fmod(d, 60)));
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+/* Round timestamp to its day start */
+static int func_day(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+  VALIDATE_ARGS("day", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+
+  gmtime_r(&ts, &tmm);
+  tmm.tm_sec = 0;
+  tmm.tm_hour = 0;
+  tmm.tm_min = 0;
+  ts = fast_timegm(&tmm);
+  RSValue_SetNumber(result, (double)ts);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_dayofmonth(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                           char **err) {
+  VALIDATE_ARGS("dayofmonth", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+
+  RSValue_SetNumber(result, (double)tmm.tm_mday);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_dayofweek(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                          char **err) {
+  VALIDATE_ARGS("dayofweek", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+
+  RSValue_SetNumber(result, (double)tmm.tm_wday);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_dayofyear(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                          char **err) {
+  VALIDATE_ARGS("dayofyear", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+
+  RSValue_SetNumber(result, (double)tmm.tm_yday);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_year(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+  VALIDATE_ARGS("year", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+
+  RSValue_SetNumber(result, (double)tmm.tm_year + 1900);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+/* Round a timestamp to the beginning of the month */
+static int func_month(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                      char **err) {
+  VALIDATE_ARGS("month", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+  tmm.tm_sec = 0;
+  tmm.tm_hour = 0;
+  tmm.tm_min = 0;
+  tmm.tm_mday = 1;
+  ts = fast_timegm(&tmm);
+  RSValue_SetNumber(result, (double)ts);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
+static int func_monthofyear(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                            char **err) {
+  VALIDATE_ARGS("monthofyear", 1, 1, err);
+
+  double d;
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+    goto err;
+  }
+  time_t ts = (time_t)d;
+  struct tm tmm;
+  gmtime_r(&ts, &tmm);
+  RSValue_SetNumber(result, (double)tmm.tm_mon);
+  return EXPR_EVAL_OK;
+err:
+  // on runtime error (bad formatting, etc) we just set the result to null
+
+  RSValue_MakeReference(result, RS_NullVal());
+  return EXPR_EVAL_OK;
+}
+
 static int parseTime(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
   VALIDATE_ARGS("parse_time", 2, 2, err);
   VALIDATE_ARG_ISSTRING("parse_time", argv, 0);
@@ -89,7 +302,17 @@ err:
   return EXPR_EVAL_OK;
 }
 
-void RegisterDateFunctions(RSFunctionRegistry *reg) {
-  RSFunctionRegistry_RegisterFunction(reg, "time", timeFormat);
-  RSFunctionRegistry_RegisterFunction(reg, "parse_time", parseTime);
+void RegisterDateFunctions() {
+  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("parse_time", parseTime, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("day", func_day, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("month", func_month, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("monthofyear", func_monthofyear, RSValue_Number);
+
+  RSFunctionRegistry_RegisterFunction("year", func_year, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("dayofmonth", func_dayofmonth, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValue_Number);
 }

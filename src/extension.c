@@ -7,6 +7,7 @@
 #include "index_result.h"
 #include "dep/triemap/triemap.h"
 #include "query.h"
+#include <err.h>
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
 TrieMap *__queryExpanders = NULL;
@@ -80,20 +81,20 @@ int Extension_LoadDynamic(const char *path, char **errMsg) {
   *errMsg = NULL;
   handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (handle == NULL) {
-    asprintf(errMsg, "Extension %s failed to load: %s", path, dlerror());
+    FMT_ERR(errMsg, "Extension %s failed to load: %s", path, dlerror());
     return REDISMODULE_ERR;
   }
   init = (int (*)(struct RSExtensionCtx *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
   if (init == NULL) {
-    asprintf(errMsg,
-             "Extension %s does not export RS_ExtensionInit() "
-             "symbol. Module not loaded.",
-             path);
+    FMT_ERR(errMsg,
+            "Extension %s does not export RS_ExtensionInit() "
+            "symbol. Module not loaded.",
+            path);
     return REDISMODULE_ERR;
   }
 
   if (Extension_Load(path, init) == REDISEARCH_ERR) {
-    asprintf(errMsg, "Could not register extension %s", path);
+    FMT_ERR(errMsg, "Could not register extension %s", path);
     return REDISMODULE_ERR;
   }
 
@@ -130,7 +131,8 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
   /* Replace current node with a new union node if needed */
   if (qn->type != QN_UNION) {
     QueryNode *un = NewUnionNode();
-    un->fieldMask = qn->fieldMask;
+
+    un->opts.fieldMask = qn->opts.fieldMask;
 
     /* Append current node to the new union node as a child */
     QueryUnionNode_AddChild(un, qn);
@@ -138,9 +140,9 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
-  exp->fieldMask = qn->fieldMask;
+  exp->opts.fieldMask = qn->opts.fieldMask;
   /* Now the current node must be a union node - so we just add a new token node to it */
-  QueryUnionNode_AddChild(*ctx->currentNode,exp);
+  QueryUnionNode_AddChild(*ctx->currentNode, exp);
   // q->numTokens++;
 }
 

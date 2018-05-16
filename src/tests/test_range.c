@@ -100,6 +100,9 @@ int testRangeIterator() {
       }
 
       ASSERT_EQUAL(matched[res->docId], 1);
+      if (res->type == RSResultType_Union) {
+        res = res->agg.children[0];
+      }
 
       matched[res->docId] = (uint8_t)2;
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,

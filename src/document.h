@@ -231,9 +231,18 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
 
+/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
+ * from the sorting table or from the hash representation of the document.
+ *
+ * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
+ * of it internally
+ *
+ * Returns  REDISMODULE_ERR on failure, OK otherwise*/
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+                            int *result, char **err);
+
 /**
- * Load a single document
- * fields is an array of fields to load from a document.
+ * Load a single document fields is an array of fields to load from a document.
  * keyp is an [out] pointer to a key which may be closed after the document field
  * is no longer required. Can be NULL
  */

@@ -69,6 +69,7 @@ QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RST
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
+QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
 QueryNode *NewNotNode(QueryNode *n);
 QueryNode *NewOptionalNode(QueryNode *n);
 QueryNode *NewNumericNode(NumericFilter *flt);

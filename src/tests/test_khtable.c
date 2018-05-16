@@ -25,7 +25,7 @@ static KHTableEntry *myAlloc() {
 }
 
 static uint32_t calcHash(const char *s) {
-  return fnv_32a_buf((char *)s, strlen(s), 0);
+  return rs_fnv_32a_buf((char *)s, strlen(s), 0);
 }
 
 static KHTableProcs myProcs = {.Alloc = myAlloc, .Hash = myHash, .Compare = myEntryCompare};

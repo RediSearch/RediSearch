@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <sys/param.h>
 #include "../redisearch.h"
+#include "../spec.h"
+#include "../query.h"
+#include "../synonym_map.h"
 #include "../dep/snowball/include/libstemmer.h"
 #include "default.h"
 #include "../tokenize.h"
@@ -26,16 +29,16 @@
 double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 
   if (r->type == RSResultType_Term) {
-    return ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
+    return r->weight * ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     double ret = 0;
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += tfidfRecursive(r->agg.children[i], dmd);
     }
-    return ret;
+    return r->weight * ret;
   }
-  return (double)r->freq;
+  return r->weight * (double)r->freq;
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
@@ -95,10 +98,10 @@ static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocum
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += bm25Recursive(ctx, r->agg.children[i], dmd);
     }
-    return ret;
+    return r->weight * ret;
   }
   // default for virtual type -just disregard the idf
-  return r->freq ? f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen)) : 0;
+  return r->weight * (r->freq ? f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen)) : 0);
 }
 
 /* BM25 scoring function */
@@ -152,7 +155,7 @@ double _dismaxRecursive(RSIndexResult *r) {
       }
       break;
   }
-  return ret;
+  return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
@@ -161,6 +164,16 @@ double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetad
   // if (dmd->score == 0 || h == NULL) return 0;
   return _dismaxRecursive(h);
 }
+/* taken from redis - bitops.c */
+static const unsigned char bitsinbyte[256] = {
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
@@ -173,20 +186,11 @@ double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocu
   size_t ret = 0;
   size_t len = ctx->payload.len;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
-  if (ctx->payload.len % sizeof(unsigned long) != 0) {
-    const char *a = ctx->payload.data;
-    const char *b = dmd->payload->data;
-    for (size_t i = 0; i < len; i++) {
-      ret += __builtin_popcount(a[i] ^ b[i]);
-    }
-  } else {
-    len /= sizeof(unsigned long);
-    // calculate in chunks of 64 bit
-    const unsigned long *a = (const unsigned long *)ctx->payload.data;
-    const unsigned long *b = (const unsigned long *)dmd->payload->data;
-    for (size_t i = 0; i < len; i++) {
-      ret += __builtin_popcountl(a[i] ^ b[i]);
-    }
+
+  const unsigned char *a = (unsigned char *)ctx->payload.data;
+  const unsigned char *b = (unsigned char *)dmd->payload->data;
+  for (size_t i = 0; i < len; i++) {
+    ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
   }
   // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
   return 1.0 / (double)(ret + 1);
@@ -250,7 +254,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
@@ -298,7 +302,7 @@ void DefaultStemmerExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
 }
 
-void defaultExpanderFree(void *p) {
+void StemmerExpanderFree(void *p) {
   if (!p) {
     return;
   }
@@ -310,6 +314,49 @@ void defaultExpanderFree(void *p) {
     sb_stemmer_delete(dd->data.latin);
   }
   free(dd);
+}
+
+/******************************************************************************************
+ *
+ * Synonyms based query expander
+ *
+ ******************************************************************************************/
+void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+#define BUFF_LEN 100
+  IndexSpec *spec = ctx->query->sctx->spec;
+  if (!spec->smap) {
+    return;
+  }
+
+  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+
+  if (t_data == NULL) {
+    return;
+  }
+
+  for (int i = 0; i < array_len(t_data->ids); ++i) {
+    char buff[BUFF_LEN];
+    int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
+    ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
+  }
+}
+
+void SynonymExpanderFree(void *p) {
+}
+
+/******************************************************************************************
+ *
+ * Default query expander
+ *
+ ******************************************************************************************/
+void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+  StemmerExpander(ctx, token);
+  SynonymExpand(ctx, token);
+}
+
+void DefaultExpanderFree(void *p) {
+  StemmerExpanderFree(p);
+  SynonymExpanderFree(p);
 }
 
 /* Register the default extension */
@@ -349,7 +396,19 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultStemmerExpand, defaultExpanderFree,
+  if (ctx->RegisterQueryExpander(STEMMER_EXPENDER_NAME, StemmerExpander, StemmerExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Synonyms expender */
+  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

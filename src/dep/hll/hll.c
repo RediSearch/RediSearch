@@ -53,7 +53,7 @@ void hll_add_hash(struct HLL *hll, uint32_t h) {
 }
 
 void hll_add(struct HLL *hll, const void *buf, size_t size) {
-  uint32_t hash = fnv_32a_buf((void *)buf, (uint32_t)size, 0x5f61767a);
+  uint32_t hash = rs_fnv_32a_buf((void *)buf, (uint32_t)size, 0x5f61767a);
 
   _hll_add_hash(hll, hash);
 }
@@ -140,5 +140,5 @@ int hll_load(struct HLL *hll, const void *registers, size_t size) {
 }
 
 extern uint32_t _hll_hash(const struct HLL *hll) {
-  return fnv_32a_buf(hll->registers, (uint32_t)hll->size, 0);
+  return rs_fnv_32a_buf(hll->registers, (uint32_t)hll->size, 0);
 }

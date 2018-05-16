@@ -5,7 +5,7 @@
 #include <sys/param.h>
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
-RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
+RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
@@ -14,6 +14,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
       .freq = 0,
       .fieldMask = 0,
       .isCopy = 0,
+      .weight = weight,
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
                                  .typeMask = 0x0000,
@@ -22,17 +23,17 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t) {
 }
 
 /* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap) {
-  return __newAggregateResult(cap, RSResultType_Intersection);
+RSIndexResult *NewIntersectResult(size_t cap, double weight) {
+  return __newAggregateResult(cap, RSResultType_Intersection, weight);
 }
 
 /* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap) {
-  return __newAggregateResult(cap, RSResultType_Union);
+RSIndexResult *NewUnionResult(size_t cap, double weight) {
+  return __newAggregateResult(cap, RSResultType_Union, weight);
 }
 
 /* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
+RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){.type = RSResultType_Term,
@@ -40,6 +41,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term) {
                          .fieldMask = 0,
                          .isCopy = 0,
                          .freq = 0,
+                         .weight = weight,
                          .term = (RSTermRecord){
                              .term = term,
                              .offsets = (RSOffsetVector){},
@@ -55,11 +57,13 @@ RSIndexResult *NewNumericResult() {
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
+                         .weight = 1,
+
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
 
-RSIndexResult *NewVirtualResult() {
+RSIndexResult *NewVirtualResult(double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
@@ -67,6 +71,8 @@ RSIndexResult *NewVirtualResult() {
       .docId = 0,
       .fieldMask = 0,
       .freq = 0,
+      .weight = weight,
+
       .isCopy = 0,
   };
   return res;
@@ -275,6 +281,38 @@ int IndexResult_MinOffsetDelta(RSIndexResult *r) {
 
   // we return 1 if ditance could not be calculate, to avoid division by zero
   return dist ? sqrt(dist) : agg->numChildren - 1;
+}
+
+void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
+  if (*len == cap) return;
+
+  switch (r->type) {
+    case RSResultType_Intersection:
+    case RSResultType_Union:
+
+      for (int i = 0; i < r->agg.numChildren; i++) {
+        result_GetMatchedTerms(r->agg.children[i], arr, cap, len);
+      }
+      break;
+    case RSResultType_Term:
+      if (r->term.term) {
+        const char *s = r->term.term->str;
+        // make sure we have a term string and it's not an expansion
+        if (s) {
+          arr[(*len)++] = r->term.term;
+        }
+
+        // fprintf(stderr, "Term! %zd\n", *len);
+      }
+    default:
+      return;
+  }
+}
+
+size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
+  size_t arrlen = 0;
+  result_GetMatchedTerms(r, arr, cap, &arrlen);
+  return arrlen;
 }
 
 int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,

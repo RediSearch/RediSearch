@@ -267,13 +267,19 @@ CmdString *CmdParser_NewArgListV(size_t size, ...);
 
 /* Convert an array of C NULL terminated strings to an arg list. Does not do extra
  * reallocations, so only the array itself needs to be freed */
-CmdString *CmdParser_NewArgListC(const char **args, int size);
+CmdString *CmdParser_NewArgListC(const char **args, size_t size);
 
 typedef struct {
   CmdArg *arg;
   const char *key;
   size_t pos;
 } CmdArgIterator;
+
+/* Return the number of children for arrays and objects, 0 for all others */
+size_t CmdArg_NumChildren(CmdArg *arg);
+
+/* count the number of children of an object that correspond to a specific key */
+size_t CmdArg_Count(CmdArg *arg, const char *key);
 
 /* Create an iterator of all children of an object node, named as key. If none exist, the first call
  * to Next() will return NULL */
@@ -287,9 +293,12 @@ CmdArgIterator CmdArg_Children(CmdArg *arg);
  * successful, 0 if not */
 int CmdArg_ParseDouble(CmdArg *arg, double *d);
 
-/* Parse an argument as a integer. Argument may already be a int or a double in which case it gets
- * returned, or a string in which case we try to parse it. Returns 1 if the conversion/parsing was
- * successful, 0 if not */
+/* return 1 if a flag with a given name exists in parent and is set to true */
+int CmdArg_GetFlag(CmdArg *parent, const char *flag);
+
+/* Parse an argument as a integer. Argument may already be a int or a double in which case it
+ * gets returned, or a string in which case we try to parse it. Returns 1 if the
+ * conversion/parsing was successful, 0 if not */
 int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 
 #define CMDARG_TYPE(arg) (arg ? arg->type : CmdArg_NullPtr)
@@ -301,11 +310,14 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i);
 #define CMDARG_STR(a) (a->s)
 #define CMDARG_ORNULL(a, expr) (a ? expr(a) : NULL)
 #define CMDARG_STRLEN(a) (a->s.len)
+
 #define CMDARG_STRPTR(a) (a->s.str)
 #define CMDARG_STRLEN(a) (a->s.len)
 #define CMDARG_ARR(arr) (arr->a)
 #define CMDARG_OBJ(a) (a->obj)
-#define CMDARG_OBJLEN(a) (arg->a.obj.len)
+#define CMDARG_OBJLEN(arg) (arg->obj.len)
+#define CMDARG_OBJCHILD(arg, n) (&arg->obj.entries[n])
+
 #define CMDARG_BOOL(a) (a->b)
 #define CMDARG_ARRLEN(arg) (arg->a.len)
 #define CMDARG_ARRELEM(arg, i) (arg->a.args[i])

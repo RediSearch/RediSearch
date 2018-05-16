@@ -7,6 +7,9 @@
 #include <rmutil/cmdparse.h>
 #include <util/block_alloc.h>
 
+/* Maximum possible value to random sample group size */
+#define MAX_SAMPLE_SIZE 1000
+
 typedef struct {
   void *privdata;
   const char *property;
@@ -38,6 +41,15 @@ typedef struct reducer {
 static inline void Reducer_GenericFree(Reducer *r) {
   BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
   free(r->ctx.privdata);
+  free(r->alias);
+  free(r);
+}
+
+/**
+ * Exactly like GenericFree, but doesn't free private data.
+ */
+static inline void Reducer_GenericFreeWithStaticPrivdata(Reducer *r) {
+  BlkAlloc_FreeAll(&r->ctx.alloc, NULL, 0, 0);
   free(r->alias);
   free(r);
 }
@@ -78,9 +90,13 @@ Reducer *NewCountDistinct(RedisSearchCtx *, const char *, const char *);
 Reducer *NewCountDistinctish(RedisSearchCtx *, const char *, const char *);
 Reducer *NewQuantile(RedisSearchCtx *, const char *, const char *, double);
 Reducer *NewStddev(RedisSearchCtx *, const char *, const char *);
-Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, CmdArray *args,
-                    char **err);
+Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RSValue **args,
+                    size_t argc, char **err);
+RSValueType GetReducerType(const char *name);
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias);
+Reducer *NewRandomSample(RedisSearchCtx *sctx, int size, const char *property, const char *alias);
+Reducer *NewHLL(RedisSearchCtx *ctx, const char *alias, const char *key);
+Reducer *NewHLLSum(RedisSearchCtx *ctx, const char *alias, const char *key);
 
 #endif

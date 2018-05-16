@@ -7,20 +7,16 @@
  *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
+  if (it->atEOF || it->offset >= it->size) {
     it->atEOF = 1;
     return INDEXREAD_EOF;
   }
 
-  it->lastDocId = it->docIds[it->offset];
-  ++it->offset;
-  if (it->offset == it->size) {
-    it->atEOF = 1;
-  }
+  it->lastDocId = it->docIds[it->offset++];
+
   // TODO: Filter here
   it->res->docId = it->lastDocId;
   *r = it->res;
-  // AggregateResult_AddChild(r, &it->res);
 
   return INDEXREAD_OK;
 }
@@ -31,10 +27,9 @@ void IL_Abort(void *ctx) {
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
-int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
+int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->size == 0) {
-    it->atEOF = 1;
+  if (it->atEOF || it->offset >= it->size) {
     return INDEXREAD_EOF;
   }
 
@@ -62,7 +57,7 @@ int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
     i = (bottom + top) / 2;
   }
   it->offset = i + 1;
-  if (it->offset == it->size) {
+  if (it->offset >= it->size) {
     it->atEOF = 1;
   }
 
@@ -71,7 +66,6 @@ int IL_SkipTo(void *ctx, uint32_t docId, RSIndexResult **r) {
 
   *r = it->res;
 
-  // printf("lastDocId: %d, docId%d\n", it->lastDocId, docId);
   if (it->lastDocId == docId) {
     return INDEXREAD_OK;
   }
@@ -121,7 +115,7 @@ void IL_Rewind(void *p) {
   il->offset = 0;
 }
 
-IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
+IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
@@ -133,7 +127,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num) {
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
   it->atEOF = 0;
   it->lastDocId = 0;
-  it->res = NewVirtualResult();
+  it->res = NewVirtualResult(weight);
   it->res->fieldMask = RS_FIELDMASK_ALL;
 
   it->offset = 0;

@@ -1,4 +1,4 @@
-# RediSeach Full Command Documentation
+# RediSearch Full Command Documentation
 
 ## FT.CREATE 
 
@@ -86,6 +86,7 @@ FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
+  [IF {condition}]
   FIELDS {field} {value} [{field} {value}...]
 ```
 
@@ -117,6 +118,14 @@ ete an older version of the document if it exists.
 - **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
+- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
+  Update the document only if a boolean expression applies to the document **before the update**, 
+  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234". 
+
+  The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
+
+  See [Aggregations](/Aggregations) for more details on the expression language. 
+
 - **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
@@ -146,6 +155,8 @@ O(n), where n is the number of tokens in the document
 ### Returns
 
 OK on success, or an error if something went wrong.
+
+A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 !!! warning "FT.ADD with  REPLACE and PARTIAL"
         
@@ -304,11 +315,11 @@ Search the index with a textual query, returning either documents or just ids.
 
 ### Parameters
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  See below for documentation on query syntax. 
+  Refer to [query syntax](/Query_Syntax) for more details. 
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
-  the content. This is useful if rediseach is only an index on an external document collection
+  the content. This is useful if redisearch is only an index on an external document collection
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the matched text.
@@ -367,6 +378,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 ```
 FT.AGGREGATE  {index_name}
   {query_string}
+  [WITHSCHEMA] [VERBATIM]
   [LOAD {nargs} {property} ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -375,6 +387,7 @@ FT.AGGREGATE  {index_name}
   [SORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
   [APPLY {expr} AS {alias}] ...
   [LIMIT {offset} {num}] ...
+  [FILTER {expr}] ...
 ```
 
 ### Description
@@ -403,6 +416,8 @@ Run a search query on an index, and perform aggregate transformations on the res
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
 
     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+
+* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. 
 
 ### Complexity
 
@@ -721,7 +736,7 @@ Get completion suggestions for a prefix
 
 - **key**: the suggestion dictionary key.
 - **prefix**: the prefix to complete on
-- **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent
+- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from the prefix sent
 - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number cannot be greater than 10).
 - **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances
 - **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.
@@ -788,5 +803,47 @@ FT.OPTIMIZE {index}
 Description
 
 This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. 
+
+---
+
+## FT.SYNADD
+
+Format
+
+```
+FT.SYNADD <index name> <term1> <term2> ...
+```
+
+Description
+
+The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
+
+---
+
+## FT.SYNUPDATE
+
+Format
+
+```
+FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
+```
+
+Description
+
+The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
+
+---
+
+## FT.SYNDUMP
+
+Format
+
+```
+FT.SYNDUMP <index name>
+```
+
+Description
+
+The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
 
 ---

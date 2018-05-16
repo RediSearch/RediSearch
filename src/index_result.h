@@ -21,17 +21,17 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->agg.typeMask = 0;
 }
 /* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap);
+RSIndexResult *NewIntersectResult(size_t cap, double weight);
 
 /* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap);
+RSIndexResult *NewUnionResult(size_t cap, double weight);
 
-RSIndexResult *NewVirtualResult();
+RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
 /* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term);
+RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
 /* Append a child to an aggregate result */
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
@@ -49,7 +49,6 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
- 
 }
 /* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
  * caution */
@@ -63,6 +62,10 @@ void IndexResult_Free(RSIndexResult *r);
 
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(RSIndexResult *r);
+
+/* Fill an array of max capacity cap with all the matching text terms for the result. The number of
+ * matching terms is returned */
+size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap);
 
 /* Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
  * need to be ordered as in the query or not */

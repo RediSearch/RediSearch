@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include "expression.h"
 #include "result_processor.h"
+#include "util/arr.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
@@ -50,6 +51,12 @@ RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   return e;
 }
 
+RSExpr *RS_NewNullLiteral() {
+  RSExpr *e = newExpr(RSExpr_Literal);
+  RSValue_MakeReference(&e->literal, RS_NullVal());
+  return e;
+}
+
 RSExpr *RS_NewNumberLiteral(double n) {
   RSExpr *e = newExpr(RSExpr_Literal);
 
@@ -63,6 +70,16 @@ RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
   e->op.op = op;
   e->op.left = left;
   e->op.right = right;
+  return e;
+}
+
+RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
+  RSExpr *e = newExpr(RSExpr_Predicate);
+  e->pred = (RSPredicate){
+      .cond = cond,
+      .left = left,
+      .right = right,
+  };
   return e;
 }
 
@@ -89,6 +106,7 @@ void RSArgList_Free(RSArgList *l) {
   free(l);
 }
 void RSExpr_Free(RSExpr *e) {
+  if (!e) return;
   switch (e->t) {
     case RSExpr_Literal:
       RSValue_Free(&e->literal);
@@ -101,13 +119,22 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->op.left);
       RSExpr_Free(e->op.right);
       break;
+    case RSExpr_Predicate:
+      RSExpr_Free(e->pred.left);
+      RSExpr_Free(e->pred.right);
+      break;
     case RSExpr_Property:
       free((char *)e->property.key);
+      break;
   }
   free(e);
 }
 
 void RSExpr_Print(RSExpr *e) {
+  if (!e) {
+    printf("NULL");
+    return;
+  }
   switch (e->t) {
     case RSExpr_Literal:
       RSValue_Print(&e->literal);
@@ -126,6 +153,21 @@ void RSExpr_Print(RSExpr *e) {
       printf(" %c ", e->op.op);
       RSExpr_Print(e->op.right);
       printf(")");
+      break;
+
+    case RSExpr_Predicate:
+      // NOT of a single predicate
+      if (e->pred.cond == RSCondition_Not) {
+        printf("!");
+        RSExpr_Print(e->pred.left);
+        return;
+      }
+      printf("(");
+      RSExpr_Print(e->pred.left);
+      printf(" %s ", RSConditionStrings[e->pred.cond]);
+      RSExpr_Print(e->pred.right);
+      printf(")");
+
       break;
     case RSExpr_Property:
       printf("@%s", e->property.key);
@@ -202,12 +244,77 @@ cleanup:
   return rc;
 }
 
+static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result, char **err) {
+
+  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  if (RSExpr_Eval(ctx, pred->left, &l, err) == EXPR_EVAL_ERR) {
+    return EXPR_EVAL_ERR;
+  }
+  if (pred->right && RSExpr_Eval(ctx, pred->right, &r, err) == EXPR_EVAL_ERR) {
+    return EXPR_EVAL_ERR;
+  }
+
+  int res;
+  switch (pred->cond) {
+    case RSCondition_Eq:
+      res = RSValue_Equal(&l, &r);
+      break;
+    case RSCondition_Lt:
+      res = RSValue_Cmp(&l, &r) < 0;
+      break;
+    /* Less than or equal, <= */
+    case RSCondition_Le:
+      res = RSValue_Cmp(&l, &r) <= 0;
+
+      break;
+      /* Greater than, > */
+    case RSCondition_Gt:
+      res = RSValue_Cmp(&l, &r) > 0;
+
+      break;
+
+    /* Greater than or equal, >= */
+    case RSCondition_Ge:
+      res = RSValue_Cmp(&l, &r) >= 0;
+
+      break;
+
+    /* Not equal, != */
+    case RSCondition_Ne:
+      res = !RSValue_Equal(&l, &r);
+      break;
+      /* Logical AND of 2 expressions, && */
+    case RSCondition_And:
+      res = RSValue_BoolTest(&l) && RSValue_BoolTest(&r);
+      break;
+
+    /* Logical OR of 2 expressions, || */
+    case RSCondition_Or:
+      res = RSValue_BoolTest(&l) || RSValue_BoolTest(&r);
+
+      break;
+
+    case RSCondition_Not:
+      res = RSValue_BoolTest(&l) == 0;
+      break;
+  }
+
+  result->numval = res;
+  result->t = RSValue_Number;
+
+  RSValue_Free(&l);
+  RSValue_Free(&r);
+  return EXPR_EVAL_OK;
+}
 static inline int evalProperty(RSExprEvalCtx *ctx, RSKey *k, RSValue *result, char **err) {
   RSValue_MakeReference(result, SearchResult_GetValue(ctx->r, ctx->sortables, k));
   return EXPR_EVAL_OK;
 }
 
 int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
+  if (!e) {
+    return EXPR_EVAL_ERR;
+  }
   switch (e->t) {
     case RSExpr_Property:
       return evalProperty(ctx, &e->property, result, err);
@@ -219,6 +326,64 @@ int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
 
     case RSExpr_Op:
       return evalOp(ctx, &e->op, result, err);
+    case RSExpr_Predicate:
+      return evalPredicate(ctx, &e->pred, result, err);
   }
   return EXPR_EVAL_ERR;
+}
+
+void expr_GetFieldsInternal(RSExpr *expr, const char ***arr) {
+  if (!expr) {
+    return;
+  }
+  switch (expr->t) {
+    case RSExpr_Property:
+      *arr = array_append(*arr, expr->property.key);
+      break;
+    case RSExpr_Function:
+      for (size_t i = 0; i < expr->func.args->len; i++) {
+        expr_GetFieldsInternal(expr->func.args->args[i], arr);
+      }
+      break;
+    case RSExpr_Op:
+      expr_GetFieldsInternal(expr->op.left, arr);
+      expr_GetFieldsInternal(expr->op.right, arr);
+      break;
+    case RSExpr_Predicate:
+      expr_GetFieldsInternal(expr->pred.left, arr);
+      expr_GetFieldsInternal(expr->pred.right, arr);
+      break;
+    default:
+      break;
+  }
+}
+
+/* Return all the field names needed by the expression. Returns an array that should be freed with
+ * array_free */
+const char **Expr_GetRequiredFields(RSExpr *expr) {
+  const char **ret = array_new(const char *, 2);
+  expr_GetFieldsInternal(expr, &ret);
+  return ret;
+}
+
+/* Get the return type of an expression. In the case of a property we do not try to guess but
+ * rather just return String */
+RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl) {
+  if (!expr) return RSValue_Null;
+  switch (expr->t) {
+    case RSExpr_Function:
+      return RSFunctionRegistry_GetType(expr->func.name, strlen(expr->func.name));
+      break;
+    case RSExpr_Op:
+      return RSValue_Number;
+    case RSExpr_Predicate:
+      return RSValue_Number;
+    case RSExpr_Literal:
+      return expr->literal.t;
+    case RSExpr_Property: {
+      // best effort based on sorting table, default to string
+      // safe if tbl is null
+      return SortingTable_GetFieldType(tbl, RSKEY(expr->property.key), RSValue_String);
+    }
+  }
 }
