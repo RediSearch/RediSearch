@@ -289,7 +289,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->type));
+      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
     }
     sp->numFields++;
   }
@@ -534,13 +534,13 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
+  sp->sortables = NewSortingTable();
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->sortables = NULL;
   sp->gc = NULL;
   sp->smap = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -663,27 +663,15 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
-static void rebuildSortingTable(IndexSpec *sp, size_t len) {
-  RSSortingTable *tbl = sp->sortables = NewSortingTableSized(len);
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (!FieldSpec_IsSortable(fs)) {
-      continue;
-    }
-    tbl->fields[fs->sortIdx].name = fs->name;
-    tbl->fields[fs->sortIdx].type = fieldTypeToValueType(fs->type);
-  }
-}
-
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = NewDocTable(1000);
-  sp->sortables = NULL;
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->gc = NULL;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
@@ -695,23 +683,15 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
-
-    FieldSpec_RdbLoad(rdb, &sp->fields[i], encver);
+    FieldSpec *fs = sp->fields + i;
+    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
-
-    /* keep track of sorting indexes to rebuild the table */
-    if (sp->fields[i].sortIdx > maxSortIdx) {
-      maxSortIdx = sp->fields[i].sortIdx;
+    if (FieldSpec_IsSortable(fs)) {
+      assert(fs->sortIdx < RS_SORTABLES_MAX);
+      sp->sortables->fields[fs->sortIdx].name = fs->name;
+      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->type);
+      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
     }
-  }
-
-  /*
-   * if we have sortable fields - rebuild the sorting table. We _could_ do this
-   * incrementally, but I'm not sure if prior versions assigned the sort index
-   * using the same policy (i.e. simple increment)
-   */
-  if (maxSortIdx >= 0) {
-    rebuildSortingTable(sp, maxSortIdx + 1);
   }
 
   IndexStats_RdbLoad(rdb, &sp->stats);

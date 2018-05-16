@@ -1058,9 +1058,9 @@ int testDocTable() {
 
 int testSortable() {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
+  RSSortingTable_Add(tbl, "foo", RSValue_String);
+  RSSortingTable_Add(tbl, "bar", RSValue_String);
+  RSSortingTable_Add(tbl, "baz", RSValue_String);
   ASSERT_EQUAL(3, tbl->len);
 
   ASSERT_STRING_EQ("foo", tbl->fields[0].name);

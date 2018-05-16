@@ -86,8 +86,8 @@ int mock_Next_Arr(ResultProcessorCtx *ctx, SearchResult *res) {
 int testPlanSchema() {
 
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "txt", RSValue_String);
-  RSSortingTable_Add(&tbl, "num", RSValue_Number);
+  RSSortingTable_Add(tbl, "txt", RSValue_String);
+  RSSortingTable_Add(tbl, "num", RSValue_Number);
 
   const char *args[] = {"FT.AGGREGATE", "idx",    "*",       "VERBATIM",    "APPLY", "@txt",
                         "AS",           "txt2",   "APPLY",   "upper(@txt)", "AS",    "upper",

@@ -34,7 +34,7 @@ typedef struct {
   struct sortField {
     const char *name;
     RSValueType type;
-  } fields[];
+  } fields[RS_SORTABLES_MAX];
 } RSSortingTable;
 
 /* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
@@ -51,14 +51,11 @@ void RSSortingKey_Free(RSSortingKey *k);
 /* Create a sorting table. */
 RSSortingTable *NewSortingTable();
 
-/* Create a new empty sorting table of a given size */
-RSSortingTable *NewSortingTableSized(size_t len);
-
 /* Free a sorting table */
 void SortingTable_Free(RSSortingTable *t);
 
 /** Adds a field and returns the ID of the newly-inserted field */
-int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t);
+int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t);
 
 /* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
  * default is ASC if not specified.  This function returns 1 if we found sorting args, they are

@@ -183,40 +183,24 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(void) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable));
-  tbl->len = 0;
+  RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
   return tbl;
 }
 
 RSSortingTable *NewSortingTableSized(size_t len) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + (sizeof(tbl->fields[0]) * len));
-  tbl->len = len;
-  return tbl;
+  return rm_calloc(1, sizeof(RSSortingTable));
 }
 
 void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
-  size_t newSize = sizeof(RSSortingTable);
-  int isNew = 0;
-  if (*tbl) {
-    newSize += sizeof(struct sortField) * ((*tbl)->len + 1);
-  } else {
-    isNew = 1;
-    newSize += sizeof(struct sortField);
-  }
-
-  *tbl = rm_realloc(*tbl, newSize);
-  RSSortingTable *tbl_p = *tbl;
-  if (isNew) {
-    tbl_p->len = 0;
-  }
-  memset(&tbl_p->fields[tbl_p->len], 0, sizeof tbl_p->fields[0]);
-  tbl_p->fields[tbl_p->len].name = name;
-  tbl_p->fields[tbl_p->len].type = t;
-  return tbl_p->len++;
+int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
+  assert(tbl->len < RS_SORTABLES_MAX);
+  tbl->fields[tbl->len].name = name;
+  tbl->fields[tbl->len].type = t;
+  printf("Len: %llu\n", tbl->len);
+  return tbl->len++;
 }
 
 RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType deflt) {
