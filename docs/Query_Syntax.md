@@ -11,9 +11,10 @@ We support a simple syntax for complex queries with the following rules:
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
-* Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on tag fields.
+* Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
 * An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
+* Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
 ## Pure Negative Queries
@@ -133,6 +134,23 @@ Will perform fuzzy matching on 'hello' for all terms where LD is 1.
 As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`. 
 
 This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. 
+
+## Query attributes
+
+As of version 1.2.0, it is possible to apply specific query modifying attributes to specific clauses of the query.
+
+The syntax is `(foo bar) => { $attribute: value; $attribute:value; ...}`, e.g:
+
+```
+(foo bar) => { $weight: 2.0; $slop: 1; $inorder: true; }
+~(bar baz) => { $weight: 0.5; }
+```
+
+The supported attributes are:
+
+* **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
+2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
+3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
 
 ## A Few Query Examples
 

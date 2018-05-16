@@ -1,4 +1,4 @@
-# RediSeach Full Command Documentation
+# RediSearch Full Command Documentation
 
 ## FT.CREATE 
 
@@ -315,11 +315,11 @@ Search the index with a textual query, returning either documents or just ids.
 
 ### Parameters
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  See below for documentation on query syntax. 
+  Refer to [query syntax](/Query_Syntax) for more details. 
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
-  the content. This is useful if rediseach is only an index on an external document collection
+  the content. This is useful if redisearch is only an index on an external document collection
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the matched text.
