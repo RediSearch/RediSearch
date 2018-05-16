@@ -834,7 +834,7 @@ The command is used to update an existing synonym group with additional terms. O
 
 ---
 
-## FT.SYNUPDATE
+## FT.SYNDUMP
 
 Format
 
