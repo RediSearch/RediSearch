@@ -21,6 +21,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_NOFREQS_STR "NOFREQS"
 #define SPEC_NOHL_STR "NOHL"
 #define SPEC_SCHEMA_STR "SCHEMA"
+#define SPEC_SCHEMA_EXPANDABLE_STR "WIDE"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
@@ -232,8 +233,6 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
                             RedisModuleKey **keyp);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-int IndexSpec_AddField(IndexSpec *sp, const char **argv, int argc, char **err);
 
 /* Get a random term from the index spec using weighted random. Weighted random is done by sampling
  * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be

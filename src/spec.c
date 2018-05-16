@@ -235,15 +235,65 @@ RSValueType fieldTypeToValueType(FieldType ft) {
       return RSValue_Null;
   }
 }
-void _spec_buildSortingTable(IndexSpec *spec, int len) {
-  spec->sortables = NewSortingTable(len);
-  for (int i = 0; i < spec->numFields; i++) {
-    if (FieldSpec_IsSortable(&spec->fields[i])) {
-      // printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
-      SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name,
-                                fieldTypeToValueType(spec->fields[i].type));
+
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc, char **err,
+                                       int isNew) {
+
+  int textId = -1;
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (fs->type == FIELD_FULLTEXT) {
+      textId = MAX(textId, fs->textOpts.id);
     }
   }
+
+  for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
+    sp->fields = realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+    FieldSpec *fs = sp->fields + sp->numFields;
+    memset(fs, 0, sizeof(*fs));
+
+    fs->index = sp->numFields;
+
+    if (!parseFieldSpec(argv, &offset, argc, fs, err)) {
+      if (!*err) {
+        SET_ERR(err, "Could not parse field spec");
+      }
+      return 0;
+    }
+
+    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+      // make sure we don't have too many indexable fields
+      if (textId == SPEC_MAX_FIELD_ID) {
+        SET_ERR(err, "Too many TEXT fields in schema");
+        return 0;
+      }
+
+      // If we need to store field flags and we have over 32 fields, we need to switch to wide
+      // schema encoding
+      if (textId >= SPEC_WIDEFIELD_THRESHOLD && (sp->flags & Index_StoreFieldFlags)) {
+        if (isNew) {
+          sp->flags |= Index_WideSchema;
+        } else {
+          SET_ERR(err,
+                  "Cannot add more fields. Declare index with wide fields to allow adding "
+                  "unlimited fields");
+          return 0;
+        }
+      }
+      fs->textOpts.id = ++textId;
+    }
+
+    if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
+      SET_ERR(err, "Duplicate field in schema");
+      return 0;
+    }
+
+    if (FieldSpec_IsSortable(fs)) {
+      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->type));
+    }
+    sp->numFields++;
+  }
+  return 1;
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -275,6 +325,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags &= ~Index_StoreFreqs;
   }
 
+  if (argExists(SPEC_SCHEMA_EXPANDABLE_STR, argv, argc, schemaOffset)) {
+    spec->flags |= Index_WideSchema;
+  }
+
   int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
@@ -287,58 +341,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   } else {
     spec->stopwords = DefaultStopWordList();
   }
-
-  uint64_t id = 0;
-  int sortIdx = 0;
-
-  int i = schemaOffset + 1;
-  while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
-
-    FieldSpec *fs = &spec->fields[spec->numFields++];
-    fs->index = spec->numFields - 1;
-
-    if (!parseFieldSpec(argv, &i, argc, fs, err)) {
-      if (!*err) {
-        SET_ERR(err, "Could not parse field spec");
-      }
-      goto failure;
-    }
-
-    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
-      // make sure we don't have too many indexable fields
-      if (id == SPEC_MAX_FIELD_ID) {
-        SET_ERR(err, "Too many TEXT fields in schema");
-        goto failure;
-      }
-
-      // If we need to store field flags and we have over 32 fields, we need to switch to wide
-      // schema encoding
-      if (id == SPEC_WIDEFIELD_THRESHOLD && spec->flags & Index_StoreFieldFlags) {
-        spec->flags |= Index_WideSchema;
-      }
-
-      fs->textOpts.id = id++;
-    }
-    if (FieldSpec_IsSortable(fs)) {
-      fs->sortIdx = sortIdx++;
-    }
-    if (sortIdx > RS_SORTABLES_MAX) {
-      SET_ERR(err, "Too many sortable fields");
-
-      goto failure;
-    }
-
-    if (IndexSpec_GetField(spec, fs->name, strlen(fs->name)) != fs) {
-      SET_ERR(err, "Duplicate field in schema");
-      goto failure;
-    }
+  schemaOffset++;
+  if (!IndexSpec_AddFieldsInternal(spec, argv + schemaOffset, argc - schemaOffset, err, 1)) {
+    goto failure;
   }
-
-  /* If we have sortable fields, create a sorting lookup table */
-  if (sortIdx > 0) {
-    _spec_buildSortingTable(spec, sortIdx);
-  }
-
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -385,9 +391,9 @@ size_t weightedRandom(double weights[], size_t len) {
   return 0;
 }
 
-/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
- * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
- * enough. Returns NULL if the index is empty */
+/* Get a random term from the index spec using weighted random. Weighted random is done by
+ * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
+ * should be enough. Returns NULL if the index is empty */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
   if (sampleSize > sp->terms->size) {
@@ -657,6 +663,18 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
+static void rebuildSortingTable(IndexSpec *sp, size_t len) {
+  RSSortingTable *tbl = sp->sortables = NewSortingTableSized(len);
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (!FieldSpec_IsSortable(fs)) {
+      continue;
+    }
+    tbl->fields[fs->sortIdx].name = fs->name;
+    tbl->fields[fs->sortIdx].type = fieldTypeToValueType(fs->type);
+  }
+}
+
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
@@ -686,9 +704,14 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       maxSortIdx = sp->fields[i].sortIdx;
     }
   }
-  /* if we have sortable fields - rebuild the sorting table */
+
+  /*
+   * if we have sortable fields - rebuild the sorting table. We _could_ do this
+   * incrementally, but I'm not sure if prior versions assigned the sort index
+   * using the same policy (i.e. simple increment)
+   */
   if (maxSortIdx >= 0) {
-    _spec_buildSortingTable(sp, maxSortIdx + 1);
+    rebuildSortingTable(sp, maxSortIdx + 1);
   }
 
   IndexStats_RdbLoad(rdb, &sp->stats);
