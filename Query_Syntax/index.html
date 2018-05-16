@@ -398,13 +398,6 @@
     Prefix Matching
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fuzzy"_"matching" title="Fuzzy Matching" class="md-nav__link">
-    Fuzzy Matching
-  </a>
-  
     <nav class="md-nav">
       <ul class="md-nav__list">
         
@@ -417,6 +410,13 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuzzy"_"matching" title="Fuzzy Matching" class="md-nav__link">
+    Fuzzy Matching
+  </a>
   
 </li>
       
@@ -825,13 +825,6 @@
     Prefix Matching
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fuzzy"_"matching" title="Fuzzy Matching" class="md-nav__link">
-    Fuzzy Matching
-  </a>
-  
     <nav class="md-nav">
       <ul class="md-nav__list">
         
@@ -844,6 +837,13 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuzzy"_"matching" title="Fuzzy Matching" class="md-nav__link">
+    Fuzzy Matching
+  </a>
   
 </li>
       
@@ -981,13 +981,6 @@ e.g.
 
 
 <p>Will be expanded to cover <code>(hello|help|helm|...) world</code>. </p>
-<h2 id="fuzzy&quot;_&quot;matching">Fuzzy Matching<a class="headerlink" href="#fuzzy&quot;_&quot;matching" title="Permanent link">&para;</a></h2>
-<p>The dictionary of all terms in the index can also be used to perform <a href="https://en.wikipedia.org/wiki/Approximate_string_matching">Fuzzy Matchin</a>. Fuzzy matches is performed base on <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">levenshtein distance</a>. Fuzzy Matchin on a term is perfomed by surrounding the term with '%'. For example:</p>
-<div class="codehilite"><pre><span></span><span class="nf">%hello</span><span class="o">%</span> <span class="n">world</span>
-</pre></div>
-
-
-<p>Will perform Fuzzy Matchin on 'hello'</p>
 <h3 id="a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;prefix&quot;_&quot;searches">A few notes on prefix searches:<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;notes&quot;_&quot;on&quot;_&quot;prefix&quot;_&quot;searches" title="Permanent link">&para;</a></h3>
 <ol>
 <li>
@@ -1009,6 +1002,13 @@ e.g.
 <p>Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. </p>
 </li>
 </ol>
+<h2 id="fuzzy&quot;_&quot;matching">Fuzzy Matching<a class="headerlink" href="#fuzzy&quot;_&quot;matching" title="Permanent link">&para;</a></h2>
+<p>As of v1.2.0, the dictionary of all terms in the index can also be used to perform <a href="https://en.wikipedia.org/wiki/Approximate_string_matching">Fuzzy Matching</a>. Fuzzy matches are performed based on <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a> (LD). Fuzzy matching on a term is perfomed by surrounding the term with '%', for example:</p>
+<div class="codehilite"><pre><span></span><span class="nf">%hello</span><span class="o">%</span> <span class="n">world</span>
+</pre></div>
+
+
+<p>Will perform fuzzy matching on 'hello' for all terms where LD is 1.</p>
 <h2 id="wildcard&quot;_&quot;queries">Wildcard Queries<a class="headerlink" href="#wildcard&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
 <p>As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. <code>FT.SEARCH myIndex *</code>. </p>
 <p>This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. </p>

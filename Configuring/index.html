@@ -669,7 +669,7 @@
 </div>
 <h1 id="redisearch&quot;_&quot;configuration&quot;_&quot;options">RediSearch Configuration Options<a class="headerlink" href="#redisearch&quot;_&quot;configuration&quot;_&quot;options" title="Permanent link">&para;</a></h1>
 <h2 id="timeout">TIMEOUT<a class="headerlink" href="#timeout" title="Permanent link">&para;</a></h2>
-<p>The maximum amount of time <strong>in Millisecods</strong> that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
+<p>The maximum amount of time <strong>in Milliseconds</strong> that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
 The defalt is 500ms. </p>
 <p><strong>NOTE</strong>: This works only in concurrent mode, so enabling SAFEMODE disables ths option.</p>
 <h3 id="default">Default:<a class="headerlink" href="#default" title="Permanent link">&para;</a></h3>
@@ -681,7 +681,7 @@ The defalt is 500ms. </p>
 
 <h2 id="safemode">SAFEMODE<a class="headerlink" href="#safemode" title="Permanent link">&para;</a></h2>
 <p>If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.</p>
-<p>This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted durin query processing).</p>
+<p>This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily incosistent results (i.e. documents that were valid during the the invokation of the query are not returned because they were deleted during query processing).</p>
 <h3 id="default_1">Default:<a class="headerlink" href="#default_1" title="Permanent link">&para;</a></h3>
 <p>Off (not present)</p>
 <h3 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
