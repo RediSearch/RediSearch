@@ -736,7 +736,7 @@ Get completion suggestions for a prefix
 
 - **key**: the suggestion dictionary key.
 - **prefix**: the prefix to complete on
-- **FUZZY**: if set,we do a fuzzy prefix search, including prefixes at levenshtein distance of 1 from the prefix sent
+- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from the prefix sent
 - **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number cannot be greater than 10).
 - **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances
 - **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.

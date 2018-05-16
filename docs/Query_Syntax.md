@@ -104,17 +104,6 @@ hel* world
 
 Will be expanded to cover `(hello|help|helm|...) world`. 
 
-## Fuzzy Matching 
-
-The dictionary of all terms in the index can also be used to perform [Fuzzy Matchin](https://en.wikipedia.org/wiki/Approximate_string_matching). Fuzzy matches is performed base on [levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance). Fuzzy Matchin on a term is perfomed by surrounding the term with '%'. For example:
-
-```
-%hello% world
-```
-
-Will perform Fuzzy Matchin on 'hello'
-
-
 ### A few notes on prefix searches:
 
 1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.
@@ -128,6 +117,16 @@ Will perform Fuzzy Matchin on 'hello'
 3. Prefix matching fully supports unicode and is case insensitive.
 
 4. Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. 
+
+## Fuzzy Matching 
+
+As of v1.2.0, the dictionary of all terms in the index can also be used to perform [Fuzzy Matching](https://en.wikipedia.org/wiki/Approximate_string_matching). Fuzzy matches are performed based on [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance) (LD). Fuzzy matching on a term is perfomed by surrounding the term with '%', for example:
+
+```
+%hello% world
+```
+
+Will perform fuzzy matching on 'hello' for all terms where LD is 1.
 
 ## Wildcard Queries
 
