@@ -92,7 +92,7 @@ FT.ADD {index} {docId} {score}
 
 ### Description
 
-Add a documet to the index.
+Add a document to the index.
 
 ### Parameters:
 
@@ -126,7 +126,7 @@ ete an older version of the document if it exists.
 
   See [Aggregations](/Aggregations) for more details on the expression language. 
 
-- **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -179,7 +179,7 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 ### Description
 
-Add a documet to the index from an existing HASH key in Redis.
+Add a document to the index from an existing HASH key in Redis.
 
 ### Parameters:
 
@@ -193,7 +193,7 @@ Add a documet to the index from an existing HASH key in Redis.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
 
-- **LANGUAGE language**: If set, we use a stemmer for the supplied langauge during indexing. Defaults to English. 
+- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -339,14 +339,14 @@ Search the index with a textual query, returning either documents or just ids.
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
   Multiple numeric filters for different fields are supported in one query.
-- **GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft**: If set, we filter the results to a given radius 
+- **GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius 
   from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius) for more details. 
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
-- **LANGUAGE {language}**: If set, we use a stemmer for the supplied langauge during search for query expansion.
+- **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query expansion.
   If querying documents in Chinese, this should be set to `chinese` in order to
   properly tokenize the query terms. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
