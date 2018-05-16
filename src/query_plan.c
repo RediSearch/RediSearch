@@ -11,9 +11,9 @@
 static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags,
                               RedisModuleCtx *ctx) {
   size_t count = 0;
-  if (r->md && !(qex->opts.flags & Search_AggregationQuery)) {
+  if (r->scorerPrivateData && !(qex->opts.flags & Search_AggregationQuery)) {
     size_t klen;
-    const char *k = DMD_KeyPtrLen(r->md, &klen);
+    const char *k = DMD_KeyPtrLen(r->scorerPrivateData, &klen);
     count += 1;
     RedisModule_ReplyWithStringBuffer(ctx, k, klen);
   }
@@ -25,7 +25,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithPayloads) {
     ++count;
-    const RSPayload *payload = r->md ? r->md->payload : NULL;
+    const RSPayload *payload = r->scorerPrivateData ? r->scorerPrivateData->payload : NULL;
     if (payload) {
       RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
     } else {
@@ -35,7 +35,7 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithSortKeys) {
     ++count;
-    const RSValue *sortkey = RSSortingVector_Get(r->sv, qex->opts.sortBy);
+    const RSValue *sortkey = RSSortingVector_Get(r->sorterPrivateData, qex->opts.sortBy);
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:

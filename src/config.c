@@ -33,6 +33,16 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  /* Read the minum query prefix allowed */
+  if (argc >= 2 && RMUtil_ArgIndex("MAXDOCTABLESIZE", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("MAXDOCTABLESIZE", argv, argc, "l", &RSGlobalConfig.maxDocTableSize);
+    if (RSGlobalConfig.maxDocTableSize <= 0 ||
+        RSGlobalConfig.minTermPrefix >= DEFAULT_MAX_DOC_TABLE_SIZE) {
+      *err = "Invalid MAXDOCTABLESIZE value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   /* Read the maximum prefix expansions */
   if (argc >= 2 && RMUtil_ArgIndex("MAXEXPANSIONS", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("MAXEXPANSIONS", argv, argc, "l", &RSGlobalConfig.maxPrefixExpansions);

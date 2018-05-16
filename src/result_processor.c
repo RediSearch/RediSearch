@@ -14,7 +14,9 @@
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
   ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
-      .privdata = privdata, .upstream = upstream, .qxc = upstream ? upstream->ctx.qxc : NULL,
+      .privdata = privdata,
+      .upstream = upstream,
+      .qxc = upstream ? upstream->ctx.qxc : NULL,
   };
 
   return p;
@@ -138,8 +140,8 @@ int baseResultProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
   res->indexResult = r;  // q->opts.needIndexResult ? r : NULL;
 
   res->score = 0;
-  res->sv = dmd->sortVector;
-  res->md = dmd;
+  res->sorterPrivateData = dmd->sortVector;
+  res->scorerPrivateData = dmd;
   if (res->fields != NULL) {
     res->fields->len = 0;
   }
@@ -179,7 +181,8 @@ int scorerProcessor_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     if (RS_RESULT_EOF == (rc = ResultProcessor_Next(ctx->upstream, res, 0))) return rc;
 
     // Apply the scoring function
-    res->score = sc->scorer(&sc->scorerCtx, res->indexResult, res->md, ctx->qxc->minScore);
+    res->score =
+        sc->scorer(&sc->scorerCtx, res->indexResult, res->scorerPrivateData, ctx->qxc->minScore);
 
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
@@ -293,7 +296,7 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
   if (sc->pq->count > 0 && (!sc->size || sc->offset++ < sc->size)) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
-    DocTable_DecreaseDmdRefCount(r->md);
+    DocTable_DecreaseDmdRefCount(r->scorerPrivateData);
     free(sr);
     return RS_RESULT_OK;
   }
@@ -346,7 +349,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    DocTable_IncreaseDmdRefCount(h->md);
+    DocTable_IncreaseDmdRefCount(h->scorerPrivateData);
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -368,7 +371,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       h->indexResult = NULL;
       sc->pooledResult = mmh_pop_min(sc->pq);
       SearchResult_FreeInternal(sc->pooledResult);
-      DocTable_IncreaseDmdRefCount(h->md);
+      DocTable_IncreaseDmdRefCount(h->scorerPrivateData);
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
@@ -398,10 +401,10 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
 static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   const RSSortingKey *sk = udata;
   const SearchResult *h1 = e1, *h2 = e2;
-  if (!h1->sv || !h2->sv) {
+  if (!h1->sorterPrivateData || !h2->sorterPrivateData) {
     return h1->docId < h2->docId ? -1 : 1;
   }
-  return -RSSortingVector_Cmp(h1->sv, h2->sv, (RSSortingKey *)sk);
+  return -RSSortingVector_Cmp(h1->sorterPrivateData, h2->sorterPrivateData, (RSSortingKey *)sk);
 }
 
 /* Compare results for the heap by sorting key */
@@ -561,7 +564,7 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
-  RedisModuleString *idstr = DMD_CreateKeyString(r->md, lc->ctx->redisCtx);
+  RedisModuleString *idstr = DMD_CreateKeyString(r->scorerPrivateData, lc->ctx->redisCtx);
   if (!lc->explicitReturn) {
     Redis_LoadDocument(lc->ctx, idstr, &doc);
   } else {
