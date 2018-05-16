@@ -84,28 +84,29 @@ typedef struct {
 
 } DocTable;
 
-#define DOC_TABLE_MAX_SIZE 1000000
+#define DOCTABLE_MAX_SIZE 1000000
 
 /* increasing the ref count of the given dmd */
-#define DocTable_IncreaseDmdRefCount(md) if(md) ++md->ref_count;
+#define DocTable_IncreaseDmdRefCount(md) \
+  if (md) ++md->ref_count;
 
-#define DocTable_ForEach(dt, code) \
-  for (size_t i = 1; i < dt->cap; ++i) {\
-    DMDChain *chain = &dt->buckets[i];\
-    if (DMDChain_IsEmpty(chain)) {\
-      continue;\
-    }\
-    RSDocumentMetadata *dmd = chain->first;\
-    while (dmd) {\
-      code;\
-      dmd = dmd->next;\
-    }\
+#define DocTable_ForEach(dt, code)          \
+  for (size_t i = 1; i < dt->cap; ++i) {    \
+    DMDChain *chain = &dt->buckets[i];      \
+    if (DMDChain_IsEmpty(chain)) {          \
+      continue;                             \
+    }                                       \
+    RSDocumentMetadata *dmd = chain->first; \
+    while (dmd) {                           \
+      code;                                 \
+      dmd = dmd->next;                      \
+    }                                       \
   }
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
-#define DocTable_New(cap) NewDocTable(cap, DOC_TABLE_MAX_SIZE)
+#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */

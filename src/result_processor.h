@@ -77,11 +77,14 @@ typedef struct {
   double score;
 
   // The sorting vector of the result.
-  RSSortingVector *sv;
+  // should be use only on the sorter because of
+  // Concurrency issues
+  RSSortingVector *sorterPrivateData;
 
   // The entire document metadata. Guaranteed not to be NULL
-  // TODO: Check thread safety of it. Might be deleted on context switches
-  RSDocumentMetadata *md;
+  // should be use only on the scorer and not anywhere else because of
+  // Concurrency issues`
+  RSDocumentMetadata *scorerPrivateData;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
@@ -92,9 +95,13 @@ typedef struct {
   RSFieldMap *fields;
 } SearchResult;
 
-#define SEARCH_RESULT_INIT \
-  ((SearchResult){         \
-      .docId = 0, .score = 0, .sv = NULL, .md = NULL, .indexResult = NULL, .fields = NULL})
+#define SEARCH_RESULT_INIT                   \
+  ((SearchResult){.docId = 0,                \
+                  .score = 0,                \
+                  .scorerPrivateData = NULL, \
+                  .sorterPrivateData = NULL, \
+                  .indexResult = NULL,       \
+                  .fields = NULL})
 /* Get a value by name from the result, either from its sorting table or from its loaded values */
 static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl, RSKey *k) {
   if (!k->key) goto noret;
@@ -106,7 +113,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
     }
   }
   // First try to get the group value by sortables
-  if (tbl && res->md && res->md->sortVector) {
+  if (tbl && res->scorerPrivateData && res->scorerPrivateData->sortVector) {
     int idx = k->sortableIdx;
     if (idx <= 0) {
       idx = RSSortingTable_GetFieldIdx(tbl, RSKEY(k->key));
@@ -115,7 +122,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
       }
     }
     if (RSKEY_ISVALIDIDX(idx)) {
-      return (res->md->sortVector->values[idx]);
+      return (res->scorerPrivateData->sortVector->values[idx]);
     }
   }
 noret:
