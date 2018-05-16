@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#rediseach"_"full"_"command"_"documentation" tabindex="1" class="md-skip">
+      <a href="#redisearch"_"full"_"command"_"documentation" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -2208,7 +2208,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="rediseach&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation">RediSeach Full Command Documentation<a class="headerlink" href="#rediseach&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation" title="Permanent link">&para;</a></h1>
+                <h1 id="redisearch&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation">RediSearch Full Command Documentation<a class="headerlink" href="#redisearch&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation" title="Permanent link">&para;</a></h1>
 <h2 id="ftcreate">FT.CREATE<a class="headerlink" href="#ftcreate" title="Permanent link">&para;</a></h2>
 <h3 id="format">Format:<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
@@ -2502,11 +2502,11 @@ information.</p>
 <p>Search the index with a textual query, returning either documents or just ids.</p>
 <h3 id="parameters_4">Parameters<a class="headerlink" href="#parameters_4" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>index</strong>: The index name. The index must be first created with <code>FT.CREATE</code>.</li>
 <li><strong>query</strong>: the text query to search. If it's more than a single word, put it in quotes.
-  See below for documentation on query syntax. </li>
+  Refer to <a href="../Query_Syntax">query syntax</a> for more details. </li>
 <li><strong>NOCONTENT</strong>: If it appears after the query, we only return the document ids and not 
-  the content. This is useful if rediseach is only an index on an external document collection</li>
+  the content. This is useful if redisearch is only an index on an external document collection</li>
 <li><strong>RETURN {num} {field} ...</strong>: Use this keyword to limit which fields from the document are returned.
   <code>num</code> is the number of fields following the keyword. If <code>num</code> is 0, it acts like <code>NOCONTENT</code>.</li>
 <li><strong>SUMMARIZE ...</strong>: Use this option to return only the sections of the field which contain the matched text.

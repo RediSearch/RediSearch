@@ -428,6 +428,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#query"_"attributes" title="Query attributes" class="md-nav__link">
+    Query attributes
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
@@ -855,6 +862,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#query"_"attributes" title="Query attributes" class="md-nav__link">
+    Query attributes
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a"_"few"_"query"_"examples" title="A Few Query Examples" class="md-nav__link">
     A Few Query Examples
   </a>
@@ -906,9 +920,10 @@
 <li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
 <li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
 <li>Geo radius matches on geo fields with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code></li>
-<li>Tag field filters with the syntax <code>@field:{tag | tag | ...}</code>. See the full documentation on tag fields.</li>
+<li>Tag field filters with the syntax <code>@field:{tag | tag | ...}</code>. See the full documentation on [tag fields|/Tags].</li>
 <li>Optional terms or clauses: <code>foo ~bar</code> means bar is optional but documents with bar in them will rank higher. </li>
 <li>An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. <code>(hello|hella) (world|werld)</code>.</li>
+<li>Query attributes can be applied to individual clauses, e.g. <code>(foo bar) =&gt; { $weight: 2.0; $slop: 1; $inorder: false; }</code></li>
 <li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
 </ul>
 <h2 id="pure&quot;_&quot;negative&quot;_&quot;queries">Pure Negative Queries<a class="headerlink" href="#pure&quot;_&quot;negative&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
@@ -1012,6 +1027,20 @@ e.g.
 <h2 id="wildcard&quot;_&quot;queries">Wildcard Queries<a class="headerlink" href="#wildcard&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
 <p>As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. <code>FT.SEARCH myIndex *</code>. </p>
 <p>This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. </p>
+<h2 id="query&quot;_&quot;attributes">Query attributes<a class="headerlink" href="#query&quot;_&quot;attributes" title="Permanent link">&para;</a></h2>
+<p>As of version 1.2.0, it is possible to apply specific query modifying attributes to specific clauses of the query.</p>
+<p>The syntax is <code>(foo bar) =&gt; { $attribute: value; $attribute:value; ...}</code>, e.g:</p>
+<div class="codehilite"><pre><span></span><span class="o">(</span><span class="nt">foo</span> <span class="nt">bar</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="err">$</span><span class="n">weight</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">;</span> <span class="err">$</span><span class="n">slop</span><span class="p">:</span> <span class="mi">1</span><span class="p">;</span> <span class="err">$</span><span class="n">inorder</span><span class="p">:</span> <span class="n">true</span><span class="p">;</span> <span class="p">}</span>
+<span class="o">~(</span><span class="nt">bar</span> <span class="nt">baz</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="err">$</span><span class="n">weight</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">;</span> <span class="p">}</span>
+</pre></div>
+
+
+<p>The supported attributes are:</p>
+<ul>
+<li><strong>$weight</strong>: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).</li>
+<li><strong>$slop</strong>: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).</li>
+<li><strong>$inorder</strong>: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with <code>$slop</code> (default: false).</li>
+</ul>
 <h2 id="a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples">A Few Query Examples<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples" title="Permanent link">&para;</a></h2>
 <ul>
 <li>
