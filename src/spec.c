@@ -106,7 +106,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return sp;
 }
 
-int __findOffset(const char *arg, const char **argv, int argc) {
+static int findOffset(const char *arg, const char **argv, int argc) {
   for (int i = 0; i < argc; i++) {
     if (!strcasecmp(arg, argv[i])) {
       return i;
@@ -115,8 +115,8 @@ int __findOffset(const char *arg, const char **argv, int argc) {
   return -1;
 }
 
-int __argExists(const char *arg, const char **argv, int argc, int maxIdx) {
-  int idx = __findOffset(arg, argv, argc);
+static int argExists(const char *arg, const char **argv, int argc, int maxIdx) {
+  int idx = findOffset(arg, argv, argc);
   // printf("pos for %s: %d\n", arg, idx);
   return idx >= 0 && idx < maxIdx;
 }
@@ -131,7 +131,7 @@ char *strtolower(char *str) {
 }
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
+static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
@@ -251,7 +251,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
   *err = NULL;
-  int schemaOffset = __findOffset(SPEC_SCHEMA_STR, argv, argc);
+  int schemaOffset = findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
     SET_ERR(err, "schema not found");
@@ -259,23 +259,23 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   }
   IndexSpec *spec = NewIndexSpec(name, 0);
 
-  if (__argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~(Index_StoreTermOffsets | Index_StoreByteOffsets);
   }
 
-  if (__argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreByteOffsets;
   }
 
-  if (__argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFieldFlags;
   }
 
-  if (__argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFreqs;
   }
 
-  int swIndex = __findOffset(SPEC_STOPWORDS_STR, argv, argc);
+  int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
     if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
@@ -297,7 +297,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     FieldSpec *fs = &spec->fields[spec->numFields++];
     fs->index = spec->numFields - 1;
 
-    if (!__parseFieldSpec(argv, &i, argc, fs, err)) {
+    if (!parseFieldSpec(argv, &i, argc, fs, err)) {
       if (!*err) {
         SET_ERR(err, "Could not parse field spec");
       }
@@ -565,7 +565,7 @@ int bit(t_fieldMask id) {
 }
 
 // Backwards compat version of load for rdbs with version < 8
-void __fieldSpec_rdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
   // the old versions encoded the bit id of the field directly
@@ -586,7 +586,7 @@ void __fieldSpec_rdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 }
 
-void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
+static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveUnsigned(rdb, f->options);
@@ -601,11 +601,11 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
 }
 
-void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
-    return __fieldSpec_rdbLoadCompat8(rdb, f, encver);
+    return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
@@ -631,7 +631,7 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 }
 
-void __indexStats_rdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
@@ -644,7 +644,7 @@ void __indexStats_rdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
 }
 
-void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->numDocuments);
   RedisModule_SaveUnsigned(rdb, stats->numTerms);
   RedisModule_SaveUnsigned(rdb, stats->numRecords);
@@ -678,7 +678,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
 
-    __fieldSpec_rdbLoad(rdb, &sp->fields[i], encver);
+    FieldSpec_RdbLoad(rdb, &sp->fields[i], encver);
     sp->fields[i].index = i;
 
     /* keep track of sorting indexes to rebuild the table */
@@ -691,7 +691,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     _spec_buildSortingTable(sp, maxSortIdx + 1);
   }
 
-  __indexStats_rdbLoad(rdb, &sp->stats);
+  IndexStats_RdbLoad(rdb, &sp->stats);
 
   DocTable_RdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
@@ -729,10 +729,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    __fieldSpec_rdbSave(rdb, &sp->fields[i]);
+    FieldSpec_RdbSave(rdb, &sp->fields[i]);
   }
 
-  __indexStats_rdbSave(rdb, &sp->stats);
+  IndexStats_RdbSave(rdb, &sp->stats);
   DocTable_RdbSave(&sp->docs, rdb);
   // save trie of terms
   TrieType_GenericSave(rdb, sp->terms, 0);
@@ -749,8 +749,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
-
-#define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
