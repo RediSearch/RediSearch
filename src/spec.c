@@ -248,7 +248,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   }
 
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
-    sp->fields = realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+    sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
     FieldSpec *fs = sp->fields + sp->numFields;
     memset(fs, 0, sizeof(*fs));
 
