@@ -50,7 +50,11 @@ typedef struct {
   t_docId lastDocId;
 
   uint32_t revisionId;
+
+  NumericRangeNode **gcNodes;  // used for gc iterations
 } NumericRangeTree;
+
+#define __isLeaf(n) (n->left == NULL && n->right == NULL)
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
 

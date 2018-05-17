@@ -135,8 +135,6 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   return n;
 }
 
-#define __isLeaf(n) (n->left == NULL && n->right == NULL)
-
 int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
   if (!__isLeaf(n)) {
@@ -248,6 +246,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
+#define GC_NODES_INITIAL_SIZE 10
   NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
@@ -255,6 +254,7 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->numRanges = 1;
   ret->revisionId = 0;
   ret->lastDocId = 0;
+  ret->gcNodes = array_new(NumericRangeNode*, GC_NODES_INITIAL_SIZE);
   return ret;
 }
 
@@ -272,6 +272,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
   if (rc) {
+    array_trimm_len(t->gcNodes, 0);
     t->revisionId++;
   }
   t->numRanges += rc;
@@ -299,6 +300,7 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
   NumericRangeNode_Free(t->root);
+  array_free(t->gcNodes);
   RedisModule_Free(t);
 }
 
