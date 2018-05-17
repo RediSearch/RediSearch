@@ -1566,8 +1566,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
         self.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
 
-        def to_dict(r):
-            return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
         info_a = to_dict(self.cmd('FT.INFO', 'idx'))
         self.restart_and_reload()
         info_b = to_dict(self.cmd('FT.INFO', 'idx'))
@@ -1819,6 +1817,59 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         for x in range(10):
             self.cmd('DEBUG RELOAD')
 
+    def testAlterIndex(self):
+        self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
+        print self.cmd('FT.SEARCH', 'idx', 'world')
+        self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2', 'TEXT')
+        self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
+        for _ in self.retry_with_reload():
+            print self.cmd('FT.SEARCH', 'idx', 'world')
+        self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
+        for x in range(10):
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0, 'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
+        
+        for _ in self.retry_with_reload():
+            # Test that sortable works
+            res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
+            self.assertEqual(
+                [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', ['f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']],
+                res)
+
+        # Test that we can add a numeric field
+        self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n1', 'NUMERIC')
+        self.cmd('FT.ADD', 'idx', 'docN1', 1.0, 'FIELDS', 'n1', 50)
+        self.cmd('FT.ADD', 'idx', 'docN2', 1.0, 'FIELDS', 'n1', 250)
+        for _ in self.retry_with_reload():
+            res = self.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
+            self.assertEqual([1, 'docN1', ['n1', '50']], res)
+
+    def testAlterValidation(self):
+        # Test that constraints for ALTER comand
+        self.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'f0', 'TEXT')
+        for x in range(1, 32):
+            self.cmd('FT.ALTER', 'idx1', 'SCHEMA', 'ADD', 'f{}'.format(x), 'TEXT')
+        # OK for now.
+
+        # Should be too many indexes
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx1', 'SCHEMA', 'ADD', 'tooBig', 'TEXT')
+
+        self.cmd('FT.CREATE', 'idx2', 'MAXTEXTFIELDS', 'SCHEMA', 'f0', 'TEXT')
+        # print self.cmd('FT.INFO', 'idx2')
+        for x in range(1, 50):
+            self.cmd('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'f{}'.format(x + 1), 'TEXT')
+        
+        self.cmd('FT.ADD', 'idx2', 'doc1', 1.0, 'FIELDS', 'f50', 'hello')
+        for _ in self.retry_with_reload():
+            ret = self.cmd('FT.SEARCH', 'idx2', '@f50:hello')
+            self.assertEqual([1, 'doc1', ['f50', 'hello']], ret)
+        
+
+        self.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'f0', 'text')
+        # Try to alter the index with garbage
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx3', 'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
+        ret = to_dict(self.cmd('ft.info', 'idx3'))
+        self.assertEqual(1, len(ret['fields']))
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
@@ -1827,6 +1878,8 @@ def grouper(iterable, n, fillvalue=None):
     args = [iter(iterable)] * n
     return izip_longest(fillvalue=fillvalue, *args)
 
+def to_dict(r):
+    return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
 if __name__ == '__main__':
 

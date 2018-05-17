@@ -263,6 +263,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
 
     if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
       // make sure we don't have too many indexable fields
+      textId++;  // Explicit
       if (textId == SPEC_MAX_FIELD_ID) {
         SET_ERR(err, "Too many TEXT fields in schema");
         return 0;
@@ -273,14 +274,14 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       if (textId >= SPEC_WIDEFIELD_THRESHOLD && (sp->flags & Index_StoreFieldFlags)) {
         if (isNew) {
           sp->flags |= Index_WideSchema;
-        } else {
+        } else if ((sp->flags & Index_WideSchema) == 0) {
           SET_ERR(err,
                   "Cannot add more fields. Declare index with wide fields to allow adding "
                   "unlimited fields");
           return 0;
         }
       }
-      fs->textOpts.id = ++textId;
+      fs->textOpts.id = textId;
     }
 
     if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
@@ -294,6 +295,28 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     sp->numFields++;
   }
   return 1;
+}
+
+int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err) {
+  // Store the old field count and sortable size so that if validation fails, the
+  // index is still usable.
+  size_t oldFieldCount = sp->numFields;
+  size_t oldSortLen = sp->sortables->len;
+  if (!IndexSpec_AddFieldsInternal(sp, argv, argc, err, 0)) {
+    sp->numFields = oldFieldCount;
+    sp->sortables->len = oldSortLen;
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err) {
+  const char *args[argc];
+  for (int i = 0; i < argc; i++) {
+    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
+  }
+  return IndexSpec_AddFields(sp, args, argc, err);
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
