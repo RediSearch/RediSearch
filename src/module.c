@@ -1545,11 +1545,16 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Could not load schema");
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   const int schemaOffset = 4;
   char *err = NULL;
+
+  if (argc - schemaOffset == 0) {
+    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  }
+
   int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &err);
   if (!rc) {
     RedisModule_ReplyWithError(ctx, err);

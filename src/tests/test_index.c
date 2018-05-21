@@ -888,7 +888,6 @@ int testHugeSpec() {
   ASSERT(s != NULL);
 
   ASSERT(err == NULL);
-  printf("numFields: %d. N: %d\n", s->numFields, N);
   ASSERT(s->numFields == N);
   IndexSpec_Free(s);
 

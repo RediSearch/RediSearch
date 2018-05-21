@@ -187,10 +187,6 @@ RSSortingTable *NewSortingTable(void) {
   return tbl;
 }
 
-RSSortingTable *NewSortingTableSized(size_t len) {
-  return rm_calloc(1, sizeof(RSSortingTable));
-}
-
 void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }

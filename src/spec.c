@@ -236,10 +236,18 @@ RSValueType fieldTypeToValueType(FieldType ft) {
   }
 }
 
+/**
+ * Add fields to an existing (or newly created) index. If the addition fails,
+ *
+ */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc, char **err,
                                        int isNew) {
 
+  const size_t prevNumFields = sp->numFields;
+  const size_t prevSortLen = sp->sortables->len;
+
   int textId = -1;
+
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
     if (fs->type == FIELD_FULLTEXT) {
@@ -255,10 +263,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     fs->index = sp->numFields;
 
     if (!parseFieldSpec(argv, &offset, argc, fs, err)) {
-      if (!*err) {
-        SET_ERR(err, "Could not parse field spec");
-      }
-      return 0;
+      SET_ERR(err, "Could not parse field spec");
+      goto reset;
     }
 
     if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
@@ -266,7 +272,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       textId++;  // Explicit
       if (textId == SPEC_MAX_FIELD_ID) {
         SET_ERR(err, "Too many TEXT fields in schema");
-        return 0;
+        goto reset;
       }
 
       // If we need to store field flags and we have over 32 fields, we need to switch to wide
@@ -278,7 +284,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
           SET_ERR(err,
                   "Cannot add more fields. Declare index with wide fields to allow adding "
                   "unlimited fields");
-          return 0;
+          goto reset;
         }
       }
       fs->textOpts.id = textId;
@@ -286,7 +292,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
 
     if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
       SET_ERR(err, "Duplicate field in schema");
-      return 0;
+      goto reset;
     }
 
     if (FieldSpec_IsSortable(fs)) {
@@ -295,20 +301,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     sp->numFields++;
   }
   return 1;
+
+reset:
+  sp->numFields = prevNumFields;
+  sp->sortables->len = prevSortLen;
+  return 0;
 }
 
 int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err) {
-  // Store the old field count and sortable size so that if validation fails, the
-  // index is still usable.
-  size_t oldFieldCount = sp->numFields;
-  size_t oldSortLen = sp->sortables->len;
-  if (!IndexSpec_AddFieldsInternal(sp, argv, argc, err, 0)) {
-    sp->numFields = oldFieldCount;
-    sp->sortables->len = oldSortLen;
-    return 0;
-  } else {
-    return 1;
-  }
+  return IndexSpec_AddFieldsInternal(sp, argv, argc, err, 0);
 }
 
 int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err) {

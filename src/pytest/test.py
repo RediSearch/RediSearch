@@ -1820,11 +1820,12 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
     def testAlterIndex(self):
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
         self.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
-        print self.cmd('FT.SEARCH', 'idx', 'world')
         self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2', 'TEXT')
         self.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
         for _ in self.retry_with_reload():
-            print self.cmd('FT.SEARCH', 'idx', 'world')
+            ret = self.cmd('FT.SEARCH', 'idx', 'world')
+            self.assertEqual([1, 'doc2', ['f1', 'hello', 'f2', 'world']], ret)
+
         self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
         for x in range(10):
             self.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0, 'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
@@ -1870,6 +1871,11 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx3', 'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
         ret = to_dict(self.cmd('ft.info', 'idx3'))
         self.assertEqual(1, len(ret['fields']))
+
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'nonExist', 'SCHEMA', 'ADD', 'f1', 'TEXT')
+
+        # test with no fields!
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
