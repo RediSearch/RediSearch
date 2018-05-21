@@ -67,9 +67,18 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
-void gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
+void gc_updateStats(RedisSearchCtx* sctx, GarbageCollectorCtx* gc,
+                    size_t recordsRemoved, size_t bytesCollected){
+  sctx->spec->stats.numRecords -= recordsRemoved;
+  sctx->spec->stats.invertedSize -= bytesCollected;
+  gc->stats.totalCollected += bytesCollected;
+}
+
+size_t gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
   RedisModuleKey* idxKey = NULL;
   RedisSearchCtx* sctx = NewSearchCtx(ctx, (RedisModuleString*) gc->keyName);
+  size_t totalRemoved = 0;
+  size_t totalCollected = 0;
   if (!sctx) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
         RedisModule_StringPtrLen(gc->keyName, NULL));
@@ -85,8 +94,6 @@ void gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
   RedisModule_Log(ctx, "debug", "Garbage collecting for term '%s'", term);
   // Open the term's index
   InvertedIndex* idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
-  size_t totalRemoved = 0;
-  size_t totalCollected = 0;
   if (idx) {
     int blockNum = 0;
     int num = 100;
@@ -102,9 +109,7 @@ void gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
           TimeSampler_DurationNS(&ts));
       /// update the statistics with the the number of records deleted
       totalRemoved += recordsRemoved;
-      sctx->spec->stats.numRecords -= recordsRemoved;
-      sctx->spec->stats.invertedSize -= bytesCollected;
-      gc->stats.totalCollected += bytesCollected;
+      gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
       totalCollected += bytesCollected;
       // blockNum 0 means error or we've finished
       if (!blockNum)
@@ -135,19 +140,6 @@ void gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
         totalCollected, totalRemoved, term);
   }
   free(term);
-  gc->stats.numCycles++;
-  gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;
-  // if we didn't remove anything - reduce the frequency a bit.
-  // if we did  - increase the frequency a bit
-  if (gc->timer) {
-    // the timer is NULL if we've been cancelled
-    if (totalRemoved > 0) {
-      gc->hz = MIN(gc->hz * 1.2, GC_MAX_HZ);
-    } else {
-      gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
-    }
-    RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
-  }
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 end:
   if (sctx) {
@@ -155,6 +147,8 @@ end:
     SearchCtx_Free(sctx);
   }
   if (idxKey) RedisModule_CloseKey(idxKey);
+
+  return totalRemoved;
 }
 
 NumericRangeNode* NextGcNode(NumericRangeTree *rt){
@@ -177,8 +171,10 @@ NumericRangeNode* NextGcNode(NumericRangeTree *rt){
   }while(true);
 }
 
-void gc_RandomNumericIndex(RedisModuleCtx* ctx, GarbageCollectorCtx* gc){
+size_t gc_RandomNumericIndex(RedisModuleCtx* ctx, GarbageCollectorCtx* gc){
 #define NUMERIC_FIELDS_ARRAY_CAP 2
+  size_t bytesCollected = 0;
+  size_t recordsRemoved = 0;
   RedisModuleKey* idxKey = NULL;
   RedisSearchCtx* sctx = NewSearchCtx(ctx, (RedisModuleString*) gc->keyName);
   if (!sctx) {
@@ -196,31 +192,28 @@ void gc_RandomNumericIndex(RedisModuleCtx* ctx, GarbageCollectorCtx* gc){
   }
 
   if(array_len(numericFields) == 0){
-    return;
+    goto end;
   }
 
   FieldSpec* randomField = numericFields[rand() % array_len(numericFields)];
   array_free(numericFields);
   NumericRangeTree *rt = OpenNumericIndex(sctx, randomField->name, &idxKey);
 
-  size_t bytesCollected = 0;
-  size_t recordsRemoved = 0;
   NumericRangeNode* nextNode = NextGcNode(rt);
   InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, 0,
                        nextNode->range->entries->size,
                        &bytesCollected, &recordsRemoved);
 
-  // todo: handle stats here
-  gc->stats.totalCollected += bytesCollected;
-  gc->stats.effectiveCycles += recordsRemoved;
+  gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
 
-
-  end:
+end:
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
   if (idxKey) RedisModule_CloseKey(idxKey);
+
+  return recordsRemoved;
 }
 
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
@@ -243,9 +236,26 @@ static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
     }
   }
 
-  gc_RandomTerm(ctx, gc);
+  size_t totalRemoved = 0;
 
-  gc_RandomNumericIndex(ctx, gc);
+  totalRemoved += gc_RandomTerm(ctx, gc);
+
+  totalRemoved += gc_RandomNumericIndex(ctx, gc);
+
+  gc->stats.numCycles++;
+  gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;
+
+  // if we didn't remove anything - reduce the frequency a bit.
+  // if we did  - increase the frequency a bit
+  if (gc->timer) {
+    // the timer is NULL if we've been cancelled
+    if (totalRemoved > 0) {
+      gc->hz = MIN(gc->hz * 1.2, GC_MAX_HZ);
+    } else {
+      gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+    }
+    RMUtilTimer_SetInterval(gc->timer, hzToTimeSpec(gc->hz));
+  }
 
 end:
 
