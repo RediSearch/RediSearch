@@ -182,9 +182,8 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 }
 
 /* Create a new sorting table of a given length */
-RSSortingTable *NewSortingTable(int len) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(RSSortingTable) + len * sizeof(struct sortField));
-  tbl->len = len;
+RSSortingTable *NewSortingTable(void) {
+  RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
   return tbl;
 }
 
@@ -192,15 +191,11 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-/* Set a field in the table by index. This is called during the schema parsing */
-void SortingTable_SetFieldName(RSSortingTable *tbl, int idx, const char *name, RSValueType t) {
-  if (!tbl) return;
-  if (idx >= tbl->len) {
-    return;
-  }
-
-  tbl->fields[idx].name = name;
-  tbl->fields[idx].type = t;
+int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
+  assert(tbl->len < RS_SORTABLES_MAX);
+  tbl->fields[tbl->len].name = name;
+  tbl->fields[tbl->len].type = t;
+  return tbl->len++;
 }
 
 RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType deflt) {

@@ -21,6 +21,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_NOFREQS_STR "NOFREQS"
 #define SPEC_NOHL_STR "NOHL"
 #define SPEC_SCHEMA_STR "SCHEMA"
+#define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
@@ -225,6 +226,10 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);
+
+/* Add fields to a redis schema */
+int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err);
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 

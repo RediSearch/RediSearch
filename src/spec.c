@@ -106,7 +106,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return sp;
 }
 
-int __findOffset(const char *arg, const char **argv, int argc) {
+static int findOffset(const char *arg, const char **argv, int argc) {
   for (int i = 0; i < argc; i++) {
     if (!strcasecmp(arg, argv[i])) {
       return i;
@@ -115,8 +115,8 @@ int __findOffset(const char *arg, const char **argv, int argc) {
   return -1;
 }
 
-int __argExists(const char *arg, const char **argv, int argc, int maxIdx) {
-  int idx = __findOffset(arg, argv, argc);
+static int argExists(const char *arg, const char **argv, int argc, int maxIdx) {
+  int idx = findOffset(arg, argv, argc);
   // printf("pos for %s: %d\n", arg, idx);
   return idx >= 0 && idx < maxIdx;
 }
@@ -131,7 +131,7 @@ char *strtolower(char *str) {
 }
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-int __parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
+static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
@@ -235,15 +235,89 @@ RSValueType fieldTypeToValueType(FieldType ft) {
       return RSValue_Null;
   }
 }
-void _spec_buildSortingTable(IndexSpec *spec, int len) {
-  spec->sortables = NewSortingTable(len);
-  for (int i = 0; i < spec->numFields; i++) {
-    if (FieldSpec_IsSortable(&spec->fields[i])) {
-      // printf("Adding sortable field %s id %d\n", spec->fields[i].name, spec->fields[i].sortIdx);
-      SortingTable_SetFieldName(spec->sortables, spec->fields[i].sortIdx, spec->fields[i].name,
-                                fieldTypeToValueType(spec->fields[i].type));
+
+/**
+ * Add fields to an existing (or newly created) index. If the addition fails,
+ *
+ */
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc, char **err,
+                                       int isNew) {
+
+  const size_t prevNumFields = sp->numFields;
+  const size_t prevSortLen = sp->sortables->len;
+
+  int textId = -1;
+
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (fs->type == FIELD_FULLTEXT) {
+      textId = MAX(textId, fs->textOpts.id);
     }
   }
+
+  for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
+    sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+    FieldSpec *fs = sp->fields + sp->numFields;
+    memset(fs, 0, sizeof(*fs));
+
+    fs->index = sp->numFields;
+
+    if (!parseFieldSpec(argv, &offset, argc, fs, err)) {
+      SET_ERR(err, "Could not parse field spec");
+      goto reset;
+    }
+
+    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
+      // make sure we don't have too many indexable fields
+      textId++;  // Explicit
+      if (textId == SPEC_MAX_FIELD_ID) {
+        SET_ERR(err, "Too many TEXT fields in schema");
+        goto reset;
+      }
+
+      // If we need to store field flags and we have over 32 fields, we need to switch to wide
+      // schema encoding
+      if (textId >= SPEC_WIDEFIELD_THRESHOLD && (sp->flags & Index_StoreFieldFlags)) {
+        if (isNew) {
+          sp->flags |= Index_WideSchema;
+        } else if ((sp->flags & Index_WideSchema) == 0) {
+          SET_ERR(err,
+                  "Cannot add more fields. Declare index with wide fields to allow adding "
+                  "unlimited fields");
+          goto reset;
+        }
+      }
+      fs->textOpts.id = textId;
+    }
+
+    if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
+      SET_ERR(err, "Duplicate field in schema");
+      goto reset;
+    }
+
+    if (FieldSpec_IsSortable(fs)) {
+      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
+    }
+    sp->numFields++;
+  }
+  return 1;
+
+reset:
+  sp->numFields = prevNumFields;
+  sp->sortables->len = prevSortLen;
+  return 0;
+}
+
+int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err) {
+  return IndexSpec_AddFieldsInternal(sp, argv, argc, err, 0);
+}
+
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err) {
+  const char *args[argc];
+  for (int i = 0; i < argc; i++) {
+    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
+  }
+  return IndexSpec_AddFields(sp, args, argc, err);
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -251,7 +325,7 @@ void _spec_buildSortingTable(IndexSpec *spec, int len) {
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
   *err = NULL;
-  int schemaOffset = __findOffset(SPEC_SCHEMA_STR, argv, argc);
+  int schemaOffset = findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
     SET_ERR(err, "schema not found");
@@ -259,23 +333,27 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   }
   IndexSpec *spec = NewIndexSpec(name, 0);
 
-  if (__argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~(Index_StoreTermOffsets | Index_StoreByteOffsets);
   }
 
-  if (__argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreByteOffsets;
   }
 
-  if (__argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFieldFlags;
   }
 
-  if (__argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
+  if (argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~Index_StoreFreqs;
   }
 
-  int swIndex = __findOffset(SPEC_STOPWORDS_STR, argv, argc);
+  if (argExists(SPEC_SCHEMA_EXPANDABLE_STR, argv, argc, schemaOffset)) {
+    spec->flags |= Index_WideSchema;
+  }
+
+  int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
     if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
@@ -287,58 +365,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   } else {
     spec->stopwords = DefaultStopWordList();
   }
-
-  uint64_t id = 0;
-  int sortIdx = 0;
-
-  int i = schemaOffset + 1;
-  while (i < argc && spec->numFields < SPEC_MAX_FIELDS) {
-
-    FieldSpec *fs = &spec->fields[spec->numFields++];
-    fs->index = spec->numFields - 1;
-
-    if (!__parseFieldSpec(argv, &i, argc, fs, err)) {
-      if (!*err) {
-        SET_ERR(err, "Could not parse field spec");
-      }
-      goto failure;
-    }
-
-    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
-      // make sure we don't have too many indexable fields
-      if (id == SPEC_MAX_FIELD_ID) {
-        SET_ERR(err, "Too many TEXT fields in schema");
-        goto failure;
-      }
-
-      // If we need to store field flags and we have over 32 fields, we need to switch to wide
-      // schema encoding
-      if (id == SPEC_WIDEFIELD_THRESHOLD && spec->flags & Index_StoreFieldFlags) {
-        spec->flags |= Index_WideSchema;
-      }
-
-      fs->textOpts.id = id++;
-    }
-    if (FieldSpec_IsSortable(fs)) {
-      fs->sortIdx = sortIdx++;
-    }
-    if (sortIdx > RS_SORTABLES_MAX) {
-      SET_ERR(err, "Too many sortable fields");
-
-      goto failure;
-    }
-
-    if (IndexSpec_GetField(spec, fs->name, strlen(fs->name)) != fs) {
-      SET_ERR(err, "Duplicate field in schema");
-      goto failure;
-    }
+  schemaOffset++;
+  if (!IndexSpec_AddFieldsInternal(spec, argv + schemaOffset, argc - schemaOffset, err, 1)) {
+    goto failure;
   }
-
-  /* If we have sortable fields, create a sorting lookup table */
-  if (sortIdx > 0) {
-    _spec_buildSortingTable(spec, sortIdx);
-  }
-
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -385,9 +415,9 @@ size_t weightedRandom(double weights[], size_t len) {
   return 0;
 }
 
-/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
- * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
- * enough. Returns NULL if the index is empty */
+/* Get a random term from the index spec using weighted random. Weighted random is done by
+ * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
+ * should be enough. Returns NULL if the index is empty */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
   if (sampleSize > sp->terms->size) {
@@ -528,13 +558,13 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
+  sp->sortables = NewSortingTable();
   sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = NewDocTable(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->sortables = NULL;
   sp->gc = NULL;
   sp->smap = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -565,7 +595,7 @@ int bit(t_fieldMask id) {
 }
 
 // Backwards compat version of load for rdbs with version < 8
-void __fieldSpec_rdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
   // the old versions encoded the bit id of the field directly
@@ -586,7 +616,7 @@ void __fieldSpec_rdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 }
 
-void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
+static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   RedisModule_SaveUnsigned(rdb, f->type);
   RedisModule_SaveUnsigned(rdb, f->options);
@@ -601,11 +631,11 @@ void __fieldSpec_rdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
 }
 
-void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
-    return __fieldSpec_rdbLoadCompat8(rdb, f, encver);
+    return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
@@ -631,7 +661,7 @@ void __fieldSpec_rdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 }
 
-void __indexStats_rdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
@@ -644,7 +674,7 @@ void __indexStats_rdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
 }
 
-void __indexStats_rdbSave(RedisModuleIO *rdb, IndexStats *stats) {
+static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->numDocuments);
   RedisModule_SaveUnsigned(rdb, stats->numTerms);
   RedisModule_SaveUnsigned(rdb, stats->numRecords);
@@ -663,9 +693,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = NewDocTable(1000);
-  sp->sortables = NULL;
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->gc = NULL;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
@@ -677,21 +707,18 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
-
-    __fieldSpec_rdbLoad(rdb, &sp->fields[i], encver);
+    FieldSpec *fs = sp->fields + i;
+    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
-
-    /* keep track of sorting indexes to rebuild the table */
-    if (sp->fields[i].sortIdx > maxSortIdx) {
-      maxSortIdx = sp->fields[i].sortIdx;
+    if (FieldSpec_IsSortable(fs)) {
+      assert(fs->sortIdx < RS_SORTABLES_MAX);
+      sp->sortables->fields[fs->sortIdx].name = fs->name;
+      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->type);
+      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
     }
   }
-  /* if we have sortable fields - rebuild the sorting table */
-  if (maxSortIdx >= 0) {
-    _spec_buildSortingTable(sp, maxSortIdx + 1);
-  }
 
-  __indexStats_rdbLoad(rdb, &sp->stats);
+  IndexStats_RdbLoad(rdb, &sp->stats);
 
   DocTable_RdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */
@@ -729,10 +756,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    __fieldSpec_rdbSave(rdb, &sp->fields[i]);
+    FieldSpec_RdbSave(rdb, &sp->fields[i]);
   }
 
-  __indexStats_rdbSave(rdb, &sp->stats);
+  IndexStats_RdbSave(rdb, &sp->stats);
   DocTable_RdbSave(&sp->docs, rdb);
   // save trie of terms
   TrieType_GenericSave(rdb, sp->terms, 0);
@@ -749,8 +776,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
-
-#define __vpushStr(v, ctx, str) Vector_Push(v, RedisModule_CreateString(ctx, str, strlen(str)))
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,

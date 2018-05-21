@@ -1056,12 +1056,11 @@ int testDocTable() {
 }
 
 int testSortable() {
-  RSSortingTable *tbl = NewSortingTable(3);
+  RSSortingTable *tbl = NewSortingTable();
+  RSSortingTable_Add(tbl, "foo", RSValue_String);
+  RSSortingTable_Add(tbl, "bar", RSValue_String);
+  RSSortingTable_Add(tbl, "baz", RSValue_String);
   ASSERT_EQUAL(3, tbl->len);
-  SortingTable_SetFieldName(tbl, 0, "foo", RSValue_String);
-  SortingTable_SetFieldName(tbl, 1, "bar", RSValue_String);
-  SortingTable_SetFieldName(tbl, 2, "baz", RSValue_String);
-  SortingTable_SetFieldName(NULL, 2, "baz", RSValue_String);
 
   ASSERT_STRING_EQ("foo", tbl->fields[0].name);
   ASSERT_EQUAL(RSValue_String, tbl->fields[0].type);

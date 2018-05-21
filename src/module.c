@@ -294,9 +294,13 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModule_ReplyWithSimpleString(ctx, "index_options");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   int n = 0;
-  ADD_NEGATIVE_OPTION(Index_StoreFreqs, "NOFREQS");
-  ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, "NOFIELDS");
-  ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, "NOOFFSETS");
+  ADD_NEGATIVE_OPTION(Index_StoreFreqs, SPEC_NOFREQS_STR);
+  ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, SPEC_NOFIELDS_STR);
+  ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, SPEC_NOOFFSETS_STR);
+  if (sp->flags & Index_WideSchema) {
+    RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
+    n++;
+  }
   RedisModule_ReplySetArrayLength(ctx, n);
   return 2;
 }
@@ -1530,6 +1534,37 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Need at least <cmd> <index> <subcommand> <args...>
+  if (argc < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // I'd like to use CmdSchema, but want to avoid the ugly <N> <list of N> stuff..
+  if (!RMUtil_StringEqualsCaseC(argv[2], "SCHEMA") || !RMUtil_StringEqualsCaseC(argv[3], "ADD")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown command");
+  }
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  const int schemaOffset = 4;
+  char *err = NULL;
+
+  if (argc - schemaOffset == 0) {
+    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  }
+
+  int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &err);
+  if (!rc) {
+    RedisModule_ReplyWithError(ctx, err);
+    ERR_FREE(err);
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1709,6 +1744,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
   return REDISMODULE_OK;
 }
 
