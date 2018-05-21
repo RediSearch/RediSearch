@@ -47,6 +47,11 @@ so keep it short!
 
     If **{num}** is set to 0, the index will not have stopwords.
 
+* **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if there
+  are less than 32 text fields. This option forces RediSearch to encode indexes as
+  if there were more than 32 text fields, which allows you to add additional fields
+  (beyond 32) using `FT.ALTER`.
+
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
 They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
 
@@ -847,3 +852,25 @@ Description
 The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
 
 ---
+
+
+## FT.ALTER
+
+FORMAT
+
+```
+FT.ALTER <index name> SCHEMA ADD <field name> <field_type> ...
+```
+
+Description
+
+This command can be used to add additional fields to the index. Adding a field
+to the index will cause any future document updates to use the new field when
+indexing. Existing documents will not be reindexed.
+
+> Depending on how the index was created, you may be limited by the amount of
+additional text fields which can be added to an existing index. If the current
+index contains less than 32 text fields, then `SCHEMA ADD` will only be able to
+add up to 32 fields (meaning that the index will only ever be able to contain
+32 total text fields). If you wish for the index to contain more than 32 fields,
+declare the index with `MAXTEXTFIELDS`.
