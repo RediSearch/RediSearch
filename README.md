@@ -53,9 +53,8 @@ Official (Redis Labs) and community Clients:
 * Document ranking (provided manually by the user at index time).
 * Field weights.
 * Complex boolean queries with AND, OR, NOT operators between sub-queries.
-* Prefix matching in full-text queries.
+* Prefix matching, fuzzy matching and exact phrase search in full-text queries.
 * Auto-complete suggestions (with fuzzy prefix suggestions).
-* Exact Phrase Search.
 * Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Limiting searches to specific document fields (up to 128 fields supported).

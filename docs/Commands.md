@@ -2,17 +2,16 @@
 
 ## FT.CREATE 
 
-### Format:
+### Format
 ```
   FT.CREATE {index} 
-    [NOOFFSETS] [NOFIELDS]
+    [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...
 ```
 
-### Description:
-Creates an index with the given spec. The index name will be used in all the key names
-so keep it short!
+### Description
+Creates an index with the given spec. The index name will be used in all the key names so keep it short!
 
 !!! warning "Note on field number limits"
         
@@ -20,40 +19,43 @@ so keep it short!
 
         On 32 bit builds, at most 64 fields can be TEXT fields.
 
-        Notice that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
+        Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
 
-        You can always use the NOFIELDS option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
-        
+        You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
-### Parameters:
+### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not allow exact searches or highlighting).
-  Implies `NOHL`
+* **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
+  created with less than 32 text fields. This option forces RediSearch to encode indexes as if
+  there were more than 32 text fields, which allows you to add additional fields (beyond 32)
+  using `FT.ALTER`.
+
+* **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
+  allow exact searches or highlighting). Implies `NOHL`.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
 
-* **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow filtering by specific fields.
+* **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow
+  filtering by specific fields.
 
 * **NOFREQS**: If set, we avoid saving the term frequencies in the index. This saves
   memory but does not allow sorting based on the frequencies of a given term within
   the document.
 
-* **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during indexing and search time. {num} is the number of stopwords, followed by a list of stopword arguments exactly the length of {num}. 
+* **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during
+  indexing and search time. {num} is the number of stopwords, followed by a list of stopword
+  arguments exactly the length of {num}. 
 
     If not set, we take the default list of stopwords. 
 
     If **{num}** is set to 0, the index will not have stopwords.
 
-* **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if there
-  are less than 32 text fields. This option forces RediSearch to encode indexes as
-  if there were more than 32 text fields, which allows you to add additional fields
-  (beyond 32) using `FT.ALTER`.
-
-* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. 
-They can be numeric, textual or geographical. For textual fields we optionally specify a weight. The default weight is 1.0.
+* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
+  can be numeric, textual or geographical. For textual fields we optionally specify a weight.
+  The default weight is 1.0.
 
     ### Field Options
 
@@ -75,15 +77,14 @@ They can be numeric, textual or geographical. For textual fields we optionally s
 ### Complexity
 O(1)
 
-### Returns:
+### Returns
 OK or an error
 
 ---
 
-
 ## FT.ADD 
 
-### Format:
+### Format
 
 ```
 FT.ADD {index} {docId} {score} 
@@ -99,7 +100,7 @@ FT.ADD {index} {docId} {score}
 
 Add a document to the index.
 
-### Parameters:
+### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
@@ -111,14 +112,18 @@ Add a document to the index.
 
 - **NOSAVE**: If set to true, we will not save the actual document in the index and only index it.
 
-- **REPLACE**: If set, we will do an UPSERT style insertion - and 
-ete an older version of the document if it exists. 
+- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
+  document if it exists. 
 
-- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for reindexing. Fields not given to the command will be loaded from the current version of the document. Also, if only non indexable fields, score or payload are set - we do not do a full reindexing of the document, and this will be a lot faster.
+- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
+  reindexing. Fields not given to the command will be loaded from the current version of the
+  document. Also, if only non indexable fields, score or payload are set - we do not do a full
+  reindexing of the document, and this will be a lot faster.
 
-- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be indexed.
-  Each field will be scored based on the index spec given in FT.CREATE. 
-  Passing fields that are not in the index spec will make them be stored as part of the document, or ignored if NOSAVE is set 
+- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
+  indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
+  Passing fields that are not in the index spec will make them be stored as part of the document,
+  or ignored if NOSAVE is set 
 
 - **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
@@ -131,7 +136,8 @@ ete an older version of the document if it exists.
 
   See [Aggregations](/Aggregations) for more details on the expression language. 
 
-- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults to English. 
+- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Default
+  to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -172,7 +178,8 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
         **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
 
         **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
-----
+
+---
 
 ## FT.ADDHASH
 
@@ -186,7 +193,7 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 Add a document to the index from an existing HASH key in Redis.
 
-### Parameters:
+### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
@@ -198,7 +205,8 @@ Add a document to the index from an existing HASH key in Redis.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
 
-- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults to English. 
+- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults 
+  to English. 
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -214,7 +222,7 @@ O(n), where n is the number of tokens in the document
 
 OK on success, or an error if something went wrong.
 
-----
+---
 
 ## FT.INFO
 
@@ -292,6 +300,37 @@ Array Response. A nested array of keys and values.
 
 ---
 
+## FT.ALTER
+
+### Format
+
+```
+FT.ALTER {index} SCHEMA ADD {field} {options} ...
+```
+
+### Description
+
+This command alters an existing index. Currently, adding fields to the index is the only supported
+alteration.
+
+Adding a field to the index will cause any future document updates to use the new field when
+indexing. Existing documents will not be reindexed.
+
+!!! note
+    Depending on how the index was created, you may be limited by the amount of additional text
+    fields which can be added to an existing index. If the current index contains less than 32
+    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
+    index will only ever be able to contain 32 total text fields). If you wish for the index to
+    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
+
+### Parameters
+
+* **index**: the index name.
+* **field**: the field name.
+* **options**: the field options - refer to `FT.CREATE` for more information.
+
+---
+
 ## FT.SEARCH 
 
 ### Format
@@ -327,7 +366,8 @@ Search the index with a textual query, returning either documents or just ids.
   the content. This is useful if redisearch is only an index on an external document collection
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
-- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the matched text.
+- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
+  matched text.
   See [Highlighting](/Highlight) for more detailts
 - **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight) for more
   details
@@ -335,11 +375,14 @@ Search the index with a textual query, returning either documents or just ids.
   the offset and number of results given. The default is 0 10
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or url. num is the number of specified field arguments
-- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the list. 
+- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the 
+  list. 
   the first argument must be the length of the list, and greater than zero.
   Non existent keys are ignored - unless all the keys are non existent.
-- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between phrase terms. (i.e the slop for exact phrases is 0)
-- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear in the same order in the document as in the query, regardless of the offsets between them. 
+- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
+  phrase terms. (i.e the slop for exact phrases is 0)
+- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
+  in the same order in the document as in the query, regardless of the offsets between them. 
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
@@ -349,18 +392,24 @@ Search the index with a textual query, returning either documents or just ids.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
-- **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key, right after the id and score and /or payload if requested. This is usually not needed by users, and exists for distributed search coordination purposes.
-- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
-- **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query expansion.
+- **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
+  right after the id and score and /or payload if requested. This is usually not needed by users, and 
+  exists for distributed search coordination purposes.
+- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
+  verbatim.
+- **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query 
+  expansion.
   If querying documents in Chinese, this should be set to `chinese` in order to
   properly tokenize the query terms. 
   Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/Extensions).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/Extensions).
-- **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring functions. [See Extensions](/Extensions).
+- **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
+  functions. [See Extensions](/Extensions).
 - **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
-- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](/Sorting), the results are ordered by the value of this field. This applies to both text and numeric fields.
+- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](/Sorting), the results 
+  are ordered by the value of this field. This applies to both text and numeric fields.
 
 ### Complexity
 
@@ -378,7 +427,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 ## FT.AGGREGATE 
 
-### Format 
+### Format
 
 ```
 FT.AGGREGATE  {index_name}
@@ -403,26 +452,47 @@ Run a search query on an index, and perform aggregate transformations on the res
 
 * **index_name**: The index the query is executed again.
 
-* **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
+* **query_string**: The base filtering query that retrieves the documents. It follows
+  **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably, since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be 
+  avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, 
+  where they are available to the aggregation pipeline with very load latency. LOAD hurts the 
+  performance of aggregate queries considerably, since every processed record needs to execute the 
+  equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very 
+  high processing times. 
 
-* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them, or performing multiple aggregate operations (see below).
+* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. 
+  Each group should have at least one reducer (See below), a function that handles the group entries, 
+  either counting them, or performing multiple aggregate operations (see below).
     * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
     
           The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
 
-* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
+* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY,
+  using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for 
+  each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: 
+  `SORTBY 4 @foo ASC @bar DESC`. 
 
     `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
 
-* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either 
+  store the result as a new property down the pipeline, or replace any property using this 
+  transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric 
+  properties, or functions that can be applied on properties depending on their types (see below), or 
+  any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this 
+  expression dynamically for each record in the pipeline and store the result as a new property called 
+  baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the 
+  pipeline. 
 
-* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
+* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index 
+  `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you 
+  are interested in just limiting the optput of a sort operation.
 
     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
-* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. 
+* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. 
+  They are is applied post-query and relate to the current state of the pipeline. 
 
 ### Complexity
 
@@ -481,6 +551,7 @@ Here we are counting github events by user (actor), to produce the most active u
     4) "2794"
 (0.59s)
 ```
+
 ---
 
 ## FT.EXPLAIN
@@ -535,7 +606,6 @@ String Response. A string representing the execution plan (see above example).
 
 ---
 
-
 ## FT.DEL
 
 ### Format
@@ -561,7 +631,8 @@ After deletion, the document can be re-added to the index. It will get a differe
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
-- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which the document is stored. Use DEL to do that manually if needed.
+- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
+  the document is stored. Use DEL to do that manually if needed.
 
 
 ### Complexity
@@ -716,10 +787,12 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 - **key**: the suggestion dictionary key.
 - **string**: the suggestion string we index
 - **score**: a floating point number of the suggestion string's weight
-- **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of replacing the score. This is useful for updating the dictionary based on user queries in real time
-- **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by adding the `WITHPAYLOADS` argument to `FT.SUGGET`.
+- **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of 
+  replacing the score. This is useful for updating the dictionary based on user queries in real time
+- **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by 
+  adding the `WITHPAYLOADS` argument to `FT.SUGGET`.
 
-### Returns:
+### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
 
@@ -737,16 +810,20 @@ FT.SUGGET {key} {prefix} [FUZZY] [WITHPAYLOADS] [MAX num]
 
 Get completion suggestions for a prefix
 
-### Parameters:
+### Parameters
 
 - **key**: the suggestion dictionary key.
 - **prefix**: the prefix to complete on
-- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from the prefix sent
-- **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and the number cannot be greater than 10).
-- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge results from multiple instances
-- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no payload is present for an entry, we return a Null Reply.
+- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from 
+  the prefix sent
+- **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and 
+  the number cannot be greater than 10).
+- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge 
+  results from multiple instances
+- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no 
+  payload is present for an entry, we return a Null Reply.
 
-### Returns:
+### Returns
 
 Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry
 
@@ -769,15 +846,15 @@ Delete a string from a suggestion index.
 - **key**: the suggestion dictionary key.
 - **string**: the string to delete
 
-### Returns:
+### Returns
 
 Integer Reply: 1 if the string was found and deleted, 0 otherwise.
 
-----
+---
 
 ## FT.SUGLEN
 
-Format
+### Format
 
 ```
 FT.SUGLEN {key}
@@ -791,21 +868,21 @@ Get the size of an autoc-complete suggestion dictionary
 
 * **key**: the suggestion dictionary key.
 
-### Returns:
+### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
 
-----
+---
 
 ## FT.OPTIMIZE ** DEPRECATED **
 
-Format
+### Format
 
 ```
 FT.OPTIMIZE {index}
 ```
 
-Description
+### Description
 
 This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. 
 
@@ -813,13 +890,13 @@ This command is deprecated. Index optimizations are done by the internal garbage
 
 ## FT.SYNADD
 
-Format
+### Format
 
 ```
 FT.SYNADD <index name> <term1> <term2> ...
 ```
 
-Description
+### Description
 
 The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
 
@@ -827,13 +904,13 @@ The command is used to create a new synonyms group. The command returns the syno
 
 ## FT.SYNUPDATE
 
-Format
+### Format
 
 ```
 FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 ```
 
-Description
+### Description
 
 The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
 
@@ -841,36 +918,12 @@ The command is used to update an existing synonym group with additional terms. O
 
 ## FT.SYNDUMP
 
-Format
+### Format
 
 ```
 FT.SYNDUMP <index name>
 ```
 
-Description
+### Description
 
 The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
-
----
-
-
-## FT.ALTER
-
-FORMAT
-
-```
-FT.ALTER <index name> SCHEMA ADD <field name> <field_type> ...
-```
-
-Description
-
-This command can be used to add additional fields to the index. Adding a field
-to the index will cause any future document updates to use the new field when
-indexing. Existing documents will not be reindexed.
-
-> Depending on how the index was created, you may be limited by the amount of
-additional text fields which can be added to an existing index. If the current
-index contains less than 32 text fields, then `SCHEMA ADD` will only be able to
-add up to 32 fields (meaning that the index will only ever be able to contain
-32 total text fields). If you wish for the index to contain more than 32 fields,
-declare the index with `MAXTEXTFIELDS`.
