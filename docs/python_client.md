@@ -2,7 +2,7 @@
 
 
 
-## Overview 
+## Overview
 
 `redisearch-py` is a python search engine library that utilizes the RediSearch Redis Module API.
 
@@ -30,12 +30,12 @@ res = client.search("search engine")
 
 # the result has the total number of results, and a list of documents
 print res.total # "1"
-print res.docs[0].title 
+print res.docs[0].title
 
 # Searching with snippets
 res = client.search("search engine", snippet_sizes = {'body': 50})
 
-# Searching with complext parameters:
+# Searching with complex parameters:
 q = Query("search engine").verbatim().no_content().paging(0,5)
 res = client.search(q)
 
@@ -128,9 +128,9 @@ Get a list of suggestions from the AutoCompleter, for a given prefix
 
 ### Parameters:
 - **prefix**: the prefix we are searching. **Must be valid ascii or utf-8**
-- **fuzzy**: If set to true, the prefix search is done in fuzzy mode. 
+- **fuzzy**: If set to true, the prefix search is done in fuzzy mode.
     **NOTE**: Running fuzzy searches on short (<3 letters) prefixes can be very slow, and even scan the entire index.
-- **with_scores**: if set to true, we also return the (refactored) score of each suggestion. 
+- **with_scores**: if set to true, we also return the (refactored) score of each suggestion.
   This is normally not needed, and is NOT the original score inserted into the index
 - **with_payloads**: Return suggestion payloads
 - **num**: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.
@@ -153,8 +153,8 @@ Return the number of entries in the AutoCompleter index
 
 
 ## Class Client
-A client for the RediSearch module. 
-It abstracts the API of the module and lets you just use the engine 
+A client for the RediSearch module.
+It abstracts the API of the module and lets you just use the engine
 ### \_\_init\_\_
 ```py
 
@@ -184,13 +184,13 @@ Add a single document to the index.
 
 - **doc_id**: the id of the saved document.
 - **nosave**: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.
-- **score**: the document ranking, between 0.0 and 1.0 
+- **score**: the document ranking, between 0.0 and 1.0
 - **payload**: optional inner-index payload we can save for fast access in scoring functions
 - **replace**: if True, and the document already is in the index, we perform an update and reindex the document
 - **partial**: if True, the fields specified will be added to the existing document.
                This has the added benefit that any fields specified with `no_index`
                will not be reindexed again. Implies `replace`
-- **fields** kwargs dictionary of the document fields to be saved and/or indexed. 
+- **fields** kwargs dictionary of the document fields to be saved and/or indexed.
              NOTE: Geo points shoule be encoded as strings of "lon,lat"
 
 
@@ -302,8 +302,8 @@ Search the index for a given query, and return a result of documents
 
 
 ## Class BatchIndexer
-A batch indexer allows you to automatically batch 
-document indexeing in pipelines, flushing it every N documents. 
+A batch indexer allows you to automatically batch
+document indexing in pipelines, flushing it every N documents.
 ### \_\_init\_\_
 ```py
 
@@ -342,7 +342,7 @@ Manually commit and flush the batch indexing query
 
 
 ## Class Document
-Represents a single document in a result set 
+Represents a single document in a result set
 ### \_\_init\_\_
 ```py
 
@@ -355,7 +355,7 @@ def __init__(self, id, payload=None, **fields)
 
 
 ## Class GeoField
-GeoField is used to define a geo-indexing field in a schema defintion
+GeoField is used to define a geo-indexing field in a schema definition
 ### \_\_init\_\_
 ```py
 
@@ -390,7 +390,7 @@ def __init__(self, field, lon, lat, radius, unit='km')
 
 
 ## Class NumericField
-NumericField is used to define a numeric field in a schema defintion
+NumericField is used to define a numeric field in a schema definition
 ### \_\_init\_\_
 ```py
 
@@ -428,7 +428,7 @@ def __init__(self, field, minval, maxval, minExclusive=False, maxExclusive=False
 Query is used to build complex queries that have more parameters than just the query string.
 The query string is set in the constructor, and other options have setter functions.
 
-The setter functions return the query object, so they can be chained, 
+The setter functions return the query object, so they can be chained,
 i.e. `Query("foo").verbatim().filter(...)` etc.
 ### \_\_init\_\_
 ```py
@@ -439,7 +439,7 @@ def __init__(self, query_string)
 
 
 
-Create a new query object. 
+Create a new query object.
 The query string is set in the constructor, and other options have setter functions.
 
 
@@ -452,7 +452,7 @@ def add_filter(self, flt)
 
 
 
-Add a numeric or geo filter to the query. 
+Add a numeric or geo filter to the query.
 **Currently only one of each filter is supported by the engine**
 
 - **flt**: A NumericFilter or GeoFilter object, used on a corresponding field
@@ -545,7 +545,7 @@ def no_stopwords(self)
 
 
 
-Prevent the query from being filtered for stopwords. 
+Prevent the query from being filtered for stopwords.
 Only useful in very big queries that you are certain contain no stopwords.
 
 
@@ -597,7 +597,7 @@ def slop(self, slop)
 
 
 
-Allow a masimum of N intervening non matched terms between phrase terms (0 means exact phrase)
+Allow a maximum of N intervening non matched terms between phrase terms (0 means exact phrase)
 
 
 ### sort\_by
@@ -612,7 +612,7 @@ def sort_by(self, field, asc=True)
 Add a sortby field to the query
 
 - **field** - the name of the field to sort by
-- **asc** - when `True`, sorting will be done in asceding order
+- **asc** - when `True`, sorting will be done in ascending order
 
 
 ### summarize
@@ -707,7 +707,7 @@ def __init__(self, string, score=1.0, payload=None)
 
 
 ## Class TagField
-TagField is a tag-indexing field with simpler compression and tokenization. 
+TagField is a tag-indexing field with simpler compression and tokenization.
 See http://redisearch.io/Tags/
 ### \_\_init\_\_
 ```py
@@ -746,8 +746,3 @@ def __init__(self, name, weight=1.0, sortable=False, no_stem=False, no_index=Fal
 def redis_args(self)
 
 ```
-
-
-
-
-

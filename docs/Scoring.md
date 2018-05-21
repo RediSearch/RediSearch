@@ -4,7 +4,7 @@ RediSearch comes with a few very basic scoring functions to evaluate document re
 
 If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/Extensions).
 
-These are the pre-bunldled scoring functions availabe in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.
+These are the pre-bundled scoring functions available in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.
 
 ## TFIDF (Default)
 
@@ -14,7 +14,7 @@ Basic [TF-IDF scoring](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) with a few 
 
 2. We multiply the total TF-IDF for the query term by the a priory document score given on `FT.ADD`.
 
-3. We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penlty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - `1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)`. 
+3. We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penalty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - `1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)`.
 
 So for N terms in a document D, `T1...Tn`, the resulting score could be described with this python function:
 
@@ -32,7 +32,7 @@ def get_score(terms, doc):
 
         # idf is global for the index, and not calculated each time in real life
         idf = log2(1 + total_docs / docs_with_term(term))
-        
+
         score += tf*idf
 
         # sum up the distance penalty
@@ -45,7 +45,7 @@ def get_score(terms, doc):
     # divide the score by the root of the cumulative distance
     if len(terms) > 1:
         score /= sqrt(dist_penalty)
-        
+
     return score
 ```
 
@@ -53,7 +53,7 @@ def get_score(terms, doc):
 
 Identical to the default TFIDF scorer, with one important distinction:
 
-Term frequencies are normalized by the length of the document (in number of terms). The length is weighted, so that if a document contains two terms, one in a feild that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.
+Term frequencies are normalized by the length of the document (in number of terms). The length is weighted, so that if a document contains two terms, one in a field that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.
 
 ```
 FT.SEARCH myIndex "foo" SCORER TFIDF.DOCNORM
@@ -61,9 +61,9 @@ FT.SEARCH myIndex "foo" SCORER TFIDF.DOCNORM
 
 ## BM25
 
-A vraiation on the basic TF-IDF scorer, see [this Wikipedia article for more info](https://en.wikipedia.org/wiki/Okapi_BM25).
+A variation on the basic TF-IDF scorer, see [this Wikipedia article for more info](https://en.wikipedia.org/wiki/Okapi_BM25).
 
-We also multiply the relevance score for each document by the a priory docment score, and apply a penalty based on slop as in TFIDF.
+We also multiply the relevance score for each document by the a priory document score, and apply a penalty based on slop as in TFIDF.
 
 ```
 FT.SEARCH myIndex "foo" SCORER BM25
@@ -89,7 +89,7 @@ FT.SEARCH myIndex "foo" SCORER DOCSCORE
 
 ## HAMMING
 
-Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the **nearest** neighbors, we inverse the hamming distance (`1/(1+d)`) so that a distance of 0 gives a perfect score of 1 and is the highest rank. 
+Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the **nearest** neighbours, we inverse the hamming distance (`1/(1+d)`) so that a distance of 0 gives a perfect score of 1 and is the highest rank.
 
 This works only if:
 
@@ -97,7 +97,7 @@ This works only if:
 2. The query has a payload.
 3. Both are **exactly the same length**.
 
-Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results. 
+Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results.
 
 Example:
 

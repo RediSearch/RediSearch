@@ -5,15 +5,15 @@ We support a simple syntax for complex queries with the following rules:
 * Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported. 
+* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
 * Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
-* Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher. 
-* An expression in a query can be wrapped in parentheses to resolve disambiguity, e.g. `(hello|hella) (world|werld)`.
+* Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
+* An expression in a query can be wrapped in parentheses to disambiguate, e.g. `(hello|hella) (world|werld)`.
 * Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
 
@@ -25,13 +25,13 @@ As of version 0.19.3 it is possible to have a query consisting of just a negativ
 
 ## Field modifiers
 
-As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword. 
+As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword.
 
-Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the experssion with the `@` symbol, the field name and a `:` (colon) symbol. 
+Per query expression or sub expression, it is possible to specify which fields it matches, by prepending the expression with the `@` symbol, the field name and a `:` (colon) symbol.
 
-If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier. 
+If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier.
 
-If a field modifier preceds an expression in parentheses, it applies only to the expression inside the parentheses.
+If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses.
 
 Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:
 
@@ -55,17 +55,17 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 
 1. It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.
 
-2. It is possible to interesect or union multiple numeric filters in the same query, be it for the same field or different ones.
+2. It is possible to intersect or union multiple numeric filters in the same query, be it for the same field or different ones.
 
 3. `-inf`, `inf` and `+inf` are acceptable numbers in range. Thus greater-than 100 is expressed as `[(100 inf]`.
 
 4. Numeric filters are inclusive. Exclusive min or max are expressed with `(` prepended to the number, e.g. `[(100 (200]`.
 
-5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returnig a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`. 
+5. It is possible to negate a numeric filter by prepending a `-` sign to the filter, e.g. returning a result where price differs from 100 is expressed as: `@title:foo -@price:[100 100]`.
 
 ## Tag Filters
 
-RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax: 
+RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax:
 
 ```
 @field:{ tag | tag | ...}
@@ -95,7 +95,7 @@ As of version 0.21, it is possible to add geo radius queries directly into the q
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
-## Prefix Matching 
+## Prefix Matching
 
 On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
 
@@ -103,23 +103,23 @@ On index updating, we maintain a dictionary of all terms in the index. This can 
 hel* world
 ```
 
-Will be expanded to cover `(hello|help|helm|...) world`. 
+Will be expanded to cover `(hello|help|helm|...) world`.
 
 ### A few notes on prefix searches:
 
-1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffxies.
+1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.
 
 2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
 
-  * Prefixes are limited to 3 letters or more. 
+  * Prefixes are limited to 3 letters or more.
 
-  * Expansion is limited to 200 terms or less. 
+  * Expansion is limited to 200 terms or less.
 
 3. Prefix matching fully supports unicode and is case insensitive.
 
-4. Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap. 
+4. Currently there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.
 
-## Fuzzy Matching 
+## Fuzzy Matching
 
 As of v1.2.0, the dictionary of all terms in the index can also be used to perform [Fuzzy Matching](https://en.wikipedia.org/wiki/Approximate_string_matching). Fuzzy matches are performed based on [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance) (LD). Fuzzy matching on a term is perfomed by surrounding the term with '%', for example:
 
@@ -131,9 +131,9 @@ Will perform fuzzy matching on 'hello' for all terms where LD is 1.
 
 ## Wildcard Queries
 
-As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation angine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`. 
+As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation engine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`.
 
-This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance. 
+This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query sting in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance.
 
 ## Query attributes
 
@@ -186,7 +186,7 @@ The supported attributes are:
 
         obama ~barack ~michelle
 
-* Exact phrase in one field, one word in aonther field:
+* Exact phrase in one field, one word in another field:
 
         @title:"barack obama" @job:president
 
@@ -203,7 +203,7 @@ The supported attributes are:
         hello -worl*
 
 * Numeric Filtering - products named "tv" with a price range of 200-500:
-        
+
         @name:tv @price:[200 500]
 
 * Numeric Filtering - users with age greater than 18:
@@ -226,7 +226,7 @@ The supported attributes are:
 | WHERE num < 10 | @num:[-inf (10] |
 | WHERE num <= 10 | @num:[-inf 10] |
 | WHERE num < 10 OR num > 20 | @num:[-inf (10] \| @num:[(20 +inf] |
-| WHERE name LIKE 'john%' | @name:john* | 
+| WHERE name LIKE 'john%' | @name:john* |
 
 ## Technical Note
 
