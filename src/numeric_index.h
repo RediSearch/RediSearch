@@ -41,6 +41,10 @@ typedef struct rtNode {
   NumericRange *range;
 } NumericRangeNode;
 
+typedef struct{
+  NumericRangeNode **nodesStack;
+}NumericRangeTreeIterator;
+
 /* The root tree and its metadata */
 typedef struct {
   NumericRangeNode *root;
@@ -51,12 +55,8 @@ typedef struct {
 
   uint32_t revisionId;
 
-  NumericRangeNode **gcNodes;  // used for gc iterations
+  NumericRangeTreeIterator *gcIterator;  // used for gc iterations
 } NumericRangeTree;
-
-typedef struct{
-  NumericRangeNode **nodesStack;
-}NumericRangeTreeIterator;
 
 
 

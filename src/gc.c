@@ -158,18 +158,23 @@ end:
 }
 
 NumericRangeNode* NextGcNode(NumericRangeTree *rt){
-  if(array_len(rt->gcNodes) == 0){
-    rt->gcNodes = array_append(rt->gcNodes, rt->root);
+  bool runFromStart = false;
+  if(!rt->gcIterator){
+    rt->gcIterator = NumericRangeTreeIterator_New(rt);
+    runFromStart = true;
   }
-  NumericRangeNode* rangeNode = array_pop(rt->gcNodes);
-  if(!__isLeaf(rangeNode)){
-    rt->gcNodes = array_append(rt->gcNodes, rangeNode->left);
-    rt->gcNodes = array_append(rt->gcNodes, rangeNode->right);
-  }
-  if(rangeNode->range){
-    return rangeNode;
-  }
-  return NextGcNode(rt);
+  NumericRangeNode* rangeNode = NULL;
+  do{
+    while((rangeNode = NumericRangeTreeIterator_Next(rt->gcIterator))){
+      if(rangeNode->range){
+        return rangeNode;
+      }
+    }
+    assert(!runFromStart);
+    NumericRangeTreeIterator_Free(rt->gcIterator);
+    rt->gcIterator = NumericRangeTreeIterator_New(rt);
+    runFromStart = true;
+  }while(true);
 }
 
 void gc_RandomNumericIndex(RedisModuleCtx* ctx, GarbageCollectorCtx* gc){

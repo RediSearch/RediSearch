@@ -1617,7 +1617,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
     size_t resultSize = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    while((currNode = NumericRangeTreeIterator_Next(iter)) != NULL){
+    while((currNode = NumericRangeTreeIterator_Next(iter))){
       if(currNode->range){
         IndexReader * reader = NewNumericReader(currNode->range->entries, NULL);
         ReplyReaderResults(reader, ctx);
@@ -1630,7 +1630,6 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "no such subcommand");
   }
 
-done:
   if(keyp){
     RedisModule_CloseKey(keyp);
   }
