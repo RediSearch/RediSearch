@@ -447,7 +447,9 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value) {
 
   RSIndexResult rec = (RSIndexResult){
-      .docId = docId, .type = RSResultType_Numeric, .num = (RSNumericRecord){.value = value},
+      .docId = docId,
+      .type = RSResultType_Numeric,
+      .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }

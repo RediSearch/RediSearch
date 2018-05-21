@@ -67,33 +67,33 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
-void gc_updateStats(RedisSearchCtx* sctx, GarbageCollectorCtx* gc,
-                    size_t recordsRemoved, size_t bytesCollected){
+void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t recordsRemoved,
+                    size_t bytesCollected) {
   sctx->spec->stats.numRecords -= recordsRemoved;
   sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
 }
 
-size_t gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
-  RedisModuleKey* idxKey = NULL;
-  RedisSearchCtx* sctx = NewSearchCtx(ctx, (RedisModuleString*) gc->keyName);
+size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
+  RedisModuleKey *idxKey = NULL;
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
   if (!sctx) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
-        RedisModule_StringPtrLen(gc->keyName, NULL));
+                    RedisModule_StringPtrLen(gc->keyName, NULL));
     goto end;
   }
   // Select a weighted random term
   TimeSample ts;
-  char* term = IndexSpec_GetRandomTerm(sctx->spec, 20);
+  char *term = IndexSpec_GetRandomTerm(sctx->spec, 20);
   // if the index is empty we won't get anything here
   if (!term) {
     goto end;
   }
   RedisModule_Log(ctx, "debug", "Garbage collecting for term '%s'", term);
   // Open the term's index
-  InvertedIndex* idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
   if (idx) {
     int blockNum = 0;
     int num = 100;
@@ -102,18 +102,16 @@ size_t gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
       size_t recordsRemoved = 0;
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
-      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, num,
-          &bytesCollected, &recordsRemoved);
+      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, num, &bytesCollected,
+                                      &recordsRemoved);
       TimeSampler_End(&ts);
-      RedisModule_Log(ctx, "debug", "Repair took %lldns",
-          TimeSampler_DurationNS(&ts));
+      RedisModule_Log(ctx, "debug", "Repair took %lldns", TimeSampler_DurationNS(&ts));
       /// update the statistics with the the number of records deleted
       totalRemoved += recordsRemoved;
       gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
       totalCollected += bytesCollected;
       // blockNum 0 means error or we've finished
-      if (!blockNum)
-        break;
+      if (!blockNum) break;
 
       // After each iteration we yield execution
       // First we close the relevant keys we're touching
@@ -125,19 +123,17 @@ size_t gc_RandomTerm(RedisModuleCtx* ctx, GarbageCollectorCtx* gc) {
       // try to acquire it again...
       RedisModule_ThreadSafeContextLock(ctx);
       // reopen the context - it might have gone away!
-      sctx = NewSearchCtx(ctx, (RedisModuleString*) gc->keyName);
+      sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
       // sctx null --> means it was deleted and we need to stop right now
-      if (!sctx)
-        break;
+      if (!sctx) break;
 
       // reopen the inverted index - it might have gone away
       idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
     } while (idx != NULL);
   }
   if (totalRemoved) {
-    RedisModule_Log(ctx, "notice",
-        "Garbage collected %zd bytes in %zd records for term '%s'",
-        totalCollected, totalRemoved, term);
+    RedisModule_Log(ctx, "notice", "Garbage collected %zd bytes in %zd records for term '%s'",
+                    totalCollected, totalRemoved, term);
   }
   free(term);
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
@@ -151,16 +147,16 @@ end:
   return totalRemoved;
 }
 
-NumericRangeNode* NextGcNode(NumericRangeTree *rt){
+NumericRangeNode *NextGcNode(NumericRangeTree *rt) {
   bool runFromStart = false;
-  if(!rt->gcIterator){
+  if (!rt->gcIterator) {
     rt->gcIterator = NumericRangeTreeIterator_New(rt);
     runFromStart = true;
   }
-  NumericRangeNode* rangeNode = NULL;
-  do{
-    while((rangeNode = NumericRangeTreeIterator_Next(rt->gcIterator))){
-      if(rangeNode->range){
+  NumericRangeNode *rangeNode = NULL;
+  do {
+    while ((rangeNode = NumericRangeTreeIterator_Next(rt->gcIterator))) {
+      if (rangeNode->range) {
         return rangeNode;
       }
     }
@@ -168,41 +164,40 @@ NumericRangeNode* NextGcNode(NumericRangeTree *rt){
     NumericRangeTreeIterator_Free(rt->gcIterator);
     rt->gcIterator = NumericRangeTreeIterator_New(rt);
     runFromStart = true;
-  }while(true);
+  } while (true);
 }
 
-size_t gc_RandomNumericIndex(RedisModuleCtx* ctx, GarbageCollectorCtx* gc){
+size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
 #define NUMERIC_FIELDS_ARRAY_CAP 2
   size_t bytesCollected = 0;
   size_t recordsRemoved = 0;
-  RedisModuleKey* idxKey = NULL;
-  RedisSearchCtx* sctx = NewSearchCtx(ctx, (RedisModuleString*) gc->keyName);
+  RedisModuleKey *idxKey = NULL;
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   if (!sctx) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
-        RedisModule_StringPtrLen(gc->keyName, NULL));
+                    RedisModule_StringPtrLen(gc->keyName, NULL));
     goto end;
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  FieldSpec **numericFields = array_new(FieldSpec*, NUMERIC_FIELDS_ARRAY_CAP);
-  for(int i = 0 ; i < spec->numFields ; ++i){
-    if(spec->fields[i].type == FIELD_NUMERIC){
+  FieldSpec **numericFields = array_new(FieldSpec *, NUMERIC_FIELDS_ARRAY_CAP);
+  for (int i = 0; i < spec->numFields; ++i) {
+    if (spec->fields[i].type == FIELD_NUMERIC) {
       numericFields = array_append(numericFields, &(spec->fields[i]));
     }
   }
 
-  if(array_len(numericFields) == 0){
+  if (array_len(numericFields) == 0) {
     goto end;
   }
 
-  FieldSpec* randomField = numericFields[rand() % array_len(numericFields)];
+  FieldSpec *randomField = numericFields[rand() % array_len(numericFields)];
   array_free(numericFields);
   NumericRangeTree *rt = OpenNumericIndex(sctx, randomField->name, &idxKey);
 
-  NumericRangeNode* nextNode = NextGcNode(rt);
+  NumericRangeNode *nextNode = NextGcNode(rt);
   InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, 0,
-                       nextNode->range->entries->size,
-                       &bytesCollected, &recordsRemoved);
+                       nextNode->range->entries->size, &bytesCollected, &recordsRemoved);
 
   gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
 
@@ -240,7 +235,7 @@ static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   totalRemoved += gc_RandomTerm(ctx, gc);
 
-  totalRemoved += gc_RandomNumericIndex(ctx, gc);
+  totalRemoved += gc_NumericIndex(ctx, gc);
 
   gc->stats.numCycles++;
   gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;

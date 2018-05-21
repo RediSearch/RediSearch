@@ -1565,9 +1565,9 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-static void ReplyReaderResults(IndexReader* reader, RedisModuleCtx* ctx) {
-  IndexIterator* iter = NewReadIterator(reader);
-  RSIndexResult* r;
+static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
+  IndexIterator *iter = NewReadIterator(reader);
+  RSIndexResult *r;
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
@@ -1576,6 +1576,51 @@ static void ReplyReaderResults(IndexReader* reader, RedisModuleCtx* ctx) {
   }
   RedisModule_ReplySetArrayLength(ctx, resultSize);
   ReadIterator_Free(iter);
+}
+
+static void DumpInvertedIndex(RedisSearchCtx *sctx, RedisModuleString *invidxName) {
+  RedisModuleKey *keyp = NULL;
+  size_t len;
+  const char *invIdxName = RedisModule_StringPtrLen(invidxName, &len);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
+  if (!invidx) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
+    goto end;
+  }
+  IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  ReplyReaderResults(reader, sctx->redisCtx);
+
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+}
+
+static void DumpNumericIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
+  RedisModuleKey *keyp = NULL;
+  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
+  NumericRangeTree *rt = OpenNumericIndex(sctx, fieldName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+  NumericRangeNode *currNode;
+  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
+    if (currNode->range) {
+      IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
+      ReplyReaderResults(reader, sctx->redisCtx);
+      ++resultSize;
+    }
+  }
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
+  NumericRangeTreeIterator_Free(iter);
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
 }
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1592,47 +1637,17 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx sctx = {NULL};
   sctx.redisCtx = ctx;
   sctx.spec = sp;
-  RedisModuleKey *keyp;
 
-  const char* subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
 
-  if(strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0){
-    size_t len;
-    const char* invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(&sctx, invIdxName, len, 0, &keyp);
-    if (!invidx) {
-      RedisModule_ReplyWithError(ctx, "Can not find the inverted index");
-      return REDISMODULE_OK;
-    }
-    IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
-    ReplyReaderResults(reader, ctx);
-  }else if(strcmp(subCommand, DUMP_NUMIDX_COMMAND) == 0){
-    const char* fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-    NumericRangeTree *rt = OpenNumericIndex(&sctx, fieldName, &keyp);
-    if(!rt){
-      RedisModule_ReplyWithError(ctx, "can not open numeric field");
-      return REDISMODULE_OK;
-    }
-    NumericRangeNode* currNode;
-    NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
-    size_t resultSize = 0;
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    while((currNode = NumericRangeTreeIterator_Next(iter))){
-      if(currNode->range){
-        IndexReader * reader = NewNumericReader(currNode->range->entries, NULL);
-        ReplyReaderResults(reader, ctx);
-        ++resultSize;
-      }
-    }
-    RedisModule_ReplySetArrayLength(ctx, resultSize);
-    NumericRangeTreeIterator_Free(iter);
-  }else{
+  if (strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0) {
+    DumpInvertedIndex(&sctx, argv[3]);
+  } else if (strcmp(subCommand, DUMP_NUMIDX_COMMAND) == 0) {
+    DumpNumericIndex(&sctx, argv[3]);
+  } else {
     RedisModule_ReplyWithError(ctx, "no such subcommand");
   }
 
-  if(keyp){
-    RedisModule_CloseKey(keyp);
-  }
   return REDISMODULE_OK;
 }
 

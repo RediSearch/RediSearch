@@ -272,7 +272,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
   if (rc) {
-    if(t->gcIterator){
+    if (t->gcIterator) {
       NumericRangeTreeIterator_Free(t->gcIterator);
     }
     t->gcIterator = NULL;
@@ -303,7 +303,7 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
   NumericRangeNode_Free(t->root);
-  if(t->gcIterator){
+  if (t->gcIterator) {
     NumericRangeTreeIterator_Free(t->gcIterator);
   }
   RedisModule_Free(t);
@@ -541,20 +541,20 @@ void NumericIndexType_Free(void *value) {
   NumericRangeTree_Free(t);
 }
 
-NumericRangeTreeIterator* NumericRangeTreeIterator_New(NumericRangeTree *t){
+NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t) {
 #define NODE_STACK_INITIAL_SIZE 4
-  NumericRangeTreeIterator* iter = rm_malloc(sizeof(NumericRangeTreeIterator));
-  iter->nodesStack = array_new(NumericRangeNode*, NODE_STACK_INITIAL_SIZE);
+  NumericRangeTreeIterator *iter = rm_malloc(sizeof(NumericRangeTreeIterator));
+  iter->nodesStack = array_new(NumericRangeNode *, NODE_STACK_INITIAL_SIZE);
   array_append(iter->nodesStack, t->root);
   return iter;
 }
 
-NumericRangeNode* NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter){
-  if(array_len(iter->nodesStack) == 0){
+NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) {
+  if (array_len(iter->nodesStack) == 0) {
     return NULL;
   }
-  NumericRangeNode* ret = array_pop(iter->nodesStack);
-  if(!__isLeaf(ret)){
+  NumericRangeNode *ret = array_pop(iter->nodesStack);
+  if (!__isLeaf(ret)) {
     iter->nodesStack = array_append(iter->nodesStack, ret->left);
     iter->nodesStack = array_append(iter->nodesStack, ret->right);
   }
@@ -562,7 +562,7 @@ NumericRangeNode* NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter){
   return ret;
 }
 
-void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter){
+void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   array_free(iter->nodesStack);
   rm_free(iter);
 }

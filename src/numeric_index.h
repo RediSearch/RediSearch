@@ -41,9 +41,9 @@ typedef struct rtNode {
   NumericRange *range;
 } NumericRangeNode;
 
-typedef struct{
+typedef struct {
   NumericRangeNode **nodesStack;
-}NumericRangeTreeIterator;
+} NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
 typedef struct {
@@ -57,8 +57,6 @@ typedef struct {
 
   NumericRangeTreeIterator *gcIterator;  // used for gc iterations
 } NumericRangeTree;
-
-
 
 #define __isLeaf(n) (n->left == NULL && n->right == NULL)
 
@@ -112,8 +110,8 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
 void NumericIndexType_Free(void *value);
 
-NumericRangeTreeIterator* NumericRangeTreeIterator_New(NumericRangeTree *t);
-NumericRangeNode* NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
+NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
+NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
 #endif
