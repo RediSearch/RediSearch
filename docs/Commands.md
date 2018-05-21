@@ -224,6 +224,45 @@ OK on success, or an error if something went wrong.
 
 ---
 
+## FT.ALTER
+
+### Format
+
+```
+FT.ALTER {index} SCHEMA ADD {field} {options} ...
+```
+
+### Description
+
+This command alters an existing index. Currently, adding fields to the index is the only supported
+alteration.
+
+Adding a field to the index will cause any future document updates to use the new field when
+indexing. Existing documents will not be reindexed.
+
+!!! note
+    Depending on how the index was created, you may be limited by the amount of additional text
+    fields which can be added to an existing index. If the current index contains less than 32
+    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
+    index will only ever be able to contain 32 total text fields). If you wish for the index to
+    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
+
+### Parameters
+
+* **index**: the index name.
+* **field**: the field name.
+* **options**: the field options - refer to `FT.CREATE` for more information.
+
+### Complexity
+
+O(1)
+
+### Returns
+
+OK or an error.
+
+---
+
 ## FT.INFO
 
 ### Format
@@ -297,45 +336,6 @@ O(1)
 ### Returns
 
 Array Response. A nested array of keys and values.
-
----
-
-## FT.ALTER
-
-### Format
-
-```
-FT.ALTER {index} SCHEMA ADD {field} {options} ...
-```
-
-### Description
-
-This command alters an existing index. Currently, adding fields to the index is the only supported
-alteration.
-
-Adding a field to the index will cause any future document updates to use the new field when
-indexing. Existing documents will not be reindexed.
-
-!!! note
-    Depending on how the index was created, you may be limited by the amount of additional text
-    fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
-    index will only ever be able to contain 32 total text fields). If you wish for the index to
-    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
-
-### Parameters
-
-* **index**: the index name.
-* **field**: the field name.
-* **options**: the field options - refer to `FT.CREATE` for more information.
-
-### Complexity
-
-O(1)
-
-### Returns
-
-OK or an error.
 
 ---
 
