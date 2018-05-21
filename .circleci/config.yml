@@ -98,7 +98,7 @@ jobs:
       - run:
           name: Deploy Docs to S3
           command: >-
-            aws s3 cp site s3://modules.redislabs.com/$WEBSITE_FOLDER/ --acl
+            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl
             public-read --recursive 
 workflows:
   version: 2
