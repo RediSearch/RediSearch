@@ -329,6 +329,14 @@ indexing. Existing documents will not be reindexed.
 * **field**: the field name.
 * **options**: the field options - refer to `FT.CREATE` for more information.
 
+### Complexity
+
+O(1)
+
+### Returns
+
+OK or an error.
+
 ---
 
 ## FT.SEARCH 
