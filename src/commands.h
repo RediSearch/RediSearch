@@ -36,4 +36,6 @@
 
 #define RS_ALTER_CMD RS_CMD_PREFIX ".ALTER"
 
+#define RS_DEBUG RS_CMD_PREFIX ".DEBUG"
+
 #endif

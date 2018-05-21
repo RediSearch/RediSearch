@@ -1565,6 +1565,78 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+static void ReplyReaderResults(IndexReader* reader, RedisModuleCtx* ctx) {
+  IndexIterator* iter = NewReadIterator(reader);
+  RSIndexResult* r;
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+    RedisModule_ReplyWithLongLong(ctx, r->docId);
+    ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+  ReadIterator_Free(iter);
+}
+
+int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+#define DUMP_INVIDX_COMMAND "DUMP_INVIDX"
+#define DUMP_NUMIDX_COMMAND "DUMP_NUMIDX"
+
+  if (argc != 4) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[2], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+  RedisSearchCtx sctx = {NULL};
+  sctx.redisCtx = ctx;
+  sctx.spec = sp;
+  RedisModuleKey *keyp;
+
+  const char* subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+
+  if(strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0){
+    size_t len;
+    const char* invIdxName = RedisModule_StringPtrLen(argv[3], &len);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(&sctx, invIdxName, len, 0, &keyp);
+    if (!invidx) {
+      RedisModule_ReplyWithError(ctx, "Can not find the inverted index");
+      return REDISMODULE_OK;
+    }
+    IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    ReplyReaderResults(reader, ctx);
+  }else if(strcmp(subCommand, DUMP_NUMIDX_COMMAND) == 0){
+    const char* fieldName = RedisModule_StringPtrLen(argv[3], NULL);
+    NumericRangeTree *rt = OpenNumericIndex(&sctx, fieldName, &keyp);
+    if(!rt){
+      RedisModule_ReplyWithError(ctx, "can not open numeric field");
+      return REDISMODULE_OK;
+    }
+    NumericRangeNode* currNode;
+    NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
+    size_t resultSize = 0;
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    while((currNode = NumericRangeTreeIterator_Next(iter)) != NULL){
+      if(currNode->range){
+        IndexReader * reader = NewNumericReader(currNode->range->entries, NULL);
+        ReplyReaderResults(reader, ctx);
+        ++resultSize;
+      }
+    }
+    RedisModule_ReplySetArrayLength(ctx, resultSize);
+    NumericRangeTreeIterator_Free(iter);
+  }else{
+    RedisModule_ReplyWithError(ctx, "no such subcommand");
+  }
+
+done:
+  if(keyp){
+    RedisModule_CloseKey(keyp);
+  }
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1745,6 +1817,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }
 

@@ -535,3 +535,29 @@ void NumericIndexType_Free(void *value) {
   NumericRangeTree *t = value;
   NumericRangeTree_Free(t);
 }
+
+NumericRangeTreeIterator* NumericRangeTreeIterator_New(NumericRangeTree *t){
+#define NODE_STACK_INITIAL_SIZE 4
+  NumericRangeTreeIterator* iter = rm_malloc(sizeof(NumericRangeTreeIterator));
+  iter->nodesStack = array_new(NumericRangeNode*, NODE_STACK_INITIAL_SIZE);
+  array_append(iter->nodesStack, t->root);
+  return iter;
+}
+
+NumericRangeNode* NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter){
+  if(array_len(iter->nodesStack) == 0){
+    return NULL;
+  }
+  NumericRangeNode* ret = array_pop(iter->nodesStack);
+  if(!__isLeaf(ret)){
+    iter->nodesStack = array_append(iter->nodesStack, ret->left);
+    iter->nodesStack = array_append(iter->nodesStack, ret->right);
+  }
+
+  return ret;
+}
+
+void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter){
+  array_free(iter->nodesStack);
+  rm_free(iter);
+}
