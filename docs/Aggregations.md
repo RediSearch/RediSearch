@@ -69,11 +69,11 @@ FT.AGGREGATE
 
     The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
 
-* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
+* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
 
   `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
 
-* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
 
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
 
@@ -165,7 +165,7 @@ Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` 
 
 For example, the simplest reducer is COUNT, which simply counts the number of records in each group. 
 
-If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its paramaters, e.g. `count_distinct(foo,bar)`.
+If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its parameters, e.g. `count_distinct(foo,bar)`.
 
 ### Supported GROUPBY Reducers
 
@@ -331,9 +331,9 @@ If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer wor
 
 ## APPLY Expressions
 
-`APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transforamtion. 
+`APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. 
 
-The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and composable without limit. For example: `sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)` or simply `@foo/@bar`.
+The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example: `sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)` or simply `@foo/@bar`.
 
 If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result. 
 

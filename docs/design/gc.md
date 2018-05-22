@@ -5,7 +5,7 @@
 * Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.
 * This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.
 * Thus all inverted index entries belonging to this document id are just garbage. 
-* We do not want to go and explicitly delete them when deleting a document because it will make this operation very long an depending on the length of the document.
+* We do not want to go and explicitly delete them when deleting a document because it will make this operation very long and depending on the length of the document.
 * On top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.
 
 All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. 
@@ -72,7 +72,7 @@ To solve 1 we need to detect this in the reader, and adapt to this situation. De
 To solve 2 is simpler: 
 * The GC will of course operate only while the GIL is locked.
 * The GC will never yield execution while in the middle of a block.
-* The GC will check whether the key has been delted while it slept.
+* The GC will check whether the key has been deleted while it slept.
 * The GC will get a new pointer to the next block on each read, assuring the pointer is safe.
 
 ## 4. Scheduling Garbage Collection
