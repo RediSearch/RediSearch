@@ -1,37 +1,31 @@
 # Document Payloads
 
-Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
-aggregation or scoring functions, we might want to store that data as an inline payload. 
-This will allow us to evaluate properties of a document for scoring purposes at very low cost.
+Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
 
-Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,
-We can add custom payloads that can be evaluated in run-time.
+Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.
 
-Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
-of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
-if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.
+Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.
 
-## Adding payloads for documents:
+## Adding payloads for documents
 
-When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
-This is done with the PAYLOAD keyword:
+When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload. This is done with the `PAYLOAD` keyword:
 
 ```
 FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
 ```
 
-## Evaluating Payloads in Query Time
+## Evaluating payloads in query time
 
-When imlplementing a scoring function, the signature of the function exposed is:
+When implementing a scoring function, the signature of the function exposed is:
 
 ```c
 double (*ScoringFunction)(DocumentMetadata *dmd, IndexResult *h);
 ```
 
-> NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.
+!!! note
+    Currently, scoring functions cannot be dynamically added, and forking the engine and replacing them is required.
 
-DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with
-arbitrary length:
+DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with arbitrary length:
 
 ```c
 typedef struct  {
@@ -40,8 +34,7 @@ typedef struct  {
 } DocumentPayload;
 ```
 
-If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
-It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.
+If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it. It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.
 
 ## Retrieving payloads from documents
 

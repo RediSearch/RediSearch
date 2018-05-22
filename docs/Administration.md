@@ -1,10 +1,10 @@
 # RediSearch Administration Guide
 
-RediSearch requires no special configurations to work, but there are a few things worth noting when running RediSearch on top of Redis.
+RediSearch doesn't require any configuration to work, but there are a few things worth noting when running RediSearch on top of Redis.
 
 ## Persistence
 
-RediSearch supports both RDB and AOF based persistence. For pure RDB set-up, nothing special is needed beyond the usual redis RDB configurations.
+RediSearch supports both RDB and AOF based persistence. For a pure RDB set-up, nothing special is needed beyond the standard Redis RDB configuration.
 
 ### AOF Persistence
 
@@ -19,7 +19,7 @@ aof-use-rdb-preamble yes
 
 ## Master/Slave Replication
 
-RediSearch supports replication inherently, and using a master/slave set-up, you can use slaves for fail-over; On top of that, slaves can be used for searching, to load-balance read traffic. 
+RediSearch supports replication inherently, and using a master/slave set-up, you can use slaves for high availability. On top of that, slaves can be used for searching, to load-balance read traffic. 
 
 ## Cluster Support
 

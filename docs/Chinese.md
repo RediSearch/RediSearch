@@ -1,4 +1,4 @@
-# Chinese support in Redis Search
+# Chinese support in RediSearch
 
 Support for adding documents in Chinese is available starting at version 0.99.0.
 
@@ -15,11 +15,11 @@ character or sequence of characters against a dictionary of predefined terms
 and determining the most likely (based on the surrounding terms and characters)
 match.
 
-Redis Search makes use of the [Friso](https://github.com/lionsoul2014/friso)
+RediSearch makes use of the [Friso](https://github.com/lionsoul2014/friso)
 chinese tokenization library for this purpose. This is largely transparent to
 the user and often no additional configuration is required.
 
-## Example: Using Chinese in Redis Search
+## Example: Using Chinese in RediSearch
 
 In pseudo-code:
 
@@ -67,6 +67,6 @@ loading the module. The `FRISOINI` setting can point to the location of a
 `friso.ini` file which contains the relevant settings and paths to the dictionary
 files.
 
-Note that there is no "default" friso.ini file location. Redis Search comes with
+Note that there is no "default" friso.ini file location. RediSearch comes with
 its own `friso.ini` and dictionary files which are compiled into the module
 binary at build-time.

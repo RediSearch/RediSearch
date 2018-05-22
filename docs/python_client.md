@@ -1,12 +1,10 @@
 # Package redisearch Documentation
 
-
-
 ## Overview
 
 `redisearch-py` is a python search engine library that utilizes the RediSearch Redis Module API.
 
-It is the "official" client of redisearch, and should be regarded as its canonical client implementation.
+It is the "official" client of RediSearch, and should be regarded as its canonical client implementation.
 
 The source code can be found at [http://github.com/RedisLabs/redisearch-py](http://github.com/RedisLabs/redisearch-py)
 
@@ -60,7 +58,7 @@ suggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']
 
 ### Installing
 
-1. Install redis 4.0 RC2 or above
+1. Install Redis 4.0 or above
 
 2. [Install RediSearch](http://redisearch.io/Quick_Start/#building-and-running)
 

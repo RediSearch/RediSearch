@@ -1,10 +1,10 @@
 # Controlling Text Tokenization and Escaping
 
-At the moment, RediSearch uses a very simple tokenizer for documents, and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 
+At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 
 
 Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the [Tag Fields](/Tags) documentation. 
 
-## The Rules of Text Field Tokenization
+## The rules of text field tokenization
 
 1. All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of `,.<>{}[]"':;!@#$%^&*()-+=~` will break the text into terms.  So the text `foo-bar.baz...bag` will be tokenized into `[foo, bar, baz, bag]`
 
@@ -14,6 +14,4 @@ Note: There is a different mechanism for tokenizing text and tag fields, this do
 
 3. Repeating spaces or punctuation marks are stripped. 
 
-4. In latin characters, everything gets converted to lowercase. 
-
-
+4. In Latin characters, everything gets converted to lowercase. 

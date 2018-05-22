@@ -5,9 +5,9 @@ RediSearch supports an extension mechanism, much like Redis supports modules. Th
 There are two kinds of extension APIs at the moment: 
 
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
-2. **Scoring Funtions**, whose role is to rank search results in query time.
+2. **Scoring Functions**, whose role is to rank search results in query time.
 
-## Registering and Loading Extensions
+## Registering and loading extensions
 
 Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. 
 
@@ -15,7 +15,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 
     Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RedisLabsModules/RediSearch/blob/master/src/tests/ext-example/Makefile). 
 
-    That folder also contains an example extension that is used for testing, and can be taken as a skeleton for implementing your own extension.
+    That folder also contains an example extension that is used for testing and can be taken as a skeleton for implementing your own extension.
 
 * Loading 
 
@@ -29,7 +29,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
     This causes RediSearch to automatically load the extension and register its expanders and scorers. 
 
 
-## Initializing an Extension
+## Initializing an extension
 
 The entry point of an extension is a function with the signature:
 
@@ -41,7 +41,7 @@ When loading the extension, RediSearch looks for this function and calls it. Thi
 
 It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
 
-### Example Init Function
+### Example init function
 
 ```c
 
@@ -66,7 +66,7 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
 ## Calling your custom functions
 
-When performing a query, you can tell RediSearch to use your scorers or expanders by specifing the SCORER or EXPANDER arguments, with the given alias.
+When performing a query, you can tell RediSearch to use your scorers or expanders by specifying the SCORER or EXPANDER arguments, with the given alias.
 e.g.:
 
 ```
@@ -75,7 +75,7 @@ FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
 
 **NOTE**: Expander and scorer aliases are **case sensitive**.
 
-## The Query Expander API
+## The query expander API
 
 At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.
 
@@ -124,7 +124,7 @@ typedef struct RSQueryExpanderCtx {
 
 ### RSToken
 
-RSToken represents a single query token to be expanded, and is defined as:
+RSToken represents a single query token to be expanded and is defined as:
 
 
 ```c
@@ -145,7 +145,7 @@ typedef struct {
 
 ```
 
-## The Scoring Function API
+## The scoring function API
 
 A scoring function receives each document being evaluated by the query, for final ranking. 
 It has access to all the query terms that brought up the document,and to metadata about the
@@ -163,7 +163,7 @@ double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
 
 RSScoringFunctionCtx is a context that implements some helper methods. 
 
-RSIndexResult is the result information - containing the document id, frequency, terms and offsets. 
+RSIndexResult is the result information - containing the document id, frequency, terms, and offsets. 
 
 RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. 
 
@@ -171,7 +171,7 @@ minSocre is the minimal score that will yield a result that will be relevant to 
 
 The return value of the function is double representing the final score of the result. 
 Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. 
-To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally to negative infinity, or -1/0). 
+To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally set to negative infinity, or -1/0). 
 
 ### RSScoringFunctionCtx
 
@@ -192,9 +192,9 @@ See redisearch.h for details
 This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. 
 
 
-## Example Query Expander
+## Example query expander
 
-This example query expander expands each token with the the term foo:
+This example query expander expands each token with the term foo:
 
 ```c
 #include <redisearch.h> //must be in the include path
@@ -204,7 +204,7 @@ void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 }
 ```
 
-## Example Scoring Function
+## Example scoring function
 
 This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:
 

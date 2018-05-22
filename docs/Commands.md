@@ -117,8 +117,8 @@ Add a document to the index.
 
 - **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
   reindexing. Fields not given to the command will be loaded from the current version of the
-  document. Also, if only non indexable fields, score or payload are set - we do not do a full
-  reindexing of the document, and this will be a lot faster.
+  document. Also, if only non-indexable fields, score or payload are set - we do not do a full
+  re-indexing of the document, and this will be a lot faster.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
@@ -146,8 +146,8 @@ Add a document to the index.
     > "russian", "spanish",   "swedish", "tamil",     "turkish"
     > "chinese"
 
-  If indexing a chinese language document, you must set the language to `chinese`
-  in order for the chinese characters to be tokenized properly.
+  If indexing a Chinese language document, you must set the language to `chinese`
+  in order for Chinese characters to be tokenized properly.
 
 ### Adding Chinese Documents
 
@@ -371,7 +371,7 @@ Search the index with a textual query, returning either documents or just ids.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
   Refer to [query syntax](/Query_Syntax) for more details. 
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
-  the content. This is useful if redisearch is only an index on an external document collection
+  the content. This is useful if RediSearch is only an index on an external document collection
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
@@ -382,11 +382,11 @@ Search the index with a textual query, returning either documents or just ids.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or url. num is the number of specified field arguments
+  fields of the document, like title or URL. num is the number of specified field arguments
 - **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the 
   list. 
   the first argument must be the length of the list, and greater than zero.
-  Non existent keys are ignored - unless all the keys are non existent.
+  Non-existent keys are ignored - unless all the keys are non-existent.
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
   phrase terms. (i.e the slop for exact phrases is 0)
 - **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
@@ -486,7 +486,7 @@ Run a search query on an index, and perform aggregate transformations on the res
 
 * **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either 
   store the result as a new property down the pipeline, or replace any property using this 
-  transforamtion. `expr` is an expression that can be used to perform arithmetic operations on numeric 
+  transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric 
   properties, or functions that can be applied on properties depending on their types (see below), or 
   any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this 
   expression dynamically for each record in the pipeline and store the result as a new property called 
@@ -494,21 +494,21 @@ Run a search query on an index, and perform aggregate transformations on the res
   pipeline. 
 
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index 
-  `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you 
-  are interested in just limiting the optput of a sort operation.
+  `offset` (zero-based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you 
+  are interested in just limiting the output of a sort operation.
 
-    However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+    However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. 
   They are is applied post-query and relate to the current state of the pipeline. 
 
 ### Complexity
 
-Non Deterministic. Depends on the query and aggregations performed, but usually it is linear to the number of results returned. 
+Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. 
 
 ### Returns
 
-Array Response. Each row is an array, and represents a single aggregate result.
+Array Response. Each row is an array and represents a single aggregate result.
 
 ### Example Output
 
@@ -630,7 +630,7 @@ After deletion, the document can be re-added to the index. It will get a differe
 
 !!! warning "FT.DEL does not delete the actual document By default!"
         
-        Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
+        Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
 
         Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
         
@@ -665,7 +665,7 @@ FT.GET {index} {doc id}
 
 Returns the full contents of a document.
 
-Currently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 If the document does not exist or is not a HASH object, we reutrn a NULL reply
 
@@ -692,12 +692,12 @@ FT.GET {index} {docId} ...
 
 Returns the full contents of multiple documents. 
 Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. 
+This command is also future-proof and will allow us to change the internal representation of documents inside redis in the future. 
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 We return an array with exactly the same number of elements as the number of keys sent to the command. 
 
-Each element in turn is an array of key-value pairs representing the document. 
+Each element, in turn, is an array of key-value pairs representing the document. 
 
 If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
 
@@ -708,7 +708,7 @@ If a document is not found or is not a valid HASH object, its place in the paren
 
 ### Returns
 
-Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.
+Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.
 
 ---
 
@@ -724,7 +724,7 @@ FT.DROP {index} [KEEPDOCS]
 
 Deletes all the keys associated with the index. 
 
-By default DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
+By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 
 If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
@@ -892,7 +892,7 @@ FT.OPTIMIZE {index}
 
 ### Description
 
-This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. 
+This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already. 
 
 ---
 

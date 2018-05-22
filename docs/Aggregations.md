@@ -1,18 +1,14 @@
 # RediSearch Aggregations
 
+Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries. 
 
+For example, indexing a web-server's logs, we can create a report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc. 
 
-Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics report, or to perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries. 
-
-For example, indexing a web-server's logs, we can create report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc. 
-
-
-
-## Core Concepts
+## Core concepts
 
 The basic idea of an aggregate query is this:
 
-* Perform a search query, filtering for records you with to process.
+* Perform a search query, filtering for records you wish to process.
 * Build a pipeline of operations that transform the results by zero or more steps of:
   * **Group and Reduce**: grouping by fields in the results, and applying reducer functions on each group.
   * **Sort**: sort the results based on one or more fields.
@@ -20,13 +16,12 @@ The basic idea of an aggregate query is this:
   * **Limit**: Limit the result, regardless of sorting the result. 
   * **Filter**: Filter the results (post-query) based on predicates relating to its values. 
 
-The pipeline is dynamic and reentrant, and every operation can be repeated. For example you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
+The pipeline is dynamic and reentrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
 
 Figure 1: Aggregation Pipeline Example
 ![Aggregation Pipeline](https://docs.google.com/drawings/d/e/2PACX-1vRFyP17ingsG86OYNaienojHHA8DwnlVVv67-WlKxv7a7xTJCluWvs3SzXYQSS6QqwB9QZ1vqDuoJ-0/pub?w=518&h=163)
 
-
-## Aggregate Request Format
+## Aggregate request format
 
 The aggregate request's syntax is defined as follows:
 
@@ -56,16 +51,16 @@ FT.AGGREGATE
   [LIMIT {offset:integer} {num:integer} ] ...
 ```
 
-#### Parameters In Detail
+#### Parameters in detail
 
 * **index_name**: The index the query is executed again.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably, since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
 
-* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them, or performing multiple aggregate operations (see below).
-  * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
+* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
+  * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
 
     The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
 
@@ -77,11 +72,11 @@ FT.AGGREGATE
 
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
 
-  However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+  However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.
 
-## Quick Example
+## Quick example
 
 Let's assume we have log of visits to our website, each record containing the following fields/properties:
 
@@ -141,8 +136,6 @@ FT.AGGREGATE myIndex "*"
   APPLY timefmt(@hour) AS hour
 ```
 
-
-
 ### Example 2: Sort visits to a specific URL by day and country:
 
 In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending. 
@@ -155,19 +148,17 @@ FT.AGGREGATE myIndex "@url:\"about.html\""
     SORTBY 4 @day ASC @country DESC
 ```
 
-
-
-## GROUPBY Reducers
+## GROUPBY reducers
 
 `GROUPBY` step work similarly to SQL `GROUP BY` clauses, and create groups of results based on one or more properties in each record. For each group, we return the "group keys", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more `REDUCE` clauses.
 
-Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` clauses. Reducers apply some accumulation function to each record in the group, and reduce them into a single record representing the group. When we are finished processing all the records upstream of the `GROUPBY` step, each group emits its reduced record. 
+Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` clauses. Reducers apply some accumulation function to each record in the group and reduce them into a single record representing the group. When we are finished processing all the records upstream of the `GROUPBY` step, each group emits its reduced record. 
 
 For example, the simplest reducer is COUNT, which simply counts the number of records in each group. 
 
-If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its parameters, e.g. `count_distinct(foo,bar)`.
+If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its parameters, e.g. `count_distinct(foo,bar)`.
 
-### Supported GROUPBY Reducers
+### Supported GROUPBY reducers
 
 - #### COUNT
 
@@ -327,9 +318,7 @@ If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer wor
 
     Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.
 
-
-
-## APPLY Expressions
+## APPLY expressions
 
 `APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. 
 
@@ -339,19 +328,19 @@ If an expression or a function is applied to values that do not match the expect
 
 APPLY steps must have an explicit alias determined by the `AS` parameter.
 
-#### Literals inside expressions
+### Literals inside expressions
 
 * Numbers are expressed as integers or floating point numbers, i.e. `2`, `3.141`, `-34`, etc. `inf` and `-inf` are acceptable as well.
 * Strings are quoted with either single or double quotes. Single quotes are acceptable inside strings quoted with double quotes and vice versa. Punctuation marks can be escaped with backslashes. e.g. `"foo's bar"` ,`'foo\'s bar'`, `"foo \"bar\""` .
 * Any literal or sub expression can be wrapped in parentheses to resolve ambiguities of operator precedence.
 
-##### Arithmetic Operations
+### Arithmetic operations
 
 For numeric expressions and properties, we support addition (`+`), subtraction (`-`), multiplication (`*`), division (`/`), modulo (`%`) and power (`^`). We currently do not support bitwise logical operators.  
 
 Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.
 
-## List Of Numeric APPLY Functions
+### List of numeric APPLY functions
 
 | Function | Description                                                  | Example            |
 | -------- | ------------------------------------------------------------ | ------------------ |
@@ -363,7 +352,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | exp(x)   | Return the exponent of x, i.e. `e^x`                         | `exp(@foo)`        |
 | sqrt(x)  | Return the square root of x                                  | `sqrt(@foo)`       |
 
-## List Of String Functions
+### List of string APPLY functions
 
 | Function                         |                                                              |                                                          |
 | -------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
@@ -374,10 +363,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
 | split(s, [sep=","], [strip=" "]) | Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array. | split("foo,bar")                                         |
 
-
-## List Of Date/Time Functions
-
-​	
+### List of date/time APPLY functions
 
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
@@ -411,7 +397,6 @@ FT.AGGREGATE
 ```
 
 Several filter steps can be added, although at the same stage in the pipeline, it is more efficient to combine several predicates into a single filter step.
-
 
 ## Cursor API
 
@@ -460,9 +445,9 @@ while (1) {
 
 Note that even if the cursor is 0, a partial result may still be returned.
 
-### Cursor Settings
+### Cursor settings
 
-#### Read Size
+#### Read size
 
 You can control how many rows are read per each cursor fetch by using the
 `COUNT` parameter. This parameter can be specified both in `FT.AGGREGATE`
@@ -503,8 +488,7 @@ FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
 
 Will set the limit for 10 seconds.
 
-
-### Other Cursor commands
+### Other cursor commands
 
 Cursors can be explicity deleted using the `CURSOR DEL` command, e.g.
 

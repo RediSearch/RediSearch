@@ -2,7 +2,7 @@
 
 RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. 
 
-While it is possible and simple to use the raw redis commands API, in most cases it's easier to just use a client library abstracting it. 
+While it is possible and simple to use the raw Redis commands API, in most cases it's easier to just use a client library abstracting it. 
 
 ## Currently available Libraries
 

@@ -22,7 +22,7 @@ Redisearch implements a search engine on top of Redis, but unlike other Redis
 search libraries, it does not use internal data structures like sorted sets.
 
 This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
-that are not possible or efficient with traditional redis search approache
+that are not possible or efficient with traditional Redis search approaches.
 
 ## Client Libraries
 
