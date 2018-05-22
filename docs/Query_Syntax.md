@@ -6,7 +6,7 @@ We support a simple syntax for complex queries with the following rules:
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
-* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
+* Prefix matches (all terms starting with a prefix) are expressed with a `*`. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
@@ -111,9 +111,9 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
 
-  * Prefixes are limited to 3 letters or more.
+  * Prefixes are limited to 2 letters or more. You can change this number by using the `MINPREFIX` setting on the module command line.
 
-  * Expansion is limited to 200 terms or less.
+  * Expansion is limited to 200 terms or less. You can change this number by using the `MAXEXPANSIONS` setting on the module command line.
 
 3. Prefix matching fully supports unicode and is case insensitive.
 

@@ -163,7 +163,7 @@ The query is combined as a text string in the `FT.SEARCH` request and is parsed 
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. 
-* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 3-letter or longer prefix.
+* Prefix matches (all terms starting with a prefix) are expressed with a `*` following a 2-letter or longer prefix.
 * Selection of specific fields using the syntax `@field:hello world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
