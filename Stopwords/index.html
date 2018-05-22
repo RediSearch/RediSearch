@@ -358,29 +358,29 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#default"_"stop-word"_"list" title="Default Stop-Word List" class="md-nav__link">
-    Default Stop-Word List
+  <a href="#default"_"stop-word"_"list" title="Default stop-word list" class="md-nav__link">
+    Default stop-word list
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
-    Overriding The Default Stop-Words
+  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding the default stop-words" class="md-nav__link">
+    Overriding the default stop-words
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#disabling"_"stop-words"_"completely" title="Disabling Stop-Words Completely" class="md-nav__link">
-    Disabling Stop-Words Completely
+  <a href="#disabling"_"stop-words"_"completely" title="Disabling stop-words completely" class="md-nav__link">
+    Disabling stop-words completely
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
-    Avoiding Stop-Word Detection In Search Queries
+  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding stop-word detection in search queries" class="md-nav__link">
+    Avoiding stop-word detection in search queries
   </a>
   
 </li>
@@ -698,29 +698,29 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#default"_"stop-word"_"list" title="Default Stop-Word List" class="md-nav__link">
-    Default Stop-Word List
+  <a href="#default"_"stop-word"_"list" title="Default stop-word list" class="md-nav__link">
+    Default stop-word list
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding The Default Stop-Words" class="md-nav__link">
-    Overriding The Default Stop-Words
+  <a href="#overriding"_"the"_"default"_"stop-words" title="Overriding the default stop-words" class="md-nav__link">
+    Overriding the default stop-words
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#disabling"_"stop-words"_"completely" title="Disabling Stop-Words Completely" class="md-nav__link">
-    Disabling Stop-Words Completely
+  <a href="#disabling"_"stop-words"_"completely" title="Disabling stop-words completely" class="md-nav__link">
+    Disabling stop-words completely
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding Stop-Word Detection In Search Queries" class="md-nav__link">
-    Avoiding Stop-Word Detection In Search Queries
+  <a href="#avoiding"_"stop-word"_"detection"_"in"_"search"_"queries" title="Avoiding stop-word detection in search queries" class="md-nav__link">
+    Avoiding stop-word detection in search queries
   </a>
   
 </li>
@@ -747,8 +747,8 @@
                 <h1 id="stop-words">Stop-Words<a class="headerlink" href="#stop-words" title="Permanent link">&para;</a></h1>
 <p>RediSearch has a pre-defined default list of <a href="https://en.wikipedia.org/wiki/Stop_words">stop-words</a>. These are words that are usually so common that they do not add much information to search, but take up a lot of space and CPU time in the index. </p>
 <p>When indexing, stop-words are discarded and not indexed. When searching, they are also ignored and treated as if they were not sent to the query processor. This is done when parsing the query. </p>
-<p>At the moment, the default stop-word list applies to all full-text indexes in all languages, and can be overridden manually at index creation time. </p>
-<h2 id="default&quot;_&quot;stop-word&quot;_&quot;list">Default Stop-Word List<a class="headerlink" href="#default&quot;_&quot;stop-word&quot;_&quot;list" title="Permanent link">&para;</a></h2>
+<p>At the moment, the default stop-word list applies to all full-text indexes in all languages and can be overridden manually at index creation time. </p>
+<h2 id="default&quot;_&quot;stop-word&quot;_&quot;list">Default stop-word list<a class="headerlink" href="#default&quot;_&quot;stop-word&quot;_&quot;list" title="Permanent link">&para;</a></h2>
 <p>The following words are treated as stop-words by default: </p>
 <div class="codehilite"><pre><span></span> a,    is,    the,   an,   and,  are, as,  at,   be,   but,  by,   for,
  if,   in,    into,  it,   no,   not, of,  on,   or,   such, that, their,
@@ -756,17 +756,17 @@
 </pre></div>
 
 
-<h2 id="overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words">Overriding The Default Stop-Words<a class="headerlink" href="#overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words" title="Permanent link">&para;</a></h2>
+<h2 id="overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words">Overriding the default stop-words<a class="headerlink" href="#overriding&quot;_&quot;the&quot;_&quot;default&quot;_&quot;stop-words" title="Permanent link">&para;</a></h2>
 <p>Stop-words for an index can be defined (or disabled completely) on index creation using the <code>STOPWORDS</code> argument in the <a href="../Commands/#ftcreate">FT.CREATE</a> command.</p>
 <p>The format is <code>STOPWORDS {number} {stopword} ...</code> where number is the number of stopwords given. The <code>STOPWORDS</code> argument must come before the <code>SCHEMA</code> argument. For example:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE myIndex STOPWORDS 3 foo bar baz SCHEMA title TEXT body TEXT 
 </pre></div>
 
 
-<h2 id="disabling&quot;_&quot;stop-words&quot;_&quot;completely">Disabling Stop-Words Completely<a class="headerlink" href="#disabling&quot;_&quot;stop-words&quot;_&quot;completely" title="Permanent link">&para;</a></h2>
+<h2 id="disabling&quot;_&quot;stop-words&quot;_&quot;completely">Disabling stop-words completely<a class="headerlink" href="#disabling&quot;_&quot;stop-words&quot;_&quot;completely" title="Permanent link">&para;</a></h2>
 <p>Disabling stopwords completely can be done by passing <code>STOPWORDS 0</code> on <code>FT.CREATE</code>.</p>
-<h2 id="avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries">Avoiding Stop-Word Detection In Search Queries<a class="headerlink" href="#avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
-<p>In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time, and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries. </p>
+<h2 id="avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries">Avoiding stop-word detection in search queries<a class="headerlink" href="#avoiding&quot;_&quot;stop-word&quot;_&quot;detection&quot;_&quot;in&quot;_&quot;search&quot;_&quot;queries" title="Permanent link">&para;</a></h2>
+<p>In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries. </p>
                 
                   
                 

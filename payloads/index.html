@@ -478,15 +478,15 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents:" class="md-nav__link">
-    Adding payloads for documents:
+  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents" class="md-nav__link">
+    Adding payloads for documents
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating Payloads in Query Time" class="md-nav__link">
-    Evaluating Payloads in Query Time
+  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating payloads in query time" class="md-nav__link">
+    Evaluating payloads in query time
   </a>
   
 </li>
@@ -691,15 +691,15 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents:" class="md-nav__link">
-    Adding payloads for documents:
+  <a href="#adding"_"payloads"_"for"_"documents" title="Adding payloads for documents" class="md-nav__link">
+    Adding payloads for documents
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating Payloads in Query Time" class="md-nav__link">
-    Evaluating Payloads in Query Time
+  <a href="#evaluating"_"payloads"_"in"_"query"_"time" title="Evaluating payloads in query time" class="md-nav__link">
+    Evaluating payloads in query time
   </a>
   
 </li>
@@ -731,32 +731,26 @@
                 
                 
                 <h1 id="document&quot;_&quot;payloads">Document Payloads<a class="headerlink" href="#document&quot;_&quot;payloads" title="Permanent link">&para;</a></h1>
-<p>Usually, redisearch stores documents as HASH keys. But if you want to access some data for 
-aggregation or scoring functions, we might want to store that data as an inline payload. 
-This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
-<p>Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score,
-We can add custom payloads that can be evaluated in run-time.</p>
-<p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose 
-of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, 
-if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
-<h2 id="adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents">Adding payloads for documents:<a class="headerlink" href="#adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents" title="Permanent link">&para;</a></h2>
-<p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload.
-This is done with the PAYLOAD keyword:</p>
+<p>Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.</p>
+<p>Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.</p>
+<p>Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.</p>
+<h2 id="adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents">Adding payloads for documents<a class="headerlink" href="#adding&quot;_&quot;payloads&quot;_&quot;for&quot;_&quot;documents" title="Permanent link">&para;</a></h2>
+<p>When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload. This is done with the <code>PAYLOAD</code> keyword:</p>
 <div class="codehilite"><pre><span></span>FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
 </pre></div>
 
 
-<h2 id="evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time">Evaluating Payloads in Query Time<a class="headerlink" href="#evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time" title="Permanent link">&para;</a></h2>
-<p>When imlplementing a scoring function, the signature of the function exposed is:</p>
+<h2 id="evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time">Evaluating payloads in query time<a class="headerlink" href="#evaluating&quot;_&quot;payloads&quot;_&quot;in&quot;_&quot;query&quot;_&quot;time" title="Permanent link">&para;</a></h2>
+<p>When implementing a scoring function, the signature of the function exposed is:</p>
 <div class="codehilite"><pre><span></span><span class="kt">double</span> <span class="p">(</span><span class="o">*</span><span class="n">ScoringFunction</span><span class="p">)(</span><span class="n">DocumentMetadata</span> <span class="o">*</span><span class="n">dmd</span><span class="p">,</span> <span class="n">IndexResult</span> <span class="o">*</span><span class="n">h</span><span class="p">);</span>
 </pre></div>
 
 
-<blockquote>
-<p>NOTE: currently scoring functions cannot be dynamically added, and forking the engine and replacing them is required.</p>
-</blockquote>
-<p>DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with
-arbitrary length:</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Currently, scoring functions cannot be dynamically added, and forking the engine and replacing them is required.</p>
+</div>
+<p>DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with arbitrary length:</p>
 <div class="codehilite"><pre><span></span><span class="k">typedef</span> <span class="k">struct</span>  <span class="p">{</span>
     <span class="kt">char</span> <span class="o">*</span><span class="n">data</span><span class="p">,</span>
     <span class="kt">uint32_t</span> <span class="n">len</span><span class="p">;</span>
@@ -764,8 +758,7 @@ arbitrary length:</p>
 </pre></div>
 
 
-<p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it.
-It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
+<p>If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it. It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.</p>
 <h2 id="retrieving&quot;_&quot;payloads&quot;_&quot;from&quot;_&quot;documents">Retrieving payloads from documents<a class="headerlink" href="#retrieving&quot;_&quot;payloads&quot;_&quot;from&quot;_&quot;documents" title="Permanent link">&para;</a></h2>
 <p>When searching, it is possible to request the document payloads from the engine. </p>
 <p>This is done by adding the keyword <code>WITHPAYLOADS</code> to <code>FT.SEARCH</code>. </p>

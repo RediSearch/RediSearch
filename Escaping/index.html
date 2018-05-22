@@ -382,8 +382,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The Rules of Text Field Tokenization" class="md-nav__link">
-    The Rules of Text Field Tokenization
+  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The rules of text field tokenization" class="md-nav__link">
+    The rules of text field tokenization
   </a>
   
 </li>
@@ -677,8 +677,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The Rules of Text Field Tokenization" class="md-nav__link">
-    The Rules of Text Field Tokenization
+  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The rules of text field tokenization" class="md-nav__link">
+    The rules of text field tokenization
   </a>
   
 </li>
@@ -703,9 +703,9 @@
                 
                 
                 <h1 id="controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping">Controlling Text Tokenization and Escaping<a class="headerlink" href="#controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h1>
-<p>At the moment, RediSearch uses a very simple tokenizer for documents, and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. </p>
+<p>At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. </p>
 <p>Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the <a href="../Tags">Tag Fields</a> documentation. </p>
-<h2 id="the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization">The Rules of Text Field Tokenization<a class="headerlink" href="#the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization" title="Permanent link">&para;</a></h2>
+<h2 id="the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization">The rules of text field tokenization<a class="headerlink" href="#the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization" title="Permanent link">&para;</a></h2>
 <ol>
 <li>
 <p>All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of <code>,.&lt;&gt;{}[]"':;!@#$%^&amp;*()-+=~</code> will break the text into terms.  So the text <code>foo-bar.baz...bag</code> will be tokenized into <code>[foo, bar, baz, bag]</code></p>
@@ -720,7 +720,7 @@
 <p>Repeating spaces or punctuation marks are stripped. </p>
 </li>
 <li>
-<p>In latin characters, everything gets converted to lowercase. </p>
+<p>In Latin characters, everything gets converted to lowercase. </p>
 </li>
 </ol>
                 

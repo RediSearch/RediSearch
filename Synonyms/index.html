@@ -473,15 +473,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the"_"synonym"_"search"_"technique" title="The Synonym Search Technique" class="md-nav__link">
-    The Synonym Search Technique
+  <a href="#the"_"synonym"_"search"_"technique" title="The synonym search technique" class="md-nav__link">
+    The synonym search technique
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#handling"_"concurrency" title="Handling Concurrency" class="md-nav__link">
-    Handling Concurrency
+  <a href="#handling"_"concurrency" title="Handling concurrency" class="md-nav__link">
+    Handling concurrency
   </a>
   
 </li>
@@ -698,15 +698,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the"_"synonym"_"search"_"technique" title="The Synonym Search Technique" class="md-nav__link">
-    The Synonym Search Technique
+  <a href="#the"_"synonym"_"search"_"technique" title="The synonym search technique" class="md-nav__link">
+    The synonym search technique
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#handling"_"concurrency" title="Handling Concurrency" class="md-nav__link">
-    Handling Concurrency
+  <a href="#handling"_"concurrency" title="Handling concurrency" class="md-nav__link">
+    Handling concurrency
   </a>
   
 </li>
@@ -733,21 +733,20 @@
                 <h1 id="synonyms&quot;_&quot;support">Synonyms Support<a class="headerlink" href="#synonyms&quot;_&quot;support" title="Permanent link">&para;</a></h1>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>RediSearch supports synonyms - that is searching for synonyms words defined by the synonym data structure.</p>
-<p>The synonym data structure is a set of groups, each group contains synonym terms.
-for example: the following synonym data structure
-contains three groups, each group contains three synonym terms:</p>
+<p>The synonym data structure is a set of groups, each group contains synonym terms. For example, the following synonym data structure contains three groups, each group contains three synonym terms:</p>
 <div class="codehilite"><pre><span></span>{boy, child, baby}
 {girl, child, baby}
 {man, person, adult}
 </pre></div>
 
 
-<p>When those three groups are located inside the synonym data structure, it is possible to search for 'child' and receive documents
-contains 'boy', 'girl', 'child' and 'baby'.</p>
-<h2 id="the&quot;_&quot;synonym&quot;_&quot;search&quot;_&quot;technique">The Synonym Search Technique<a class="headerlink" href="#the&quot;_&quot;synonym&quot;_&quot;search&quot;_&quot;technique" title="Permanent link">&para;</a></h2>
-<p>We use a simple HashMap to map between the terms and the group ids. On indexing we check if the current term appears in the synonym map, if it does we take all the group ids the term is belong to. For each group id we add another record to the inverted index called "\~\&lt;id>" which contains the same information as the term itself. On searching we check if the searched term appears in the synonym map, if it does we take all the group ids the term is belong to. For each group id we search for "\~\&lt;id>" and return the combined results. This technique will make sure we return all the synonyms of a given term.</p>
-<h2 id="handling&quot;_&quot;concurrency">Handling Concurrency<a class="headerlink" href="#handling&quot;_&quot;concurrency" title="Permanent link">&para;</a></h2>
-<p>Since the indexing is performed in another thread, the synonym map might change during the indexing which might cause data corruption or crashes during indexing/searches. To solve this issue we are creating a read only copy for indexing. The read only is maintained using ref count. As long as the synonym map did not change, the original synonym map hold a reference to its read only copy so it will not be free. Once the data inside the synonym map has changed, the synonym map drop the reference to its read only copy. This insures that when all the indexers will be done using the read only copy, then the read only copy will automatically freed. Also it insures that the next time an indexer will ask for a read only copy, the synonym map will create a new copy (contains the new data) and returns it.</p>
+<p>When these three groups are located inside the synonym data structure, it is possible to search for 'child' and receive documents contains 'boy', 'girl', 'child' and 'baby'.</p>
+<h2 id="the&quot;_&quot;synonym&quot;_&quot;search&quot;_&quot;technique">The synonym search technique<a class="headerlink" href="#the&quot;_&quot;synonym&quot;_&quot;search&quot;_&quot;technique" title="Permanent link">&para;</a></h2>
+<p>We use a simple HashMap to map between the terms and the group ids. During building the index, we check if the current term appears in the synonym map, and if it does we take all the group ids that the term belongs to.</p>
+<p>For each group id, we add another record to the inverted index called "\~\&lt;id>" that contains the same information as the term itself. When performing a search, we check if the searched term appears in the synonym map, and if it does we take all the group ids the term is belong to. For each group id, we search for "\~\&lt;id>" and return the combined results. This technique ensures that we return all the synonyms of a given term.</p>
+<h2 id="handling&quot;_&quot;concurrency">Handling concurrency<a class="headerlink" href="#handling&quot;_&quot;concurrency" title="Permanent link">&para;</a></h2>
+<p>Since the indexing is performed in a separate thread, the synonyms map may change during the indexing, which in turn may cause data corruption or crashes during indexing/searches. To solve this issue, we create a read-only copy for indexing purposes. The read-only copy is maintained using ref count.</p>
+<p>As long as the synonyms map does not change, the original synonym map holds a reference to its read-only copy so it will not be freed. Once the data inside the synonyms map has changed, the synonyms map decreses the reference count of its read only copy. This ensures that when all the indexers are done using the read only copy, then the read only copy will automatically freed. Also it ensures that the next time an indexer asks for a read-only copy, the synonyms map will create a new copy (contains the new data) and return it.</p>
                 
                   
                 

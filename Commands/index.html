@@ -2597,8 +2597,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 <li>
 <p><strong>PARTIAL</strong> (only applicable with REPLACE): If set, you do not have to specify all fields for
   reindexing. Fields not given to the command will be loaded from the current version of the
-  document. Also, if only non indexable fields, score or payload are set - we do not do a full
-  reindexing of the document, and this will be a lot faster.</p>
+  document. Also, if only non-indexable fields, score or payload are set - we do not do a full
+  re-indexing of the document, and this will be a lot faster.</p>
 </li>
 <li>
 <p><strong>FIELDS</strong>: Following the FIELDS specifier, we are looking for pairs of  <code>{field} {value}</code> to be
@@ -2632,8 +2632,8 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 </blockquote>
 </li>
 </ul>
-<p>If indexing a chinese language document, you must set the language to <code>chinese</code>
-  in order for the chinese characters to be tokenized properly.</p>
+<p>If indexing a Chinese language document, you must set the language to <code>chinese</code>
+  in order for Chinese characters to be tokenized properly.</p>
 <h3 id="adding&quot;_&quot;chinese&quot;_&quot;documents">Adding Chinese Documents<a class="headerlink" href="#adding&quot;_&quot;chinese&quot;_&quot;documents" title="Permanent link">&para;</a></h3>
 <p>When adding Chinese-language documents, <code>LANGUAGE chinese</code> should be set in
 order for the indexer to properly tokenize the terms. If the default language
@@ -2821,7 +2821,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <li><strong>query</strong>: the text query to search. If it's more than a single word, put it in quotes.
   Refer to <a href="../Query_Syntax">query syntax</a> for more details. </li>
 <li><strong>NOCONTENT</strong>: If it appears after the query, we only return the document ids and not 
-  the content. This is useful if redisearch is only an index on an external document collection</li>
+  the content. This is useful if RediSearch is only an index on an external document collection</li>
 <li><strong>RETURN {num} {field} ...</strong>: Use this keyword to limit which fields from the document are returned.
   <code>num</code> is the number of fields following the keyword. If <code>num</code> is 0, it acts like <code>NOCONTENT</code>.</li>
 <li><strong>SUMMARIZE ...</strong>: Use this option to return only the sections of the field which contain the 
@@ -2832,11 +2832,11 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <li><strong>LIMIT first num</strong>: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10</li>
 <li><strong>INFIELDS {num} {field} ...</strong>: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or url. num is the number of specified field arguments</li>
+  fields of the document, like title or URL. num is the number of specified field arguments</li>
 <li><strong>INKEYS {num} {field} ...</strong>: If set, we limit the result to a given set of keys specified in the 
   list. 
   the first argument must be the length of the list, and greater than zero.
-  Non existent keys are ignored - unless all the keys are non existent.</li>
+  Non-existent keys are ignored - unless all the keys are non-existent.</li>
 <li><strong>SLOP {slop}</strong>: If set, we allow a maximum of N intervening number of unmatched offsets between 
   phrase terms. (i.e the slop for exact phrases is 0)</li>
 <li><strong>INORDER</strong>: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
@@ -2933,7 +2933,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <li>
 <p><strong>APPLY {expr} AS {name}</strong>: Apply a 1-to-1 transformation on one or more properties, and either 
   store the result as a new property down the pipeline, or replace any property using this 
-  transforamtion. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric 
+  transformation. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric 
   properties, or functions that can be applied on properties depending on their types (see below), or 
   any combination thereof. For example: <code>APPLY "sqrt(@foo)/log(@bar) + 5" AS baz</code> will evaluate this 
   expression dynamically for each record in the pipeline and store the result as a new property called 
@@ -2942,9 +2942,9 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 </li>
 <li>
 <p><strong>LIMIT {offset} {num}</strong>. Limit the number of results to return just <code>num</code> results starting at index 
-  <code>offset</code> (zero based). AS mentioned above, it is much more efficient to use <code>SORTBY … MAX</code> if you 
-  are interested in just limiting the optput of a sort operation.</p>
-<p>However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by <code>SORTBY MAX</code>. For example, getting results 50-100 of the top 100 results, is most efficiently expressed as <code>SORTBY 1 @foo MAX 100 LIMIT 50 50</code>. Removing the MAX from SORTBY will result in the pipeline sorting <em>all</em> the records and then paging over results 50-100. </p>
+  <code>offset</code> (zero-based). AS mentioned above, it is much more efficient to use <code>SORTBY … MAX</code> if you 
+  are interested in just limiting the output of a sort operation.</p>
+<p>However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by <code>SORTBY MAX</code>. For example, getting results 50-100 of the top 100 results is most efficiently expressed as <code>SORTBY 1 @foo MAX 100 LIMIT 50 50</code>. Removing the MAX from SORTBY will result in the pipeline sorting <em>all</em> the records and then paging over results 50-100. </p>
 </li>
 <li>
 <p><strong>FILTER {expr}</strong>. Filter the results using predicate expressions relating to values in each result. 
@@ -2952,9 +2952,9 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 </li>
 </ul>
 <h3 id="complexity_6">Complexity<a class="headerlink" href="#complexity_6" title="Permanent link">&para;</a></h3>
-<p>Non Deterministic. Depends on the query and aggregations performed, but usually it is linear to the number of results returned. </p>
+<p>Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. </p>
 <h3 id="returns_6">Returns<a class="headerlink" href="#returns_6" title="Permanent link">&para;</a></h3>
-<p>Array Response. Each row is an array, and represents a single aggregate result.</p>
+<p>Array Response. Each row is an array and represents a single aggregate result.</p>
 <h3 id="example&quot;_&quot;output">Example Output<a class="headerlink" href="#example&quot;_&quot;output" title="Permanent link">&para;</a></h3>
 <p>Here we are counting github events by user (actor), to produce the most active users:</p>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.AGGREGATE gh &quot;*&quot; GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
@@ -3056,7 +3056,7 @@ INTERSECT <span class="o">{</span>
 <p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
 <p>After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.</p>
 <div class="admonition warning">
-<p class="admonition-title">FT.DEL does not delete the actual document By default!<p>Since RediSearch regards documents as separate entities to the index, and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. </p>
+<p class="admonition-title">FT.DEL does not delete the actual document By default!<p>Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. </p>
 <p>Specifying <strong>DD</strong> (Delete Document) after the document ID, will make RediSearch also delete the actual document <strong>if it is in the index</strong>.</p>
 <p>Alternatively, you can just send an extra <strong>DEL {doc_id}</strong> to redis and delete the document directly. You can run both of them in a MULTI transaction.</p>
 </p>
@@ -3080,7 +3080,7 @@ INTERSECT <span class="o">{</span>
 
 <h3 id="description_9">Description<a class="headerlink" href="#description_9" title="Permanent link">&para;</a></h3>
 <p>Returns the full contents of a document.</p>
-<p>Currently it is equivalent to HGETALL, but this is future proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
+<p>Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
 <p>If the document does not exist or is not a HASH object, we reutrn a NULL reply</p>
 <h3 id="parameters_9">Parameters<a class="headerlink" href="#parameters_9" title="Permanent link">&para;</a></h3>
 <ul>
@@ -3099,10 +3099,10 @@ INTERSECT <span class="o">{</span>
 <h3 id="description_10">Description<a class="headerlink" href="#description_10" title="Permanent link">&para;</a></h3>
 <p>Returns the full contents of multiple documents. 
 Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future proof, and will allow us to change the internal representation of documents inside redis in the future. 
+This command is also future-proof and will allow us to change the internal representation of documents inside redis in the future. 
 In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
 <p>We return an array with exactly the same number of elements as the number of keys sent to the command. </p>
-<p>Each element in turn is an array of key-value pairs representing the document. </p>
+<p>Each element, in turn, is an array of key-value pairs representing the document. </p>
 <p>If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.</p>
 <h3 id="parameters_10">Parameters<a class="headerlink" href="#parameters_10" title="Permanent link">&para;</a></h3>
 <ul>
@@ -3110,7 +3110,7 @@ In addition, it allows simpler implementation of fetching documents in clustered
 <li><strong>documentIds</strong>: The ids of the requested documents as inserted to the index</li>
 </ul>
 <h3 id="returns_10">Returns<a class="headerlink" href="#returns_10" title="Permanent link">&para;</a></h3>
-<p>Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document, or Null if it was not found.</p>
+<p>Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.</p>
 <hr />
 <h2 id="ftdrop">FT.DROP<a class="headerlink" href="#ftdrop" title="Permanent link">&para;</a></h2>
 <h3 id="format_11">Format<a class="headerlink" href="#format_11" title="Permanent link">&para;</a></h3>
@@ -3120,7 +3120,7 @@ In addition, it allows simpler implementation of fetching documents in clustered
 
 <h3 id="description_11">Description<a class="headerlink" href="#description_11" title="Permanent link">&para;</a></h3>
 <p>Deletes all the keys associated with the index. </p>
-<p>By default DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.</p>
+<p>By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.</p>
 <p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.</p>
 <h3 id="parameters_11">Parameters<a class="headerlink" href="#parameters_11" title="Permanent link">&para;</a></h3>
@@ -3240,7 +3240,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_17">Description<a class="headerlink" href="#description_17" title="Permanent link">&para;</a></h3>
-<p>This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command, and remove it if they haven't already. </p>
+<p>This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already. </p>
 <hr />
 <h2 id="ftsynadd">FT.SYNADD<a class="headerlink" href="#ftsynadd" title="Permanent link">&para;</a></h2>
 <h3 id="format_18">Format<a class="headerlink" href="#format_18" title="Permanent link">&para;</a></h3>

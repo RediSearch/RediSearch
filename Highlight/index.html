@@ -418,8 +418,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#command"_"syntax" title="Command Syntax" class="md-nav__link">
-    Command Syntax
+  <a href="#command"_"syntax" title="Command syntax" class="md-nav__link">
+    Command syntax
   </a>
   
     <nav class="md-nav">
@@ -437,12 +437,18 @@
     Highlighting
   </a>
   
-</li>
+    <nav class="md-nav">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#field"_"selection" title="Field Selection" class="md-nav__link">
-    Field Selection
+  <a href="#field"_"selection" title="Field selection" class="md-nav__link">
+    Field selection
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -704,8 +710,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#command"_"syntax" title="Command Syntax" class="md-nav__link">
-    Command Syntax
+  <a href="#command"_"syntax" title="Command syntax" class="md-nav__link">
+    Command syntax
   </a>
   
     <nav class="md-nav">
@@ -723,12 +729,18 @@
     Highlighting
   </a>
   
-</li>
+    <nav class="md-nav">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#field"_"selection" title="Field Selection" class="md-nav__link">
-    Field Selection
+  <a href="#field"_"selection" title="Field selection" class="md-nav__link">
+    Field selection
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -757,31 +769,24 @@
                 
                 
                 <h1 id="highlighting&quot;_&quot;api">Highlighting API<a class="headerlink" href="#highlighting&quot;_&quot;api" title="Permanent link">&para;</a></h1>
-<p>The highlighting API allows you to have only the  relevant portions of document matching a search query returned as a result. 
-This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.</p>
-<p>RediSearch implements high performance highlighting an summarization algorithms, with the following API: </p>
-<h3 id="command&quot;_&quot;syntax">Command Syntax<a class="headerlink" href="#command&quot;_&quot;syntax" title="Permanent link">&para;</a></h3>
+<p>The highlighting API allows you to have only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.</p>
+<p>RediSearch implements high performance highlighting and summarization algorithms, with the following API: </p>
+<h2 id="command&quot;_&quot;syntax">Command syntax<a class="headerlink" href="#command&quot;_&quot;syntax" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
     HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 </pre></div>
 
 
-<p>There are two sub-commands commands used for highlighting. One is <code>HIGHLIGHT</code>
-which surrounds matching text with an open and/or close tag; and the other is
-<code>SUMMARIZE</code> which splits a field into contextual fragments surrounding the
-found terms. It is possible to summarize a field, highlight a field, or perform
-both actions in the same query.</p>
-<h4 id="summarization">Summarization<a class="headerlink" href="#summarization" title="Permanent link">&para;</a></h4>
+<p>There are two sub-commands commands used for highlighting. One is <code>HIGHLIGHT</code> which surrounds matching text with an open and/or close tag, and the other is <code>SUMMARIZE</code> which splits a field into contextual fragments surrounding the found terms. It is possible to summarize a field, highlight a field, or perform both actions in the same query.</p>
+<h3 id="summarization">Summarization<a class="headerlink" href="#summarization" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepStr}]
 </pre></div>
 
 
-<p>Summarization  will fragment the text into smaller sized snippets; each snippet will contain the found term(s) and some additional
-surrounding context.</p>
-<p>RediSearch can perform summarization using the <code>SUMMARIZE</code> keyword. If no additional arguments are passed, 
-all <em>returned fields</em> are summarized using built-in defaults.</p>
+<p>Summarization  will fragment the text into smaller sized snippets; each snippet will contain the found term(s) and some additional surrounding context.</p>
+<p>RediSearch can perform summarization using the <code>SUMMARIZE</code> keyword. If no additional arguments are passed, all <em>returned fields</em> are summarized using built-in defaults.</p>
 <p>The <code>SUMMARIZE</code> keyword accepts the following arguments:</p>
 <ul>
 <li>
@@ -807,16 +812,13 @@ all <em>returned fields</em> are summarized using built-in defaults.</p>
     in the text)</p>
 </li>
 </ul>
-<h4 id="highlighting">Highlighting<a class="headerlink" href="#highlighting" title="Permanent link">&para;</a></h4>
+<h3 id="highlighting">Highlighting<a class="headerlink" href="#highlighting" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.SEARCH ... HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 </pre></div>
 
 
-<p>Highlighting will highlight the found term (and its variants) with a user-defined
-tag. This may be used to display the matched text in a different typeface using
-a markup language, or to otherwise make the text appear differently.</p>
-<p>RediSearch can perform highlighting using the <code>HIGHLIGHT</code> keyword. If no
-additional arguments are passed, all <em>returned fields</em> are highlighted using built-in defaults.</p>
+<p>Highlighting will highlight the found term (and its variants) with a user-defined tag. This may be used to display the matched text in a different typeface using a markup language, or to otherwise make the text appear differently.</p>
+<p>RediSearch can perform highlighting using the <code>HIGHLIGHT</code> keyword. If no additional arguments are passed, all <em>returned fields</em> are highlighted using built-in defaults.</p>
 <p>The <code>HIGHLIGHT</code> keyword accepts the following arguments:</p>
 <ul>
 <li>
@@ -831,18 +833,11 @@ additional arguments are passed, all <em>returned fields</em> are highlighted us
     specified, a built-in tag value is appended and prepended.</p>
 </li>
 </ul>
-<h4 id="field&quot;_&quot;selection">Field Selection<a class="headerlink" href="#field&quot;_&quot;selection" title="Permanent link">&para;</a></h4>
-<p>If no specific fields are passed to the <code>RETURN</code>, <code>SUMMARIZE</code>, or <code>HIGHLIGHT</code>
-keywords, then all of a document's fields are returned. However, if any of these
-keywords contain a <code>FIELD</code> directive, then the <code>SEARCH</code> command will only retun
-the sum total of all fields enumerated in any of those directives.</p>
-<p>The <code>RETURN</code> keyword is treated specially, as it overrides any fields specified
-in <code>SUMMARIZE</code> or <code>HIGHLIGHT</code>.</p>
-<p>In the command <code>RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>,
-the fields <code>foo</code> is returned as-is, while <code>bar</code> and <code>baz</code> are not returned, because
-<code>RETURN</code> was specified, but did not include those fields.</p>
-<p>In the command <code>SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>, <code>bar</code> is returned
-summarized and <code>baz</code> is returned highlighted.</p>
+<h4 id="field&quot;_&quot;selection">Field selection<a class="headerlink" href="#field&quot;_&quot;selection" title="Permanent link">&para;</a></h4>
+<p>If no specific fields are passed to the <code>RETURN</code>, <code>SUMMARIZE</code>, or <code>HIGHLIGHT</code> keywords, then all of a document's fields are returned. However, if any of these keywords contain a <code>FIELD</code> directive, then the <code>SEARCH</code> command will only return the sum total of all fields enumerated in any of those directives.</p>
+<p>The <code>RETURN</code> keyword is treated specially, as it overrides any fields specified in <code>SUMMARIZE</code> or <code>HIGHLIGHT</code>.</p>
+<p>In the command <code>RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>, the fields <code>foo</code> is returned as-is, while <code>bar</code> and <code>baz</code> are not returned, because <code>RETURN</code> was specified, but did not include those fields.</p>
+<p>In the command <code>SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>, <code>bar</code> is returned summarized and <code>baz</code> is returned highlighted.</p>
                 
                   
                 
