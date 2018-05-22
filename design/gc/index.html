@@ -776,7 +776,7 @@
 <li>Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.</li>
 <li>This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.</li>
 <li>Thus all inverted index entries belonging to this document id are just garbage. </li>
-<li>We do not want to go and explicitly delete them when deleting a document because it will make this operation very long an depending on the length of the document.</li>
+<li>We do not want to go and explicitly delete them when deleting a document because it will make this operation very long and depending on the length of the document.</li>
 <li>On top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.</li>
 </ul>
 <p>All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. </p>
@@ -834,7 +834,7 @@
 <p>To solve 2 is simpler: 
 <em> The GC will of course operate only while the GIL is locked.
 </em> The GC will never yield execution while in the middle of a block.
-<em> The GC will check whether the key has been delted while it slept.
+<em> The GC will check whether the key has been deleted while it slept.
 </em> The GC will get a new pointer to the next block on each read, assuring the pointer is safe.</p>
 <h2 id="4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection" title="Permanent link">&para;</a></h2>
 <p>While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. 

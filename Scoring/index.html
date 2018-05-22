@@ -775,7 +775,7 @@
                 <h1 id="scoring&quot;_&quot;in&quot;_&quot;redisearch">Scoring In RediSearch<a class="headerlink" href="#scoring&quot;_&quot;in&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
 <p>RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use <a href="../Sorting/">sortable fields</a>. Scoring functions are specified by adding the <code>SCORER {scorer_name}</code> argument to a search query.</p>
 <p>If you prefer a custom scoring function, it is possible to add more functions using the <a href="../Extensions">Extension API</a>.</p>
-<p>These are the pre-bunldled scoring functions availabe in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.</p>
+<p>These are the pre-bundled scoring functions available in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a SCORER argument in FT.SEARCH.</p>
 <h2 id="tfidf&quot;_&quot;default">TFIDF (Default)<a class="headerlink" href="#tfidf&quot;_&quot;default" title="Permanent link">&para;</a></h2>
 <p>Basic <a href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF scoring</a> with a few extra features thrown inside:</p>
 <ol>
@@ -786,7 +786,7 @@
 <p>We multiply the total TF-IDF for the query term by the a priory document score given on <code>FT.ADD</code>.</p>
 </li>
 <li>
-<p>We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penlty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - <code>1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)</code>. </p>
+<p>We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penalty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - <code>1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)</code>.</p>
 </li>
 </ol>
 <p>So for N terms in a document D, <code>T1...Tn</code>, the resulting score could be described with this python function:</p>
@@ -823,14 +823,14 @@
 
 <h2 id="tfidfdocnorm">TFIDF.DOCNORM<a class="headerlink" href="#tfidfdocnorm" title="Permanent link">&para;</a></h2>
 <p>Identical to the default TFIDF scorer, with one important distinction:</p>
-<p>Term frequencies are normalized by the length of the document (in number of terms). The length is weighted, so that if a document contains two terms, one in a feild that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.</p>
+<p>Term frequencies are normalized by the length of the document (in number of terms). The length is weighted, so that if a document contains two terms, one in a field that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER TFIDF.DOCNORM
 </pre></div>
 
 
 <h2 id="bm25">BM25<a class="headerlink" href="#bm25" title="Permanent link">&para;</a></h2>
-<p>A vraiation on the basic TF-IDF scorer, see <a href="https://en.wikipedia.org/wiki/Okapi_BM25">this Wikipedia article for more info</a>.</p>
-<p>We also multiply the relevance score for each document by the a priory docment score, and apply a penalty based on slop as in TFIDF.</p>
+<p>A variation on the basic TF-IDF scorer, see <a href="https://en.wikipedia.org/wiki/Okapi_BM25">this Wikipedia article for more info</a>.</p>
+<p>We also multiply the relevance score for each document by the a priory document score, and apply a penalty based on slop as in TFIDF.</p>
 <div class="codehilite"><pre><span></span>FT.SEARCH myIndex &quot;foo&quot; SCORER BM25
 </pre></div>
 
@@ -849,14 +849,14 @@
 
 
 <h2 id="hamming">HAMMING<a class="headerlink" href="#hamming" title="Permanent link">&para;</a></h2>
-<p>Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the <strong>nearest</strong> neighbors, we inverse the hamming distance (<code>1/(1+d)</code>) so that a distance of 0 gives a perfect score of 1 and is the highest rank. </p>
+<p>Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the <strong>nearest</strong> neighbours, we inverse the hamming distance (<code>1/(1+d)</code>) so that a distance of 0 gives a perfect score of 1 and is the highest rank.</p>
 <p>This works only if:</p>
 <ol>
 <li>The document has a payload.</li>
 <li>The query has a payload.</li>
 <li>Both are <strong>exactly the same length</strong>.</li>
 </ol>
-<p>Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results. </p>
+<p>Payloads are binary safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results.</p>
 <p>Example:</p>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE idx SCHEMA foo TEXT
 OK

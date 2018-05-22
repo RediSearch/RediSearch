@@ -757,17 +757,17 @@
                 
                 
                 <h1 id="sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields">Sorting By Indexed Fields<a class="headerlink" href="#sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
-<p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name. </p>
+<p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name.</p>
 <h2 id="declaring&quot;_&quot;sortable&quot;_&quot;fields">Declaring Sortable Fields<a class="headerlink" href="#declaring&quot;_&quot;sortable&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
-<p>When creating the index with FT.CREATE, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the followig schema:</p>
+<p>When creating the index with FT.CREATE, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:</p>
 <div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
 </pre></div>
 
 
-<p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age. </p>
+<p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age.</p>
 <h3 id="note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields">Note on sortable TEXT fields<a class="headerlink" href="#note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields" title="Permanent link">&para;</a></h3>
 <p>In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.</p>
-<p>Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behavior. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
+<p>Also note that text fields get normalized and lowercased in a unicode-safe way when stored for sorting , and currently there is no way to change this behaviour. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
 <h2 id="specifying&quot;_&quot;sortby">Specifying SORTBY<a class="headerlink" href="#specifying&quot;_&quot;sortby" title="Permanent link">&para;</a></h2>
 <p>If an index includes sortable fields, you can add the <code>SORTBY</code> parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If <code>WITHSCORES</code> is specified along with <code>SORTBY</code>, the scores returned are simply the relative position of each result in the result set.</p>
 <p>The syntax for SORTBY is:</p>
@@ -777,7 +777,7 @@
 
 <ul>
 <li>
-<p>field_name must be a sortabl field defined in the schema.</p>
+<p>field_name must be a sortable field defined in the schema.</p>
 </li>
 <li>
 <p>ASC means the order will be ascending, DESC that it will be descending.</p>

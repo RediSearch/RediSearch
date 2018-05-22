@@ -1884,12 +1884,12 @@
 
 <span class="c1"># the result has the total number of results, and a list of documents</span>
 <span class="k">print</span> <span class="n">res</span><span class="o">.</span><span class="n">total</span> <span class="c1"># &quot;1&quot;</span>
-<span class="k">print</span> <span class="n">res</span><span class="o">.</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">title</span> 
+<span class="k">print</span> <span class="n">res</span><span class="o">.</span><span class="n">docs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">title</span>
 
 <span class="c1"># Searching with snippets</span>
 <span class="n">res</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;search engine&quot;</span><span class="p">,</span> <span class="n">snippet_sizes</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;body&#39;</span><span class="p">:</span> <span class="mi">50</span><span class="p">})</span>
 
-<span class="c1"># Searching with complext parameters:</span>
+<span class="c1"># Searching with complex parameters:</span>
 <span class="n">q</span> <span class="o">=</span> <span class="n">Query</span><span class="p">(</span><span class="s2">&quot;search engine&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">verbatim</span><span class="p">()</span><span class="o">.</span><span class="n">no_content</span><span class="p">()</span><span class="o">.</span><span class="n">paging</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span>
 <span class="n">res</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
 </pre></div>
@@ -1958,9 +1958,9 @@ Returns 1 if the string was found and deleted, 0 otherwise</p>
 <h3 id="parameters">Parameters:<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>prefix</strong>: the prefix we are searching. <strong>Must be valid ascii or utf-8</strong></li>
-<li><strong>fuzzy</strong>: If set to true, the prefix search is done in fuzzy mode. 
+<li><strong>fuzzy</strong>: If set to true, the prefix search is done in fuzzy mode.
     <strong>NOTE</strong>: Running fuzzy searches on short (&lt;3 letters) prefixes can be very slow, and even scan the entire index.</li>
-<li><strong>with_scores</strong>: if set to true, we also return the (refactored) score of each suggestion. 
+<li><strong>with_scores</strong>: if set to true, we also return the (refactored) score of each suggestion.
   This is normally not needed, and is NOT the original score inserted into the index</li>
 <li><strong>with_payloads</strong>: Return suggestion payloads</li>
 <li><strong>num</strong>: The maximum number of results we return. Note that we might return less. The algorithm trims irrelevant suggestions.</li>
@@ -1973,8 +1973,8 @@ Returns 1 if the string was found and deleted, 0 otherwise</p>
 
 <p>Return the number of entries in the AutoCompleter index</p>
 <h2 id="class&quot;_&quot;client">Class Client<a class="headerlink" href="#class&quot;_&quot;client" title="Permanent link">&para;</a></h2>
-<p>A client for the RediSearch module. 
-It abstracts the API of the module and lets you just use the engine </p>
+<p>A client for the RediSearch module.
+It abstracts the API of the module and lets you just use the engine</p>
 <h3 id="9595init9595_1">__init__<a class="headerlink" href="#9595init9595_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index_name</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s1">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">6379</span><span class="p">,</span> <span class="n">conn</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
 </pre></div>
@@ -1992,13 +1992,13 @@ It abstracts the API of the module and lets you just use the engine </p>
 <ul>
 <li><strong>doc_id</strong>: the id of the saved document.</li>
 <li><strong>nosave</strong>: if set to true, we just index the document, and don't save a copy of it. This means that searches will just return ids.</li>
-<li><strong>score</strong>: the document ranking, between 0.0 and 1.0 </li>
+<li><strong>score</strong>: the document ranking, between 0.0 and 1.0</li>
 <li><strong>payload</strong>: optional inner-index payload we can save for fast access in scoring functions</li>
 <li><strong>replace</strong>: if True, and the document already is in the index, we perform an update and reindex the document</li>
 <li><strong>partial</strong>: if True, the fields specified will be added to the existing document.
                This has the added benefit that any fields specified with <code>no_index</code>
                will not be reindexed again. Implies <code>replace</code></li>
-<li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed. 
+<li><strong>fields</strong> kwargs dictionary of the document fields to be saved and/or indexed.
              NOTE: Geo points shoule be encoded as strings of "lon,lat"</li>
 </ul>
 <h3 id="batch95indexer">batch_indexer<a class="headerlink" href="#batch95indexer" title="Permanent link">&para;</a></h3>
@@ -2063,8 +2063,8 @@ Returns 1 if the document was deleted, 0 if not</p>
 <li><strong>snippet_sizes</strong>: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}</li>
 </ul>
 <h2 id="class&quot;_&quot;batchindexer">Class BatchIndexer<a class="headerlink" href="#class&quot;_&quot;batchindexer" title="Permanent link">&para;</a></h2>
-<p>A batch indexer allows you to automatically batch 
-document indexeing in pipelines, flushing it every N documents. </p>
+<p>A batch indexer allows you to automatically batch
+document indexing in pipelines, flushing it every N documents.</p>
 <h3 id="9595init9595_2">__init__<a class="headerlink" href="#9595init9595_2" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
 </pre></div>
@@ -2083,14 +2083,14 @@ document indexeing in pipelines, flushing it every N documents. </p>
 
 <p>Manually commit and flush the batch indexing query</p>
 <h2 id="class&quot;_&quot;document">Class Document<a class="headerlink" href="#class&quot;_&quot;document" title="Permanent link">&para;</a></h2>
-<p>Represents a single document in a result set </p>
+<p>Represents a single document in a result set</p>
 <h3 id="9595init9595_3">__init__<a class="headerlink" href="#9595init9595_3" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">id</span><span class="p">,</span> <span class="n">payload</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
 </pre></div>
 
 
 <h2 id="class&quot;_&quot;geofield">Class GeoField<a class="headerlink" href="#class&quot;_&quot;geofield" title="Permanent link">&para;</a></h2>
-<p>GeoField is used to define a geo-indexing field in a schema defintion</p>
+<p>GeoField is used to define a geo-indexing field in a schema definition</p>
 <h3 id="9595init9595_4">__init__<a class="headerlink" href="#9595init9595_4" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
 </pre></div>
@@ -2109,7 +2109,7 @@ document indexeing in pipelines, flushing it every N documents. </p>
 
 
 <h2 id="class&quot;_&quot;numericfield">Class NumericField<a class="headerlink" href="#class&quot;_&quot;numericfield" title="Permanent link">&para;</a></h2>
-<p>NumericField is used to define a numeric field in a schema defintion</p>
+<p>NumericField is used to define a numeric field in a schema definition</p>
 <h3 id="9595init9595_6">__init__<a class="headerlink" href="#9595init9595_6" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sortable</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">no_index</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
@@ -2130,21 +2130,21 @@ document indexeing in pipelines, flushing it every N documents. </p>
 <h2 id="class&quot;_&quot;query">Class Query<a class="headerlink" href="#class&quot;_&quot;query" title="Permanent link">&para;</a></h2>
 <p>Query is used to build complex queries that have more parameters than just the query string.
 The query string is set in the constructor, and other options have setter functions.</p>
-<p>The setter functions return the query object, so they can be chained, 
+<p>The setter functions return the query object, so they can be chained,
 i.e. <code>Query("foo").verbatim().filter(...)</code> etc.</p>
 <h3 id="9595init9595_8">__init__<a class="headerlink" href="#9595init9595_8" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query_string</span><span class="p">)</span>
 </pre></div>
 
 
-<p>Create a new query object. 
+<p>Create a new query object.
 The query string is set in the constructor, and other options have setter functions.</p>
 <h3 id="add95filter">add_filter<a class="headerlink" href="#add95filter" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">add_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flt</span><span class="p">)</span>
 </pre></div>
 
 
-<p>Add a numeric or geo filter to the query. 
+<p>Add a numeric or geo filter to the query.
 <strong>Currently only one of each filter is supported by the engine</strong></p>
 <ul>
 <li><strong>flt</strong>: A NumericFilter or GeoFilter object, used on a corresponding field</li>
@@ -2198,7 +2198,7 @@ i.e. for the query 'hello world', we do not match 'world hello'</p>
 </pre></div>
 
 
-<p>Prevent the query from being filtered for stopwords. 
+<p>Prevent the query from being filtered for stopwords.
 Only useful in very big queries that you are certain contain no stopwords.</p>
 <h3 id="paging">paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">paging</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">num</span><span class="p">)</span>
@@ -2227,7 +2227,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 </pre></div>
 
 
-<p>Allow a masimum of N intervening non matched terms between phrase terms (0 means exact phrase)</p>
+<p>Allow a maximum of N intervening non matched terms between phrase terms (0 means exact phrase)</p>
 <h3 id="sort95by">sort_by<a class="headerlink" href="#sort95by" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">sort_by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">asc</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
 </pre></div>
@@ -2236,7 +2236,7 @@ Only useful in very big queries that you are certain contain no stopwords.</p>
 <p>Add a sortby field to the query</p>
 <ul>
 <li><strong>field</strong> - the name of the field to sort by</li>
-<li><strong>asc</strong> - when <code>True</code>, sorting will be done in asceding order</li>
+<li><strong>asc</strong> - when <code>True</code>, sorting will be done in ascending order</li>
 </ul>
 <h3 id="summarize">summarize<a class="headerlink" href="#summarize" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="nf">summarize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fields</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">context_len</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">num_frags</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
@@ -2291,7 +2291,7 @@ summarized; otherwise all results are summarized.</p>
 
 
 <h2 id="class&quot;_&quot;tagfield">Class TagField<a class="headerlink" href="#class&quot;_&quot;tagfield" title="Permanent link">&para;</a></h2>
-<p>TagField is a tag-indexing field with simpler compression and tokenization. 
+<p>TagField is a tag-indexing field with simpler compression and tokenization.
 See http://redisearch.io/Tags/</p>
 <h3 id="9595init9595_12">__init__<a class="headerlink" href="#9595init9595_12" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">separator</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">no_index</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>

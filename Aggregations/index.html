@@ -1296,13 +1296,13 @@
 <p>The reducers can have their own property names using the <code>AS {name}</code> optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property <code>@foo</code>, the resulting name will be <code>count_distinct(@foo)</code>. </p>
 </li>
 <li>
-<p><strong>SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]</strong>: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but <code>ASC</code> or <code>DESC</code> can be added for each propery. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: <code>SORTBY 4 @foo ASC @bar DESC</code>. </p>
+<p><strong>SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]</strong>: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but <code>ASC</code> or <code>DESC</code> can be added for each property. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: <code>SORTBY 4 @foo ASC @bar DESC</code>. </p>
 </li>
 </ul>
 <p><code>MAX</code> is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to <code>LIMIT</code>, you usually need just <code>SORTBY … MAX</code> for common queries. </p>
 <ul>
 <li>
-<p><strong>APPLY {expr} AS {name}</strong>: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transforamtion. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: <code>APPLY "sqrt(@foo)/log(@bar) + 5" AS baz</code> will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. </p>
+<p><strong>APPLY {expr} AS {name}</strong>: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: <code>APPLY "sqrt(@foo)/log(@bar) + 5" AS baz</code> will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. </p>
 </li>
 <li>
 <p><strong>LIMIT {offset} {num}</strong>. Limit the number of results to return just <code>num</code> results starting at index <code>offset</code> (zero based). AS mentioned above, it is much more efficient to use <code>SORTBY … MAX</code> if you are interested in just limiting the optput of a sort operation.</p>
@@ -1379,7 +1379,7 @@
 <p><code>GROUPBY</code> step work similarly to SQL <code>GROUP BY</code> clauses, and create groups of results based on one or more properties in each record. For each group, we return the "group keys", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more <code>REDUCE</code> clauses.</p>
 <p>Each <code>GROUPBY</code> step in the pipeline may be accompanied by zero or more <code>REDUCE</code> clauses. Reducers apply some accumulation function to each record in the group, and reduce them into a single record representing the group. When we are finished processing all the records upstream of the <code>GROUPBY</code> step, each group emits its reduced record. </p>
 <p>For example, the simplest reducer is COUNT, which simply counts the number of records in each group. </p>
-<p>If multiple <code>REDUCE</code> clauses exist for a single <code>GROUPBY</code> step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the <code>AS</code> optional parameter. If <code>AS</code> is not specified, the alias is the reduce function and its paramaters, e.g. <code>count_distinct(foo,bar)</code>.</p>
+<p>If multiple <code>REDUCE</code> clauses exist for a single <code>GROUPBY</code> step, each reducer works independently on each result, and writes its final output once. Each reducer may have its own alias determined using the <code>AS</code> optional parameter. If <code>AS</code> is not specified, the alias is the reduce function and its parameters, e.g. <code>count_distinct(foo,bar)</code>.</p>
 <h3 id="supported&quot;_&quot;groupby&quot;_&quot;reducers">Supported GROUPBY Reducers<a class="headerlink" href="#supported&quot;_&quot;groupby&quot;_&quot;reducers" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
@@ -1522,8 +1522,8 @@
 </li>
 </ul>
 <h2 id="apply&quot;_&quot;expressions">APPLY Expressions<a class="headerlink" href="#apply&quot;_&quot;expressions" title="Permanent link">&para;</a></h2>
-<p><code>APPLY</code> performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transforamtion. </p>
-<p>The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and composable without limit. For example: <code>sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)</code> or simply <code>@foo/@bar</code>.</p>
+<p><code>APPLY</code> performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. </p>
+<p>The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example: <code>sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)</code> or simply <code>@foo/@bar</code>.</p>
 <p>If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result. </p>
 <p>APPLY steps must have an explicit alias determined by the <code>AS</code> parameter.</p>
 <h4 id="literals&quot;_&quot;inside&quot;_&quot;expressions">Literals inside expressions<a class="headerlink" href="#literals&quot;_&quot;inside&quot;_&quot;expressions" title="Permanent link">&para;</a></h4>
