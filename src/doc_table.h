@@ -43,7 +43,9 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
 }
 
 /* Map between external id an incremental id */
-typedef struct { TrieMap *tm; } DocIdMap;
+typedef struct {
+  TrieMap *tm;
+} DocIdMap;
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */
@@ -87,7 +89,7 @@ typedef struct {
 #define DOCTABLE_MAX_SIZE 1000000
 
 /* increasing the ref count of the given dmd */
-#define DocTable_IncreaseDmdRefCount(md) \
+#define DMD_Incref(md) \
   if (md) ++md->ref_count;
 
 #define DocTable_ForEach(dt, code)          \
@@ -159,8 +161,15 @@ void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
 
-/* Decrease the ref count and free the given dmd if its ref count reached zero */
-void DocTable_DecreaseDmdRefCount(RSDocumentMetadata *dmd);
+/* don't use this function directly. Use DMD_Decref */
+void DMD_Free(RSDocumentMetadata *);
+
+/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+static inline void DMD_Decref(RSDocumentMetadata *dmd) {
+  if (dmd && !--dmd->ref_count) {
+    DMD_Free(dmd);
+  }
+}
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
