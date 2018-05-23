@@ -11,6 +11,14 @@ struct privdata {
   int freed;
 };
 
+static const char *getExtensionPath(void) {
+  const char *extPath = getenv("EXT_TEST_PATH");
+  if (extPath == NULL || *extPath == 0) {
+    extPath = "./ext-example/example.so";
+  }
+  return extPath;
+}
+
 /* Calculate sum(TF-IDF)*document score for each result */
 double myScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                 double minScore) {
@@ -82,7 +90,7 @@ int testDynamicLoading() {
   Extensions_Init();
 
   char *errMsg = NULL;
-  int rc = Extension_LoadDynamic("./ext-example/example.so", &errMsg);
+  int rc = Extension_LoadDynamic(getExtensionPath(), &errMsg);
   ASSERT_EQUAL(rc, REDISMODULE_OK);
   if (errMsg != NULL) {
     FAIL("Error loading extension: %s", errMsg);
