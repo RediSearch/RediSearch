@@ -296,7 +296,7 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
   if (sc->pq->count > 0 && (!sc->size || sc->offset++ < sc->size)) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
-    DocTable_DecreaseDmdRefCount(r->scorerPrivateData);
+    DMD_Decref(r->scorerPrivateData);
     free(sr);
     return RS_RESULT_OK;
   }
@@ -349,7 +349,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    DocTable_IncreaseDmdRefCount(h->scorerPrivateData);
+    DMD_Incref(h->scorerPrivateData);
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -371,7 +371,7 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       h->indexResult = NULL;
       sc->pooledResult = mmh_pop_min(sc->pq);
       SearchResult_FreeInternal(sc->pooledResult);
-      DocTable_IncreaseDmdRefCount(h->scorerPrivateData);
+      DMD_Incref(h->scorerPrivateData);
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is

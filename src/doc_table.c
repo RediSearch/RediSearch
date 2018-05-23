@@ -52,7 +52,7 @@ inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
   return NULL;
 }
 
-static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata* dmd) {
+static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
   uint32_t bucket = DocTable_GetBucket(t, docId);
   if (bucket >= t->cap && t->cap < t->maxSize) {
     /* We have to grow the array capacity.
@@ -62,7 +62,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata* 
     size_t oldcap = t->cap;
     // We grow by half of the current capacity with maximum of 1m
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
-    t->cap = MIN(t->cap, t->maxSize); // make sure we do not excised maxSize
+    t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
     for (; oldcap < t->cap; oldcap++) {
       t->buckets[oldcap].first = NULL;
@@ -71,7 +71,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata* 
   }
 
   DMDChain *chain = &t->buckets[bucket];
-  DocTable_IncreaseDmdRefCount(dmd);
+  DMD_Incref(dmd);
 
   // Adding the dmd to the chain
   if (DMDChain_IsEmpty(chain)) {
@@ -219,7 +219,7 @@ inline float DocTable_GetScore(DocTable *t, t_docId docId) {
   return dmd ? dmd->score : 0;
 }
 
-void dmd_free(RSDocumentMetadata *md) {
+void DMD_Free(RSDocumentMetadata *md) {
   if (md->payload) {
     rm_free(md->payload->data);
     rm_free(md->payload);
@@ -248,8 +248,8 @@ void DocTable_Free(DocTable *t) {
     }
     RSDocumentMetadata *md = chain->first;
     while (md) {
-      RSDocumentMetadata* next = md->next;
-      dmd_free(md);
+      RSDocumentMetadata *next = md->next;
+      DMD_Free(md);
       md = next;
     }
   }
@@ -279,15 +279,6 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
   md->prev = NULL;
 }
 
-void DocTable_DecreaseDmdRefCount(RSDocumentMetadata *md) {
-  if (!md) {
-    return;
-  }
-  if (!--md->ref_count) {
-    dmd_free(md);
-  }
-}
-
 int DocTable_Delete(DocTable *t, RSDocumentKey key) {
   t_docId docId = DocIdMap_Get(&t->dim, key);
   if (docId && docId <= t->maxDocId) {
@@ -303,7 +294,7 @@ int DocTable_Delete(DocTable *t, RSDocumentKey key) {
 
     int retVal = DocIdMap_Delete(&t->dim, key);
 
-    DocTable_DecreaseDmdRefCount(md);
+    DMD_Decref(md);
     --t->size;
 
     return retVal;
@@ -362,7 +353,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   for (size_t i = 1; i < t->size; i++) {
     size_t len;
 
-    RSDocumentMetadata* dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
     char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
     if (encver < INDEX_MIN_BINKEYS_VERSION) {
       // Previous versions would encode the NUL byte

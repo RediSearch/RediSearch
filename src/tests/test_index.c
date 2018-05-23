@@ -1015,7 +1015,7 @@ int testDocTable() {
     ASSERT_EQUAL((int)score, i);
 
     RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
-    DocTable_IncreaseDmdRefCount(dmd);
+    DMD_Incref(dmd);
     ASSERT(dmd != NULL);
     ASSERT(dmd->flags & Document_HasPayload);
     ASSERT_STRING_EQ(dmd->keyPtr, (char *)buf);
@@ -1032,7 +1032,7 @@ int testDocTable() {
     int rc = DocTable_Delete(&dt, MakeDocKey(dmd->keyPtr, sdslen(dmd->keyPtr)));
     ASSERT_EQUAL(1, rc);
     ASSERT((int)(dmd->flags & Document_Deleted));
-    DocTable_DecreaseDmdRefCount(dmd);
+    DMD_Decref(dmd);
     dmd = DocTable_Get(&dt, i + 1);
     ASSERT(!dmd);
   }
