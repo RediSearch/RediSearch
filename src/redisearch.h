@@ -52,7 +52,7 @@ typedef enum {
  *
  * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
-typedef struct {
+typedef struct RSDocumentMetadata_s {
   /* The actual key of the document, not the internal incremental id */
   char *keyPtr;
 
@@ -74,6 +74,13 @@ typedef struct {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
+
+  t_docId id;
+
+  uint32_t ref_count;
+
+  struct RSDocumentMetadata_s *next;
+  struct RSDocumentMetadata_s *prev;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
@@ -200,9 +207,7 @@ typedef struct {
 
 } RSVirtualRecord;
 
-typedef struct {
-  double value;
-} RSNumericRecord;
+typedef struct { double value; } RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,

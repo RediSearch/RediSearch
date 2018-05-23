@@ -987,8 +987,10 @@ int testIndexFlags() {
 int testDocTable() {
 
   char buf[16];
-  DocTable dt = NewDocTable(10);
+  DocTable dt = NewDocTable(10, 10);
   t_docId did = 0;
+  // N is set to 100 and the max cap of the doc table is 10 so we surely will
+  // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -1000,9 +1002,8 @@ int testDocTable() {
 
   ASSERT_EQUAL(N + 1, dt.size);
   ASSERT_EQUAL(N, dt.maxDocId);
-  ASSERT(dt.cap > dt.size);
 #ifdef __x86_64__
-  ASSERT_EQUAL(7780, (int)dt.memsize);
+  ASSERT_EQUAL(10980, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -1014,6 +1015,7 @@ int testDocTable() {
     ASSERT_EQUAL((int)score, i);
 
     RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
+    DMD_Incref(dmd);
     ASSERT(dmd != NULL);
     ASSERT(dmd->flags & Document_HasPayload);
     ASSERT_STRING_EQ(dmd->keyPtr, (char *)buf);
@@ -1030,6 +1032,9 @@ int testDocTable() {
     int rc = DocTable_Delete(&dt, MakeDocKey(dmd->keyPtr, sdslen(dmd->keyPtr)));
     ASSERT_EQUAL(1, rc);
     ASSERT((int)(dmd->flags & Document_Deleted));
+    DMD_Decref(dmd);
+    dmd = DocTable_Get(&dt, i + 1);
+    ASSERT(!dmd);
   }
 
   ASSERT(0 == DocIdMap_Get(&dt.dim, MakeDocKey("foo bar", strlen("foo bar"))));

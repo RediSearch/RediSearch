@@ -142,10 +142,7 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp,
-      .redisCtx = ctx,
-      .key = k,
-      .keyName = keyName,
+      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
   };
   return sctx;
 }
@@ -456,11 +453,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments) {
 
     DocTable *dt = &ctx->spec->docs;
-
-    for (size_t i = 1; i < dt->size; i++) {
-      const RSDocumentMetadata *dmd = dt->docs + i;
-      Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx));
-    }
+    DocTable_ForEach(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
 
   // Delete any dangling term keys

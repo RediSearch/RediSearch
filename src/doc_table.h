@@ -66,20 +66,49 @@ void DocIdMap_Free(DocIdMap *m);
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
  * same key. This may result in document duplication in results  */
+
+typedef struct {
+  struct RSDocumentMetadata_s *first;
+  struct RSDocumentMetadata_s *last;
+} DMDChain;
+
 typedef struct {
   size_t size;
+  // the maximum size this table is allowed to grow to
+  size_t maxSize;
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
   size_t sortablesSize;
 
-  RSDocumentMetadata *docs;
+  DMDChain *buckets;
   DocIdMap dim;
 
 } DocTable;
 
+#define DOCTABLE_MAX_SIZE 1000000
+
+/* increasing the ref count of the given dmd */
+#define DMD_Incref(md) \
+  if (md) ++md->ref_count;
+
+#define DocTable_ForEach(dt, code)          \
+  for (size_t i = 1; i < dt->cap; ++i) {    \
+    DMDChain *chain = &dt->buckets[i];      \
+    if (DMDChain_IsEmpty(chain)) {          \
+      continue;                             \
+    }                                       \
+    RSDocumentMetadata *dmd = chain->first; \
+    while (dmd) {                           \
+      code;                                 \
+      dmd = dmd->next;                      \
+    }                                       \
+  }
+
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap);
+DocTable NewDocTable(size_t cap, size_t max_size);
+
+#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
@@ -106,6 +135,11 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
  * document */
 int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
 
+/*
+ * return true iff the given dmdChain holds no elements
+ */
+int DMDChain_IsEmpty(DMDChain *dmdChain);
+
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
 int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
@@ -126,6 +160,16 @@ t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key);
 void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
+
+/* don't use this function directly. Use DMD_Decref */
+void DMD_Free(RSDocumentMetadata *);
+
+/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+static inline void DMD_Decref(RSDocumentMetadata *dmd) {
+  if (dmd && !--dmd->ref_count) {
+    DMD_Free(dmd);
+  }
+}
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
