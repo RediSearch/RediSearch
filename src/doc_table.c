@@ -8,6 +8,7 @@
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
+#include "config.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -305,8 +306,8 @@ int DocTable_Delete(DocTable *t, RSDocumentKey key) {
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
   RedisModule_SaveUnsigned(rdb, t->size);
-  RedisModule_SaveUnsigned(rdb, t->maxSize);
   RedisModule_SaveUnsigned(rdb, t->maxDocId);
+  RedisModule_SaveUnsigned(rdb, t->maxSize);
 
   uint32_t elements_written = 0;
   for (uint32_t i = 0; i < t->cap; ++i) {
@@ -347,8 +348,12 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   t->size = RedisModule_LoadUnsigned(rdb);
-  t->maxSize = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
+  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+    t->maxSize = RedisModule_LoadUnsigned(rdb);
+  } else {
+    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  }
 
   for (size_t i = 1; i < t->size; i++) {
     size_t len;
