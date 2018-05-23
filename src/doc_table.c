@@ -359,7 +359,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       // Previous versions would encode the NUL byte
       len--;
     }
-    dmd->id = encver <= INDEX_MAX_VERSION_WITH_OLD_DOC_TABLE ? i : RedisModule_LoadUnsigned(rdb);
+    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
     rm_free(tmpPtr);
 
