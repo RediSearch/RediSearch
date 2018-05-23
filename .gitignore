@@ -9,6 +9,7 @@
 !**/*.yml
 !**/*.yaml
 !**/*.mak
+!**/CMakeLists.txt
 !/cndict
 /site
 !/debian/*
