@@ -8,12 +8,21 @@
  *   processors
  ******************************************************************************************************/
 
+#define FETCH_DMD()                                        \
+  ({                                                       \
+    if (!dmd) {                                            \
+      dmd = DocTable_Get(&qex->ctx->spec->docs, r->docId); \
+    }                                                      \
+    dmd;                                                   \
+  })
+
 static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags,
                               RedisModuleCtx *ctx) {
   size_t count = 0;
-  if (r->scorerPrivateData && !(qex->opts.flags & Search_AggregationQuery)) {
+  RSDocumentMetadata *dmd = NULL;
+  if (!(qex->opts.flags & Search_AggregationQuery) && FETCH_DMD()) {
     size_t klen;
-    const char *k = DMD_KeyPtrLen(r->scorerPrivateData, &klen);
+    const char *k = DMD_KeyPtrLen(dmd, &klen);
     count += 1;
     RedisModule_ReplyWithStringBuffer(ctx, k, klen);
   }
@@ -25,17 +34,16 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithPayloads) {
     ++count;
-    const RSPayload *payload = r->scorerPrivateData ? r->scorerPrivateData->payload : NULL;
-    if (payload) {
-      RedisModule_ReplyWithStringBuffer(ctx, payload->data, payload->len);
+    if (FETCH_DMD() && dmd->payload) {
+      RedisModule_ReplyWithStringBuffer(ctx, dmd->payload->data, dmd->payload->len);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }
   }
 
-  if (flags & Search_WithSortKeys) {
+  if ((flags & Search_WithSortKeys) && FETCH_DMD()) {
     ++count;
-    const RSValue *sortkey = RSSortingVector_Get(r->sorterPrivateData, qex->opts.sortBy);
+    const RSValue *sortkey = RSSortingVector_Get(dmd->sortVector, qex->opts.sortBy);
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
