@@ -130,7 +130,7 @@ Add a document to the index.
 
 - **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
   Update the document only if a boolean expression applies to the document **before the update**, 
-  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234". 
+  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234"`. 
 
   The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
 
