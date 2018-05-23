@@ -1,11 +1,11 @@
 #include "test_util.h"
 #include "../extension.h"
-#include "../rmutil/alloc.h"
 #include "../redisearch.h"
 #include "../search_request.h"
 #include "../query.h"
 #include "../stopwords.h"
 #include "../ext/default.h"
+#include "../rmutil/alloc.h"
 
 struct privdata {
   int freed;

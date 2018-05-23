@@ -1,5 +1,3 @@
-#include <rmutil/alloc.h>
-
 #include <stdio.h>
 #include <assert.h>
 #include <aggregate/aggregate.h>
@@ -7,6 +5,7 @@
 #include "test_util.h"
 #include "time_sample.h"
 #include <util/arr.h>
+#include <rmutil/alloc.h>
 
 struct mockProcessorCtx {
   int counter;
