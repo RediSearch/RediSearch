@@ -2613,7 +2613,7 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 <li>
 <p><strong>IF {condition}</strong>: (Applicable only in conjunction with <code>REPLACE</code> and optionally <code>PARTIAL</code>). 
   Update the document only if a boolean expression applies to the document <strong>before the update</strong>, 
-  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp &lt; 23323234234". </p>
+  e.g. <code>FT.ADD idx doc 1 REPLACE IF "@timestamp &lt; 23323234234"</code>. </p>
 </li>
 </ul>
 <p>The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.</p>
