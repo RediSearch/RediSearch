@@ -628,13 +628,6 @@ done:
   AddDocumentCtx_Free(aCtx);
 }
 
-int Document_CanAdd(Document *doc, IndexSpec *sp, int replace) {
-  if (!replace && DocTable_GetId(&sp->docs, MakeDocKeyR(doc->docKey)) != 0) {
-    return 0;
-  }
-  return 1;
-}
-
 DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 

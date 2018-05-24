@@ -42,6 +42,14 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
                                '@foo == "world"', 'fields', 'bar', '234'))
         self.assertOk(self.cmd('ft.add', 'idx', '1', '1', 'replace', 'if',
                                '@bar == 234', 'fields', 'foo', 'hello', 'bar', '123'))
+        
+        # Ensure that conditionals are ignored if the document doesn't exist
+        self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
+        # Ensure that it fails if we try again, because it already exists
+        self.assertEqual('NOADD', self.cmd('FT.ADD', 'idx', '666', '1', 'REPLACE', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
+        # Ensure that it fails because we're not using 'REPLACE'
+        with self.assertResponseError():
+            self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
 
     def testUnionIdList(self):
         """

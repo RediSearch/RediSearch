@@ -161,9 +161,16 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
 
-  // Parse optional IF "expr" flag before FIELDS
+  // If the ID is 0, then the document does not exist.
+  int exists = !!DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
+  if (exists && !replace) {
+    RedisModule_ReplyWithError(ctx, "Document already in index");
+    goto cleanup;
+  }
+
+  // Parse optional IF "expr" flag before FIELDS, only if the document exists
   const char *expr = NULL;
-  if (RMUtil_ParseArgsAfter("IF", argv, fieldsIdx, "c", &expr) == REDISMODULE_OK) {
+  if (exists && RMUtil_ParseArgsAfter("IF", argv, fieldsIdx, "c", &expr) == REDISMODULE_OK) {
     char *err = NULL;
     int res = 0;
     if (Document_EvalExpression(&sctx, argv[2], expr, &res, &err) == REDISMODULE_OK) {
@@ -181,15 +188,8 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   Document doc;
-
   Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
-  if (!Document_CanAdd(&doc, sp, replace)) {
-    Document_FreeDetached(&doc, ctx);
-    RedisModule_ReplyWithError(ctx, "Document already in index");
-    goto cleanup;
-  }
 
-  // If the document contains an IF expression, try to evaluate it now
   if (!nosave) {
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
     if (Redis_SaveDocument(&sctx, &doc) != REDISMODULE_OK) {
