@@ -57,22 +57,23 @@ FT.AGGREGATE
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
-  * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
+  
+* **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.
 
     The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
 
 * **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
 
-  `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
+    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
 
 * **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
 
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
 
-  However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.
 
@@ -160,163 +161,165 @@ If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer wor
 
 ### Supported GROUPBY reducers
 
-- #### COUNT
+#### COUNT
 
-  * **Format**: 
+**Format**
 
-    ```
-    REDUCE COUNT 0
-    ```
+```
+REDUCE COUNT 0
+```
 
-  * **Description**:
+**Description**
 
-    Count the number of records in each group 
+Count the number of records in each group 
 
-- #### COUNT_DISTINCT
+#### COUNT_DISTINCT
 
-  * **Format**: 
+**Format**
 
-    ````
-    REDUCE COUNT_DISTINCT 1 {property}
-    ````
+````
+REDUCE COUNT_DISTINCT 1 {property}
+````
 
-  * **Description**:
+**Description**
 
-    Count the number of distinct values for `property`. 
+Count the number of distinct values for `property`. 
 
-    Note: the reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+!!! note
+    The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
 
-- #### COUNT_DISTINCTISH
+#### COUNT_DISTINCTISH
 
-  - **Format**: 
+**Format** 
 
-    ```
-    REDUCE COUNT_DISTINCTISH 1 {property}
-    ```
+```
+REDUCE COUNT_DISTINCTISH 1 {property}
+```
 
-  - **Description**:
+**Description**
 
-    Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. 
+Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. 
 
-    **Note**: the reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
+!!! note
+    The reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
 
-- #### SUM
+#### SUM
 
-  * **Format**:
+**Format**
 
-    ```
-    REDUCE SUM 1 {property}
-    ```
+```
+REDUCE SUM 1 {property}
+```
 
-  * **Description**:
+**Description**
 
-    Return the sum of all numeric values of a given property in a group. Non numeric values if the group are counted as 0.
+Return the sum of all numeric values of a given property in a group. Non numeric values if the group are counted as 0.
 
-- #### MIN
+#### MIN
 
-  * **Format**:
+**Format**
 
-    ```
-    REDUCE MIN 1 {property}
-    ```
+```
+REDUCE MIN 1 {property}
+```
 
-  * **Description**:
+**Description**
 
-    Return the minimal value of a property, whether it is a string, number or NULL.
+Return the minimal value of a property, whether it is a string, number or NULL.
 
-- #### MAX
+#### MAX
 
-  - **Format**:
+**Format**
 
-    ```
-    REDUCE MAX 1 {property}
-    ```
+```
+REDUCE MAX 1 {property}
+```
 
-  - **Description**:
+**Description**
 
-    Return the maximal value of a property, whether it is a string, number or NULL.
+Return the maximal value of a property, whether it is a string, number or NULL.
 
-- #### AVG
+#### AVG
 
-  - **Format**:
+**Format**
 
-    ```
-    REDUCE AVG 1 {property}
-    ```
+```
+REDUCE AVG 1 {property}
+```
 
-  - **Description**:
+**Description**
 
-    Return the average value of a numeric property. This is equivalent to reducing by sum and count, and later on applying the ratio of them as an APPLY step.
+Return the average value of a numeric property. This is equivalent to reducing by sum and count, and later on applying the ratio of them as an APPLY step.
 
-- #### STDDEV
+#### STDDEV
 
-  - **Format**:
+**Format**
 
-    ```
-    REDUCE STDDEV 1 {property}
-    ```
+```
+REDUCE STDDEV 1 {property}
+```
 
-  - **Description**:
+**Description**
 
-    Return the [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation) of a numeric property in the group.
+Return the [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation) of a numeric property in the group.
 
-- #### QUANTILE
+#### QUANTILE
 
-  - **Format**:
+**Format**
 
-    ```
-    REDUCE QUANTILE 2 {property} {quantile}
-    ```
+```
+REDUCE QUANTILE 2 {property} {quantile}
+```
 
-  - **Description**:
+**Description**
 
-    Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median` .
+Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median` .
 
-    If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99` 
+If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99` 
 
-- #### TOLIST
+#### TOLIST
 
-  * **Format**:
+**Format**
 
-    ```
-    REDUCE TOLIST 1 {property}
-    ```
+```
+REDUCE TOLIST 1 {property}
+```
 
-  * **Description**:
+**Description**
 
-    Merge all **distinct** values of a given property into a single array. 
+Merge all **distinct** values of a given property into a single array. 
 
-- #### FIRST_VALUE
+#### FIRST_VALUE
 
-  * **Format**:
+**Format**
 
-    ```
-    REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]
-    ```
+```
+REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]
+```
 
-  * **Description**:
+**Description**
 
-    Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:
+Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:
 
-    ```
-    REDUCE FIRST_VALUE 4 @name BY @age DESC
-    ```
+```
+REDUCE FIRST_VALUE 4 @name BY @age DESC
+```
 
-    If no `BY` is specified, we return the first value we encounter in the group.
+If no `BY` is specified, we return the first value we encounter in the group.
 
-    If you with to get the top or bottom value in the group sorted by the same value, you are better off using the `MIN/MAX` reducers, but the same effect will be achieved by doing `REDUCE FIRST_VALUE 4 @foo BY @foo DESC`.
+If you with to get the top or bottom value in the group sorted by the same value, you are better off using the `MIN/MAX` reducers, but the same effect will be achieved by doing `REDUCE FIRST_VALUE 4 @foo BY @foo DESC`.
 
-- #### RANDOM_SAMPLE
+#### RANDOM_SAMPLE
 
-  - **Format**:
+**Format**
 
-    ```
-    REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
-    ```
+```
+REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
+```
 
-  - **Description**:
+**Description**
 
-    Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.
+Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.
 
 ## APPLY expressions
 

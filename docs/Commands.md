@@ -882,7 +882,10 @@ Integer Reply: the current size of the suggestion dictionary.
 
 ---
 
-## FT.OPTIMIZE ** DEPRECATED **
+## FT.OPTIMIZE
+
+!!! warning "This command is deprecated"
+    Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already.
 
 ### Format
 
@@ -892,7 +895,7 @@ FT.OPTIMIZE {index}
 
 ### Description
 
-This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already. 
+This command is deprecated. 
 
 ---
 
