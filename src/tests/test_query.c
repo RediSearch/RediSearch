@@ -177,8 +177,6 @@ int testQueryParser() {
 
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
-  IndexSpec_Free(ctx.spec);
-
   char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   RSSearchOptions opts = SEARCH_OPTS(ctx);
   QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
@@ -225,6 +223,7 @@ int testQueryParser() {
   ASSERT_STRING_EQ("boo", _n->pn.children[1]->pfx.str);
 
   Query_Free(q);
+  IndexSpec_Free(ctx.spec);
 
   return 0;
 }
@@ -455,5 +454,4 @@ TEST_MAIN({
   TESTFUNC(testFieldSpec);
   TESTFUNC(testAttributes);
   // benchmarkQueryParser();
-
 });
