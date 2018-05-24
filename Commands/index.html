@@ -1077,8 +1077,8 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ftoptimize"_"deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
-    FT.OPTIMIZE  DEPRECATED
+  <a href="#ftoptimize" title="FT.OPTIMIZE" class="md-nav__link">
+    FT.OPTIMIZE
   </a>
   
     <nav class="md-nav">
@@ -2352,8 +2352,8 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ftoptimize"_"deprecated" title="FT.OPTIMIZE  DEPRECATED" class="md-nav__link">
-    FT.OPTIMIZE  DEPRECATED
+  <a href="#ftoptimize" title="FT.OPTIMIZE" class="md-nav__link">
+    FT.OPTIMIZE
   </a>
   
     <nav class="md-nav">
@@ -3233,14 +3233,18 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 <h3 id="returns_16">Returns<a class="headerlink" href="#returns_16" title="Permanent link">&para;</a></h3>
 <p>Integer Reply: the current size of the suggestion dictionary.</p>
 <hr />
-<h2 id="ftoptimize&quot;_&quot;deprecated">FT.OPTIMIZE <strong> DEPRECATED </strong><a class="headerlink" href="#ftoptimize&quot;_&quot;deprecated" title="Permanent link">&para;</a></h2>
+<h2 id="ftoptimize">FT.OPTIMIZE<a class="headerlink" href="#ftoptimize" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">This command is deprecated</p>
+<p>Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already.</p>
+</div>
 <h3 id="format_17">Format<a class="headerlink" href="#format_17" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>FT.OPTIMIZE {index}
 </pre></div>
 
 
 <h3 id="description_17">Description<a class="headerlink" href="#description_17" title="Permanent link">&para;</a></h3>
-<p>This command is deprecated. Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already. </p>
+<p>This command is deprecated. </p>
 <hr />
 <h2 id="ftsynadd">FT.SYNADD<a class="headerlink" href="#ftsynadd" title="Permanent link">&para;</a></h2>
 <h3 id="format_18">Format<a class="headerlink" href="#format_18" title="Permanent link">&para;</a></h3>

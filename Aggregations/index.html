@@ -1274,31 +1274,29 @@
 <p><strong>query_string</strong>: The base filtering query that retrieves the documents. It follows <strong>the exact same syntax</strong> as the search query, including filters, unions, not, optional, etc.</p>
 </li>
 <li>
-<p><strong>LOAD {nargs} {property} …</strong>: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as <strong>SORTABLE</strong>, where they are available to the aggregation pipeline with very load latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. </p>
+<p><strong>LOAD {nargs} {property} …</strong>: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as <strong>SORTABLE</strong>, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. </p>
 </li>
 <li>
 <p><strong>GROUPBY {nargs} {property}</strong>: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).</p>
 </li>
 <li>
-<p><strong>REDUCE {func} {nargs} {arg} … [AS {name}]</strong>: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. </p>
+<p><strong>REDUCE {func} {nargs} {arg} … [AS {name}]</strong>: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.</p>
 <p>The reducers can have their own property names using the <code>AS {name}</code> optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property <code>@foo</code>, the resulting name will be <code>count_distinct(@foo)</code>. </p>
 </li>
 <li>
 <p><strong>SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]</strong>: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but <code>ASC</code> or <code>DESC</code> can be added for each property. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: <code>SORTBY 4 @foo ASC @bar DESC</code>. </p>
-</li>
-</ul>
 <p><code>MAX</code> is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to <code>LIMIT</code>, you usually need just <code>SORTBY … MAX</code> for common queries. </p>
-<ul>
+</li>
 <li>
 <p><strong>APPLY {expr} AS {name}</strong>: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: <code>APPLY "sqrt(@foo)/log(@bar) + 5" AS baz</code> will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. </p>
 </li>
 <li>
 <p><strong>LIMIT {offset} {num}</strong>. Limit the number of results to return just <code>num</code> results starting at index <code>offset</code> (zero based). AS mentioned above, it is much more efficient to use <code>SORTBY … MAX</code> if you are interested in just limiting the optput of a sort operation.</p>
-</li>
-</ul>
 <p>However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by <code>SORTBY MAX</code>. For example, getting results 50-100 of the top 100 results is most efficiently expressed as <code>SORTBY 1 @foo MAX 100 LIMIT 50 50</code>. Removing the MAX from SORTBY will result in the pipeline sorting <em>all</em> the records and then paging over results 50-100. </p>
-<ul>
-<li><strong>FILTER {expr}</strong>. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.</li>
+</li>
+<li>
+<p><strong>FILTER {expr}</strong>. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.</p>
+</li>
 </ul>
 <h2 id="quick&quot;_&quot;example">Quick example<a class="headerlink" href="#quick&quot;_&quot;example" title="Permanent link">&para;</a></h2>
 <p>Let's assume we have log of visits to our website, each record containing the following fields/properties:</p>
@@ -1369,146 +1367,117 @@
 <p>For example, the simplest reducer is COUNT, which simply counts the number of records in each group. </p>
 <p>If multiple <code>REDUCE</code> clauses exist for a single <code>GROUPBY</code> step, each reducer works independently on each result and writes its final output once. Each reducer may have its own alias determined using the <code>AS</code> optional parameter. If <code>AS</code> is not specified, the alias is the reduce function and its parameters, e.g. <code>count_distinct(foo,bar)</code>.</p>
 <h3 id="supported&quot;_&quot;groupby&quot;_&quot;reducers">Supported GROUPBY reducers<a class="headerlink" href="#supported&quot;_&quot;groupby&quot;_&quot;reducers" title="Permanent link">&para;</a></h3>
-<ul>
-<li>
 <h4 id="count">COUNT<a class="headerlink" href="#count" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>: </p>
-<p><code>REDUCE COUNT 0</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT 0
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Count the number of records in each group </p>
-</li>
-<li>
 <h4 id="count&quot;_&quot;distinct">COUNT_DISTINCT<a class="headerlink" href="#count&quot;_&quot;distinct" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>: </p>
-<p><code>REDUCE COUNT_DISTINCT 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT_DISTINCT 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Count the number of distinct values for <code>property</code>. </p>
-<p>Note: the reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.</p>
-</li>
-<li>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.</p>
+</div>
 <h4 id="count&quot;_&quot;distinctish">COUNT_DISTINCTISH<a class="headerlink" href="#count&quot;_&quot;distinctish" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>: </p>
-<p><code>REDUCE COUNT_DISTINCTISH 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong> </p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT_DISTINCTISH 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. </p>
-<p><strong>Note</strong>: the reducer uses <a href="https://en.wikipedia.org/wiki/HyperLogLog">HyperLogLog</a> counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. </p>
-</li>
-<li>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The reducer uses <a href="https://en.wikipedia.org/wiki/HyperLogLog">HyperLogLog</a> counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. </p>
+</div>
 <h4 id="sum">SUM<a class="headerlink" href="#sum" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE SUM 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE SUM 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the sum of all numeric values of a given property in a group. Non numeric values if the group are counted as 0.</p>
-</li>
-<li>
 <h4 id="min">MIN<a class="headerlink" href="#min" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE MIN 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE MIN 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the minimal value of a property, whether it is a string, number or NULL.</p>
-</li>
-<li>
 <h4 id="max">MAX<a class="headerlink" href="#max" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE MAX 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE MAX 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the maximal value of a property, whether it is a string, number or NULL.</p>
-</li>
-<li>
 <h4 id="avg">AVG<a class="headerlink" href="#avg" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE AVG 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE AVG 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the average value of a numeric property. This is equivalent to reducing by sum and count, and later on applying the ratio of them as an APPLY step.</p>
-</li>
-<li>
 <h4 id="stddev">STDDEV<a class="headerlink" href="#stddev" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE STDDEV 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE STDDEV 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the <a href="https://en.wikipedia.org/wiki/Standard_deviation">standard deviation</a> of a numeric property in the group.</p>
-</li>
-<li>
 <h4 id="quantile">QUANTILE<a class="headerlink" href="#quantile" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE QUANTILE 2 {property} {quantile}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE QUANTILE 2 {property} {quantile}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. <code>REDUCE QUANTILE 2 @foo 0.5 AS median</code> .</p>
 <p>If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. <code>REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99</code> </p>
-</li>
-<li>
 <h4 id="tolist">TOLIST<a class="headerlink" href="#tolist" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE TOLIST 1 {property}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE TOLIST 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Merge all <strong>distinct</strong> values of a given property into a single array. </p>
-</li>
-<li>
 <h4 id="first&quot;_&quot;value">FIRST_VALUE<a class="headerlink" href="#first&quot;_&quot;value" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:</p>
-<p><code>REDUCE FIRST_VALUE 4 @name BY @age DESC</code></p>
+<div class="codehilite"><pre><span></span>REDUCE FIRST_VALUE 4 @name BY @age DESC
+</pre></div>
+
+
 <p>If no <code>BY</code> is specified, we return the first value we encounter in the group.</p>
 <p>If you with to get the top or bottom value in the group sorted by the same value, you are better off using the <code>MIN/MAX</code> reducers, but the same effect will be achieved by doing <code>REDUCE FIRST_VALUE 4 @foo BY @foo DESC</code>.</p>
-</li>
-<li>
 <h4 id="random&quot;_&quot;sample">RANDOM_SAMPLE<a class="headerlink" href="#random&quot;_&quot;sample" title="Permanent link">&para;</a></h4>
-</li>
-<li>
-<p><strong>Format</strong>:</p>
-<p><code>REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}</code></p>
-</li>
-<li>
-<p><strong>Description</strong>:</p>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
 <p>Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.</p>
-</li>
-</ul>
 <h2 id="apply&quot;_&quot;expressions">APPLY expressions<a class="headerlink" href="#apply&quot;_&quot;expressions" title="Permanent link">&para;</a></h2>
 <p><code>APPLY</code> performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. </p>
 <p>The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example: <code>sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)</code> or simply <code>@foo/@bar</code>.</p>
