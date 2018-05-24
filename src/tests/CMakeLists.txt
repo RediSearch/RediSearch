@@ -1,3 +1,5 @@
+INCLUDE (CTest)
+
 FUNCTION(RSTEST name)
     ADD_EXECUTABLE("${name}" "${name}.c")
     TARGET_LINK_LIBRARIES("${name}" "redisearchS")
