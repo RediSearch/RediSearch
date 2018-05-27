@@ -27,9 +27,10 @@ RediSearch supports a few run-time configuration options that should be determin
 
 ## TIMEOUT
 
-The maximum amount of time **in Milliseconds** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. 
+The maximum amount of time **in Milliseconds** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far, or an error depending on the policy set by `ON_TIMEOUT`.
 
-**NOTE**: This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
+!!! note
+    This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
 
 ### Default
 
@@ -39,6 +40,27 @@ The maximum amount of time **in Milliseconds** that a search query is allowed to
 
 ```
 $ redis-server --loadmodule ./redisearch.so TIMEOUT 100
+```
+
+---
+
+## ON_TIMEOUT {policy}
+
+The response policy for queries that exceed the `TIMEOUT` setting.
+
+The policy can be one of the following:
+
+* **RETURN**: this policy will return the top results accumulated by the query until it timed out.
+* **FAIL**: will return an error when the query exeeds the timeout value.
+
+### Default
+
+RETURN
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 ```
 
 ---
@@ -120,4 +142,36 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 
 ```
 $ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
+```
+
+---
+
+## MAXDOCTABLESIZE
+
+The maximum size of the internal hash table used for storing the documents.
+
+### Default
+
+1000000
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
+```
+
+---
+
+## FRISOINI {file_name}
+
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/Chinese#using_custom_dictionaries) for more details.
+
+### Default
+
+Not set
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 ```
