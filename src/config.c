@@ -35,7 +35,7 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   if (argc >= 2 && RMUtil_ArgIndex("MAXDOCTABLESIZE", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("MAXDOCTABLESIZE", argv, argc, "l", &RSGlobalConfig.maxDocTableSize);
     if (RSGlobalConfig.maxDocTableSize <= 0 ||
-        RSGlobalConfig.maxDocTableSize >= DEFAULT_MAX_DOC_TABLE_SIZE) {
+        RSGlobalConfig.maxDocTableSize > MAX_DOC_TABLE_SIZE) {
       *err = "Invalid MAXDOCTABLESIZE value";
       return REDISMODULE_ERR;
     }
