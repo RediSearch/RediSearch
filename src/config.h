@@ -61,14 +61,15 @@ extern RSConfig RSGlobalConfig;
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
 
-#define DEFAULT_MAX_DOC_TABLE_SIZE 1000000
+#define DEFAULT_DOC_TABLE_SIZE 1000000
+#define MAX_DOC_TABLE_SIZE 100000000
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                          \
   {                                                                                                \
     .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                       \
     .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,      \
-    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_MAX_DOC_TABLE_SIZE \
+    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE \
   }
 
 #endif
