@@ -226,7 +226,7 @@ void thpool_destroy(thpool_* thpool_p) {
 void thpool_pause(thpool_* thpool_p) {
   int n;
   for (n = 0; n < thpool_p->num_threads_alive; n++) {
-    pthread_kill(thpool_p->threads[n]->pthread, SIGUSR1);
+    pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
   }
 }
 
@@ -308,7 +308,7 @@ static void* thread_do(struct thread* thread_p) {
   sigemptyset(&act.sa_mask);
   act.sa_flags = 0;
   act.sa_handler = thread_hold;
-  if (sigaction(SIGUSR1, &act, NULL) == -1) {
+  if (sigaction(SIGUSR2, &act, NULL) == -1) {
     err("thread_do(): cannot handle SIGUSR1");
   }
 
