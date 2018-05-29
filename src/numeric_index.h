@@ -55,10 +55,9 @@ typedef struct {
 
   uint32_t revisionId;
 
-  NumericRangeTreeIterator *gcIterator;  // used for gc iterations
 } NumericRangeTree;
 
-#define __isLeaf(n) (n->left == NULL && n->right == NULL)
+#define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
 struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
 

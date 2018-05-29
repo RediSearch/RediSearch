@@ -20,6 +20,13 @@ struct timespec hzToTimeSpec(float hz) {
   return ret;
 }
 
+typedef struct NumericFieldGCCtx {
+  NumericRangeTree *rt;
+  uint32_t revisionId;
+  NumericRangeTreeIterator *gcIterator;
+} NumericFieldGCCtx;
+
+#define NUMERIC_GC_INITIAL_SIZE 4
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct GarbageCollectorCtx {
 
@@ -38,6 +45,8 @@ typedef struct GarbageCollectorCtx {
   // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
   int rdbPossiblyLoading;
 
+  NumericFieldGCCtx **numericGCCtx;
+
 } GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
@@ -47,6 +56,8 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   *gc = (GarbageCollectorCtx){
       .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
   };
+
+  gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
 
   return gc;
 }
@@ -147,24 +158,43 @@ end:
   return totalRemoved;
 }
 
-NumericRangeNode *NextGcNode(NumericRangeTree *rt) {
+static NumericRangeNode *NextGcNode(NumericFieldGCCtx *numericGcCtx) {
   bool runFromStart = false;
-  if (!rt->gcIterator) {
-    rt->gcIterator = NumericRangeTreeIterator_New(rt);
-    runFromStart = true;
-  }
-  NumericRangeNode *rangeNode = NULL;
+  NumericRangeNode *node = NULL;
   do {
-    while ((rangeNode = NumericRangeTreeIterator_Next(rt->gcIterator))) {
-      if (rangeNode->range) {
-        return rangeNode;
+    while ((node = NumericRangeTreeIterator_Next(numericGcCtx->gcIterator))) {
+      if (node->range) {
+        return node;
       }
     }
     assert(!runFromStart);
-    NumericRangeTreeIterator_Free(rt->gcIterator);
-    rt->gcIterator = NumericRangeTreeIterator_New(rt);
+    NumericRangeTreeIterator_Free(numericGcCtx->gcIterator);
+    numericGcCtx->gcIterator = NumericRangeTreeIterator_New(numericGcCtx->rt);
     runFromStart = true;
   } while (true);
+
+  // will never reach here
+  return NULL;
+}
+
+static NumericFieldGCCtx *gc_NewNumericGcCtx(NumericRangeTree *rt) {
+  NumericFieldGCCtx *ctx = rm_malloc(sizeof(NumericFieldGCCtx));
+  ctx->rt = rt;
+  ctx->revisionId = rt->revisionId;
+  ctx->gcIterator = NumericRangeTreeIterator_New(rt);
+  return ctx;
+}
+
+static void gc_FreeNumericGcCtx(NumericFieldGCCtx *ctx) {
+  NumericRangeTreeIterator_Free(ctx->gcIterator);
+  rm_free(ctx);
+}
+
+static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
+  for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
+    gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
+  }
+  array_trimm_len(gc->numericGCCtx, 0);
 }
 
 size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
@@ -191,11 +221,35 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
     goto end;
   }
 
-  FieldSpec *randomField = numericFields[rand() % array_len(numericFields)];
-  array_free(numericFields);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, randomField->name, &idxKey);
+  if (array_len(numericFields) != array_len(gc->numericGCCtx)) {
+    // add all numeric fields to our gc
+    assert(array_len(numericFields) >
+           array_len(gc->numericGCCtx));  // it is not possible to remove fields
+    gc_FreeNumericGcCtxArray(gc);
+    for (int i = 0; i < array_len(numericFields); ++i) {
+      NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[i]->name, &idxKey);
+      // if we could not open the numeric field we probably have a
+      // corruption in our data, better to know it now.
+      assert(rt);
+      gc->numericGCCtx = array_append(gc->numericGCCtx, gc_NewNumericGcCtx(rt));
+      if (idxKey) RedisModule_CloseKey(idxKey);
+    }
+  }
 
-  NumericRangeNode *nextNode = NextGcNode(rt);
+  array_free(numericFields);
+
+  // choose random numeric gc ctx
+  int randomIndex = rand() % array_len(gc->numericGCCtx);
+  NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
+  if (numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
+    // revision changed, recreating our numeric gc ctx
+    assert(numericGcCtx->revisionId < numericGcCtx->rt->revisionId);
+    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(numericGcCtx->rt);
+    gc_FreeNumericGcCtx(numericGcCtx);
+    numericGcCtx = gc->numericGCCtx[randomIndex];
+  }
+
+  NumericRangeNode *nextNode = NextGcNode(numericGcCtx);
   InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, 0,
                        nextNode->range->entries->size, &bytesCollected, &recordsRemoved);
 
@@ -206,7 +260,6 @@ end:
     RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
-  if (idxKey) RedisModule_CloseKey(idxKey);
 
   return recordsRemoved;
 }
@@ -263,6 +316,10 @@ static void gc_onTerm(void *privdata) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_ThreadSafeContextLock(ctx);
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
+  for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
+    gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
+  }
+  array_free(gc->numericGCCtx);
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   free(gc);
