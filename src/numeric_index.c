@@ -135,11 +135,9 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   return n;
 }
 
-#define __isLeaf(n) (n->left == NULL && n->right == NULL)
-
 int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
 
-  if (!__isLeaf(n)) {
+  if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
     if (n->range) {
@@ -205,7 +203,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
   }
 
   // for non leaf nodes - we try to descend into their children
-  if (!__isLeaf(n)) {
+  if (!NumericRangeNode_IsLeaf(n)) {
     __recursiveAddRange(v, n->left, min, max);
     __recursiveAddRange(v, n->right, min, max);
   } else if (NumericRange_Overlaps(n->range, min, max)) {
@@ -248,6 +246,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
+#define GC_NODES_INITIAL_SIZE 10
   NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
@@ -503,7 +502,7 @@ struct __niRdbSaveCtx {
 void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   struct __niRdbSaveCtx *rctx = ctx;
 
-  if (__isLeaf(n) && n->range) {
+  if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
     IndexReader *ir = NewNumericReader(rng->entries, NULL);
@@ -532,4 +531,30 @@ void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 void NumericIndexType_Free(void *value) {
   NumericRangeTree *t = value;
   NumericRangeTree_Free(t);
+}
+
+NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t) {
+#define NODE_STACK_INITIAL_SIZE 4
+  NumericRangeTreeIterator *iter = rm_malloc(sizeof(NumericRangeTreeIterator));
+  iter->nodesStack = array_new(NumericRangeNode *, NODE_STACK_INITIAL_SIZE);
+  array_append(iter->nodesStack, t->root);
+  return iter;
+}
+
+NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) {
+  if (array_len(iter->nodesStack) == 0) {
+    return NULL;
+  }
+  NumericRangeNode *ret = array_pop(iter->nodesStack);
+  if (!NumericRangeNode_IsLeaf(ret)) {
+    iter->nodesStack = array_append(iter->nodesStack, ret->left);
+    iter->nodesStack = array_append(iter->nodesStack, ret->right);
+  }
+
+  return ret;
+}
+
+void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
+  array_free(iter->nodesStack);
+  rm_free(iter);
 }

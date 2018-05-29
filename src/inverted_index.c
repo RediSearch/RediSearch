@@ -378,6 +378,9 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
     case Index_DocIdsOnly:
       return encodeDocIdsOnly;
 
+    case Index_StoreNumeric:
+      return encodeNumeric;
+
     // invalid encoder - we will fail
     default:
       break;
@@ -920,7 +923,7 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
   BufferReader br = NewBufferReader(blk->data);
   BufferWriter bw = NewBufferWriter(&repair);
 
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
   int frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
@@ -971,7 +974,7 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     }
   }
   if (frags) {
-    // If we deleted stuff from this block, we need to chagne the number of docs and the data
+    // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     blk->numDocs -= frags;
     *blk->data = repair;

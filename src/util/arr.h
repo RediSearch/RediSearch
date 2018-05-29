@@ -160,7 +160,7 @@ static void array_free(array_t arr) {
 #define array_pop(arr)               \
   ({                                 \
     assert(array_hdr(arr)->len > 0); \
-    arr[(array_hdr(arr)->len)--];    \
+    arr[--(array_hdr(arr)->len)];    \
   })
 
 #endif
