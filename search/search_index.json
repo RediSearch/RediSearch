@@ -637,7 +637,7 @@
         }, 
         {
             "location": "/Configuring/", 
-            "text": "Run-time configuration\n\n\nRediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. \n\n\n\n\nPassing Configuration Options\n\n\nIn general, passing configuration options is done by appending arguments after the \n--loadmodule\n argument in the command line, \nloadmodule\n configuration directive in a Redis config file, or the \nMODULE LOAD\n command. For example:\n\n\nIn redis.conf:\n\n\nloadmodule redisearch.so OPT1 OPT2\n\n\nFrom redis-cli:\n\n\n127.0.0.6379\n MODULE load redisearch.so OPT1 OPT2\n\n\nFrom command line:\n\n\n$ redis-server --loadmodule ./redisearch.so OPT1 OPT2\n\n\n\n\nRediSearch configuration options\n\n\nTIMEOUT\n\n\nThe maximum amount of time \nin Milliseconds\n that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far. \n\n\nNOTE\n: This works only in concurrent mode, so enabling \nSAFEMODE\n disables this option.\n\n\nDefault\n\n\n500\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so TIMEOUT \n100\n\n\n\n\n\n\n\n\nSAFEMODE\n\n\nIf present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.\n\n\nThis is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily inconsistent results (i.e. documents that were valid during the invocation of the query are not returned because they were deleted during query processing).\n\n\nDefault\n\n\nOff (not present)\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so SAFEMODE\n\n\n\n\n\n\n\nEXTLOAD {file_name}\n\n\nIf present, we try to load a RediSearch extension dynamic library from the specified file path. See \nExtensions\n for details.\n\n\nDefault\n\n\nNone\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so\n\n\n\n\n\n\n\nNOGC\n\n\nIf set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.\n\n\nDefault\n\n\nNot set\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so NOGC\n\n\n\n\n\n\n\nMINPREFIX\n\n\nThe minimum number of characters we allow for prefix queries (e.g. \nhel*\n). Setting it to 1 can hurt performance.\n\n\nDefault\n\n\n2\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so MINPREFIX \n3\n\n\n\n\n\n\n\n\nMAXEXPANSIONS\n\n\nThe maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.\n\n\nDefault\n\n\n200\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS \n1000", 
+            "text": "Run-time configuration\n\n\nRediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. \n\n\n\n\nPassing Configuration Options\n\n\nIn general, passing configuration options is done by appending arguments after the \n--loadmodule\n argument in the command line, \nloadmodule\n configuration directive in a Redis config file, or the \nMODULE LOAD\n command. For example:\n\n\nIn redis.conf:\n\n\nloadmodule redisearch.so OPT1 OPT2\n\n\nFrom redis-cli:\n\n\n127.0.0.6379\n MODULE load redisearch.so OPT1 OPT2\n\n\nFrom command line:\n\n\n$ redis-server --loadmodule ./redisearch.so OPT1 OPT2\n\n\n\n\nRediSearch configuration options\n\n\nTIMEOUT\n\n\nThe maximum amount of time \nin Milliseconds\n that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far, or an error depending on the policy set by \nON_TIMEOUT\n.\n\n\n\n\nNote\n\n\nThis works only in concurrent mode, so enabling \nSAFEMODE\n disables this option.\n\n\n\n\nDefault\n\n\n500\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so TIMEOUT \n100\n\n\n\n\n\n\n\n\nON_TIMEOUT {policy}\n\n\nThe response policy for queries that exceed the \nTIMEOUT\n setting.\n\n\nThe policy can be one of the following:\n\n\n\n\nRETURN\n: this policy will return the top results accumulated by the query until it timed out.\n\n\nFAIL\n: will return an error when the query exeeds the timeout value.\n\n\n\n\nDefault\n\n\nRETURN\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail\n\n\n\n\n\n\n\nSAFEMODE\n\n\nIf present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.\n\n\nThis is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily inconsistent results (i.e. documents that were valid during the invocation of the query are not returned because they were deleted during query processing).\n\n\nDefault\n\n\nOff (not present)\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so SAFEMODE\n\n\n\n\n\n\n\nEXTLOAD {file_name}\n\n\nIf present, we try to load a RediSearch extension dynamic library from the specified file path. See \nExtensions\n for details.\n\n\nDefault\n\n\nNone\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so\n\n\n\n\n\n\n\nNOGC\n\n\nIf set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.\n\n\nDefault\n\n\nNot set\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so NOGC\n\n\n\n\n\n\n\nMINPREFIX\n\n\nThe minimum number of characters we allow for prefix queries (e.g. \nhel*\n). Setting it to 1 can hurt performance.\n\n\nDefault\n\n\n2\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so MINPREFIX \n3\n\n\n\n\n\n\n\n\nMAXEXPANSIONS\n\n\nThe maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.\n\n\nDefault\n\n\n200\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS \n1000\n\n\n\n\n\n\n\n\nMAXDOCTABLESIZE\n\n\nThe maximum size of the internal hash table used for storing the documents.\n\n\nDefault\n\n\n1000000\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE \n3000000\n\n\n\n\n\n\n\n\nFRISOINI {file_name}\n\n\nIf present, we load the custom Chinese dictionary from the specified path. See \nUsing custom dictionaries\n for more details.\n\n\nDefault\n\n\nNot set\n\n\nExample\n\n\n$ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini", 
             "title": "Configuration"
         }, 
         {
@@ -652,7 +652,7 @@
         }, 
         {
             "location": "/Configuring/#timeout", 
-            "text": "The maximum amount of time  in Milliseconds  that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far.   NOTE : This works only in concurrent mode, so enabling  SAFEMODE  disables this option.", 
+            "text": "The maximum amount of time  in Milliseconds  that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far, or an error depending on the policy set by  ON_TIMEOUT .   Note  This works only in concurrent mode, so enabling  SAFEMODE  disables this option.", 
             "title": "TIMEOUT"
         }, 
         {
@@ -666,17 +666,32 @@
             "title": "Example"
         }, 
         {
+            "location": "/Configuring/#on\"_\"timeout\"_\"policy", 
+            "text": "The response policy for queries that exceed the  TIMEOUT  setting.  The policy can be one of the following:   RETURN : this policy will return the top results accumulated by the query until it timed out.  FAIL : will return an error when the query exeeds the timeout value.", 
+            "title": "ON_TIMEOUT {policy}"
+        }, 
+        {
+            "location": "/Configuring/#default_1", 
+            "text": "RETURN", 
+            "title": "Default"
+        }, 
+        {
+            "location": "/Configuring/#example_1", 
+            "text": "$ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail", 
+            "title": "Example"
+        }, 
+        {
             "location": "/Configuring/#safemode", 
             "text": "If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.  This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily inconsistent results (i.e. documents that were valid during the invocation of the query are not returned because they were deleted during query processing).", 
             "title": "SAFEMODE"
         }, 
         {
-            "location": "/Configuring/#default_1", 
+            "location": "/Configuring/#default_2", 
             "text": "Off (not present)", 
             "title": "Default"
         }, 
         {
-            "location": "/Configuring/#example_1", 
+            "location": "/Configuring/#example_2", 
             "text": "$ redis-server --loadmodule ./redisearch.so SAFEMODE", 
             "title": "Example"
         }, 
@@ -686,12 +701,12 @@
             "title": "EXTLOAD {file_name}"
         }, 
         {
-            "location": "/Configuring/#default_2", 
+            "location": "/Configuring/#default_3", 
             "text": "None", 
             "title": "Default"
         }, 
         {
-            "location": "/Configuring/#example_2", 
+            "location": "/Configuring/#example_3", 
             "text": "$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so", 
             "title": "Example"
         }, 
@@ -701,12 +716,12 @@
             "title": "NOGC"
         }, 
         {
-            "location": "/Configuring/#default_3", 
+            "location": "/Configuring/#default_4", 
             "text": "Not set", 
             "title": "Default"
         }, 
         {
-            "location": "/Configuring/#example_3", 
+            "location": "/Configuring/#example_4", 
             "text": "$ redis-server --loadmodule ./redisearch.so NOGC", 
             "title": "Example"
         }, 
@@ -716,12 +731,12 @@
             "title": "MINPREFIX"
         }, 
         {
-            "location": "/Configuring/#default_4", 
+            "location": "/Configuring/#default_5", 
             "text": "2", 
             "title": "Default"
         }, 
         {
-            "location": "/Configuring/#example_4", 
+            "location": "/Configuring/#example_5", 
             "text": "$ redis-server --loadmodule ./redisearch.so MINPREFIX  3", 
             "title": "Example"
         }, 
@@ -731,13 +746,43 @@
             "title": "MAXEXPANSIONS"
         }, 
         {
-            "location": "/Configuring/#default_5", 
+            "location": "/Configuring/#default_6", 
             "text": "200", 
             "title": "Default"
         }, 
         {
-            "location": "/Configuring/#example_5", 
+            "location": "/Configuring/#example_6", 
             "text": "$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS  1000", 
+            "title": "Example"
+        }, 
+        {
+            "location": "/Configuring/#maxdoctablesize", 
+            "text": "The maximum size of the internal hash table used for storing the documents.", 
+            "title": "MAXDOCTABLESIZE"
+        }, 
+        {
+            "location": "/Configuring/#default_7", 
+            "text": "1000000", 
+            "title": "Default"
+        }, 
+        {
+            "location": "/Configuring/#example_7", 
+            "text": "$ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE  3000000", 
+            "title": "Example"
+        }, 
+        {
+            "location": "/Configuring/#frisoini\"_\"file\"_\"name", 
+            "text": "If present, we load the custom Chinese dictionary from the specified path. See  Using custom dictionaries  for more details.", 
+            "title": "FRISOINI {file_name}"
+        }, 
+        {
+            "location": "/Configuring/#default_8", 
+            "text": "Not set", 
+            "title": "Default"
+        }, 
+        {
+            "location": "/Configuring/#example_8", 
+            "text": "$ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini", 
             "title": "Example"
         }, 
         {
