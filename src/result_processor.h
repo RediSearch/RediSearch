@@ -122,6 +122,9 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
       }
     }
     if (RSKEY_ISVALIDIDX(idx)) {
+      if(idx >= res->scorerPrivateData->sortVector->len){
+        return RS_NullVal();
+      }
       return (res->scorerPrivateData->sortVector->values[idx]);
     }
   }
