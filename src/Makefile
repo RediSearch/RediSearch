@@ -44,6 +44,7 @@ CC_SOURCES += $(wildcard $(SOURCEDIR)/aggregate/*/*.c)
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/thpool/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/hll/*.c) 
 CC_SOURCES += $(wildcard $(SOURCEDIR)/dep/cndict/*.c)
+CC_SOURCES += $(wildcard $(SOURCEDIR)/module-init/*.c)
 
 # Convert all sources to .o files
 CC_OBJECTS = $(sort $(patsubst %.c, %.o, $(CC_SOURCES) ))

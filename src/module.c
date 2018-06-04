@@ -7,7 +7,6 @@
 
 #include "commands.h"
 #include "document.h"
-#include "version.h"
 #include "forward_index.h"
 #include "geo_index.h"
 #include "tag_index.h"
@@ -1835,16 +1834,3 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }
-
-/* Only compile the entry point if compiling the module as a standalone module */
-#ifndef RS_STATIC
-
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-
-#endif
