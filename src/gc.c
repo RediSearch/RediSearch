@@ -27,6 +27,10 @@ typedef struct NumericFieldGCCtx {
 } NumericFieldGCCtx;
 
 #define NUMERIC_GC_INITIAL_SIZE 4
+
+#define SPEC_STATUS_OK 1
+#define SPEC_STATUS_INVALID 2
+
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct GarbageCollectorCtx {
 
@@ -93,9 +97,7 @@ void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t record
   gc->stats.totalCollected += bytesCollected;
 }
 
-enum gc_status { STATUS_OK, INVALID_SPEC };
-
-size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_status *status) {
+size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   size_t totalRemoved = 0;
@@ -103,7 +105,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_statu
   if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
-    *status = INVALID_SPEC;
+    *status = SPEC_STATUS_INVALID;
     goto end;
   }
   // Select a weighted random term
@@ -148,7 +150,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_statu
       sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
       // sctx null --> means it was deleted and we need to stop right now
       if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
-        *status = INVALID_SPEC;
+        *status = SPEC_STATUS_INVALID;
         break;
       }
 
@@ -162,7 +164,6 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_statu
   }
   free(term);
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
-  *status = STATUS_OK;
 end:
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
@@ -212,7 +213,7 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
-size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_status *status) {
+size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
 #define NUMERIC_FIELDS_ARRAY_CAP 2
   size_t bytesCollected = 0;
   size_t recordsRemoved = 0;
@@ -221,7 +222,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_sta
   if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
-    *status = INVALID_SPEC;
+    *status = SPEC_STATUS_INVALID;
     goto end;
   }
   IndexSpec *spec = sctx->spec;
@@ -301,7 +302,7 @@ static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   size_t totalRemoved = 0;
-  enum gc_status status;
+  int status = SPEC_STATUS_OK;
 
   totalRemoved += gc_RandomTerm(ctx, gc, &status);
 
@@ -326,7 +327,7 @@ end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
 
-  return status == STATUS_OK;
+  return status == SPEC_STATUS_OK;
 }
 
 /* Termination callback for the GC. Called after we stop, and frees up all the resources. */
