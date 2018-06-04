@@ -11,7 +11,7 @@ struct RMUtilTimer;
 /* RMutilTimerFunc - callback type for timer tasks. The ctx is a thread-safe redis module context
  * that should be locked/unlocked by the callback when running stuff against redis. privdata is
  * pre-existing private data */
-typedef void (*RMutilTimerFunc)(RedisModuleCtx *ctx, void *privdata);
+typedef int (*RMutilTimerFunc)(RedisModuleCtx *ctx, void *privdata);
 
 typedef void (*RMUtilTimerTerminationFunc)(void *privdata);
 
