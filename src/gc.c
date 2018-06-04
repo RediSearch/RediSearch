@@ -47,17 +47,25 @@ typedef struct GarbageCollectorCtx {
 
   NumericFieldGCCtx **numericGCCtx;
 
+  uint64_t spec_unique_id;
+
 } GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ) {
+GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ,
+                                         uint64_t spec_unique_id) {
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
+      .timer = NULL,
+      .hz = initialHZ,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
   };
 
   gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
+  gc->spec_unique_id = spec_unique_id;
 
   return gc;
 }
@@ -85,14 +93,17 @@ void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t record
   gc->stats.totalCollected += bytesCollected;
 }
 
-size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
+enum gc_status { STATUS_OK, INVALID_SPEC };
+
+size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_status *status) {
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
-  if (!sctx) {
+  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
+    *status = INVALID_SPEC;
     goto end;
   }
   // Select a weighted random term
@@ -136,7 +147,10 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
       // reopen the context - it might have gone away!
       sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
       // sctx null --> means it was deleted and we need to stop right now
-      if (!sctx) break;
+      if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+        *status = INVALID_SPEC;
+        break;
+      }
 
       // reopen the inverted index - it might have gone away
       idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
@@ -148,6 +162,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
   }
   free(term);
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
+  *status = STATUS_OK;
 end:
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
@@ -197,15 +212,16 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
-size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
+size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, enum gc_status *status) {
 #define NUMERIC_FIELDS_ARRAY_CAP 2
   size_t bytesCollected = 0;
   size_t recordsRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
-  if (!sctx) {
+  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
+    *status = INVALID_SPEC;
     goto end;
   }
   IndexSpec *spec = sctx->spec;
@@ -266,7 +282,7 @@ end:
 
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
  * random) */
-static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
+static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
@@ -285,10 +301,11 @@ static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   size_t totalRemoved = 0;
+  enum gc_status status;
 
-  totalRemoved += gc_RandomTerm(ctx, gc);
+  totalRemoved += gc_RandomTerm(ctx, gc, &status);
 
-  totalRemoved += gc_NumericIndex(ctx, gc);
+  totalRemoved += gc_NumericIndex(ctx, gc, &status);
 
   gc->stats.numCycles++;
   gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;
@@ -308,6 +325,8 @@ static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
 end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
+
+  return status == STATUS_OK;
 }
 
 /* Termination callback for the GC. Called after we stop, and frees up all the resources. */

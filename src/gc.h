@@ -30,7 +30,8 @@ typedef struct {
 typedef struct GarbageCollectorCtx GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initial_hz);
+GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initial_hz,
+                                         uint64_t spec_unique_id);
 
 // Start the collector thread
 int GC_Start(GarbageCollectorCtx *ctx);

@@ -186,6 +186,8 @@ typedef struct {
 
   SynonymMap *smap;
 
+  uint64_t unique_id;
+
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

@@ -40,7 +40,9 @@ static void *rmutilTimer_Loop(void *ctx) {
       if (RedisModule_GetThreadSafeContext) rctx = RedisModule_GetThreadSafeContext(NULL);
 
       // call our callback...
-      tm->cb(rctx, tm->privdata);
+      if (!tm->cb(rctx, tm->privdata)) {
+        break;
+      }
 
       // If needed - free the thread safe context.
       // It's up to the user to decide whether automemory is active there
