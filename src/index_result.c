@@ -116,18 +116,18 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
   for (int i = 0; i < depth; i++) printf("  ");
 
   if (r->type == RSResultType_Term) {
-    printf("Term{%u: %s},\n", r->docId, r->term.term ? r->term.term->str : "nil");
+    printf("Term{%llu: %s},\n", (unsigned long long)r->docId, r->term.term ? r->term.term->str : "nil");
     return;
   }
   if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%u},\n", r->docId);
+    printf("Virtual{%llu},\n", (unsigned long long)r->docId);
     return;
   }
   if (r->type == RSResultType_Numeric) {
-    printf("Numeric{%u:%f},\n", r->docId, r->num.value);
+    printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
     return;
   }
-  printf("%s => %u{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union", r->docId);
+  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union", (unsigned long long)r->docId);
 
   for (int i = 0; i < r->agg.numChildren; i++) {
 

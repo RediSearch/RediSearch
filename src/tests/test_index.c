@@ -245,7 +245,7 @@ InvertedIndex *createIndex(int size, int idStep) {
 }
 
 int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
-  printf("intersect: %d\n", hits[0].docId);
+  printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
   return 0;
 }
 
@@ -385,7 +385,7 @@ int testPureNot() {
   InvertedIndex *w = createIndex(10, 3);
 
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
-  printf("last id: %d\n", w->lastId);
+  printf("last id: %llu\n", (unsigned long long)w->lastId);
 
   IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1);
 

@@ -882,7 +882,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
       s = sdscat(s, "IDS { ");
       for (int i = 0; i < qs->fn.f->size; i++) {
-        s = sdscatprintf(s, "%llu,", qs->fn.f->ids[i]);
+        s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.f->ids[i]);
       }
       break;
     case QN_WILDCARD:
