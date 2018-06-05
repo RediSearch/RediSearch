@@ -12,6 +12,7 @@
 !**/CMakeLists.txt
 !/cndict
 /site
+/build*
 !/debian/*
 
 src/dep/snowball/libstemmer/mkinc.mak
