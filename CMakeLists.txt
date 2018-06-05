@@ -1,6 +1,8 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
 PROJECT(redisearch)
 
+OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
+
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -Werror=implicit-function-declaration -pthread")
@@ -48,6 +50,8 @@ SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 TARGET_LINK_LIBRARIES(redisearchS -lm -lc -ldl)
 
-ENABLE_TESTING()
-ADD_SUBDIRECTORY(src/tests)
-ADD_SUBDIRECTORY(src/pytest)
+IF (RS_RUN_TESTS)
+    ENABLE_TESTING()
+    ADD_SUBDIRECTORY(src/tests)
+    ADD_SUBDIRECTORY(src/pytest)
+ENDIF()
