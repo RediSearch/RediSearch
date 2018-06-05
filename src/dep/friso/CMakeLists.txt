@@ -1,3 +1,7 @@
+IF ("${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-tautological-compare")
+ENDIF()
+
 ADD_LIBRARY(friso OBJECT
     friso.c
     friso_array.c
