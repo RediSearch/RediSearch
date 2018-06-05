@@ -284,7 +284,7 @@ end:
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
  * random) */
 static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
-
+  int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
   GarbageCollectorCtx *gc = privdata;
@@ -302,7 +302,6 @@ static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
   }
 
   size_t totalRemoved = 0;
-  int status = SPEC_STATUS_OK;
 
   totalRemoved += gc_RandomTerm(ctx, gc, &status);
 
