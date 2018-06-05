@@ -61,11 +61,7 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL,
-      .hz = initialHZ,
-      .keyName = k,
-      .stats = {},
-      .rdbPossiblyLoading = 1,
+      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
   };
 
   gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
@@ -139,15 +135,8 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
 
       // After each iteration we yield execution
       // First we close the relevant keys we're touching
-      RedisModule_CloseKey(sctx->key);
       RedisModule_CloseKey(idxKey);
-      SearchCtx_Free(sctx);
-      // now release the global lock
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      // try to acquire it again...
-      RedisModule_ThreadSafeContextLock(ctx);
-      // reopen the context - it might have gone away!
-      sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+      sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
       // sctx null --> means it was deleted and we need to stop right now
       if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
         *status = SPEC_STATUS_INVALID;
@@ -215,7 +204,6 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
 
 size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
 #define NUMERIC_FIELDS_ARRAY_CAP 2
-  size_t totalCollected = 0;
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
@@ -274,25 +262,15 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
     size_t bytesCollected = 0;
     size_t recordsRemoved = 0;
     // repair 100 blocks at once
-    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs,
-                                    blockNum, num, &bytesCollected, &recordsRemoved);
+    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, num,
+                                    &bytesCollected, &recordsRemoved);
     /// update the statistics with the the number of records deleted
     totalRemoved += recordsRemoved;
     gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
-    totalCollected += bytesCollected;
     // blockNum 0 means error or we've finished
     if (!blockNum) break;
 
-    // After each iteration we yield execution
-    // First we close the relevant keys we're touching
-    RedisModule_CloseKey(sctx->key);
-    SearchCtx_Free(sctx);
-    // now release the global lock
-    RedisModule_ThreadSafeContextUnlock(ctx);
-    // try to acquire it again...
-    RedisModule_ThreadSafeContextLock(ctx);
-    // reopen the context - it might have gone away!
-    sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+    sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
     // sctx null --> means it was deleted and we need to stop right now
     if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
       *status = SPEC_STATUS_INVALID;
@@ -302,8 +280,6 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
       break;
     }
   } while (true);
-
-  gc_updateStats(sctx, gc, totalRemoved, totalCollected);
 
 end:
   if (sctx) {
