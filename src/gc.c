@@ -215,8 +215,8 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
 
 size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
 #define NUMERIC_FIELDS_ARRAY_CAP 2
-  size_t bytesCollected = 0;
-  size_t recordsRemoved = 0;
+  size_t totalCollected = 0;
+  size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
@@ -267,10 +267,43 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
 
   NumericRangeNode *nextNode = NextGcNode(numericGcCtx);
-  InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, 0,
-                       nextNode->range->entries->size, &bytesCollected, &recordsRemoved);
 
-  gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
+  int blockNum = 0;
+  int num = 100;
+  do {
+    size_t bytesCollected = 0;
+    size_t recordsRemoved = 0;
+    // repair 100 blocks at once
+    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs,
+                                    blockNum, num, &bytesCollected, &recordsRemoved);
+    /// update the statistics with the the number of records deleted
+    totalRemoved += recordsRemoved;
+    gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
+    totalCollected += bytesCollected;
+    // blockNum 0 means error or we've finished
+    if (!blockNum) break;
+
+    // After each iteration we yield execution
+    // First we close the relevant keys we're touching
+    RedisModule_CloseKey(sctx->key);
+    SearchCtx_Free(sctx);
+    // now release the global lock
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    // try to acquire it again...
+    RedisModule_ThreadSafeContextLock(ctx);
+    // reopen the context - it might have gone away!
+    sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+    // sctx null --> means it was deleted and we need to stop right now
+    if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+      *status = SPEC_STATUS_INVALID;
+      break;
+    }
+    if (numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
+      break;
+    }
+  } while (true);
+
+  gc_updateStats(sctx, gc, totalRemoved, totalCollected);
 
 end:
   if (sctx) {
@@ -278,7 +311,7 @@ end:
     SearchCtx_Free(sctx);
   }
 
-  return recordsRemoved;
+  return totalRemoved;
 }
 
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
