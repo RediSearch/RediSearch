@@ -248,7 +248,7 @@ fail:
   return NULL;
 }
 
-static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx, char **err) {
+ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char **err) {
 
   AggregatePlan *ap = ctx;
   // The base processor translates index results into search results
@@ -259,8 +259,8 @@ static ResultProcessor *Aggregate_BuildProcessorChain(QueryPlan *plan, void *ctx
   return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
 }
 
-int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisModuleString **argv,
-                           int argc, char **err) {
+int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, ProcessorChainBuilder pcb,
+                           RedisModuleString **argv, int argc, char **err) {
 
   req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
   if (!req->args) {
@@ -296,8 +296,7 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, RedisMod
   if (!req->ap.verbatim) {
     Query_Expand(req->parseCtx, opts.expander);
   }
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, Aggregate_BuildProcessorChain, &req->ap,
-                              (char **)err);
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, pcb, &req->ap, (char **)err);
   if (!req->plan) {
     SET_ERR(err, QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;
