@@ -56,4 +56,11 @@ ResultProcessor *GetProjector(ResultProcessor *upstream, const char *name, const
 
 ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *expr,
                            size_t len, char **err);
+
+// Entry points
+void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                    struct ConcurrentCmdCtx *cmdCtx);
+void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 struct ConcurrentCmdCtx *);
+
 #endif
