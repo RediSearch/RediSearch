@@ -93,6 +93,7 @@ void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t record
   gc->stats.totalCollected += bytesCollected;
 }
 
+#define DOCS_TO_SCAN_EACH_ITERATION 100
 size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
@@ -116,13 +117,12 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
   if (idx) {
     int blockNum = 0;
-    int num = 100;
     do {
       size_t bytesCollected = 0;
       size_t recordsRemoved = 0;
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
-      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, num, &bytesCollected,
+      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, DOCS_TO_SCAN_EACH_ITERATION, &bytesCollected,
                                       &recordsRemoved);
       TimeSampler_End(&ts);
       RedisModule_Log(ctx, "debug", "Repair took %lldns", TimeSampler_DurationNS(&ts));
@@ -246,10 +246,15 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   // choose random numeric gc ctx
   int randomIndex = rand() % array_len(gc->numericGCCtx);
   NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
-  if (numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
-    // revision changed, recreating our numeric gc ctx
-    assert(numericGcCtx->revisionId < numericGcCtx->rt->revisionId);
-    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(numericGcCtx->rt);
+
+  // open the relevent numeric index to check that our pointer is valid
+  NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[randomIndex]->name, &idxKey);
+  if (idxKey) RedisModule_CloseKey(idxKey);
+
+  if (numericGcCtx->rt != rt || numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
+    // memory or revision changed, recreating our numeric gc ctx
+    assert(numericGcCtx->rt != rt || numericGcCtx->revisionId < numericGcCtx->rt->revisionId);
+    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(rt);
     gc_FreeNumericGcCtx(numericGcCtx);
     numericGcCtx = gc->numericGCCtx[randomIndex];
   }
@@ -257,13 +262,12 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   NumericRangeNode *nextNode = NextGcNode(numericGcCtx);
 
   int blockNum = 0;
-  int num = 100;
   do {
     size_t bytesCollected = 0;
     size_t recordsRemoved = 0;
     // repair 100 blocks at once
-    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, num,
-                                    &bytesCollected, &recordsRemoved);
+    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum,
+                                    DOCS_TO_SCAN_EACH_ITERATION, &bytesCollected, &recordsRemoved);
     /// update the statistics with the the number of records deleted
     totalRemoved += recordsRemoved;
     gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
