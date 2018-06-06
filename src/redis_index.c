@@ -152,6 +152,19 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL));
 }
 
+RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
+  // First we close the relevant keys we're touching
+  RedisModule_CloseKey(sctx->key);
+  RedisModuleCtx *redisCtx = sctx->redisCtx;
+  SearchCtx_Free(sctx);
+  // now release the global lock
+  RedisModule_ThreadSafeContextUnlock(redisCtx);
+  // try to acquire it again...
+  RedisModule_ThreadSafeContextLock(redisCtx);
+  // reopen the context - it might have gone away!
+  return NewSearchCtx(redisCtx, keyName);
+}
+
 void SearchCtx_Free(RedisSearchCtx *sctx) {
 
   rm_free(sctx);

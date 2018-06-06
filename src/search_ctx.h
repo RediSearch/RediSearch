@@ -24,6 +24,7 @@ typedef struct {
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName);
+RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName);
 
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName);
