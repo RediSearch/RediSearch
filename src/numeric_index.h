@@ -24,6 +24,8 @@ typedef struct {
   double minVal;
   double maxVal;
 
+  double unique_sum;
+
   u_int16_t card;
   uint32_t splitCard;
   double *values;

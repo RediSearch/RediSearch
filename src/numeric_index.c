@@ -82,6 +82,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (add) {
     if (n->card < n->splitCard) {
       n->values[n->card] = value;
+      n->unique_sum += value;
     }
     ++n->card;
   }
@@ -93,7 +94,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
 
-  double split = (n->minVal + n->maxVal) / (double)2;
+  double split = (n->unique_sum) / (double)n->card;
 
   // printf("split point :%f\n", split);
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
@@ -128,6 +129,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
+                             .unique_sum = 0,
                              .card = 0,
                              .splitCard = splitCard,
                              .values = RedisModule_Calloc(splitCard, sizeof(double)),
