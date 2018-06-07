@@ -259,8 +259,9 @@ ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char 
   return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
 }
 
-int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, ProcessorChainBuilder pcb,
-                           RedisModuleString **argv, int argc, char **err) {
+int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
+                           const AggregateRequestSettings *settings, RedisModuleString **argv,
+                           int argc, char **err) {
 
   req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
   if (!req->args) {
@@ -285,18 +286,21 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, Processo
   if (req->ap.verbatim) {
     opts.flags |= Search_Verbatim;
   }
+  if (settings->noParseQuery) {
+    req->parseCtx = NULL;
+  } else {
+    req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
-  req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
+    if (!Query_Parse(req->parseCtx, (char **)err)) {
+      SET_ERR(err, "Unknown error");
+      return REDISMODULE_ERR;
+    }
 
-  if (!Query_Parse(req->parseCtx, (char **)err)) {
-    SET_ERR(err, "Unknown error");
-    return REDISMODULE_ERR;
+    if (!req->ap.verbatim) {
+      Query_Expand(req->parseCtx, opts.expander);
+    }
   }
-
-  if (!req->ap.verbatim) {
-    Query_Expand(req->parseCtx, opts.expander);
-  }
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, pcb, &req->ap, (char **)err);
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, settings->pcb, &req->ap, (char **)err);
   if (!req->plan) {
     SET_ERR(err, QUERY_ERROR_INTERNAL_STR);
     return REDISMODULE_ERR;

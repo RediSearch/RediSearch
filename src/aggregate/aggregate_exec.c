@@ -8,7 +8,8 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                     struct ConcurrentCmdCtx *cmdCtx) {
-  AggregateCommand_ExecAggregateEx(ctx, argv, argc, cmdCtx, Aggregate_DefaultChainBuilder);
+  AggregateCommand_ExecAggregateEx(
+      ctx, argv, argc, cmdCtx, &(AggregateRequestSettings){.pcb = Aggregate_DefaultChainBuilder});
 }
 
 /**
@@ -35,7 +36,8 @@ void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **arg
     [AS {AS:string}]
   ] */
 void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                      struct ConcurrentCmdCtx *cmdCtx, ProcessorChainBuilder pcb) {
+                                      struct ConcurrentCmdCtx *cmdCtx,
+                                      const AggregateRequestSettings *settings) {
 
   // at least one field, and number of field/text args must be even
 
@@ -50,7 +52,7 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
   AggregateRequest req_s = {NULL}, *req = &req_s;
   int hasCursor = 0;
 
-  if (AggregateRequest_Start(req, sctx, pcb, argv, argc, &err) != REDISMODULE_OK) {
+  if (AggregateRequest_Start(req, sctx, settings, argv, argc, &err) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, err ? err : "Could not perform request");
     ERR_FREE(err);
     goto done;

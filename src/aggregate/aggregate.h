@@ -31,11 +31,17 @@ void Aggregate_BuildSchema();
 
 ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char **err);
 
+typedef struct {
+  ProcessorChainBuilder pcb;
+  int noParseQuery;
+} AggregateRequestSettings;
+
 /**
  * Note that this does not initialize the structure; use
  */
-int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx, ProcessorChainBuilder pcb,
-                           RedisModuleString **argv, int argc, char **err);
+int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
+                           const AggregateRequestSettings *settings, RedisModuleString **argv,
+                           int argc, char **err);
 void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx);
 void AggregateRequest_Free(AggregateRequest *req);
 
@@ -63,7 +69,8 @@ ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, cons
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                     struct ConcurrentCmdCtx *cmdCtx);
 void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                      struct ConcurrentCmdCtx *cmdCtx, ProcessorChainBuilder pcb);
+                                      struct ConcurrentCmdCtx *cmdCtx,
+                                      const AggregateRequestSettings *setings);
 void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  struct ConcurrentCmdCtx *);
 
