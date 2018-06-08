@@ -31,9 +31,19 @@ void Aggregate_BuildSchema();
 
 ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char **err);
 
+// Don't enable concurrent mode.
+#define AGGREGATE_REQUEST_NO_CONCURRENT 0x01
+
+// Only generate the plan
+#define AGGREGATE_REQUEST_NO_PARSE_QUERY 0x02
+
+// Don't attempt to open the spec
+#define AGGREGATE_REQUEST_SPECLESS 0x04
+
 typedef struct {
   ProcessorChainBuilder pcb;
-  int noParseQuery;
+  const char *cursorLookupName;  // Override the index name in the SearchCtx
+  int flags;                     // AGGREGATE_REQUEST_XXX
 } AggregateRequestSettings;
 
 /**

@@ -42,7 +42,12 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
   // at least one field, and number of field/text args must be even
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx;
+  if (settings->flags & AGGREGATE_REQUEST_SPECLESS) {
+    sctx = NewSearchCtxDefault(ctx);
+  } else {
+    sctx = NewSearchCtx(ctx, argv[1]);
+  }
   if (sctx == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
     return;
@@ -60,7 +65,10 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
 
   if (req->ap.hasCursor) {
     // Using a cursor here!
-    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, req->ap.cursor.maxIdle, &err);
+    const char *idxName = settings->cursorLookupName ? settings->cursorLookupName
+                                                     : RedisModule_StringPtrLen(argv[1], NULL);
+
+    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, idxName, req->ap.cursor.maxIdle, &err);
     if (!cursor) {
       RedisModule_ReplyWithError(ctx, err ? err : "Could not open cursor");
       ERR_FREE(err);
@@ -133,7 +141,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     return;
   }
   AggregateRequest *req = cursor->execState;
-  ConcurrentSearchCtx_ReopenKeys(req->plan->conc);
+  if (req->plan->conc) {
+    ConcurrentSearchCtx_ReopenKeys(req->plan->conc);
+  }
   runCursor(ctx, cursor, count);
 }
 

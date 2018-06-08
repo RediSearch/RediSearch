@@ -286,7 +286,10 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
   if (req->ap.verbatim) {
     opts.flags |= Search_Verbatim;
   }
-  if (settings->noParseQuery) {
+  if (settings->flags & AGGREGATE_REQUEST_NO_CONCURRENT) {
+    opts.concurrentMode = 0;
+  }
+  if (settings->flags & AGGREGATE_REQUEST_NO_PARSE_QUERY) {
     req->parseCtx = NULL;
   } else {
     req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
