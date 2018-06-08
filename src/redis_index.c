@@ -142,7 +142,10 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
+      .spec = sp,
+      .redisCtx = ctx,
+      .key = k,
+      .keyName = keyName,
   };
   return sctx;
 }
@@ -163,6 +166,12 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
   RedisModule_ThreadSafeContextLock(redisCtx);
   // reopen the context - it might have gone away!
   return NewSearchCtx(redisCtx, keyName);
+}
+
+RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
+  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
+  *sctx = (RedisSearchCtx){.redisCtx = ctx};
+  return sctx;
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
