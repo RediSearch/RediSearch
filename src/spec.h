@@ -240,6 +240,9 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                             RedisModuleKey **keyp);
 
+// Global hook called when an index spec is created
+extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
+
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /* Get a random term from the index spec using weighted random. Weighted random is done by sampling

@@ -12,6 +12,8 @@
 #include "config.h"
 #include "cursor.h"
 
+void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
+
 RedisModuleType *IndexSpecType;
 uint64_t spec_unique_ids = 0;
 
@@ -99,11 +101,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
 
-  CursorList_AddSpec(&RSCursors, RedisModule_StringPtrLen(keyString, NULL),
-                     RSCURSORS_DEFAULT_CAPACITY);
+  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
+
+  if (IndexSpec_OnCreate) {
+    IndexSpec_OnCreate(sp);
+  }
 
   return sp;
 }
@@ -740,13 +745,15 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  CursorList_AddSpec(&RSCursors, RedisModule_StringPtrLen(specKey, NULL),
-                     RSCURSORS_DEFAULT_CAPACITY);
+  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
 
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
+  }
+  if (IndexSpec_OnCreate) {
+    IndexSpec_OnCreate(sp);
   }
   return sp;
 }
