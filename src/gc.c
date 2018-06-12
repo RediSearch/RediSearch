@@ -61,7 +61,11 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
+      .timer = NULL,
+      .hz = initialHZ,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
   };
 
   gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
@@ -122,8 +126,8 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
       size_t recordsRemoved = 0;
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
-      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, DOCS_TO_SCAN_EACH_ITERATION, &bytesCollected,
-                                      &recordsRemoved);
+      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, DOCS_TO_SCAN_EACH_ITERATION,
+                                      &bytesCollected, &recordsRemoved);
       TimeSampler_End(&ts);
       RedisModule_Log(ctx, "debug", "Repair took %lldns", TimeSampler_DurationNS(&ts));
       /// update the statistics with the the number of records deleted
@@ -284,7 +288,9 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   } while (true);
 
 end:
-  array_free(numericFields);
+  if (numericFields) {
+    array_free(numericFields);
+  }
 
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
