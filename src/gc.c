@@ -241,8 +241,6 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
     }
   }
 
-  array_free(numericFields);
-
   // choose random numeric gc ctx
   int randomIndex = rand() % array_len(gc->numericGCCtx);
   NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
@@ -286,6 +284,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   } while (true);
 
 end:
+  array_free(numericFields);
+
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
