@@ -65,7 +65,7 @@ void SearchResult_FreeInternal(SearchResult *r) {
     r->indexResult = NULL;
   }
   if (r->fields) {
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
   }
 }
@@ -503,7 +503,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (pc->count < pc->offset) {
 
     // IndexResult_Free(r->indexResult);
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
 
     pc->count++;
@@ -512,7 +512,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
     // IndexResult_Free(r->indexResult);
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
     return RS_RESULT_EOF;
   }

@@ -102,7 +102,7 @@ int testFieldMap() {
 
   v2 = RSFieldMap_Get(m, "foo");
   ASSERT(v == v2);
-  RSFieldMap_Free(m, 0);
+  RSFieldMap_Free(m);
   RETURN_TEST_SUCCESS;
 }
 
@@ -111,5 +111,4 @@ TEST_MAIN({
   TESTFUNC(testField);
   TESTFUNC(testArray);
   TESTFUNC(testFieldMap);
-
 })

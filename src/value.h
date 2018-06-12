@@ -365,8 +365,7 @@ void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val);
 void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d);
 
 void RSFieldMap_Reset(RSFieldMap *m);
-/* Free the field map. If freeKeys is set to 1 we also free the keys */
-void RSFieldMap_Free(RSFieldMap *m, int freeKeys);
+void RSFieldMap_Free(RSFieldMap *m);
 
 void RSFieldMap_Print(RSFieldMap *m);
 

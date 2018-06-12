@@ -686,12 +686,10 @@ inline void RSFieldMap_Reset(RSFieldMap *m) {
   }
 }
 /* Free the field map. If freeKeys is set to 1 we also free the keys */
-void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
+void RSFieldMap_Free(RSFieldMap *m) {
   if (!m) return;
   for (uint16_t i = 0; i < m->len; i++) {
     RSValue_Free(m->fields[i].val);
-
-    if (freeKeys) free((void *)m->fields[i].key);
   }
   m->len = 0;
   mempool_release(getPoolInfo()->fieldmaps, m);
