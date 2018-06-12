@@ -572,7 +572,9 @@ FT.EXPLAIN {index} {query}
 
 ### Description
 
-Return the execution plan for a complex query
+Return the execution plan for a complex query.
+
+In the returned response, a `+` on a term is an indication of stemming. 
 
 Example:
 
