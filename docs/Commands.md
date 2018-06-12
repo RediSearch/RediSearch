@@ -685,7 +685,7 @@ Array Reply: Key-value pairs of field names and values of the document
 ### Format
 
 ```
-FT.GET {index} {docId} ...
+FT.MGET {index} {docId} ...
 ```
 
 ### Description
