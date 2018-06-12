@@ -3011,7 +3011,8 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 
 
 <h3 id="description_7">Description<a class="headerlink" href="#description_7" title="Permanent link">&para;</a></h3>
-<p>Return the execution plan for a complex query</p>
+<p>Return the execution plan for a complex query.</p>
+<p>In the returned response, a <code>+</code> on a term is an indication of stemming. </p>
 <p>Example:</p>
 <div class="codehilite"><pre><span></span>$ redis-cli --raw
 
