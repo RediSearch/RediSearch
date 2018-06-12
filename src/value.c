@@ -685,6 +685,7 @@ void RSFieldMap_Reset(RSFieldMap *m) {
         free(m->fields[i].key);
       }
     }
+    m->isKeyAlloc = 0;
     m->len = 0;
   }
 }
