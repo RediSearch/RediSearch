@@ -330,6 +330,7 @@ RSField RS_NewField(const char *k, RSValue *val);
 typedef struct {
   uint16_t len;
   uint16_t cap;
+  uint32_t isKeyAlloc;
   RSField fields[];
 } RSFieldMap;
 
