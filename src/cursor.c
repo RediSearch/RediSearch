@@ -141,12 +141,11 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, unsigned interval, char **err) {
-  const char *keyName = RedisModule_StringPtrLen(sctx->keyName, NULL);
+Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
+                        unsigned interval, char **err) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-
-  CursorSpecInfo *spec = findInfo(cl, keyName);
+  CursorSpecInfo *spec = findInfo(cl, lookupName);
   Cursor *cur = NULL;
 
   if (spec == NULL) {

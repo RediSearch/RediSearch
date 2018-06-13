@@ -65,7 +65,7 @@ void SearchResult_FreeInternal(SearchResult *r) {
     r->indexResult = NULL;
   }
   if (r->fields) {
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
   }
 }
@@ -322,6 +322,17 @@ void sorter_Free(ResultProcessor *rp) {
   free(rp);
 }
 
+static void keepResult(struct sorterCtx *sctx, SearchResult *r) {
+  DMD_Incref(r->scorerPrivateData);
+  if (sctx->sortMode == Sort_ByFields && r->fields) {
+    for (size_t ii = 0; ii < r->fields->len; ++ii) {
+      r->fields->fields[ii].val = RSValue_MakePersistent(r->fields->fields[ii].val);
+      r->fields->fields[ii].key = strdup(r->fields->fields[ii].key);
+      r->fields->isKeyAlloc = 1;
+    }
+  }
+}
+
 int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct sorterCtx *sc = ctx->privdata;
   // if we're not accumulating anymore - yield the top result
@@ -349,7 +360,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    DMD_Incref(h->scorerPrivateData);
+
+    keepResult(sc, h);
     mmh_insert(sc->pq, h);
     sc->pooledResult = NULL;
     if (h->score < ctx->qxc->minScore) {
@@ -371,7 +383,8 @@ int sorter_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       h->indexResult = NULL;
       sc->pooledResult = mmh_pop_min(sc->pq);
       SearchResult_FreeInternal(sc->pooledResult);
-      DMD_Incref(h->scorerPrivateData);
+
+      keepResult(sc, h);
       mmh_insert(sc->pq, h);
     } else {
       // The current should not enter the pool, so just leave it as is
@@ -413,6 +426,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 
   const SearchResult *h1 = e1, *h2 = e2;
   int ascending = 0;
+
   for (size_t i = 0; i < cc->keys->len && i < sizeof(cc->ascendMap) * 8; i++) {
     RSValue *v1 = RSFieldMap_GetByKey(h1->fields, &cc->keys->keys[i]);
     RSValue *v2 = RSFieldMap_GetByKey(h2->fields, &cc->keys->keys[i]);
@@ -503,7 +517,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   if (pc->count < pc->offset) {
 
     // IndexResult_Free(r->indexResult);
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
 
     pc->count++;
@@ -512,7 +526,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   // overshoot the count
   if (pc->count >= pc->limit + pc->offset) {
     // IndexResult_Free(r->indexResult);
-    RSFieldMap_Free(r->fields, 0);
+    RSFieldMap_Free(r->fields);
     r->fields = NULL;
     return RS_RESULT_EOF;
   }

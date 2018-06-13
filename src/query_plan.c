@@ -125,7 +125,7 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     }
 
     if (HAS_TIMEOUT_FAILURE(qex)) {
-      RSFieldMap_Free(r.fields, 0);
+      RSFieldMap_Free(r.fields);
       qex->outputFlags |= QP_OUTPUT_FLAG_DONE;
       break;
     }
@@ -143,7 +143,7 @@ static void Query_SerializeResults(QueryPlan *qex, RedisModuleCtx *output) {
     count += serializeResult(qex, &r, qex->opts.flags, output);
 
     // IndexResult_Free(r.indexResult);
-    RSFieldMap_Free(r.fields, 0);
+    RSFieldMap_Free(r.fields);
     r.fields = NULL;
 
     if (limit) {

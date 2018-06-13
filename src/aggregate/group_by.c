@@ -79,11 +79,11 @@ static void gtGroupClean(Group *group, void *unused_a, void *unused_b) {
   for (size_t i = 0; i < group->len; i++) {
     if (group->ctxs[i].free) {
       group->ctxs[i].free(group->ctxs[i].ptr);
-    } 
+    }
   }
   group->len = 0;
   if (group->values) {
-    RSFieldMap_Free(group->values, 0);
+    RSFieldMap_Free(group->values);
     group->values = NULL;
   }
 }
@@ -109,7 +109,7 @@ static int grouper_Yield(Grouper *g, SearchResult *r) {
       gr = kh_value(g->groups, g->iter);
 
       if (r->fields) {
-        RSFieldMap_Free(r->fields, 0);
+        RSFieldMap_Free(r->fields);
         r->fields = NULL;
       }
 

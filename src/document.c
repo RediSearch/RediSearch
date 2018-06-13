@@ -546,7 +546,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   // Cleanup
   array_free(fields);
   RSFunctionEvalCtx_Free(fctx);
-  RSFieldMap_Free(fm, 0);
+  RSFieldMap_Free(fm);
   RSExpr_Free(e);
   Document_Free(&doc);
   return rc;

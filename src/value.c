@@ -677,23 +677,24 @@ void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
   RSFieldMap_Set(m, key, RS_NumVal(d));
 }
 
-inline void RSFieldMap_Reset(RSFieldMap *m) {
+void RSFieldMap_Reset(RSFieldMap *m) {
   if (m) {
     for (size_t i = 0; i < m->len; i++) {
       RSValue_Free(m->fields[i].val);
+      if (m->isKeyAlloc) {
+        free(m->fields[i].key);
+      }
     }
+    m->isKeyAlloc = 0;
     m->len = 0;
   }
 }
-/* Free the field map. If freeKeys is set to 1 we also free the keys */
-void RSFieldMap_Free(RSFieldMap *m, int freeKeys) {
-  if (!m) return;
-  for (uint16_t i = 0; i < m->len; i++) {
-    RSValue_Free(m->fields[i].val);
 
-    if (freeKeys) free((void *)m->fields[i].key);
+void RSFieldMap_Free(RSFieldMap *m) {
+  if (!m) {
+    return;
   }
-  m->len = 0;
+  RSFieldMap_Reset(m);
   mempool_release(getPoolInfo()->fieldmaps, m);
   // free(m);
 }
