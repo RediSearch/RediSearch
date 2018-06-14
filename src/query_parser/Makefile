@@ -1,10 +1,13 @@
-LEMON := lemon
+LEMON := ../../srcutil/lemon
+TEMPLATE := ../../srcutil/lempar.c
 RAGEL := ragel
 
-%.c: %.y
-parser:
-	$(RAGEL) -s lexer.rl -o lexer.c
-	$(LEMON) -s -Ttemplate.c.tpl parser.y
+all: lexer.c parser.c.inc
 
-.PHONY: parser
-all: parser
+lexer.c: lexer.rl
+	$(RAGEL) -s lexer.rl -o $@
+
+parser.c: parser.y
+	$(LEMON) -s -T$(TEMPLATE) parser.y
+	mv parser.c parser.c.inc
+
