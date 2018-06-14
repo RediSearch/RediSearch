@@ -530,7 +530,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   char *explain = (char *)Query_DumpExplain(q);
-  RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
+  RedisModule_ReplyWithSimpleString(ctx, explain);
   free(explain);
 
 end:
