@@ -1,7 +1,4 @@
-%.c: %.y
-parser:
-	ragel -s lexer.rl -o lexer.c
-	lemon -s -Tlempar.c.tpl `pwd`/parser.y
+SRCUTIL = ../../../srcutil
+PARSER_SYMBOL_PREFIX=RSExprParser
 
-.PHONY: parser
-all: parser
+include $(SRCUTIL)/make-parser.mk
