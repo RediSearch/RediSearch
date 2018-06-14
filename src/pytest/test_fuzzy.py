@@ -19,7 +19,12 @@ class FuzzyTestCase(ModuleTestCase('../redisearch.so')):
 
             res = r.execute_command('ft.search', 'idx', '%word%')
             self.assertEqual(res, [1L, 'doc1', ['title', 'hello world', 'body', 'this is a test']])
-
+    
+    def testLdLimit(self):
+        self.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
+        self.assertEqual([1L, 'doc1', ['title', 'hello world']], self.cmd('ft.search', 'idx', '%word%'))  # should be ok
+        self.assertEqual([0L], self.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
     
     def testFuzzyMultipleResults(self):
         with self.redis() as r:
