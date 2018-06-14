@@ -210,6 +210,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 #define NUMERIC_FIELDS_ARRAY_CAP 2
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
+  FieldSpec **numericFields = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
@@ -219,7 +220,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  FieldSpec **numericFields = array_new(FieldSpec *, NUMERIC_FIELDS_ARRAY_CAP);
+  numericFields = array_new(FieldSpec *, NUMERIC_FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
     if (spec->fields[i].type == FIELD_NUMERIC) {
       numericFields = array_append(numericFields, &(spec->fields[i]));
