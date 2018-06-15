@@ -6,11 +6,15 @@ import unittest
 import itertools
 import pprint
 import sys
+import os
 
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
+
+
+GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
 
 class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMODE'])):
@@ -24,7 +28,7 @@ class AggregateTestCase(ModuleTestCase('../redisearch.so', module_args=['SAFEMOD
         except:
             return
         client = self.client
-        fp = bz2.BZ2File('games.json.bz2', 'r')
+        fp = bz2.BZ2File(GAMES_JSON, 'r')
 
         for line in fp:
             obj = json.loads(line)
