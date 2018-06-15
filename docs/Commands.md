@@ -579,7 +579,7 @@ In the returned response, a `+` on a term is an indication of stemming.
 Example:
 
 ```sh
-$ redis-cli --raw
+$ redis-cli
 
 127.0.0.1:6379> FT.EXPLAIN rd "(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]"
 INTERSECT {
@@ -610,9 +610,8 @@ O(1)
 
 ### Returns
 
-String Response. A string representing the execution plan (see above example). 
+Simple String Response. A string representing the execution plan (see above example). 
 
-**Note**: You should use `redis-cli --raw` to properly read line-breaks in the returned response.
 
 ---
 
