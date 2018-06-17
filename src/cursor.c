@@ -184,7 +184,7 @@ done:
 
 int Cursor_Pause(Cursor *cur) {
   CursorList *cl = cur->parent;
-  cur->nextTimeoutNs = curTimeNs() + (cur->timeoutIntervalMs * 1000000);
+  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
