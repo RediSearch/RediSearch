@@ -86,8 +86,6 @@ typedef struct {
 
 } DocTable;
 
-#define DOCTABLE_MAX_SIZE 1000000
-
 /* increasing the ref count of the given dmd */
 #define DMD_Incref(md) \
   if (md) ++md->ref_count;
