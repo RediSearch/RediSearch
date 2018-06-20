@@ -37,7 +37,7 @@ The `SUMMARIZE` keyword accepts the following arguments:
 
 * **`LEN`** The number of context words each fragment should contain. Context
     words surround the found term. A higher value will return a larger block of
-    text.
+    text. If not specified, the default value is 20.
 
 * **`SEPARATOR`** The string used to divide between individual summary snippets.
     The default is `... ` which is common among search engines; but you may
