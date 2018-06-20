@@ -10,7 +10,9 @@ jobs:
           command: make -j 8
       - run:
           name: Test
-          command: make test
+          command: >-
+              pip install rmtest >= 0.7.0
+              make test
       - run:
           name: Persist Artifacts
           command: >-
