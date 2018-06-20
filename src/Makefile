@@ -18,6 +18,11 @@ CFLAGS += -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -fP
 	-DREDISMODULE_EXPERIMENTAL_API 
 CFLAGS += $(DEBUGFLAGS)
 
+GITVERSION=$(shell git describe)
+ifdef GITVERSION
+	CFLAGS += -DRS_GIT_VERSION=\"$(GITVERSION)\"
+endif
+
 LINKER=$(CC)
 # Compile flags for non-osx / osx
 ifneq ($(uname_S),Darwin)

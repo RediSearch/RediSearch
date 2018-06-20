@@ -32,6 +32,7 @@
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
+#include "version.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -1539,7 +1540,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "verbose", "Loading RediSearch module!");
+  // Print version string!
+  RedisModule_Log(ctx, "notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
+                  REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
 
   const char *err;
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
