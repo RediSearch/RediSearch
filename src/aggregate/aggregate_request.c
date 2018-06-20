@@ -111,8 +111,6 @@ void Aggregate_BuildSchema() {
 
   CmdSchema_AddNamed(cursorSchema, "MAXIDLE", CmdSchema_NewArgAnnotated('l', "idle_timeout"),
                      CmdSchema_Optional);
-
-  CmdSchema_Print(requestSchema);
 }
 
 CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
