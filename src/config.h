@@ -2,6 +2,7 @@
 #define RS_CONFIG_H_
 
 #include "redismodule.h"
+#include "rmutil/sds.h"
 
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config
@@ -60,6 +61,8 @@ extern RSConfig RSGlobalConfig;
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, const char **err);
+
+sds RSConfig_GetInfoString(const RSConfig *config);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000

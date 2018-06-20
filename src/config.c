@@ -77,3 +77,26 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   }
   return REDISMODULE_OK;
 }
+
+sds RSConfig_GetInfoString(const RSConfig *config) {
+  sds ss = sdsempty();
+
+  ss = sdscatprintf(ss, "concurrency: %s, ", config->concurrentMode ? "ON" : "OFF(SAFEMODE)");
+  ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
+  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
+  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutPolicy));
+  ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
+  ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
+  ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
+
+  if (config->extLoad) {
+    ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
+  }
+
+  if (config->frisoIni) {
+    ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
+  }
+  return ss;
+}
