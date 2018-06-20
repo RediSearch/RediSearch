@@ -1,10 +1,10 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import platform
 
 
-class SearchTestCase(ModuleTestCase('../redisearch.so')):
+class SearchTestCase(BaseModuleTestCase):
 
     def search(self, r, *args):
         return r.execute_command('ft.search', *args)

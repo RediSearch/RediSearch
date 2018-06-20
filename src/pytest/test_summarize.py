@@ -1,12 +1,13 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import time
 import unittest
+import os.path
 
-
-class SummarizeTestCase(ModuleTestCase('../redisearch.so')):
+GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
+class SummarizeTestCase(BaseModuleTestCase):
 
     def setupGenesis(self):
-        txt = open('../tests/genesis.txt', 'r').read()
+        txt = open(GENTEXT, 'r').read()
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
         self.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
 

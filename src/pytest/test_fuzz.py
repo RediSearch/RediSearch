@@ -1,11 +1,11 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import random
 import time
 
 
-class SearchTestCase(ModuleTestCase('../redisearch.so')):
+class SearchTestCase(BaseModuleTestCase):
 
     _tokens = {}
     _docs = {}

@@ -1,4 +1,4 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -6,8 +6,7 @@ import random
 import time
 
 
-class FuzzyTestCase(ModuleTestCase('../redisearch.so')):
-
+class FuzzyTestCase(BaseModuleTestCase):
     def testBasicFuzzy(self):
         with self.redis() as r:
             r.flushdb()

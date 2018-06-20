@@ -1,4 +1,4 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import pprint
@@ -9,7 +9,7 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
-class CursorTestCase(ModuleTestCase('../redisearch.so')):
+class CursorTestCase(BaseModuleTestCase):
 
     def loadDocs(self, count=100, idx='idx', text='hello world'):
         self.cmd('FT.CREATE', idx, 'SCHEMA', 'f1', 'TEXT')

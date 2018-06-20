@@ -1,4 +1,4 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -6,8 +6,11 @@ import random
 import time
 
 
-class SearchTestCase(ModuleTestCase('../redisearch.so', module_args=('MAXDOCTABLESIZE', '100'))):
+class SearchTestCase(BaseModuleTestCase):
 
+    @property
+    def module_args(self):
+        return super(SearchTestCase, self).module_args + ['MAXDOCTABLESIZE', '100']
     # mainly this test adding and removing docs while the doc table size is 100
     # and make sure we are not crashing and not leaking memory (when runs with valgrind).
     def testDocTable(self):

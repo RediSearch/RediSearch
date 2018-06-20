@@ -1,4 +1,4 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -6,7 +6,7 @@ import random
 import time
 
 
-class SearchGCTestCase(ModuleTestCase('../redisearch.so')):
+class SearchGCTestCase(BaseModuleTestCase):
 
     def testBasicGC(self):
         self.cmd('flushdb')

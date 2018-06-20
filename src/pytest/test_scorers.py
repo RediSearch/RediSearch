@@ -1,9 +1,9 @@
 import math
 import unittest
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 
 
-class ScorersTestCase(ModuleTestCase('../redisearch.so')):
+class ScorersTestCase(BaseModuleTestCase):
 
     def search(self, r, *args):
         return r.execute_command('ft.search', *args)

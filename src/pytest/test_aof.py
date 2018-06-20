@@ -1,18 +1,25 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
 import random
 import time
 
-class SearchTestCase(ModuleTestCase('../redisearch.so')):
-    def aofTestCommon(self, reloadfn):
-        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
-        self.spawn_server(**kwargs)
-
-        # TODO: Change this attribute in rmtest
-        if self.server._is_external:
+class AofTestCase(BaseModuleTestCase):
+    @property
+    def server_args(self):
+        args = super(AofTestCase, self).server_args
+        args['use_aof'] = True
+        args['aof-use-rdb-preamble'] = 'yes'
+        return args
+    
+    def setUp(self):
+        super(AofTestCase, self).setUp()
+        if self.is_external_server:
             raise unittest.SkipTest('Cannot run AOF tests on external server')
+
+    def aofTestCommon(self, reloadfn):
+        # TODO: Change this attribute in rmtest
 
         self.cmd('ft.create', 'idx', 'schema',
                  'field1', 'text', 'field2', 'numeric')
@@ -33,8 +40,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.aofTestCommon(lambda: self.cmd('debug loadaof'))
 
     def testRewriteAofSortables(self):
-        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
-        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'schema', 'field1', 'TEXT',
                  'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
         self.cmd('FT.ADD', 'idx', 'doc', 1.0,
@@ -58,8 +63,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(res, res2)
 
     def testAofRewriteSortkeys(self):
-        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
-        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo',
                  'TEXT', 'SORTABLE', 'bar', 'TAG')
         self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
@@ -75,8 +78,6 @@ class SearchTestCase(ModuleTestCase('../redisearch.so')):
         self.assertEqual(res_exp, res_got)
 
     def testAofRewriteTags(self):
-        kwargs = {'use_aof': True, 'aof-use-rdb-preamble': 'yes'}
-        self.spawn_server(**kwargs)
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo',
                  'TEXT', 'SORTABLE', 'bar', 'TAG')
         self.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')

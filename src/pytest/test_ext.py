@@ -1,4 +1,4 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -6,10 +6,16 @@ import random
 import time
 import subprocess
 import os
+import os.path
 
-TEST_MODULE = '../tests/ext-example/example.so'
-class ExtensionTestCase(ModuleTestCase('../redisearch.so', 
-    module_args = ('EXTLOAD', TEST_MODULE))):
+# this file is 'pytest'
+
+SELF_DIR = os.path.abspath(os.path.dirname(__file__))
+TEST_MODULE = SELF_DIR + '/../tests/ext-example/example.so'
+class ExtensionTestCase(BaseModuleTestCase):
+    @property
+    def module_args(self):
+        return super(ExtensionTestCase, self).module_args + ['EXTLOAD', TEST_MODULE]
 
     def testExt(self):
         if not os.path.exists(TEST_MODULE):

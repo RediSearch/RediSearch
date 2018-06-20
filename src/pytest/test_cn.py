@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import os
@@ -16,7 +16,7 @@ GEN_CN_T = """
 太初，上帝創造了天地。 那時，大地空虛混沌，還沒有成形，黑暗籠罩著深淵，上帝的靈運行在水面上。 上帝說：「要有光！」就有了光。 上帝看光是好的，就把光和暗分開， 稱光為晝，稱暗為夜。晚上過去，早晨到來，這是第一天。 上帝說：「水與水之間要有穹蒼，把水分開。」 果然如此。上帝開闢了穹蒼，用穹蒼將水上下分開。 上帝稱穹蒼為天空。晚上過去，早晨到來，這是第二天。
 """
 
-class CnTestCase(ModuleTestCase('../redisearch.so')):
+class CnTestCase(BaseModuleTestCase):
     def testCn(self):
         text = open(SRCTEXT).read()
         self.cmd('ft.create', 'idx', 'schema', 'txt', 'text')

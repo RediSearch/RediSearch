@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -8,7 +8,7 @@ import random
 import time
 
 
-class SearchTestCase(ModuleTestCase('../redisearch.so')):
+class SearchTestCase(BaseModuleTestCase):
     def setUp(self):
         super(SearchTestCase, self).setUp()
         self.client.flushdb()
