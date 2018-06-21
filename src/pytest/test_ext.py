@@ -19,7 +19,7 @@ class ExtensionTestCase(BaseModuleTestCase):
 
     def testExt(self):
         if not os.path.exists(TEST_MODULE):
-            subprocess.call(['make', '-C','../tests/ext-example'])
+            subprocess.call(['make', '-C', os.path.dirname(TEST_MODULE)])
         with self.redis() as r:
 
             r.flushdb()
