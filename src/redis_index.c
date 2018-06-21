@@ -375,20 +375,6 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
   return REDISMODULE_OK;
 }
 
-Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
-                              const char **fields, int numFields, int *nump) {
-  Document *docs = calloc(numKeys, sizeof(Document));
-  int n = 0;
-
-  for (int i = 0; i < numKeys; i++) {
-    Redis_LoadDocumentEx(ctx, keys[i], fields, numFields, &docs[n], NULL);
-    docs[n++].docKey = keys[i];
-  }
-
-  *nump = n;
-  return docs;
-}
-
 int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
   long long ptr = 0;
 

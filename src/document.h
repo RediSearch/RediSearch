@@ -247,10 +247,6 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
                          size_t nfields, Document *doc, RedisModuleKey **keyp);
 
-/* Load a bunch of documents from redis */
-Document *Redis_LoadDocuments(RedisSearchCtx *ctx, RedisModuleString **keys, int numKeys,
-                              const char **fields, int numFields, int *nump);
-
 /**
  * Save a document in the index. Used for returning contents in search results.
  */
