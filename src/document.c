@@ -183,34 +183,57 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
+static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  /**
+   * The REPLACE operation contains fields which must be reindexed. This means
+   * that a new document ID needs to be assigned, and as a consequence, all
+   * fields must be reindexed.
+   */
+  // Free the old field data
+  size_t oldFieldCount = aCtx->doc.numFields;
+  Document_ClearDetachedFields(&aCtx->doc, sctx->redisCtx);
+
+  // Get a list of fields needed to be loaded for reindexing
+  const char **toLoad = array_new(const char *, 8);
+
+  for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
+    // TODO: We should only need to reload fields that are actually being reindexed!
+    toLoad = array_append(toLoad, sctx->spec->fields[ii].name);
+  }
+
+  // for (size_t ii = 0; ii < array_len(toLoad); ++ii) {
+  //   printf("Loading: %s\n", toLoad[ii]);
+  // }
+
+  int rv =
+      Redis_LoadDocumentEx(sctx, aCtx->doc.docKey, toLoad, array_len(toLoad), &aCtx->doc, NULL);
+  // int rv = Redis_LoadDocument(sctx, aCtx->doc.docKey, &aCtx->doc);
+  array_free(toLoad);
+
+  if (rv != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Error updating document");
+    AddDocumentCtx_Free(aCtx);
+    return 1;
+  }
+
+  // Keep hold of the new fields.
+  Document_DetachFields(&aCtx->doc, sctx->redisCtx);
+  AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
+
+  return 0;
+}
+
 static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Handle partial update of fields
   if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
-
-    // The document update is partial - but it contains indexable fields. We need to load the
-    // current version of it, and then do a normal indexing flow
-
-    // Free the old field data
-    size_t oldFieldCount = aCtx->doc.numFields;
-    Document_ClearDetachedFields(&aCtx->doc, sctx->redisCtx);
-    if (Redis_LoadDocument(sctx, aCtx->doc.docKey, &aCtx->doc) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(sctx->redisCtx, "Error updating document");
-      AddDocumentCtx_Free(aCtx);
-      return 1;
-    }
-
-    // Keep hold of the new fields.
-    Document_DetachFields(&aCtx->doc, sctx->redisCtx);
-    AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
-
-    return 0;
+    return AddDocumentCtx_ReplaceMerge(aCtx, sctx);
+  } else {
+    // No indexable fields are updated, we can just update the metadata.
+    // Quick update just updates the score, payload and sortable fields of the document.
+    // Thus full-reindexing of the document is not required
+    AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
+    return 1;
   }
-
-  // No indexable fields are updated, we can just update the metadata.
-  // Quick update just updates the score, payload and sortable fields of the document.
-  // Thus full-reindexing of the document is not required
-  AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
-  return 1;
 }
 
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {

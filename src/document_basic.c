@@ -38,14 +38,18 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
 void Document_DetachFields(Document *doc, RedisModuleCtx *ctx) {
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *f = doc->fields + ii;
-    RedisModule_RetainString(ctx, f->text);
+    if (f->text) {
+      RedisModule_RetainString(ctx, f->text);
+    }
     f->name = strdup(f->name);
   }
 }
 
 void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx) {
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    RedisModule_FreeString(anyCtx, doc->fields[ii].text);
+    if (doc->fields[ii].text) {
+      RedisModule_FreeString(anyCtx, doc->fields[ii].text);
+    }
     free((void *)doc->fields[ii].name);
   }
   free(doc->fields);
