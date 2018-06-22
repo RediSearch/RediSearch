@@ -209,11 +209,13 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // in partial mode
   uint32_t options = 0;
-  if (replace) {
-    options |= DOCUMENT_ADD_REPLACE;
-  }
-  if (partial) {
-    options |= DOCUMENT_ADD_PARTIAL;
+  if (exists) {
+    if (replace) {
+      options |= DOCUMENT_ADD_REPLACE;
+    }
+    if (partial) {
+      options |= DOCUMENT_ADD_PARTIAL;
+    }
   }
   if (nosave) {
     options |= DOCUMENT_ADD_NOSAVE;
