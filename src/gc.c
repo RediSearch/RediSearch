@@ -272,6 +272,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
     blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum,
                                     DOCS_TO_SCAN_EACH_ITERATION, &bytesCollected, &recordsRemoved);
     /// update the statistics with the the number of records deleted
+    numericGcCtx->rt->numEntries -= recordsRemoved;
     totalRemoved += recordsRemoved;
     gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
     // blockNum 0 means error or we've finished
