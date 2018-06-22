@@ -323,9 +323,13 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
       RedisModule_SaveUnsigned(rdb, dmd->len);
       RedisModule_SaveFloat(rdb, dmd->score);
-      if (dmd->flags & Document_HasPayload && dmd->payload) {
-        // save an extra space for the null terminator to make the payload null terminated on
-        RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
+      if (dmd->flags & Document_HasPayload) {
+        if (dmd->payload) {
+          // save an extra space for the null terminator to make the payload null terminated on
+          RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
+        } else {
+          RedisModule_SaveStringBuffer(rdb, "", 1);
+        }
       }
 
       if (dmd->flags & Document_HasSortVector) {

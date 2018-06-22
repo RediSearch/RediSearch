@@ -1791,6 +1791,30 @@ class SearchTestCase(BaseModuleTestCase):
         # test with no fields!
         self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
 
+
+    def testIssue366(self):
+        # Test random RDB regressions, see GH 366
+        self.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
+        self.cmd('HSET', 'foo', 'textfield', 'blah', 'numfield', 1)
+        self.cmd('FT.ADDHASH', 'idx1', 'foo', 1, 'replace')
+        self.cmd('FT.DEL', 'idx1', 'foo')
+        for _ in self.retry_with_reload():
+            pass  #  --just ensure it doesn't crash
+        
+# FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
+# FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234
+# FT.ADD atest anId 1 PAYLOAD '{"hello":"world2"}' REPLACE PARTIAL FIELDS numfield 1111
+# shutdown
+        self.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
+        self.cmd('FT.ADD', 'idx1', 'doc1', 1, 'PAYLOAD', '{"hello":"world"}',
+            'FIELDS', 'textfield', 'sometext', 'numfield', 1234)
+        self.cmd('ft.add', 'idx1', 'doc1', 1,
+            'PAYLOAD', '{"hello":"world2"}',
+            'REPLACE', 'PARTIAL',
+            'FIELDS', 'textfield', 'sometext', 'numfield', 1111)
+        for _ in self.retry_with_reload():
+            pass #
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
