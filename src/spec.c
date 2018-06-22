@@ -563,17 +563,14 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 }
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
-  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
-  sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->gc = NULL;
-  sp->smap = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -699,7 +696,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(1000);
