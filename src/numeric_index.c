@@ -387,18 +387,16 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilte
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *fname,
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey) {
 
-  RedisModuleString *s = fmtRedisNumericIndexKey(ctx, fname);
   RedisModuleKey *key_s = NULL;
 
   if (!idxKey) {
     idxKey = &key_s;
   }
 
-  *idxKey = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ | REDISMODULE_WRITE);
-  RedisModule_FreeString(ctx->redisCtx, s);
+  *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
 
   int type = RedisModule_KeyType(*idxKey);
   if (type != REDISMODULE_KEYTYPE_EMPTY &&

@@ -373,7 +373,8 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_BULK_CTOR(numericCtor) {
-  bulk->indexData = OpenNumericIndex(ctx, fs->name, &bulk->indexKey);
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs);
+  bulk->indexData = OpenNumericIndex(ctx, keyName, &bulk->indexKey);
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {

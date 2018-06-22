@@ -1432,7 +1432,9 @@ end:
 static void DumpNumericIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
   RedisModuleKey *keyp = NULL;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, fieldName, &keyp);
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(
+      sctx->spec, IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName)));
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
   if (!rt) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
