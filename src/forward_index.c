@@ -68,10 +68,15 @@ static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t i
   idx->idxFlags = idxFlags;
   idx->maxFreq = 0;
   idx->totalFreq = 0;
-  if (idx->stemmer) {
+
+  if (idx->stemmer && !ResetStemmer(idx->stemmer, SnowballStemmer, doc->language)) {
     idx->stemmer->Free(idx->stemmer);
+    idx->stemmer = NULL;
   }
-  idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
+
+  if (!idx->stemmer) {
+    idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
+  }
 }
 
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
@@ -81,7 +86,9 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
+      .Alloc = allocBucketEntry,
+      .Compare = khtCompare,
+      .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
