@@ -159,6 +159,14 @@ void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
 
+static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
+  t_docId id = DocTable_GetId(dt, (RSDocumentKey){.str = key, .len = strlen(key)});
+  if (id == 0) {
+    return NULL;
+  }
+  return DocTable_Get(dt, id);
+}
+
 /* don't use this function directly. Use DMD_Decref */
 void DMD_Free(RSDocumentMetadata *);
 
