@@ -4,6 +4,7 @@
 typedef struct {
   RSKey property;
   double pct;
+  size_t resolution;
 } quantileParams;
 
 typedef struct {
@@ -12,11 +13,10 @@ typedef struct {
   RSSortingTable *sortables;
 } quantileCtx;
 
-
 static void *quantile_NewInstance(ReducerCtx *ctx) {
-  quantileCtx *qctx = ReducerCtx_Alloc(ctx, sizeof(*qctx), 100*sizeof(*qctx));
+  quantileCtx *qctx = ReducerCtx_Alloc(ctx, sizeof(*qctx), 100 * sizeof(*qctx));
   qctx->params = ctx->privdata;
-  qctx->strm = NewQuantileStream(&qctx->params->pct, 1, 500);
+  qctx->strm = NewQuantileStream(&qctx->params->pct, 1, qctx->params->resolution);
   qctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return qctx;
 }
@@ -54,7 +54,8 @@ static void quantile_FreeInstance(void *p) {
   QS_Free(qctx->strm);
 }
 
-Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alias, double pct) {
+Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alias, double pct,
+                     size_t resolution) {
   Reducer *r = malloc(sizeof(*r));
   r->Add = quantile_Add;
   r->Finalize = quantile_Finalize;
@@ -67,6 +68,7 @@ Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alia
 
   params->property = RS_KEY(property);
   params->pct = pct;
+  params->resolution = resolution;
   r->ctx = (ReducerCtx){.ctx = ctx, .privdata = params};
   return r;
 }
