@@ -3,6 +3,7 @@
 
 #include "redisearch.h"
 #include "redismodule.h"
+#include "config.h"
 #include <time.h>
 #include <dep/thpool/thpool.h>
 
@@ -70,7 +71,6 @@ typedef struct {
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
  * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
  * By default the pool starts with just one thread, and scales up as needed  */
-#define CONCURRENT_SEARCH_POOL_SIZE 20
 
 /**
  * The maximum number of threads performing indexing on documents.
@@ -81,7 +81,6 @@ typedef struct {
  * of tokenizer threads, make sure you also disable the CPU detection in the
  * source file
  */
-#define CONCURRENT_INDEX_POOL_SIZE 8
 
 /** The number of execution "ticks" per elapsed time check. This is intended to reduce the number of
  * calls to clock_gettime() */

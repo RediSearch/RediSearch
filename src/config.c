@@ -2,6 +2,7 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include <string.h>
+#include <stdlib.h>
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
@@ -59,6 +60,29 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  if (argc >= 2 && RMUtil_ArgIndex("INDEX_THREADS", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("INDEX_THREADS", argv, argc, "", &RSGlobalConfig.indexPoolSize);
+    if (RSGlobalConfig.indexPoolSize > CONCURRENT_INDEX_MAX_POOL_SIZE) {
+      *err = "Pool size to big";
+    }
+    RSGlobalConfig.poolSizeNoAuto = 1;
+  }
+
+  if (argc >= 2 && RMUtil_ArgIndex("SEARCH_THREADS", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("SEARCH_THREADS", argv, argc, "", &RSGlobalConfig.searchPoolSize);
+    if (RSGlobalConfig.searchPoolSize > CONCURRENT_INDEX_MAX_POOL_SIZE) {
+      *err = "Pool size to big";
+    }
+    RSGlobalConfig.poolSizeNoAuto = 1;
+  }
+
+  if (getenv("RS_MIN_THREADS")) {
+    printf("Setting thread pool sizes to 1\n");
+    RSGlobalConfig.searchPoolSize = 1;
+    RSGlobalConfig.indexPoolSize = 1;
+    RSGlobalConfig.poolSizeNoAuto = 1;
+  }
+
   if (RMUtil_ArgIndex("FRISOINI", argv, argc) >= 0) {
     RMUtil_ParseArgsAfter("FRISOINI", argv, argc, "c", &RSGlobalConfig.frisoIni);
   }
@@ -90,6 +114,8 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
+  ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
+  ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
   if (config->extLoad) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);

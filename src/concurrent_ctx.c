@@ -22,10 +22,15 @@ int ConcurrentSearch_CreatePool(int numThreads) {
 void ConcurrentSearch_ThreadPoolStart() {
 
   if (CONCURRENT_POOL_SEARCH == -1) {
-    CONCURRENT_POOL_SEARCH = ConcurrentSearch_CreatePool(CONCURRENT_SEARCH_POOL_SIZE);
-    long numProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    CONCURRENT_POOL_SEARCH = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+    long numProcs = 0;
+
+    if (!RSGlobalConfig.poolSizeNoAuto) {
+      numProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    }
+
     if (numProcs < 1) {
-      numProcs = CONCURRENT_INDEX_POOL_SIZE;
+      numProcs = RSGlobalConfig.indexPoolSize;
     }
     CONCURRENT_POOL_INDEX = ConcurrentSearch_CreatePool(numProcs);
   }
