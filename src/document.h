@@ -122,13 +122,13 @@ union FieldData;
 
 // The context has had its forward entries merged in the merge table. We can
 // skip merging its tokens
-#define ACTX_F_MERGED 0x01
+#define ACTX_F_TEXTINDEXED 0x01
 
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
 
-// The context also has non-text fields
-#define ACTX_F_NONTXTFLDS 0x04
+// Non-text fields have been indexed.
+#define ACTX_F_OTHERINDEXED 0x04
 
 // The content has indexable fields
 #define ACTX_F_INDEXABLES 0x08

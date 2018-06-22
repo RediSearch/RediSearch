@@ -69,9 +69,21 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
  */
 PreprocessorFunc GetIndexPreprocessor(const FieldType ft);
 
-/**
- * Get the indexer function for a given index type.
- */
-IndexerFunc GetIndexIndexer(const FieldType ft);
+typedef struct {
+  RedisModuleKey *indexKey;
+  void *indexData;
+  int initialized;
+  int type;
+} IndexBulkData;
+
+typedef struct {
+  void (*BulkInit)(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *sctx);
+  int (*BulkAdd)(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                 DocumentField *field, const FieldSpec *fs, fieldData *fdata,
+                 const char **errorString);
+  void (*BulkDone)(IndexBulkData *bulk, RedisSearchCtx *ctx);
+} BulkIndexer;
+
+const BulkIndexer *GetBulkIndexer(const FieldType ft);
 
 #endif

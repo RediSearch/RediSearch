@@ -55,6 +55,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   // size: uint16_t * SPEC_MAX_FIELDS
   FieldSpecDedupeArray dedupe = {0};
+  int hasTextFields = 0;
+  int hasOtherFields = 0;
 
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
@@ -73,22 +75,29 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
         // mark sortable fields to be updated in the state flags
         aCtx->stateFlags |= ACTX_F_SORTABLES;
       }
-      if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
-        numIndexable++;
-      }
-      // mark non text fields in the state flags
-      if (fs->type != FIELD_FULLTEXT) {
-        aCtx->stateFlags |= ACTX_F_NONTXTFLDS;
-      }
 
-      // mark indexable fields in the state flags
       if (FieldSpec_IsIndexable(fs)) {
-        aCtx->stateFlags |= ACTX_F_INDEXABLES;
+        if (fs->type == FIELD_FULLTEXT) {
+          numIndexable++;
+          hasTextFields = 1;
+        } else {
+          hasOtherFields = 1;
+        }
       }
     } else {
       // Field is not in schema, or is duplicate
       aCtx->fspecs[i].name = NULL;
     }
+  }
+
+  if (hasTextFields || hasOtherFields) {
+    aCtx->stateFlags |= ACTX_F_INDEXABLES;
+  }
+  if (!hasTextFields) {
+    aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
+  }
+  if (!hasOtherFields) {
+    aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
@@ -293,9 +302,14 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
                   fieldData *fdata, const char **errorString)
 
-#define FIELD_INDEXER(name)                                                                \
-  static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field, \
-                  const FieldSpec *fs, fieldData *fdata, const char **errorString)
+#define FIELD_BULK_INDEXER(name)                                                    \
+  static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, \
+                  DocumentField *field, const FieldSpec *fs, fieldData *fdata,      \
+                  const char **errorString)
+
+#define FIELD_BULK_CTOR(name) \
+  static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
+#define FIELD_BULK_FINALIZER(name) static void name(IndexBulkData *bulk, RedisSearchCtx *ctx)
 
 #define FIELD_PREPROCESSOR FIELD_HANDLER
 
@@ -350,12 +364,16 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   return 0;
 }
 
-FIELD_INDEXER(numericIndexer) {
-  RedisModuleKey *idxKey;
-  NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name, &idxKey);
+FIELD_BULK_INDEXER(numericIndexer) {
+  NumericRangeTree *rt = bulk->indexData;
+  // NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name, &idxKey);
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
-  RedisModule_CloseKey(idxKey);
+  // RedisModule_CloseKey(idxKey);
   return 0;
+}
+
+FIELD_BULK_CTOR(numericCtor) {
+  bulk->indexData = OpenNumericIndex(ctx, fs->name, &bulk->indexKey);
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
@@ -372,7 +390,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   return 0;
 }
 
-FIELD_INDEXER(geoIndexer) {
+FIELD_BULK_INDEXER(geoIndexer) {
   GeoIndex gi = {.ctx = ctx, .sp = fs};
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
@@ -398,21 +416,20 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   return 0;
 }
 
-FIELD_INDEXER(tagIndexer) {
-  RedisModuleKey *idxKey;
+FIELD_BULK_CTOR(tagCtor) {
   RedisModuleString *kname = TagIndex_FormatName(ctx, fs->name);
+  bulk->indexData = TagIndex_Open(ctx->redisCtx, kname, 1, &bulk->indexKey);
+  RedisModule_FreeString(ctx->redisCtx, kname);
+}
+
+FIELD_BULK_INDEXER(tagIndexer) {
   int rc = 0;
-  TagIndex *ti = TagIndex_Open(ctx->redisCtx, kname, 1, &idxKey);
-  if (!ti) {
+  if (!bulk->indexData) {
     *errorString = "Could not open tag index for indexing";
     rc = -1;
-    goto cleanup;
+  } else {
+    TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
   }
-
-  TagIndex_Index(ti, fdata->tags, aCtx->doc.docId);
-cleanup:
-  RedisModule_CloseKey(idxKey);
-  RedisModule_FreeString(ctx->redisCtx, kname);
   if (fdata->tags) {
     array_free_ex(fdata->tags, free(*(void **)ptr));
   }
@@ -434,16 +451,20 @@ PreprocessorFunc GetIndexPreprocessor(const FieldType ft) {
   }
 }
 
-IndexerFunc GetIndexIndexer(const FieldType ft) {
+static BulkIndexer geoBulkProcs = {.BulkAdd = geoIndexer};
+static BulkIndexer numBulkProcs = {.BulkInit = numericCtor, .BulkAdd = numericIndexer};
+static BulkIndexer tagBulkProcs = {.BulkInit = tagCtor, .BulkAdd = tagIndexer};
+
+const BulkIndexer *GetBulkIndexer(const FieldType ft) {
   switch (ft) {
     case FIELD_NUMERIC:
-      return numericIndexer;
-    case FIELD_GEO:
-      return geoIndexer;
+      return &numBulkProcs;
     case FIELD_TAG:
-      return tagIndexer;
-    case FIELD_FULLTEXT:
+      return &tagBulkProcs;
+    case FIELD_GEO:
+      return &geoBulkProcs;
     default:
+      abort();
       return NULL;
   }
 }
