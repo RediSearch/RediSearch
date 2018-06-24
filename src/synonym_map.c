@@ -118,14 +118,13 @@ void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, s
 }
 
 uint32_t SynonymMap_Add(SynonymMap* smap, const char** synonyms, size_t size) {
-  uint32_t id = smap->curr_id++;
+  uint32_t id = smap->curr_id;
   SynonymMap_Update(smap, synonyms, size, id);
   return id;
 }
 
 void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uint32_t id) {
   assert(!smap->is_read_only);
-  assert(id < smap->curr_id);
   int ret;
   for (size_t i = 0; i < size; i++) {
     khiter_t k =
@@ -140,6 +139,7 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
     SynonymMap_Free(smap->read_only_copy);
     smap->read_only_copy = NULL;
   }
+  smap->curr_id = id + 1;
 }
 
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len) {

@@ -1280,6 +1280,26 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
+                             RedisModuleString** synonyms, size_t size) {
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)) {
+    RedisModule_ReplyWithError(ctx, "given id does not exists");
+    return REDISMODULE_OK;
+  }
+
+  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
+
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.SYNUPDATE <index> <id> <term1> <term2> ...
  *
@@ -1301,22 +1321,19 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
+  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
+}
+
+int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 4) return RedisModule_WrongArity(ctx);
+
+  long long id;
+  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "wrong parameters, id is not an integer");
     return REDISMODULE_OK;
   }
 
-  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)) {
-    RedisModule_ReplyWithError(ctx, "given id does not exists");
-    return REDISMODULE_OK;
-  }
-
-  SynonymMap_UpdateRedisStr(sp->smap, argv + 3, argc - 3, id);
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
+  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
 }
 
 /**
@@ -1658,10 +1675,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1, 1, 1);
+
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
+
   return REDISMODULE_OK;
 }
