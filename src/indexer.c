@@ -376,7 +376,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     return;
   }
 
-  int useTermHt = indexer->size > 1;
+  int useTermHt = indexer->size > 1 && (aCtx->stateFlags & ACTX_F_TEXTINDEXED) == 0;
   if (useTermHt) {
     firstZeroId = doMerge(aCtx, &indexer->mergeHt, parentMap);
     if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
