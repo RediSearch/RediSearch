@@ -63,7 +63,7 @@ void __sbstemmer_Free(Stemmer *s) {
 }
 
 static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, const char *language) {
-  if (type != stemmer->type || strcmp(stemmer->language, language)) {
+  if (type != stemmer->type || stemmer->language == NULL || strcmp(stemmer->language, language)) {
     return 0;
   }
   return 1;
@@ -109,7 +109,6 @@ Stemmer *NewStemmer(StemmerType type, const char *language) {
     }
   }
 
-  assert(ret->language);
   ret->type = type;
   return ret;
 }
