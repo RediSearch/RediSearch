@@ -11,6 +11,7 @@
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
+#include "tag_index.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 
@@ -487,6 +488,15 @@ void IndexSpec_Free(void *ctx) {
     SynonymMap_Free(spec->smap);
   }
 
+  if (spec->indexStrs) {
+    for (size_t ii = 0; ii < spec->numFields; ++ii) {
+      if (spec->indexStrs[ii]) {
+        RedisModule_FreeString(spec->strCtx, spec->indexStrs[ii]);
+      }
+    }
+    rm_free(spec->indexStrs);
+    RedisModule_FreeThreadSafeContext(spec->strCtx);
+  }
   rm_free(spec);
 }
 
@@ -514,6 +524,30 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
   RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
   return IndexSpec_LoadEx(ctx, s, openWrite, NULL);
+}
+
+RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs) {
+  if (!sp->indexStrs) {
+    sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
+    sp->strCtx = RedisModule_GetThreadSafeContext(NULL);
+  }
+  RedisModuleString *ret = sp->indexStrs[fs->index];
+  if (!ret) {
+    RedisSearchCtx sctx = {.redisCtx = sp->strCtx, .spec = sp};
+    if (fs->type == FIELD_NUMERIC) {
+      ret = fmtRedisNumericIndexKey(&sctx, fs->name);
+    } else if (fs->type == FIELD_TAG) {
+      ret = TagIndex_FormatName(&sctx, fs->name);
+    } else {
+      // Unknown
+      ret = NULL;
+    }
+  }
+  if (!ret) {
+    return NULL;
+  }
+  sp->indexStrs[fs->index] = ret;
+  return ret;
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
@@ -563,17 +597,14 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 }
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
-  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
-  sp->numFields = 0;
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->gc = NULL;
-  sp->smap = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -699,7 +730,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp = rm_malloc(sizeof(IndexSpec));
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(1000);

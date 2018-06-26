@@ -237,7 +237,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
            array_len(gc->numericGCCtx));  // it is not possible to remove fields
     gc_FreeNumericGcCtxArray(gc);
     for (int i = 0; i < array_len(numericFields); ++i) {
-      NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[i]->name, &idxKey);
+      RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[i]);
+      NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
       assert(rt);
@@ -251,7 +252,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
 
   // open the relevent numeric index to check that our pointer is valid
-  NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[randomIndex]->name, &idxKey);
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[randomIndex]);
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 
   if (numericGcCtx->rt != rt || numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {

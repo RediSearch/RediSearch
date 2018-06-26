@@ -30,7 +30,7 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 #define TERMS_PER_BLOCK 128
 
 // Effectively limits the maximum number of documents whose terms can be merged
-#define MAX_DOCID_ENTRIES 1024
+#define MAX_BULK_DOCS 1024
 
 // Entry for the merged dictionary
 typedef struct mergedEntry {
@@ -87,7 +87,7 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
   RSAddDocumentCtx *cur = aCtx;
   RSAddDocumentCtx *firstZeroId = NULL;
 
-  while (cur && ++counter < 1000 && curIdIdx < MAX_DOCID_ENTRIES) {
+  while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
 
     ForwardIndexIterator it = ForwardIndex_Iterate(cur->fwIdx);
     ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -116,7 +116,10 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
       entry = ForwardIndexIterator_Next(&it);
     }
 
-    cur->stateFlags |= ACTX_F_MERGED;
+    // Set the document's text status as indexed. This is not strictly true,
+    // but it means that there is no more index interaction with this specific
+    // document.
+    cur->stateFlags |= ACTX_F_TEXTINDEXED;
     parentMap[curIdIdx++] = cur;
     if (firstZeroId == NULL && cur->doc.docId == 0) {
       firstZeroId = cur;
@@ -139,7 +142,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 
   // This is used as a cache layer, so that we don't need to derefernce the
   // RSAddDocumentCtx each time.
-  uint32_t docIdMap[MAX_DOCID_ENTRIES] = {0};
+  uint32_t docIdMap[MAX_BULK_DOCS] = {0};
 
   // Iterate over all the entries
   for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
@@ -291,6 +294,53 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   }
 }
 
+static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  // Traverse all fields, seeing if there may be something which can be written!
+  IndexBulkData bData[SPEC_MAX_FIELDS] = {{0}};
+  IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
+  size_t numActiveBulks = 0;
+
+  for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc.docId; cur = cur->next) {
+    if (cur->stateFlags & ACTX_F_ERRORED) {
+      continue;
+    }
+
+    const Document *doc = &cur->doc;
+    for (size_t ii = 0; ii < doc->numFields; ++ii) {
+      const FieldSpec *fs = aCtx->fspecs + ii;
+      fieldData *fdata = aCtx->fdatas + ii;
+      if (fs->name == NULL || fs->type == FIELD_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+        continue;
+      }
+
+      const BulkIndexer *procs = GetBulkIndexer(fs->type);
+      IndexBulkData *bulk = &bData[fs->index];
+      if (!bulk->initialized) {
+        if (procs->BulkInit) {
+          procs->BulkInit(bulk, fs, sctx);
+        }
+        bulk->initialized = 1;
+        bulk->type = fs->type;
+        activeBulks[numActiveBulks++] = bulk;
+      }
+      if (procs->BulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->errorString) != 0) {
+        cur->stateFlags |= ACTX_F_ERRORED;
+      }
+      cur->stateFlags |= ACTX_F_OTHERINDEXED;
+    }
+  }
+
+  // Flush it!
+  for (size_t ii = 0; ii < numActiveBulks; ++ii) {
+    const BulkIndexer *procs = GetBulkIndexer(activeBulks[ii]->type);
+    if (procs->BulkDone) {
+      procs->BulkDone(activeBulks[ii], sctx);
+    } else if (activeBulks[ii]->indexKey) {
+      RedisModule_CloseKey(activeBulks[ii]->indexKey);
+    }
+  }
+}
+
 static void reopenCb(RedisModuleKey *k, void *arg) {
   // Index Key
   RedisSearchCtx *ctx = arg;
@@ -308,32 +358,26 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
 static const KHTableProcs mergedHtProcs = {
     .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
 
+#define ACTX_IS_INDEXED(actx)                                           \
+  (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
+   (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
+
 /**
  * Perform the processing chain on a single document entry, optionally merging
  * the tokens of further entries in the queue
  */
 static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *parentMap[MAX_DOCID_ENTRIES];
+  RSAddDocumentCtx *parentMap[MAX_BULK_DOCS];
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = {NULL};
 
-  if (aCtx->stateFlags & ACTX_F_ERRORED) {
-    // Document has an error, no need for further processing
+  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
+    // Document is complete or errored. No need for further processing.
     return;
   }
 
-  // If this document's tokens are merged or not
-  const int needsFtIndex = !(aCtx->stateFlags & ACTX_F_MERGED);
-
-  // If all its text fields have been merged and it doesn't need any non-text field
-  // handling, return and save ourselves allocating new contexts.
-  if (!needsFtIndex && (aCtx->stateFlags & ACTX_F_NONTXTFLDS) == 0) {
-    return;
-  }
-
-  int useHt = 0;
-  if (indexer->size > 1 && needsFtIndex) {
-    useHt = 1;
+  int useTermHt = indexer->size > 1 && (aCtx->stateFlags & ACTX_F_TEXTINDEXED) == 0;
+  if (useTermHt) {
     firstZeroId = doMerge(aCtx, &indexer->mergeHt, parentMap);
     if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
       // Don't treat an errored ctx as being the head of a new ID chain. It's
@@ -386,46 +430,24 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
    */
   if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
     doAssignIds(firstZeroId, &ctx);
-    if (aCtx->stateFlags & ACTX_F_ERRORED) {
-      if (useHt) {
-        writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
-      }
-      goto cleanup;
-    }
   }
 
-  if (needsFtIndex) {
-    if (useHt) {
-      writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
-    } else {
-      writeCurEntries(indexer, aCtx, &ctx);
-    }
+  // Handle FULLTEXT indexes
+  if (useTermHt) {
+    writeMergedEntries(indexer, aCtx, &ctx, &indexer->mergeHt, parentMap);
+  } else if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
+    writeCurEntries(indexer, aCtx, &ctx);
   }
 
-  for (int i = 0; i < doc->numFields; i++) {
-    const FieldSpec *fs = aCtx->fspecs + i;
-    fieldData *fdata = aCtx->fdatas + i;
-    if (fs->name == NULL || !FieldSpec_IsIndexable(fs)) {
-      // Means this document field does not have a corresponding spec
-      continue;
-    }
-
-    IndexerFunc ifx = GetIndexIndexer(fs->type);
-    if (ifx == NULL) {
-      continue;
-    }
-
-    if (ifx(aCtx, &ctx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
-      aCtx->stateFlags |= ACTX_F_ERRORED;
-      goto cleanup;
-    }
+  if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
+    indexBulkFields(aCtx, &ctx);
   }
 
 cleanup:
   if (isBlocked) {
     ConcurrentSearchCtx_Unlock(&indexer->concCtx);
   }
-  if (useHt) {
+  if (useTermHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
   }

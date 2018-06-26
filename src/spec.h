@@ -188,6 +188,8 @@ typedef struct {
 
   uint64_t unique_id;
 
+  RedisModuleCtx *strCtx;
+  RedisModuleString **indexStrs;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
@@ -261,6 +263,11 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
 
 /* Return 1 if a term is a stopword for the specific index */
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
+
+/**
+ * Returns a string suitable for indexes. This saves on string creation/destruction
+ */
+RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs);
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);

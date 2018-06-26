@@ -14,9 +14,18 @@ typedef struct stemmer {
   void *ctx;
   const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
   void (*Free)(struct stemmer *);
+
+  // Attempts to reset the stemmer using the given language and type. Returns 0
+  // if this stemmer cannot be reused.
+  int (*Reset)(struct stemmer *, StemmerType type, const char *language);
+
+  const char *language;
+  StemmerType type;  // Type of stemmer
 } Stemmer;
 
 Stemmer *NewStemmer(StemmerType type, const char *language);
+
+int ResetStemmer(Stemmer *stemmer, StemmerType type, const char *language);
 
 /* check if a language is supported by our stemmers */
 int IsSupportedLanguage(const char *language, size_t len);

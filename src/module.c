@@ -209,11 +209,13 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // in partial mode
   uint32_t options = 0;
-  if (replace) {
-    options |= DOCUMENT_ADD_REPLACE;
-  }
-  if (partial) {
-    options |= DOCUMENT_ADD_PARTIAL;
+  if (exists) {
+    if (replace) {
+      options |= DOCUMENT_ADD_REPLACE;
+    }
+    if (partial) {
+      options |= DOCUMENT_ADD_PARTIAL;
+    }
   }
   if (nosave) {
     options |= DOCUMENT_ADD_NOSAVE;
@@ -1430,7 +1432,9 @@ end:
 static void DumpNumericIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
   RedisModuleKey *keyp = NULL;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, fieldName, &keyp);
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(
+      sctx->spec, IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName)));
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
   if (!rt) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
