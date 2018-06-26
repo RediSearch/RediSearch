@@ -1281,17 +1281,19 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
-                             RedisModuleString** synonyms, size_t size) {
+                             RedisModuleString** synonyms, size_t size, bool checkIdSanity) {
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
 
-  if (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap)) {
+  if (checkIdSanity && (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap))) {
     RedisModule_ReplyWithError(ctx, "given id does not exists");
     return REDISMODULE_OK;
   }
+
+  IndexSpec_InitializeSynonym(sp);
 
   SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
 
@@ -1321,7 +1323,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
+  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, true);
 }
 
 int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1333,7 +1335,12 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
   }
 
-  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
+  if (id < 0 || id > UINT32_MAX) {
+    RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
+    return REDISMODULE_OK;
+  }
+
+  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, false);
 }
 
 /**

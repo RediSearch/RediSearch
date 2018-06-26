@@ -139,7 +139,9 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
     SynonymMap_Free(smap->read_only_copy);
     smap->read_only_copy = NULL;
   }
-  smap->curr_id = id + 1;
+  if(id >= smap->curr_id){
+    smap->curr_id = id + 1;
+  }
 }
 
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len) {
