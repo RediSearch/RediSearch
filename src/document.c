@@ -418,9 +418,8 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_CTOR(tagCtor) {
-  RedisModuleString *kname = TagIndex_FormatName(ctx, fs->name);
+  RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs);
   bulk->indexData = TagIndex_Open(ctx->redisCtx, kname, 1, &bulk->indexKey);
-  RedisModule_FreeString(ctx->redisCtx, kname);
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
@@ -432,7 +431,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
   }
   if (fdata->tags) {
-    array_free_ex(fdata->tags, free(*(void **)ptr));
+    TagIndex_FreePreprocessedData(fdata->tags);
   }
   return rc;
 }

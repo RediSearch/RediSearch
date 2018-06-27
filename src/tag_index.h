@@ -100,6 +100,10 @@ TagIndex *NewTagIndex();
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
 
+static inline void TagIndex_FreePreprocessedData(char **s) {
+  array_free(s);
+}
+
 /* Index a vector of pre-processed tags for a docId */
 size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId);
 
