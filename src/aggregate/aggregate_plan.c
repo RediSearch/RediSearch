@@ -57,6 +57,7 @@ AggregateStep *AggregatePlan_NewApplyStepFmt(const char *alias, char **err, cons
   va_start(ap, fmt);
   vasprintf(&exp, fmt, ap);
   va_end(ap);
+  printf("exp is %s\n", exp);
   AggregateStep *st = AggregatePlan_NewApplyStep(alias, exp, err);
   if (!st) {
     free(exp);
@@ -173,14 +174,20 @@ size_t AggregateGroupStep_NumReducers(AggregateGroupStep *g) {
 char *AggregatePlan_GetReducerAlias(AggregateGroupStep *g, const char *func, RSValue **argv,
                                     int argc) {
 
-  sds out = sdsnew(func);
+  sds out = sdsnew("__generated_alias");
+  out = sdscat(out, func);
   // only put parentheses if we actually have args
-  if (argc) out = sdscat(out, "(");
   char buf[255];
 
   for (size_t i = 0; i < argc; i++) {
     size_t l;
     const char *s = RSValue_ConvertStringPtrLen(argv[i], &l, buf, sizeof(buf));
+
+    while (*s == '@') {
+      // Don't allow the leading '@' to be included as an alias!
+      ++s;
+      --l;
+    }
     out = sdscatlen(out, s, l);
     if (i + 1 < argc) {
       out = sdscat(out, ",");
@@ -188,7 +195,6 @@ char *AggregatePlan_GetReducerAlias(AggregateGroupStep *g, const char *func, RSV
   }
 
   // only put parentheses if we actually have args
-  if (argc) out = sdscat(out, ")");
   sdstolower(out);
 
   // duplicate everything. yeah this is lame but this function is not in a tight loop
@@ -627,6 +633,7 @@ void plan_serializeCursor(AggregatePlan *plan, char ***vec) {
     arrPushStrfmt(vec, "%d", plan->cursor.maxIdle);
   }
 }
+
 char **AggregatePlan_Serialize(AggregatePlan *plan) {
   char **vec = array_new(char *, 10);
   arrPushStrdup(&vec, RS_AGGREGATE_CMD);
