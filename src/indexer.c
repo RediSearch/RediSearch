@@ -307,8 +307,8 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
     const Document *doc = &cur->doc;
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
-      const FieldSpec *fs = aCtx->fspecs + ii;
-      fieldData *fdata = aCtx->fdatas + ii;
+      const FieldSpec *fs = cur->fspecs + ii;
+      fieldData *fdata = cur->fdatas + ii;
       if (fs->name == NULL || fs->type == FIELD_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
@@ -332,11 +332,13 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
   // Flush it!
   for (size_t ii = 0; ii < numActiveBulks; ++ii) {
-    const BulkIndexer *procs = GetBulkIndexer(activeBulks[ii]->type);
+    IndexBulkData *cur = activeBulks[ii];
+    const BulkIndexer *procs = GetBulkIndexer(cur->type);
     if (procs->BulkDone) {
-      procs->BulkDone(activeBulks[ii], sctx);
-    } else if (activeBulks[ii]->indexKey) {
-      RedisModule_CloseKey(activeBulks[ii]->indexKey);
+      procs->BulkDone(cur, sctx);
+    }
+    if (cur->indexKey) {
+      RedisModule_CloseKey(cur->indexKey);
     }
   }
 }
