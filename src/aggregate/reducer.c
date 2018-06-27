@@ -119,14 +119,17 @@ static Reducer *NewQuantileArgs(RedisSearchCtx *ctx, RSValue **args, size_t argc
 
   if (pct <= 0 || pct >= 1) {
     SET_ERR(err, "Quantile must be between 0.0 and 1.0 (exclusive) )");
+    return NULL;
   }
 
   double resolution = 500;
   if (argc > 2) {
     if (!RSValue_ToNumber(args[2], &resolution)) {
       SET_ERR(err, "Could not parse resolution");
+      return NULL;
     } else if (resolution < 1 || resolution > MAX_SAMPLE_SIZE) {
       SET_ERR(err, "Invalid resolution");
+      return NULL;
     }
   }
 
