@@ -33,7 +33,7 @@ AggregateStep *AggregatePlan_NewApplyStep(const char *alias, const char *expr, c
   ret->apply = (AggregateApplyStep){
       .rawExpr = (char *)expr,
       .parsedExpr = pe,
-      .alias = (char *)alias,
+      .alias = alias ? strdup(alias) : NULL,
   };
   return ret;
 }
