@@ -57,7 +57,6 @@ AggregateStep *AggregatePlan_NewApplyStepFmt(const char *alias, char **err, cons
   va_start(ap, fmt);
   vasprintf(&exp, fmt, ap);
   va_end(ap);
-  printf("exp is %s\n", exp);
   AggregateStep *st = AggregatePlan_NewApplyStep(alias, exp, err);
   if (!st) {
     free(exp);
