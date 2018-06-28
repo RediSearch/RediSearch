@@ -254,8 +254,14 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
     return EXPR_EVAL_ERR;
   }
 
+  RSValue* l_ptr = RSValue_Dereference(&l);
+  RSValue* r_ptr = RSValue_Dereference(&r);
+
   int res;
-  switch (pred->cond) {
+  if(l_ptr->t == RSValue_Null || r_ptr->t == RSValue_Null){
+    // NULL are not comparable
+    res = 0;
+  }else switch (pred->cond) {
     case RSCondition_Eq:
       res = RSValue_Equal(&l, &r);
       break;
