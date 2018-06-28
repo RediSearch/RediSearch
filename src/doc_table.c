@@ -64,6 +64,8 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     // We grow by half of the current capacity with maximum of 1m
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
+    t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
+
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
     for (; oldcap < t->cap; oldcap++) {
       t->buckets[oldcap].first = NULL;
