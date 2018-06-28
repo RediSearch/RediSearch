@@ -108,9 +108,7 @@ inline void RSValue_Free(RSValue *v) {
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
-      .t = t,
-      .refcount = 1,
-      .allocated = 0,
+      .t = t, .refcount = 1, .allocated = 0,
   };
   return v;
 }
