@@ -18,7 +18,7 @@
 
 /**
  * debug command implementation
- * Currently free sub-commands available
+ * Currently three sub-commands available
  * 1.  DUMP_INVIDX - which dump all doc ids in an inverted index
  * 2.  DUMP_NUMIDX - which dump all doc ids in a numeric index
  * 3.  DUMP_TAGIDX - which dump all doc ids in a tag index
