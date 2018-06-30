@@ -940,12 +940,12 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
     res->docId = lastReadId = (*(uint32_t *)&res->docId) + lastReadId;
-    RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
+    int docExists = DocTable_Exists(dt, res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
-    if (!md || md->flags & Document_Deleted) {
+    if (!docExists) {
       ++frags;
       if (bytesCollected) *bytesCollected += sz;
     } else {  // valid document

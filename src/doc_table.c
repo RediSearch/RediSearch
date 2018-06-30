@@ -22,22 +22,22 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
                     .dim = NewDocIdMap()};
 }
 
-static inline uint32_t DocTable_GetBucket(DocTable *t, t_docId docId) {
+static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
   return docId < t->maxSize ? docId : docId % t->maxSize;
 }
 
-static inline int DocTable_ValidateDocId(DocTable *t, t_docId docId) {
+static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
 
-int DMDChain_IsEmpty(DMDChain *dmdChain) {
+int DMDChain_IsEmpty(const DMDChain *dmdChain) {
   return !dmdChain->last;
 }
 
-inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
+RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
   }
@@ -51,6 +51,30 @@ inline RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId) {
     currDmd = currDmd->next;
   }
   return NULL;
+}
+
+int DocTable_Exists(const DocTable *t, t_docId docId) {
+  if (!docId || docId > t->maxDocId) {
+    return 0;
+  }
+  uint32_t ix = DocTable_GetBucket(t, docId);
+  const DMDChain *chain = t->buckets + ix;
+  if (chain == NULL) {
+    return 0;
+  }
+  for (const RSDocumentMetadata *md = chain->first; md; md = md->next) {
+    if (md->id == docId && !(md->flags & Document_Deleted)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) {
+  RSDocumentKey k;
+  k.str = RedisModule_StringPtrLen(s, &k.len);
+  t_docId id = DocTable_GetId(t, k);
+  return DocTable_Get(t, id);
 }
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
@@ -88,7 +112,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
 }
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
-t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key) {
+t_docId DocTable_GetId(const DocTable *dt, RSDocumentKey key) {
   return DocIdMap_Get(&dt->dim, key);
 }
 
@@ -122,7 +146,8 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
 }
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
- * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
+ * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
+ */
 int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd) {
@@ -207,7 +232,8 @@ RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
   return dmd ? dmd->payload : NULL;
 }
 
-/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table. */
+/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
+ */
 inline RSDocumentKey DocTable_GetKey(DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd) {
@@ -426,7 +452,7 @@ DocIdMap NewDocIdMap() {
   return (DocIdMap){m};
 }
 
-t_docId DocIdMap_Get(DocIdMap *m, RSDocumentKey key) {
+t_docId DocIdMap_Get(const DocIdMap *m, RSDocumentKey key) {
 
   void *val = TrieMap_Find(m->tm, (char *)key.str, key.len);
   if (val && val != TRIEMAP_NOTFOUND) {

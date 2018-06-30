@@ -529,8 +529,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   Document doc = {.docKey = key};
   // Get the metadata, which should include sortables
-  RSDocumentMetadata *md =
-      DocTable_Get(&sctx->spec->docs, DocTable_GetId(&sctx->spec->docs, MakeDocKeyR(doc.docKey)));
+  RSDocumentMetadata *md = DocTable_GetByKeyR(&sctx->spec->docs, doc.docKey);
 
   // Make sure the field list only includes fields which are not already in the sorting vector
   size_t loadFields = 0;
