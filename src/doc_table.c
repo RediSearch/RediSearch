@@ -309,26 +309,32 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
 }
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key) {
+  RSDocumentMetadata *md = DocTable_Pop(t, key);
+  if (md) {
+    DMD_Decref(md);
+    return 1;
+  }
+  return 0;
+}
+
+RSDocumentMetadata *DocTable_Pop(DocTable *t, RSDocumentKey key) {
   t_docId docId = DocIdMap_Get(&t->dim, key);
   if (docId && docId <= t->maxDocId) {
 
     RSDocumentMetadata *md = DocTable_Get(t, docId);
     if (!md) {
-      return 0;
+      return NULL;
     }
 
     md->flags |= Document_Deleted;
 
     DocTable_DmdUnchain(t, md);
-
-    int retVal = DocIdMap_Delete(&t->dim, key);
-
-    DMD_Decref(md);
+    DocIdMap_Delete(&t->dim, key);
     --t->size;
 
-    return retVal;
+    return md;
   }
-  return 0;
+  return NULL;
 }
 
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
