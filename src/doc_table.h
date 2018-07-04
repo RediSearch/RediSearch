@@ -163,6 +163,8 @@ void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
 
+RSDocumentMetadata *DocTable_Pop(DocTable *t, RSDocumentKey key);
+
 static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, (RSDocumentKey){.str = key, .len = strlen(key)});
   if (id == 0) {
