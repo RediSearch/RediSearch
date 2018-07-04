@@ -122,18 +122,16 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   if (idx) {
     int blockNum = 0;
     do {
-      size_t bytesCollected = 0;
-      size_t recordsRemoved = 0;
+      IndexRepairParams params = {.limit = DOCS_TO_SCAN_EACH_ITERATION};
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
-      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, DOCS_TO_SCAN_EACH_ITERATION,
-                                      &bytesCollected, &recordsRemoved);
+      blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, &params);
       TimeSampler_End(&ts);
       RedisModule_Log(ctx, "debug", "Repair took %lldns", TimeSampler_DurationNS(&ts));
       /// update the statistics with the the number of records deleted
-      totalRemoved += recordsRemoved;
-      gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
-      totalCollected += bytesCollected;
+      totalRemoved += params.docsCollected;
+      gc_updateStats(sctx, gc, params.docsCollected, params.bytesCollected);
+      totalCollected += params.bytesCollected;
       // blockNum 0 means error or we've finished
       if (!blockNum) break;
 
@@ -268,15 +266,13 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
   int blockNum = 0;
   do {
-    size_t bytesCollected = 0;
-    size_t recordsRemoved = 0;
+    IndexRepairParams params = {.limit = DOCS_TO_SCAN_EACH_ITERATION, .arg = nextNode->range};
     // repair 100 blocks at once
-    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum,
-                                    DOCS_TO_SCAN_EACH_ITERATION, &bytesCollected, &recordsRemoved);
+    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
-    numericGcCtx->rt->numEntries -= recordsRemoved;
-    totalRemoved += recordsRemoved;
-    gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
+    numericGcCtx->rt->numEntries -= params.docsCollected;
+    totalRemoved += params.docsCollected;
+    gc_updateStats(sctx, gc, params.docsCollected, params.bytesCollected);
     // blockNum 0 means error or we've finished
     if (!blockNum) break;
 

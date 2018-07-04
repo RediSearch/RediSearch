@@ -41,12 +41,28 @@ typedef union {
   t_fieldMask num;
 } IndexDecoderCtx;
 
+/**
+ * Called when an entry is removed
+ */
+typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
+
+typedef struct {
+  size_t bytesCollected; /** out: Number of bytes collected */
+  size_t docsCollected;  /** out: Number of documents collected */
+  size_t limit;          /** in: how many index blocks to scan at once */
+
+  /** in: Callback to invoke when a document is collected */
+  void (*RepairCallback)(const RSIndexResult *, void *);
+  /** argument to pass to callback */
+  void *arg;
+} IndexRepairParams;
+
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void InvertedIndex_Free(void *idx);
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
-                         size_t *bytesCollected, size_t *recordsRemoved);
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
+                         IndexRepairParams *params);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
