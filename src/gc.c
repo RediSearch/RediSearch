@@ -44,7 +44,11 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
+      .timer = NULL,
+      .hz = initialHZ,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
   };
   return gc;
 }
@@ -137,6 +141,7 @@ static void gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
       // First we close the relevant keys we're touching
       RedisModule_CloseKey(sctx->key);
       RedisModule_CloseKey(idxKey);
+      idxKey = NULL;  // If we break later on, we want this to be NULL
       SearchCtx_Free(sctx);
 
       // now release the global lock
@@ -182,7 +187,9 @@ end:
     RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
-  if (idxKey) RedisModule_CloseKey(idxKey);
+  if (idxKey) {
+    RedisModule_CloseKey(idxKey);
+  }
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
