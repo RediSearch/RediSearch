@@ -371,9 +371,16 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexData;
-  // NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name, &idxKey);
+  if (aCtx->oldMd && FieldSpec_IsSortable(fs) && aCtx->oldMd->sortVector) {
+    const RSSortingVector *sv = aCtx->oldMd->sortVector;
+    if (sv->len > fs->sortIdx && sv->values[fs->sortIdx]) {
+      double oldVal = sv->values[fs->sortIdx]->numval;
+      // Print the number?
+      // printf("Removing %lf from the index\n", oldVal);
+      NumericRangeTree_RemoveValue(rt, oldVal);
+    }
+  }
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
-  // RedisModule_CloseKey(idxKey);
   return 0;
 }
 

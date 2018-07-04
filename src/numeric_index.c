@@ -5,6 +5,7 @@
 #include "rmutil/util.h"
 #include "index.h"
 #include <math.h>
+#include <float.h>
 #include "redismodule.h"
 #include "util/misc.h"
 //#include "tests/time_sample.h"
@@ -63,57 +64,127 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   return rc;
 }
 
-int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
-
-  int add = 0;
-  if (checkCard) {
-    add = 1;
-    size_t card = n->card;
-    for (int i = 0; i < MIN(card, n->splitCard); i++) {
-
-      if (n->values[i] == value) {
-        add = 0;
-        break;
-      }
-    }
+static int NumericRange_AddNoCheck(NumericRange *n, t_docId docId, double value) {
+  if (n->minVal == NF_NEGATIVE_INFINITY || value < n->minVal) {
+    n->minVal = value;
   }
-  if (n->minVal == NF_NEGATIVE_INFINITY || value < n->minVal) n->minVal = value;
-  if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
-  if (add) {
-    if (n->card < n->splitCard) {
-      n->values[n->card] = value;
-      n->unique_sum += value;
-    }
-    ++n->card;
+  if (n->maxVal == NF_INFINITY || value > n->maxVal) {
+    n->maxVal = value;
   }
 
+  n->numEntries++;
   InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+  return NumericRange_GetCardinality(n);
+}
 
-  return n->card;
+typedef union {
+  uint64_t u64;
+  double d;
+} HashKey;
+
+static int NumericRange_AddValue(NumericRange *n, t_docId docId, double value) {
+  int status;
+  HashKey k = {.d = value};
+  khint_t iter = kh_put(rangeVals, n->htvals, k.u64, &status);
+  if (status > 0) {
+    // Newly inserted
+    n->unique_sum += value;
+    // printf("%p: Put %lf. Status=%d. card=%u, sum=%lf\n", n, value, status,
+    //        NumericRange_GetCardinality(n), n->unique_sum);
+
+    kh_val(n->htvals, iter) = 0;  // Incremented later on
+  } else if (status < 0) {
+    fprintf(stderr, "Failed to write value!\n");
+    abort();
+  } else if (status == 0) {
+    // printf("Item was already present...\n");
+  }
+
+  kh_val(n->htvals, iter)++;
+
+  return NumericRange_AddNoCheck(n, docId, value);
+}
+
+int NumericRange_RemoveEntry(NumericRange *n, double value) {
+  HashKey k = {.d = value};
+  // Get the entry
+  khint_t iter = kh_get(rangeVals, n->htvals, k.u64);
+  if (iter == kh_end(n->htvals)) {
+    assert(0 && "Value is supposed to have been deleted, but is still here???");
+    return NR_DELETE_NOTFOUND;
+  }
+
+  // printf("Removing %lf\n", value);
+
+  n->numEntries--;
+  if (--kh_val(n->htvals, iter)) {
+    return NR_DELETE_REMAINING;
+  }
+
+  // The value must be removed. If so, we need to check if it was a min/max,
+  // and if it was, reset it.
+  kh_del(rangeVals, n->htvals, iter);
+  n->unique_sum -= value;
+
+  double newMin = DBL_MAX, newMax = DBL_MIN;
+  if (value == n->maxVal || value == n->minVal) {
+    uint64_t k64;
+    uint16_t v;
+
+    kh_foreach(n->htvals, k64, v, {
+      k.u64 = k64;
+      newMin = MIN(k.d, newMin);
+      newMax = MAX(k.d, newMax);
+    });
+    n->minVal = newMin;
+    n->maxVal = newMax;
+  }
+
+  return NR_DELETE_REMOVED;
+}
+
+void NumericRangeNode_RemoveEntry(NumericRangeNode *n, double value) {
+  if (n->range && NumericRangeNode_IsLeaf(n)) {
+    NumericRange_RemoveEntry(n->range, value);
+  }
+  if (value < n->value) {
+    if (n->left) {
+      NumericRangeNode_RemoveEntry(n->left, value);
+    }
+  } else {
+    if (n->right) {
+      NumericRangeNode_RemoveEntry(n->right, value);
+    }
+  }
+}
+
+void NumericRangeTree_RemoveValue(NumericRangeTree *t, double value) {
+  NumericRangeNode_RemoveEntry(t->root, value);
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
 
-  double split = (n->unique_sum) / (double)n->card;
+  double split = (n->unique_sum) / (double)NumericRange_GetCardinality(n);
 
-  // printf("split point :%f\n", split);
-  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  printf("split point :%f\n", split);
+  size_t splitCard = MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT);
+  size_t docCount = NumericRange_GetDocCount(n);
+  *lp = NewLeafNode(docCount / 2 + 1, n->minVal, split, splitCard);
+  *rp = NewLeafNode(docCount / 2 + 1, split, n->maxVal, splitCard);
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(n->entries, NULL);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
-                     res->num.value, 1);
+    NumericRange_AddValue(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
+                          res->num.value);
   }
   IR_Free(ir);
 
-  // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
-  //        n->entries->numDocs);
-  // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
-  //        (*rp)->range->entries->numDocs);
+  printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal,
+         NumericRange_GetCardinality(n), NumericRange_GetDocCount(n));
+
+  printf("left node: %d, right: %d\n", NumericRange_GetDocCount((*lp)->range),
+         NumericRange_GetDocCount((*rp)->range));
   return split;
 }
 
@@ -130,34 +201,35 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
                              .unique_sum = 0,
-                             .card = 0,
                              .splitCard = splitCard,
-                             .values = RedisModule_Calloc(splitCard, sizeof(double)),
+                             .htvals = kh_init(rangeVals),
                              .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
 
-int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
+static inline int NumericRangeNode_Add(NumericRangeNode *n, NumericRangeNode *parent, t_docId docId,
+                                       double value, int level) {
 
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
     if (n->range) {
-      NumericRange_Add(n->range, docId, value, 0);
+      NumericRange_AddNoCheck(n->range, docId, value);
     }
 
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
-    int rc = NumericRangeNode_Add(child, docId, value);
+    int rc = NumericRangeNode_Add(child, n, docId, value, level + 1);
     if (rc) {
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         InvertedIndex_Free(n->range->entries);
-        RedisModule_Free(n->range->values);
+        kh_destroy(rangeVals, n->range->htvals);
+        // RedisModule_Free(n->range->values);
         RedisModule_Free(n->range);
         n->range = NULL;
       }
@@ -165,34 +237,45 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
       // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
-	  if((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH){ // role to the left
-		  NumericRangeNode *right = child->right;
-		  child->right=right->left;
-		  right->left=child;
-		  --child->maxDepth;
-		  *childP=right; // replace the child with the new child
-	  } else if((child->left->maxDepth - child->right->maxDepth) > NR_MAX_DEPTH){ // role to the right
-		  NumericRangeNode *left = child->left;
-		  child->left=left->right;
-		  left->right=child;
-		  --child->maxDepth;
-		  *childP=left; // replace the child with the new child
-	  }
+      if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
+        NumericRangeNode *right = child->right;
+        child->right = right->left;
+        right->left = child;
+        --child->maxDepth;
+        *childP = right;  // replace the child with the new child
+      } else if ((child->left->maxDepth - child->right->maxDepth) >
+                 NR_MAX_DEPTH) {  // role to the right
+        NumericRangeNode *left = child->left;
+        child->left = left->right;
+        left->right = child;
+        --child->maxDepth;
+        *childP = left;  // replace the child with the new child
+      }
     }
     // return 1 or 0 to our called, so this is done recursively
     return rc;
   }
 
-  // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  int card = NumericRange_Add(n->range, docId, value, 1);
+  // if this node is a leaf - we add AND check the cardinlity. We only split leaf nodes
+  int card = NumericRange_AddValue(n->range, docId, value);
 
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (card >= n->range->splitCard ||
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && n->range->card > 1)) {
+  if (card >= n->range->splitCard || (NumericRange_GetDocCount(n->range) > NR_MAXRANGE_SIZE &&
+                                      NumericRange_GetCardinality(n->range) > 1)) {
 
+    if (parent && (parent->left == NULL || parent->right == NULL)) {
+      // See if we can merge without creating a new leaf:
+      // [0..9]
+      //    [10..19]
+      //      [20..29]
+      /**
+       *
+       */
+    }
     // split this node but don't delete its range
+    printf("Splitting at level %d\n", level);
     double split = NumericRange_Split(n->range, &n->left, &n->right);
 
     n->value = split;
@@ -255,7 +338,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
     InvertedIndex_Free(n->range->entries);
-    RedisModule_Free(n->range->values);
+    kh_destroy(rangeVals, n->range->htvals);
     RedisModule_Free(n->range);
     n->range = NULL;
   }
@@ -268,9 +351,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
-#define GC_NODES_INITIAL_SIZE 10
   NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
-
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
@@ -288,7 +369,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   }
   t->lastDocId = docId;
 
-  int rc = NumericRangeNode_Add(t->root, docId, value);
+  int rc = NumericRangeNode_Add(t->root, NULL, docId, value, 0);
   // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
@@ -441,7 +522,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->card * sizeof(double);
+    *sz += NumericRange_GetCardinality(n->range) * sizeof(double);
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }
