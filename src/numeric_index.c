@@ -146,11 +146,14 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       NumericRange_Add(n->range, docId, value, 0);
     }
 
-    // recursively add to its left or right child. if the child has split we get 1 in return
-    int rc = NumericRangeNode_Add((value < n->value ? n->left : n->right), docId, value);
+    // recursively add to its left or right child.
+    NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
+    NumericRangeNode *child = *childP;
+    // if the child has split we get 1 in return
+    int rc = NumericRangeNode_Add(child, docId, value);
     if (rc) {
       // if there was a split it means our max depth has increased.
-      // we we are too deep - we don't retain this node's range anymore.
+      // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         InvertedIndex_Free(n->range->entries);
@@ -158,12 +161,29 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
         RedisModule_Free(n->range);
         n->range = NULL;
       }
+
+      // check if we need to rebalance the child.
+      // To ease the rebalance we don't rebalance the root
+      // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
+	  if((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH){ // role to the left
+		  NumericRangeNode *right = child->right;
+		  child->right=right->left;
+		  right->left=child;
+		  --child->maxDepth;
+		  *childP=right; // replace the child with the new child
+	  } else if((child->left->maxDepth - child->right->maxDepth) > NR_MAX_DEPTH){ // role to the right
+		  NumericRangeNode *left = child->left;
+		  child->left=left->right;
+		  left->right=child;
+		  --child->maxDepth;
+		  *childP=left; // replace the child with the new child
+	  }
     }
     // return 1 or 0 to our called, so this is done recursively
     return rc;
   }
 
-  // if this node is a leaf - we add AND check the cardinlity. We only split leaf nodes
+  // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
   int card = NumericRange_Add(n->range, docId, value, 1);
 
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
@@ -184,7 +204,7 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   return 0;
 }
 
-/* recrusively add a node's children to the range. */
+/* Recursively add a node's children to the range. */
 void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max) {
   if (!n) return;
 
