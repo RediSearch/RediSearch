@@ -172,6 +172,9 @@ typedef struct RSAddDocumentCtx {
   FieldSpec *fspecs;
   RSTokenizer *tokenizer;
 
+  // Old document data. Contains sortables
+  RSDocumentMetadata *oldMd;
+
   // Scratch space used by per-type field preprocessors (see the source)
   union FieldData *fdatas;
   const char *errorString;  // Error message is placed here if there is an error during processing
