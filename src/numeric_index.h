@@ -32,7 +32,8 @@ typedef struct {
 } NumericRange;
 
 #define NumericRange_GetCardinality(nr) ((nr)->htvals ? kh_size((nr)->htvals) : 0)
-#define NumericRange_GetDocCount(nr) ((nr)->numEntries)
+// #define NumericRange_GetDocCount(nr) ((nr)->numEntries)
+#define NumericRange_GetDocCount(nr) ((nr)->entries->numDocs)
 
 /* NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a
  * leaf or not */

@@ -371,6 +371,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexData;
+#if 0
   if (aCtx->oldMd && FieldSpec_IsSortable(fs) && aCtx->oldMd->sortVector) {
     const RSSortingVector *sv = aCtx->oldMd->sortVector;
     if (sv->len > fs->sortIdx && sv->values[fs->sortIdx]) {
@@ -380,6 +381,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       NumericRangeTree_RemoveValue(rt, oldVal);
     }
   }
+#endif
   NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
   return 0;
 }
