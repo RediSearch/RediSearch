@@ -293,6 +293,11 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->tokenizer = NULL;
   }
 
+  if (aCtx->oldMd) {
+    DMD_Decref(aCtx->oldMd);
+    aCtx->oldMd = NULL;
+  }
+
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
 
   mempool_release(actxPool_g, aCtx);
