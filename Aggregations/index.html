@@ -1304,7 +1304,7 @@
 <li><strong>url</strong> (text, sortable)</li>
 <li><strong>timestamp</strong> (numeric, sortable) - unix timestamp of visit entry. </li>
 <li><strong>country</strong> (tag, sortable)</li>
-<li><strong>used_id</strong> (text, sortable, not indexed)</li>
+<li><strong>user_id</strong> (text, sortable, not indexed)</li>
 </ul>
 <h3 id="example&quot;_&quot;1&quot;_&quot;unique&quot;_&quot;users&quot;_&quot;by&quot;_&quot;hour&quot;_&quot;ordered&quot;_&quot;chronologically">Example 1: unique users by hour, ordered chronologically.<a class="headerlink" href="#example&quot;_&quot;1&quot;_&quot;unique&quot;_&quot;users&quot;_&quot;by&quot;_&quot;hour&quot;_&quot;ordered&quot;_&quot;chronologically" title="Permanent link">&para;</a></h3>
 <p>First of all, we want <em>all</em> records in the index, because why not. The first step is to determine the index name and the filtering query. A filter query of <code>*</code> means "get all records":</p>

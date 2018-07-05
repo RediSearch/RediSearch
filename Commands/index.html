@@ -2580,15 +2580,21 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 <p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
 </li>
 <li>
-<p><strong>docId</strong>: The document's id that will be returned from searches. 
-  Note that the same docId cannot be added twice to the same index</p>
+<p><strong>docId</strong>: The document's id that will be returned from searches. </p>
 </li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Notes on docId<p>The same docId cannot be added twice to the same index.</p>
+<p>The same docId can be added to multiple indices, but a single document with that docId is saved in the database.</p>
+</p>
+</div>
+<ul>
 <li>
 <p><strong>score</strong>: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1</p>
 </li>
 <li>
-<p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the index and only index it.</p>
+<p><strong>NOSAVE</strong>: If set to true, we will not save the actual document in the database and only index it.</p>
 </li>
 <li>
 <p><strong>REPLACE</strong>: If set, we will do an UPSERT style insertion - and delete an older version of the
@@ -2648,7 +2654,7 @@ information.</p>
 <p>OK on success, or an error if something went wrong.</p>
 <p>A special status <code>NOADD</code> is returned if an <code>IF</code> condition evaluated to false.</p>
 <div class="admonition warning">
-<p class="admonition-title">FT.ADD with  REPLACE and PARTIAL<p>By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.</p>
+<p class="admonition-title">FT.ADD with REPLACE and PARTIAL<p>By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.</p>
 <p>However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.</p>
 <p><strong>REPLACE</strong>: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.</p>
 <p><strong>REPLACE PARTIAL</strong>: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.</p>
