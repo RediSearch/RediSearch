@@ -84,7 +84,7 @@ Let's assume we have log of visits to our website, each record containing the fo
 * **url** (text, sortable)
 * **timestamp** (numeric, sortable) - unix timestamp of visit entry. 
 * **country** (tag, sortable)
-* **used_id** (text, sortable, not indexed)
+* **user_id** (text, sortable, not indexed)
 
 ### Example 1: unique users by hour, ordered chronologically.
 

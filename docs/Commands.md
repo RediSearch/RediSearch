@@ -105,12 +105,17 @@ Add a document to the index.
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
 - **docId**: The document's id that will be returned from searches. 
-  Note that the same docId cannot be added twice to the same index
+
+!!! note "Notes on docId"
+
+        The same docId cannot be added twice to the same index.
+
+        The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1
 
-- **NOSAVE**: If set to true, we will not save the actual document in the index and only index it.
+- **NOSAVE**: If set to true, we will not save the actual document in the database and only index it.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists. 
@@ -169,7 +174,7 @@ OK on success, or an error if something went wrong.
 
 A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
-!!! warning "FT.ADD with  REPLACE and PARTIAL"
+!!! warning "FT.ADD with REPLACE and PARTIAL"
         
         By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
 

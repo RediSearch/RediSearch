@@ -27,7 +27,7 @@ RediSearch supports a few run-time configuration options that should be determin
 
 ## TIMEOUT
 
-The maximum amount of time **in Milliseconds** that a search query is allowed to run. If this time is exceeded, we return the top results accumulated so far, or an error depending on the policy set by `ON_TIMEOUT`.
+The maximum amount of time **in milliseconds** that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with `ON_TIMEOUT`. The timeout can be disabled by setting it to 0.
 
 !!! note
     This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
