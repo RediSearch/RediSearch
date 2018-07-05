@@ -900,20 +900,12 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   return ri;
 }
 
-typedef struct {
-  InvertedIndex *idx;
-  uint32_t currentBlock;
-  DocTable *docs;
-  int numRepaired;
-
-} RepairContext;
-
 /* Repair an index block by removing garbage - records pointing at deleted documents.
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
 static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
-                             size_t *bytesCollected) {
+                             IndexRepairParams *params) {
   t_docId lastReadId = blk->firstId;
 
   blk->lastId = blk->firstId = 0;
@@ -940,14 +932,17 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
     res->docId = lastReadId = (*(uint32_t *)&res->docId) + lastReadId;
-    RSDocumentMetadata *md = DocTable_Get(dt, res->docId);
+    int docExists = DocTable_Exists(dt, res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
-    if (!md || md->flags & Document_Deleted) {
+    if (!docExists) {
+      if (params->RepairCallback) {
+        params->RepairCallback(res, params->arg);
+      }
       ++frags;
-      if (bytesCollected) *bytesCollected += sz;
+      params->bytesCollected += sz;
     } else {  // valid document
 
       // If we're already operating in a repaired block, we do nothing if we found no holes yet, or
@@ -984,23 +979,24 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
   return frags;
 }
 
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock, int num,
-                         size_t *bytesCollected, size_t *recordsRemoved) {
-  int n = 0;
-  for (; startBlock < idx->size && (num <= 0 || n < num); ++startBlock, ++n) {
+int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
+                         IndexRepairParams *params) {
+  size_t limit = params->limit ? params->limit : SIZE_MAX;
+  size_t blocksProcessed = 0;
+  for (; startBlock < idx->size && blocksProcessed < limit; ++startBlock, ++blocksProcessed) {
     IndexBlock *blk = idx->blocks + startBlock;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       continue;
     }
-    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, bytesCollected);
+    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, params);
     // We couldn't repair the block - return 0
     if (repaired == -1) {
       return 0;
     } else if (repaired > 0) {
       // Record the number of records removed for gc stats
-      *recordsRemoved += repaired;
+      params->docsCollected += repaired;
 
       // Increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;

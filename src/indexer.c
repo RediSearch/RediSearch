@@ -236,13 +236,17 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static int makeDocumentId(Document *doc, IndexSpec *spec, int replace, const char **errorString) {
+static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
+                          const char **errorString) {
   DocTable *table = &spec->docs;
+  Document *doc = &aCtx->doc;
   RSDocumentKey docKey = MakeDocKeyR(doc->docKey);
   if (replace) {
-    if (DocTable_Delete(table, docKey)) {
+    RSDocumentMetadata *dmd = DocTable_Pop(table, docKey);
+    if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
+      aCtx->oldMd = dmd;
     }
   }
 
@@ -270,8 +274,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     assert(!cur->doc.docId);
-    int rv =
-        makeDocumentId(&cur->doc, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->errorString);
+    int rv = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->errorString);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;

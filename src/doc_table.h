@@ -49,7 +49,7 @@ typedef struct {
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(DocIdMap *m, RSDocumentKey key);
+t_docId DocIdMap_Get(const DocIdMap *m, RSDocumentKey key);
 
 /* Put a new doc id in the map if it does not already exist */
 void DocIdMap_Put(DocIdMap *m, RSDocumentKey key, t_docId docId);
@@ -110,7 +110,9 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
-RSDocumentMetadata *DocTable_Get(DocTable *t, t_docId docId);
+RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId);
+
+RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -136,7 +138,9 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
 /*
  * return true iff the given dmdChain holds no elements
  */
-int DMDChain_IsEmpty(DMDChain *dmdChain);
+int DMDChain_IsEmpty(const DMDChain *dmdChain);
+
+int DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -152,12 +156,14 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
-t_docId DocTable_GetId(DocTable *dt, RSDocumentKey key);
+t_docId DocTable_GetId(const DocTable *dt, RSDocumentKey key);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, RSDocumentKey key);
+
+RSDocumentMetadata *DocTable_Pop(DocTable *t, RSDocumentKey key);
 
 static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, (RSDocumentKey){.str = key, .len = strlen(key)});
