@@ -99,6 +99,16 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
       return REDISMODULE_ERR;
     }
   }
+
+
+  if (argc >= 2 && RMUtil_ArgIndex("DOCS_TO_SCAN_EACH_ITERATION", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("DOCS_TO_SCAN_EACH_ITERATION", argv, argc, "l", &RSGlobalConfig.docsToScanEachIteration);
+    if (RSGlobalConfig.docsToScanEachIteration <= 0) {
+      *err = "Invalid DOCS_TO_SCAN_EACH_ITERATION value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
 

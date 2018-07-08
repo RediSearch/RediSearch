@@ -11,6 +11,7 @@
 #include "gc.h"
 #include "tests/time_sample.h"
 #include "numeric_index.h"
+#include "config.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -97,7 +98,6 @@ void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t record
   gc->stats.totalCollected += bytesCollected;
 }
 
-#define DOCS_TO_SCAN_EACH_ITERATION 100
 size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
@@ -122,7 +122,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   if (idx) {
     int blockNum = 0;
     do {
-      IndexRepairParams params = {.limit = DOCS_TO_SCAN_EACH_ITERATION};
+      IndexRepairParams params = {.limit = RSGlobalConfig.docsToScanEachIteration};
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
       blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, &params);
@@ -266,7 +266,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
   int blockNum = 0;
   do {
-    IndexRepairParams params = {.limit = DOCS_TO_SCAN_EACH_ITERATION, .arg = nextNode->range};
+    IndexRepairParams params = {.limit = RSGlobalConfig.docsToScanEachIteration, .arg = nextNode->range};
     // repair 100 blocks at once
     blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
