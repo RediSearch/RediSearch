@@ -175,3 +175,18 @@ Not set
 ```
 $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 ```
+
+
+## GC_SCANSIZE 
+
+The garbage collection bulk size of the internal gc used for cleaning up the indexes.
+
+### Default
+
+100
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
+```

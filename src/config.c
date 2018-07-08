@@ -101,10 +101,10 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
   }
 
 
-  if (argc >= 2 && RMUtil_ArgIndex("DOCS_TO_SCAN_EACH_ITERATION", argv, argc) >= 0) {
-    RMUtil_ParseArgsAfter("DOCS_TO_SCAN_EACH_ITERATION", argv, argc, "l", &RSGlobalConfig.docsToScanEachIteration);
+  if (argc >= 2 && RMUtil_ArgIndex("GC_SCANSIZE", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("GC_SCANSIZE", argv, argc, "l", &RSGlobalConfig.docsToScanEachIteration);
     if (RSGlobalConfig.docsToScanEachIteration <= 0) {
-      *err = "Invalid DOCS_TO_SCAN_EACH_ITERATION value";
+      *err = "Invalid GC_SCANSIZE value";
       return REDISMODULE_ERR;
     }
   }
