@@ -11,6 +11,7 @@
 #include "gc.h"
 #include "tests/time_sample.h"
 #include "numeric_index.h"
+#include "tag_index.h"
 #include "config.h"
 
 // convert a frequency to timespec
@@ -62,11 +63,7 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL,
-      .hz = initialHZ,
-      .keyName = k,
-      .stats = {},
-      .rdbPossiblyLoading = 1,
+      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
   };
 
   gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
@@ -204,8 +201,110 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
+static FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+#define FIELDS_ARRAY_CAP 2
+  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  for (int i = 0; i < spec->numFields; ++i) {
+    if (spec->fields[i].type == type) {
+      fields = array_append(fields, &(spec->fields[i]));
+    }
+  }
+  return fields;
+}
+
+static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
+  FieldSpec **tagFields = NULL;
+  tagFields = getFieldsByType(spec, type);
+  if (array_len(tagFields) == 0) {
+    array_free(tagFields);
+    return NULL;
+  }
+
+  // choose random tag field
+  int randomIndex = rand() % array_len(tagFields);
+
+  RedisModuleString *ret = IndexSpec_GetFormattedKey(spec, tagFields[randomIndex]);
+  array_free(tagFields);
+  return ret;
+}
+
+size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
+  size_t totalRemoved = 0;
+  RedisModuleKey *idxKey = NULL;
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+    RedisModule_Log(ctx, "warning", "No index spec for GC %s",
+                    RedisModule_StringPtrLen(gc->keyName, NULL));
+    *status = SPEC_STATUS_INVALID;
+    goto end;
+  }
+  IndexSpec *spec = sctx->spec;
+
+  RedisModuleString *keyName = getRandomFieldByType(spec, FIELD_TAG);
+  if (!keyName) {
+    goto end;
+  }
+
+  TagIndex *indexTag = TagIndex_Open(ctx, keyName, false, &idxKey);
+  if (!indexTag) {
+    goto end;
+  }
+
+  InvertedIndex *iv;
+  char *randomKey;
+  tm_len_t len;
+
+  if (!TrieMap_RandomKey(indexTag->values, &randomKey, &len, (void **)&iv)) {
+    goto end;
+  }
+
+  int blockNum = 0;
+  do {
+    size_t bytesCollected = 0;
+    size_t recordsRemoved = 0;
+    // repair 100 blocks at once
+    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = NULL};
+    blockNum = InvertedIndex_Repair(iv, &sctx->spec->docs, blockNum, &params);
+    /// update the statistics with the the number of records deleted
+    totalRemoved += recordsRemoved;
+    gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);
+    // blockNum 0 means error or we've finished
+    if (!blockNum) break;
+
+    // After each iteration we yield execution
+    // First we close the relevant keys we're touching
+    RedisModule_CloseKey(idxKey);
+    sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
+    // sctx null --> means it was deleted and we need to stop right now
+    if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+      *status = SPEC_STATUS_INVALID;
+      break;
+    }
+
+    // reopen inverted index
+    indexTag = TagIndex_Open(ctx, keyName, false, &idxKey);
+    if (!indexTag) {
+      break;
+    }
+    iv = TrieMap_Find(indexTag->values, randomKey, len);
+    if (iv == TRIEMAP_NOTFOUND) {
+      break;
+    }
+
+  } while (true);
+
+end:
+  if (idxKey) RedisModule_CloseKey(idxKey);
+
+  if (sctx) {
+    RedisModule_CloseKey(sctx->key);
+    SearchCtx_Free(sctx);
+  }
+
+  return totalRemoved;
+}
+
 size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
-#define NUMERIC_FIELDS_ARRAY_CAP 2
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = NULL;
@@ -218,12 +317,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  numericFields = array_new(FieldSpec *, NUMERIC_FIELDS_ARRAY_CAP);
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (spec->fields[i].type == FIELD_NUMERIC) {
-      numericFields = array_append(numericFields, &(spec->fields[i]));
-    }
-  }
+  numericFields = getFieldsByType(spec, FIELD_NUMERIC);
 
   if (array_len(numericFields) == 0) {
     goto end;
@@ -325,6 +419,8 @@ static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
   totalRemoved += gc_RandomTerm(ctx, gc, &status);
 
   totalRemoved += gc_NumericIndex(ctx, gc, &status);
+
+  totalRemoved += gc_TagIndex(ctx, gc, &status);
 
   gc->stats.numCycles++;
   gc->stats.effectiveCycles += totalRemoved > 0 ? 1 : 0;

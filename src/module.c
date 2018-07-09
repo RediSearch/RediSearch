@@ -33,6 +33,7 @@
 #include "rmalloc.h"
 #include "cursor.h"
 #include "version.h"
+#include "debug_commads.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -1284,7 +1285,7 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
-                             RedisModuleString** synonyms, size_t size, bool checkIdSanity) {
+                             RedisModuleString **synonyms, size_t size, bool checkIdSanity) {
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -1419,94 +1420,6 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  return REDISMODULE_OK;
-}
-
-static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
-  IndexIterator *iter = NewReadIterator(reader);
-  RSIndexResult *r;
-  size_t resultSize = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
-    RedisModule_ReplyWithLongLong(ctx, r->docId);
-    ++resultSize;
-  }
-  RedisModule_ReplySetArrayLength(ctx, resultSize);
-  ReadIterator_Free(iter);
-}
-
-static void DumpInvertedIndex(RedisSearchCtx *sctx, RedisModuleString *invidxName) {
-  RedisModuleKey *keyp = NULL;
-  size_t len;
-  const char *invIdxName = RedisModule_StringPtrLen(invidxName, &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
-  if (!invidx) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
-    goto end;
-  }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
-  ReplyReaderResults(reader, sctx->redisCtx);
-
-end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
-}
-
-static void DumpNumericIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
-  RedisModuleKey *keyp = NULL;
-  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(
-      sctx->spec, IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName)));
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
-  if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
-  }
-  NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
-  size_t resultSize = 0;
-  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    if (currNode->range) {
-      IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
-      ReplyReaderResults(reader, sctx->redisCtx);
-      ++resultSize;
-    }
-  }
-  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
-  NumericRangeTreeIterator_Free(iter);
-end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
-}
-
-int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define DUMP_INVIDX_COMMAND "DUMP_INVIDX"
-#define DUMP_NUMIDX_COMMAND "DUMP_NUMIDX"
-
-  if (argc != 4) return RedisModule_WrongArity(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[2], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
-  }
-  RedisSearchCtx sctx = {NULL};
-  sctx.redisCtx = ctx;
-  sctx.spec = sp;
-
-  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
-
-  if (strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0) {
-    DumpInvertedIndex(&sctx, argv[3]);
-  } else if (strcmp(subCommand, DUMP_NUMIDX_COMMAND) == 0) {
-    DumpNumericIndex(&sctx, argv[3]);
-  } else {
-    RedisModule_ReplyWithError(ctx, "no such subcommand");
-  }
-
   return REDISMODULE_OK;
 }
 
@@ -1685,7 +1598,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1,
+         1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
