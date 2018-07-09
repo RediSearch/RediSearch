@@ -263,8 +263,8 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
     size_t bytesCollected = 0;
     size_t recordsRemoved = 0;
     // repair 100 blocks at once
-    blockNum = InvertedIndex_Repair(iv, &sctx->spec->docs, blockNum, DOCS_TO_SCAN_EACH_ITERATION,
-                                    &bytesCollected, &recordsRemoved);
+    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = NULL};
+    blockNum = InvertedIndex_Repair(iv, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
     totalRemoved += recordsRemoved;
     gc_updateStats(sctx, gc, recordsRemoved, bytesCollected);

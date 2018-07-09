@@ -45,6 +45,26 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
   return IndexSpec_GetFormattedKey(spec, fieldSpec);
 }
 
+static void IdToDocId(RedisSearchCtx *sctx, RedisModuleString *strId) {
+  long long id;
+  if(RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK){
+    RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
+    return;
+  }
+  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  if(!doc || (doc->flags & Document_Deleted)){
+    RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
+  }else{
+    RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
+  }
+}
+
+static void DocIdToId(RedisSearchCtx *sctx, RedisModuleString *strDocId) {
+  RSDocumentKey docId = MakeDocKeyR(strDocId);
+  t_docId id = DocTable_GetId(&sctx->spec->docs, docId);
+  RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+}
+
 static void DumpTagIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
   RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, fieldNameRS);
@@ -134,6 +154,10 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DumpNumericIndex(&sctx, argv[3]);
   } else if (strcmp(subCommand, DUMP_TAGIDX_COMMAND) == 0) {
     DumpTagIndex(&sctx, argv[3]);
+  } else if (strcmp(subCommand, IDTODOCID_COMMAND) == 0) {
+    IdToDocId(&sctx, argv[3]);
+  } else if (strcmp(subCommand, DOCIDTOID_COMMAND) == 0) {
+    DocIdToId(&sctx, argv[3]);
   } else {
     RedisModule_ReplyWithError(ctx, "no such subcommand");
   }

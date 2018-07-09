@@ -644,12 +644,17 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
   TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
   stack[0] = n;
 
+  if (stackSz == stackCap) {
+    stackCap += minSteps;
+    stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
+  }
+
   size_t bufCap = n->len;
 
   int steps = 0;
 
   while (steps < minSteps || !__trieMapNode_isTerminal(stack[stackSz - 1])) {
-    TrieMapNode *n = stack[stackSz - 1];
+    n = stack[stackSz - 1];
 
     /* select the next step - -1 means walk back up one level */
     int rnd = rand() % (n->numChildren + 1) - 1;
@@ -668,7 +673,7 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
     steps++;
     if (stackSz == stackCap) {
       stackCap += minSteps;
-      stack = realloc(stack, stackCap);
+      stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
     }
 
     bufCap += n->len;

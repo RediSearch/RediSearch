@@ -692,11 +692,19 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       IndexReader_AdvanceBlock(ir);
     }
 
+    size_t pos = ir->br.pos;
     int rv = ir->decoder(&ir->br, ir->decoderCtx, ir->record);
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&ir->record->docId;
-    ir->lastId = ir->record->docId = delta + ir->lastId;
+    if(pos == 0 && delta != 0){
+      // this is an old version rdb, the first entry is the docid itself and
+      // not the delta
+      ir->record->docId = delta;
+    }else{
+      ir->record->docId = delta + ir->lastId;
+    }
+    ir->lastId = ir->record->docId;
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -907,6 +915,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
 static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
                              IndexRepairParams *params) {
   t_docId lastReadId = blk->firstId;
+  bool isFirstRes = true;
 
   blk->lastId = blk->firstId = 0;
   Buffer repair = *blk->data;
@@ -931,7 +940,16 @@ static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
-    res->docId = lastReadId = (*(uint32_t *)&res->docId) + lastReadId;
+    if(!(isFirstRes && res->docId != 0)){
+      // if we are entering this here
+      // then its not the first entry or its
+      // not an old rdb version
+      // on an old rdb version, the first entry is the docid itself and not
+      // the delta, so no need to increase by the lastReadId
+      res->docId = (*(uint32_t *)&res->docId) + lastReadId;
+    }
+    isFirstRes = false;
+    lastReadId = res->docId;
     int docExists = DocTable_Exists(dt, res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
