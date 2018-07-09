@@ -165,19 +165,20 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
       // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
-	  if((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH){ // role to the left
-		  NumericRangeNode *right = child->right;
-		  child->right=right->left;
-		  right->left=child;
-		  --child->maxDepth;
-		  *childP=right; // replace the child with the new child
-	  } else if((child->left->maxDepth - child->right->maxDepth) > NR_MAX_DEPTH){ // role to the right
-		  NumericRangeNode *left = child->left;
-		  child->left=left->right;
-		  left->right=child;
-		  --child->maxDepth;
-		  *childP=left; // replace the child with the new child
-	  }
+      if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
+        NumericRangeNode *right = child->right;
+        child->right = right->left;
+        right->left = child;
+        --child->maxDepth;
+        *childP = right;  // replace the child with the new child
+      } else if ((child->left->maxDepth - child->right->maxDepth) >
+                 NR_MAX_DEPTH) {  // role to the right
+        NumericRangeNode *left = child->left;
+        child->left = left->right;
+        left->right = child;
+        --child->maxDepth;
+        *childP = left;  // replace the child with the new child
+      }
     }
     // return 1 or 0 to our called, so this is done recursively
     return rc;
