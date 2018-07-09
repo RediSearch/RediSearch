@@ -1813,7 +1813,20 @@ class SearchTestCase(BaseModuleTestCase):
             'REPLACE', 'PARTIAL',
             'FIELDS', 'textfield', 'sometext', 'numfield', 1111)
         for _ in self.retry_with_reload():
-            pass #
+            pass  #
+
+    def testReplaceReload(self):
+        self.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
+        # Create a document and then replace it.
+        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'textfield', 's1', 'numfield', 99)
+        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'textfield', 's100', 'numfield', 990)
+        self.server.dump_and_reload()
+        # RDB Should still be fine
+
+        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'textfield', 's200', 'numfield', 1090)
+        doc = to_dict(self.cmd('FT.GET', 'idx2', 'doc2'))
+        self.assertEqual('s200', doc['textfield'])
+        self.assertEqual('1090', doc['numfield'])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
