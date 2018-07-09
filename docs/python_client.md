@@ -21,7 +21,7 @@ client = Client('myIndex')
 client.create_index([TextField('title', weight=5.0), TextField('body')])
 
 # Indexing a document
-client.add_document('doc1', title = 'RediSearch', body = 'Redisearch impements a search engine on top of redis')
+client.add_document('doc1', title = 'RediSearch', body = 'Redisearch implements a search engine on top of redis')
 
 # Simple search
 res = client.search("search engine")
@@ -189,7 +189,7 @@ Add a single document to the index.
                This has the added benefit that any fields specified with `no_index`
                will not be reindexed again. Implies `replace`
 - **fields** kwargs dictionary of the document fields to be saved and/or indexed.
-             NOTE: Geo points shoule be encoded as strings of "lon,lat"
+             NOTE: Geo points should be encoded as strings of "lon,lat"
 
 
 ### batch\_indexer
@@ -213,7 +213,7 @@ def create_index(self, fields, no_term_offsets=False, no_field_flags=False, stop
 
 
 
-Create the search index. Creating an existing index juts updates its properties
+Create the search index. Creating an existing index just updates its properties
 
 ### Parameters:
 
