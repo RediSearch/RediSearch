@@ -102,8 +102,8 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
 
 
   if (argc >= 2 && RMUtil_ArgIndex("GC_SCANSIZE", argv, argc) >= 0) {
-    RMUtil_ParseArgsAfter("GC_SCANSIZE", argv, argc, "l", &RSGlobalConfig.docsToScanEachIteration);
-    if (RSGlobalConfig.docsToScanEachIteration <= 0) {
+    RMUtil_ParseArgsAfter("GC_SCANSIZE", argv, argc, "l", &RSGlobalConfig.gcScanSize);
+    if (RSGlobalConfig.gcScanSize <= 0) {
       *err = "Invalid GC_SCANSIZE value";
       return REDISMODULE_ERR;
     }

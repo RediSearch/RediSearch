@@ -122,7 +122,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   if (idx) {
     int blockNum = 0;
     do {
-      IndexRepairParams params = {.limit = RSGlobalConfig.docsToScanEachIteration};
+      IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize};
       TimeSampler_Start(&ts);
       // repair 100 blocks at once
       blockNum = InvertedIndex_Repair(idx, &sctx->spec->docs, blockNum, &params);
@@ -266,7 +266,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
   int blockNum = 0;
   do {
-    IndexRepairParams params = {.limit = RSGlobalConfig.docsToScanEachIteration, .arg = nextNode->range};
+    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = nextNode->range};
     // repair 100 blocks at once
     blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
