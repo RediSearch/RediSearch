@@ -31,7 +31,7 @@ See [Clients Page](/Clients)
 
 ## Cluster Support and Commercial Version
 
-RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/) for more info and contact information. 
+RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
 
 ## Primary Features:
 
