@@ -364,6 +364,36 @@ class AggregateTestCase(BaseModuleTestCase):
                                   'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                               ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']], res)
 
+    def _testLoadAfterGroupBy(self):
+        with self.assertResponseError():
+            self.cmd('ft.aggregate', 'games', '*',
+                     'GROUPBY', 1, '@brand',
+                     'LOAD', 1, '@brand')
+
+    def _testLoadAfterSortBy(self):
+        with self.assertResponseError():
+            self.cmd('ft.aggregate', 'games', '*',
+                     'SORTBY', 1, '@brand',
+                     'LOAD', 1, '@brand')
+
+    def _testLoadAfterApply(self):
+        with self.assertResponseError():
+            self.cmd('ft.aggregate', 'games', '*',
+                     'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
+                     'LOAD', 1, '@brand')
+
+    def _testLoadAfterFilter(self):
+        with self.assertResponseError():
+            self.cmd('ft.aggregate', 'games', '*',
+                     'FILTER', '@count > 5',
+                     'LOAD', 1, '@brand')
+
+    def _testLoadAfterLimit(self):
+        with self.assertResponseError():
+            self.cmd('ft.aggregate', 'games', '*',
+                     'LIMIT', '0', '5',
+                     'LOAD', 1, '@brand')
+
     def testAll(self):
 
         for name, f in self.__class__.__dict__.iteritems():
