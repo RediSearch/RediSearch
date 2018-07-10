@@ -98,6 +98,10 @@ void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx);
 void Document_DetachFields(Document *doc, RedisModuleCtx *ctx);
 
 /**
+ * Print contents of document to screen
+ */
+void Document_Dump(const Document *doc);
+/**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in

@@ -190,6 +190,14 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
+void Document_Dump(const Document *doc) {
+  printf("Document Key: %s. ID=%llu\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->docId);
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
+           RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
+  }
+}
+
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
