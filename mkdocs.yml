@@ -16,6 +16,7 @@ theme:
   name: 'material'
   language: 'en'
   logo: 'logo_small.png'
+  favicon: 'img/favicon.png'
   palette:
     primary: 'indigo'
     accent: 'red'
