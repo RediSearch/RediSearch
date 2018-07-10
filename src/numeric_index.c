@@ -4,6 +4,7 @@
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "index.h"
+#include "util/arr.h"
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
@@ -165,19 +166,20 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
       // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
-	  if((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH){ // role to the left
-		  NumericRangeNode *right = child->right;
-		  child->right=right->left;
-		  right->left=child;
-		  --child->maxDepth;
-		  *childP=right; // replace the child with the new child
-	  } else if((child->left->maxDepth - child->right->maxDepth) > NR_MAX_DEPTH){ // role to the right
-		  NumericRangeNode *left = child->left;
-		  child->left=left->right;
-		  left->right=child;
-		  --child->maxDepth;
-		  *childP=left; // replace the child with the new child
-	  }
+      if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
+        NumericRangeNode *right = child->right;
+        child->right = right->left;
+        right->left = child;
+        --child->maxDepth;
+        *childP = right;  // replace the child with the new child
+      } else if ((child->left->maxDepth - child->right->maxDepth) >
+                 NR_MAX_DEPTH) {  // role to the right
+        NumericRangeNode *left = child->left;
+        child->left = left->right;
+        left->right = child;
+        --child->maxDepth;
+        *childP = left;  // replace the child with the new child
+      }
     }
     // return 1 or 0 to our called, so this is done recursively
     return rc;
@@ -455,6 +457,8 @@ unsigned long NumericIndexType_MemUsage(const void *value) {
   return ret;
 }
 
+#define NUMERIC_INDEX_ENCVER 1
+
 int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
@@ -464,7 +468,7 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
                                .free = NumericIndexType_Free,
                                .mem_usage = NumericIndexType_MemUsage};
 
-  NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", 0, &tm);
+  NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", NUMERIC_INDEX_ENCVER, &tm);
   if (NumericIndexType == NULL) {
     return REDISMODULE_ERR;
   }
@@ -479,48 +483,79 @@ typedef struct {
   double value;
 } NumericRangeEntry;
 
-static int __cmd_docId(const void *p1, const void *p2) {
+static int cmpdocId(const void *p1, const void *p2) {
   NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
   NumericRangeEntry *e2 = (NumericRangeEntry *)p2;
 
   return (int)e1->docId - (int)e2->docId;
 }
-void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver != 0) {
+
+/** Version 0 stores the number of entries beforehand, and then loads them */
+static size_t loadV0(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
+  uint64_t num = RedisModule_LoadUnsigned(rdb);
+  if (!num) {
     return 0;
   }
 
-  NumericRangeTree *t = NewNumericRangeTree();
-  uint64_t num = RedisModule_LoadUnsigned(rdb);
+  *entriespp = array_newlen(NumericRangeEntry, num);
+  NumericRangeEntry *entries = *entriespp;
+  for (size_t ii = 0; ii < num; ++ii) {
+    entries[ii].docId = RedisModule_LoadUnsigned(rdb);
+    entries[ii].value = RedisModule_LoadDouble(rdb);
+  }
+  return num;
+}
 
-  // we create an array of all the entries so that we can sort them by docId
-  NumericRangeEntry *entries = calloc(num, sizeof(NumericRangeEntry));
-  size_t n = 0;
-  for (size_t i = 0; i < num; i++) {
-    entries[n].docId = RedisModule_LoadUnsigned(rdb);
-    entries[n].value = RedisModule_LoadDouble(rdb);
-    n++;
+#define NUMERIC_IDX_INITIAL_LOAD_SIZE 1 << 16
+/** Version 0 stores (id,value) pairs, with a final 0 as a terminator */
+static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
+  NumericRangeEntry *entries = array_new(NumericRangeEntry, NUMERIC_IDX_INITIAL_LOAD_SIZE);
+  while (1) {
+    NumericRangeEntry cur;
+    cur.docId = RedisModule_LoadUnsigned(rdb);
+    if (!cur.docId) {
+      break;
+    }
+    cur.value = RedisModule_LoadDouble(rdb);
+    entries = array_append(entries, cur);
+  }
+  *entriespp = entries;
+  return array_len(entries);
+}
+
+void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
+  if (encver > NUMERIC_INDEX_ENCVER) {
+    return NULL;
+  }
+
+  NumericRangeEntry *entries = NULL;
+  size_t numEntries = 0;
+  if (encver == 0) {
+    numEntries = loadV0(rdb, &entries);
+  } else if (encver == 1) {
+    numEntries = loadV1(rdb, &entries);
+  } else {
+    return NULL;  // Unknown version
   }
 
   // sort the entries by doc id, as they were not saved in this order
-  qsort(entries, num, sizeof(NumericRangeEntry), __cmd_docId);
+  qsort(entries, numEntries, sizeof(NumericRangeEntry), cmpdocId);
+  NumericRangeTree *t = NewNumericRangeTree();
 
   // now push them in order into the tree
-  for (size_t i = 0; i < num; i++) {
+  for (size_t i = 0; i < numEntries; i++) {
     NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
   }
-  free(entries);
-
+  array_free(entries);
   return t;
 }
 
-struct __niRdbSaveCtx {
+struct niRdbSaveCtx {
   RedisModuleIO *rdb;
-  size_t num;
 };
 
-void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
-  struct __niRdbSaveCtx *rctx = ctx;
+static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
+  struct niRdbSaveCtx *rctx = ctx;
 
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
@@ -537,12 +572,11 @@ void __numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
 
   NumericRangeTree *t = value;
+  struct niRdbSaveCtx ctx = {rdb};
 
-  RedisModule_SaveUnsigned(rdb, t->numEntries);
-
-  struct __niRdbSaveCtx ctx = {rdb, 0};
-
-  NumericRangeNode_Traverse(t->root, __numericIndex_rdbSaveCallback, &ctx);
+  NumericRangeNode_Traverse(t->root, numericIndex_rdbSaveCallback, &ctx);
+  // Save the final record
+  RedisModule_SaveUnsigned(rdb, 0);
 }
 
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {

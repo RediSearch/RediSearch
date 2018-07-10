@@ -81,7 +81,7 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
 static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
   if (cap > hdr->cap) {
-    hdr->cap = MAX(MIN(hdr->cap * 2, hdr->cap + 1024), cap);
+    hdr->cap = MAX(hdr->cap * 2, cap);
     hdr = array_realloc_fn(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
