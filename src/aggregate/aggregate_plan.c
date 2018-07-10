@@ -523,6 +523,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       isLoadAllow = false;
     } else if (!strcasecmp(key, "APPLY")) {
       next = newApplyStepArgs(child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "LIMIT")) {
       next = newLimit(child, err);
       isLoadAllow = false;
