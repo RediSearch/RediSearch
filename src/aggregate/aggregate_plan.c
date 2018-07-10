@@ -489,6 +489,7 @@ void plan_setCursor(AggregatePlan *plan, CmdArg *arg) {
 }
 
 int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
+#define LOAD_NO_ALLOW_ERROR "LOAD can not come after GROUPBY/SORTBY/APPLY/LIMIT/FILTER"
   AggregatePlan_Init(plan);
   if (!cmd || CMDARG_TYPE(cmd) != CmdArg_Object || CMDARG_OBJLEN(cmd) < 3) {
     goto fail;
@@ -500,6 +501,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
 
   plan->withSchema = CmdArg_GetFlag(cmd, "WITHSCHEMA");
   plan->verbatim = CmdArg_GetFlag(cmd, "VERBATIM");
+  bool isLoadAllow = true;
 
   while (NULL != (child = CmdArgIterator_Next(&it, &key))) {
     AggregateStep *next = NULL;
@@ -515,16 +517,25 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       next->query.str = strdup(CMDARG_STRPTR(child));
     } else if (!strcasecmp(key, "GROUPBY")) {
       next = newGroupStep(n++, child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "SORTBY")) {
       next = newSortStep(child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "APPLY")) {
       next = newApplyStepArgs(child, err);
     } else if (!strcasecmp(key, "LIMIT")) {
       next = newLimit(child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "LOAD")) {
+      if(!isLoadAllow){
+        *err = strdup(LOAD_NO_ALLOW_ERROR);
+        goto fail;
+      }
       next = newLoadStep(child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "FILTER")) {
       next = newFilterStep(child, err);
+      isLoadAllow = false;
     } else if (!strcasecmp(key, "WITHCURSOR")) {
       plan_setCursor(plan, child);
       continue;
