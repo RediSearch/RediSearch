@@ -61,7 +61,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
     FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
-    if (fs) {
+    if (fs && f->text) {
 
       aCtx->fspecs[i] = *fs;
       if (dedupe[fs->index]) {
