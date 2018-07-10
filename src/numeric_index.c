@@ -506,9 +506,10 @@ static size_t loadV0(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
   return num;
 }
 
+#define NUMERIC_IDX_INITIAL_LOAD_SIZE 1 << 16
 /** Version 0 stores (id,value) pairs, with a final 0 as a terminator */
 static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
-  NumericRangeEntry *entries = array_new(NumericRangeEntry, 1 << 16);
+  NumericRangeEntry *entries = array_new(NumericRangeEntry, NUMERIC_IDX_INITIAL_LOAD_SIZE);
   while (1) {
     NumericRangeEntry cur;
     cur.docId = RedisModule_LoadUnsigned(rdb);
@@ -527,17 +528,19 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  NumericRangeTree *t = NewNumericRangeTree();
   NumericRangeEntry *entries = NULL;
   size_t numEntries = 0;
   if (encver == 0) {
     numEntries = loadV0(rdb, &entries);
-  } else {
+  } else if (encver == 1) {
     numEntries = loadV1(rdb, &entries);
+  } else {
+    return NULL;  // Unknown version
   }
 
   // sort the entries by doc id, as they were not saved in this order
   qsort(entries, numEntries, sizeof(NumericRangeEntry), cmpdocId);
+  NumericRangeTree *t = NewNumericRangeTree();
 
   // now push them in order into the tree
   for (size_t i = 0; i < numEntries; i++) {
