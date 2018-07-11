@@ -357,18 +357,24 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
 
   NumericRangeNode *nextNode = NextGcNode(numericGcCtx);
-
-  int blockNum = 0;
+  size_t inititalBlockNum = rand() % nextNode->range->entries->size;
+  int blockNum = inititalBlockNum;
+  size_t gcIterationsBeforeSleep = RSGlobalConfig.gcIterationsBeforeSleep;
   do {
-    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = nextNode->range};
+    size_t numBlocksToStart;
+    if(blockNum >= inititalBlockNum){
+      numBlocksToStart = nextNode->range->entries->size - blockNum + inititalBlockNum;
+    }else{
+      numBlocksToStart = inititalBlockNum - blockNum;
+    }
+    IndexRepairParams params = {.limit = MIN(RSGlobalConfig.gcScanSize, numBlocksToStart), .arg = nextNode->range};
     // repair 100 blocks at once
     blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
     numericGcCtx->rt->numEntries -= params.docsCollected;
     totalRemoved += params.docsCollected;
     gc_updateStats(sctx, gc, params.docsCollected, params.bytesCollected);
-    // blockNum 0 means error or we've finished
-    if (!blockNum) break;
+    if(blockNum == inititalBlockNum) break;
 
     sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
     // sctx null --> means it was deleted and we need to stop right now
@@ -379,7 +385,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
     if (numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
       break;
     }
-  } while (true);
+  } while (--gcIterationsBeforeSleep > 0);
 
 end:
   if (numericFields) {

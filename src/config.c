@@ -109,6 +109,14 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  if (argc >= 2 && RMUtil_ArgIndex("GC_ITERATIONSBEFORESLEEP", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("GC_ITERATIONSBEFORESLEEP", argv, argc, "l", &RSGlobalConfig.gcIterationsBeforeSleep);
+    if (RSGlobalConfig.gcIterationsBeforeSleep <= 0) {
+      *err = "Invalid GC_ITERATIONSBEFORESLEEP value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
 

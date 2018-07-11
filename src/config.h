@@ -58,6 +58,7 @@ typedef struct {
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
   size_t gcScanSize;
+  size_t gcIterationsBeforeSleep;
 } RSConfig;
 
 // global config extern reference
@@ -75,6 +76,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define CONCURRENT_INDEX_POOL_DEFAULT_SIZE 8
 #define CONCURRENT_INDEX_MAX_POOL_SIZE 200  // Maximum number of threads to create
 #define GC_SCANSIZE 100
+#define GC_ITERATIONSBEFORESLEEP 100
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                       \
   {                                                                                             \
@@ -83,7 +85,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE, \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                      \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
-	.gcScanSize = GC_SCANSIZE                                      \
+	.gcScanSize = GC_SCANSIZE, .gcIterationsBeforeSleep = GC_ITERATIONSBEFORESLEEP              \
   }
 
 #endif
