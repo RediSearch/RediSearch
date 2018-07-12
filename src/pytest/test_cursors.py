@@ -5,9 +5,11 @@ import pprint
 from redis import ResponseError
 from time import sleep, time
 
+
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
+
 
 class CursorTestCase(BaseModuleTestCase):
 
@@ -76,7 +78,7 @@ class CursorTestCase(BaseModuleTestCase):
         for _ in range(128):
             cursors1.append(self.cmd( * q1))
             cursors2.append(self.cmd( * q2))
-        
+
         # Get info for the cursors
         info = self.getCursorStats('idx1')
         self.assertEqual(128, info['index_total'])
@@ -87,15 +89,16 @@ class CursorTestCase(BaseModuleTestCase):
         # Try to create another cursor
         self.assertRaises(ResponseError, self.cmd, * q1)
         self.assertRaises(ResponseError, self.cmd, * q2)
-        
+
         # Clear all the cursors
         for c in cursors1:
             self.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
         self.assertEqual(0, self.getCursorStats('idx1')['index_total'])
+
         # Check that we can create a new cursor
         c = self.cmd( * q1)
         self.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
-    
+
     def testTimeout(self):
         self.loadDocs(idx='idx1')
         # Maximum idle of 1ms

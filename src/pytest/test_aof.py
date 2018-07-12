@@ -6,9 +6,10 @@ import random
 import time
 
 class AofTestCase(BaseModuleTestCase):
-    @property
-    def server_args(self):
-        args = super(AofTestCase, self).server_args
+
+    @classmethod
+    def get_server_args(self):
+        args = super(AofTestCase, self).get_server_args()
         args['use_aof'] = True
         args['aof-use-rdb-preamble'] = 'yes'
         return args

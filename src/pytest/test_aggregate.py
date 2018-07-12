@@ -18,20 +18,17 @@ GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.jso
 
 
 class AggregateTestCase(BaseModuleTestCase):
-    # ingested = False
+    process_per_test = False
 
-    @property
-    def module_args(self):
-        args = super(AggregateTestCase, self).module_args
-        return args + ['SAFEMODE']
-
-    def ingest(self):
-        try:
-            self.cmd('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'brand', 'TEXT',  'NOSTEM', 'SORTABLE',
-                     'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE', 'categories', 'TAG')
-        except:
-            return
-        client = self.client
+    @classmethod
+    def setUpClass(cls):
+        super(AggregateTestCase, cls).setUpClass()
+        cls.setup_class_server()
+        client = cls.class_server.client()
+        client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                               'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
+                               'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                               'categories', 'TAG')
         fp = bz2.BZ2File(GAMES_JSON, 'r')
 
         for line in fp:
@@ -44,13 +41,17 @@ class AggregateTestCase(BaseModuleTestCase):
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
             # print cmd
-            self.cmd(*cmd)
+            client.execute_command(*cmd)
 
-    def setUp(self):
+    def tearDown(self):
+        # No teardown!
+        pass
 
-        self.ingest()
+    @classmethod
+    def get_module_args(cls):
+        return super(AggregateTestCase, cls).get_module_args() + ['SAFEMODE']
 
-    def _testGroupBy(self):
+    def testGroupBy(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
@@ -63,7 +64,7 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertEqual([292L, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'], [
                          'brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'], ['brand', 'logitech', 'count', '35']], res)
 
-    def _testMinMax(self):
+    def testMinMax(self):
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
@@ -83,7 +84,7 @@ class AggregateTestCase(BaseModuleTestCase):
         row = to_dict(res[1])
         self.assertEqual(695, int(float(row['maxPrice'])))
 
-    def _testAvg(self):
+    def testAvg(self):
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'avg', '1', '@price', 'AS', 'avg_price',
@@ -108,7 +109,7 @@ class AggregateTestCase(BaseModuleTestCase):
         first_row = to_dict(res[1])
         self.assertEqual(17, int(float(first_row['avgPrice'])))
 
-    def _testCountDistinct(self):
+    def testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@categories',
                'REDUCE', 'COUNT_DISTINCT', '1', '@title', 'AS', 'count_distinct(title)',
@@ -127,7 +128,7 @@ class AggregateTestCase(BaseModuleTestCase):
         row = to_dict(res[0])
         self.assertEqual(2144, int(row['count_distinctish(title)']))
 
-    def _testQuantile(self):
+    def testQuantile(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
@@ -144,7 +145,7 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertEqual(106, int(float(row['q90'])))
         self.assertEqual(99, int(float(row['q95'])))
 
-    def _testStdDev(self):
+    def testStdDev(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'STDDEV', '1', '@price', 'AS', 'stddev(price)',
@@ -160,7 +161,7 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertEqual(53, int(float(row['stddev(price)'])))
         self.assertEqual(29, int(float(row['avgPrice'])))
 
-    def _testParseTime(self):
+    def testParseTime(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'count',
@@ -172,7 +173,7 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertEqual(['brand', '', 'count', '1518', 'dt',
                           '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
 
-    def _testRandomSample(self):
+    def testRandomSample(self):
         cmd = ['FT.AGGREGATE',  'games', '*', 'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'num',
                'REDUCE', 'RANDOM_SAMPLE', '2', '@price', '10',
@@ -184,7 +185,7 @@ class AggregateTestCase(BaseModuleTestCase):
 
             self.assertLessEqual(len(row[5]), 10)
 
-    def _testTimeFunctions(self):
+    def testTimeFunctions(self):
 
         cmd = ['FT.AGGREGATE',  'games', '*',
 
@@ -204,7 +205,7 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertListEqual([1L, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
                                    'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
-    def _testStringFormat(self):
+    def testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
                'GROUPBY', '2', '@title', '@brand',
                'REDUCE', 'COUNT', '0',
@@ -218,7 +219,7 @@ class AggregateTestCase(BaseModuleTestCase):
                 row['title'], row['brand'], 'Mark', float(row['price']))
             self.assertEqual(expected, row['titleBrand'])
 
-    def _testSum(self):
+    def testSum(self):
 
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -237,7 +238,7 @@ class AggregateTestCase(BaseModuleTestCase):
                               '35', 'sum(price)', '2329.21'],
                           ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.12']], res)
 
-    def _testFilter(self):
+    def testFilter(self):
 
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -263,8 +264,7 @@ class AggregateTestCase(BaseModuleTestCase):
             self.assertLess(int(row['count']), 5)
             self.assertGreater(int(row['count']), 2)
 
-    def _testToList(self):
-
+    def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count_distinct', '1', '@price', 'as', 'count',
@@ -278,7 +278,7 @@ class AggregateTestCase(BaseModuleTestCase):
             row = to_dict(row)
             self.assertEqual(int(row['count']), len(row['prices']))
 
-    def _testSortBy(self):
+    def testSortBy(self):
 
         res = self.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                        'REDUCE', 'sum', 1, '@price', 'as', 'price',
@@ -312,10 +312,10 @@ class AggregateTestCase(BaseModuleTestCase):
         self.assertListEqual([292L, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                              'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
-    def _testExpressions(self):
+    def testExpressions(self):
         pass
 
-    def _testNoGroup(self):
+    def testNoGroup(self):
         res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
                        'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
                        'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
@@ -324,14 +324,14 @@ class AggregateTestCase(BaseModuleTestCase):
                              'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']],
                              res)
 
-    def _testLoad(self):
+    def testLoad(self):
         res = self.cmd('ft.aggregate', 'games', '*', 'LOAD', '3', '@brand', '@price', '@nonexist',
                        'LIMIT', 0, 5
                        )
         self.assertListEqual([1L, ['brand', 'Dark Age Miniatures', 'price', '31.23', 'nonexist', None], ['brand', 'Palladium Books', 'price', '9.55', 'nonexist', None], [
                              'brand', '', 'price', '0', 'nonexist', None], ['brand', 'Evil Hat Productions', 'price', '15.48', 'nonexist', None], ['brand', 'Fantasy Flight Games', 'price', '33.96', 'nonexist', None]], res)
 
-    def _testSplit(self):
+    def testSplit(self):
 
         res = self.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
                        'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
@@ -348,7 +348,7 @@ class AggregateTestCase(BaseModuleTestCase):
                                    'strs5', ['hello world', 'foo', 'bar'],
                                    'empty', []]], res)
 
-    def _testFirstValue(self):
+    def testFirstValue(self):
         res = self.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                        'GROUPBY', 1, '@brand',
                        'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC', 'AS', 'top_item',
@@ -364,44 +364,35 @@ class AggregateTestCase(BaseModuleTestCase):
                                   'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                               ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']], res)
 
-    def _testLoadAfterGroupBy(self):
+    def testLoadAfterGroupBy(self):
         with self.assertResponseError():
             self.cmd('ft.aggregate', 'games', '*',
                      'GROUPBY', 1, '@brand',
                      'LOAD', 1, '@brand')
 
-    def _testLoadAfterSortBy(self):
+    def testLoadAfterSortBy(self):
         with self.assertResponseError():
             self.cmd('ft.aggregate', 'games', '*',
                      'SORTBY', 1, '@brand',
                      'LOAD', 1, '@brand')
 
-    def _testLoadAfterApply(self):
+    def testLoadAfterApply(self):
         with self.assertResponseError():
             self.cmd('ft.aggregate', 'games', '*',
                      'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                      'LOAD', 1, '@brand')
 
-    def _testLoadAfterFilter(self):
+    def testLoadAfterFilter(self):
         with self.assertResponseError():
             self.cmd('ft.aggregate', 'games', '*',
                      'FILTER', '@count > 5',
                      'LOAD', 1, '@brand')
 
-    def _testLoadAfterLimit(self):
+    def testLoadAfterLimit(self):
         with self.assertResponseError():
             self.cmd('ft.aggregate', 'games', '*',
                      'LIMIT', '0', '5',
                      'LOAD', 1, '@brand')
-
-    def testAll(self):
-
-        for name, f in self.__class__.__dict__.iteritems():
-            if name.startswith('_test'):
-                f(self)
-                sys.stdout.write('Aggregate.{} ... '.format(f.__name__[1:]))
-                sys.stdout.flush()
-                print('ok')
 
 
 if __name__ == '__main__':

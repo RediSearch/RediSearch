@@ -1,4 +1,4 @@
-from rmtest import BaseModuleTestCase
+from rmtest import BaseModuleTestCase, config
 import redis
 import unittest
 from hotels import hotels
@@ -8,14 +8,16 @@ import subprocess
 import os
 import os.path
 
-# this file is 'pytest'
 
 SELF_DIR = os.path.abspath(os.path.dirname(__file__))
-TEST_MODULE = SELF_DIR + '/../tests/ext-example/example.so'
+DEFAULT_TEST_MODULE = SELF_DIR + '/../tests/ext-example/example.so'
+TEST_MODULE = config.get_param('EXT_TEST_PATH', DEFAULT_TEST_MODULE)
+
+
 class ExtensionTestCase(BaseModuleTestCase):
-    @property
-    def module_args(self):
-        return super(ExtensionTestCase, self).module_args + ['EXTLOAD', TEST_MODULE]
+    @classmethod
+    def get_module_args(cls):
+        return super(ExtensionTestCase, cls).get_module_args() + ['EXTLOAD', TEST_MODULE]
 
     def testExt(self):
         if not os.path.exists(TEST_MODULE):
