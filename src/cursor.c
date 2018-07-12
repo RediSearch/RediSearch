@@ -70,6 +70,36 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   rm_free(cur);
 }
 
+static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Cursor *, void *),
+                            void *arg) {
+  for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
+    Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
+    Cursor *oldCur = NULL;
+
+    while (cur && cur != oldCur) {
+      callback(cl, cur, arg);
+      oldCur = cur;
+      if (cl->idle.len > ii) {
+        cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
+      }
+    }
+  }
+}
+
+typedef struct {
+  uint64_t now;
+  int numCollected;
+} cursorGcCtx;
+
+static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
+  cursorGcCtx *ctx = arg;
+  if (cur->nextTimeoutNs <= ctx->now) {
+    Cursor_RemoveFromIdle(cur);
+    Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+    ctx->numCollected++;
+  }
+}
+
 /**
  * Garbage collection:
  *
@@ -83,7 +113,6 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
   uint64_t now = curTimeNs();
-  int numCollected = 0;
   if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
     return -1;
   } else if (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
@@ -91,16 +120,9 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
   }
 
   cl->lastCollect = now;
-  for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
-    Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
-    if (cur->nextTimeoutNs <= now) {
-      /* Remove it */
-      Cursor_RemoveFromIdle(cur);
-      Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
-      numCollected++;
-    }
-  }
-  return numCollected;
+  cursorGcCtx ctx = {.now = now};
+  Cursors_ForEach(cl, cursorGcCb, &ctx);
+  return ctx.numCollected;
 }
 
 int Cursors_CollectIdle(CursorList *cl) {
@@ -274,4 +296,22 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
 
   RedisModule_ReplySetArrayLength(ctx, n);
   CursorList_Unlock(cl);
+}
+
+static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
+  CursorSpecInfo *info = arg;
+  if (cur->specInfo != info) {
+    return;
+  }
+
+  Cursor_RemoveFromIdle(cur);
+  Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+}
+
+void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
+  CursorSpecInfo *info = findInfo(cl, lookupName);
+  if (!info) {
+    return;
+  }
+  Cursors_ForEach(cl, purgeCb, info);
 }

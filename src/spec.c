@@ -474,6 +474,8 @@ void IndexSpec_Free(void *ctx) {
     rm_free(spec->fields);
   }
 
+  Cursors_PurgeWithName(&RSCursors, spec->name);
+
   rm_free(spec->name);
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
