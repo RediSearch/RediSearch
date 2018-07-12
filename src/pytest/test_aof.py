@@ -1,12 +1,12 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
 import random
 import time
+from base_case import BaseSearchTestCase
 
-class AofTestCase(BaseModuleTestCase):
 
+class AofTestCase(BaseSearchTestCase):
     @classmethod
     def get_server_args(self):
         args = super(AofTestCase, self).get_server_args()

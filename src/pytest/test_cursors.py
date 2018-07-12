@@ -1,9 +1,9 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import pprint
 from redis import ResponseError
 from time import sleep, time
+from base_case import BaseSearchTestCase
 
 
 def to_dict(res):
@@ -11,7 +11,7 @@ def to_dict(res):
     return d
 
 
-class CursorTestCase(BaseModuleTestCase):
+class CursorTestCase(BaseSearchTestCase):
 
     def loadDocs(self, count=100, idx='idx', text='hello world'):
         self.cmd('FT.CREATE', idx, 'SCHEMA', 'f1', 'TEXT')

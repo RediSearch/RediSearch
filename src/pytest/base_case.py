@@ -1,13 +1,8 @@
-from rmtest import ModuleTestCase
+from rmtest import BaseModuleTestCase
 
 
-class BaseSearchTestCase(ModuleTestCase('../src/module-oss.so')):
-
-    def setUp(self):
-        self.flushdb()
-
-    def search(self, *args):
-        return self.cmd('ft.search', *args)
-
-    def flushdb(self):
-        self.cmd('flushdb')
+class BaseSearchTestCase(BaseModuleTestCase):
+    def search(self, idx, *args):
+        if not isinstance(idx, basestring):
+            raise Exception("OOPS!")
+        return self.cmd('ft.search', idx, *args)

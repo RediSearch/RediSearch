@@ -1,15 +1,14 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
 import random
 import time
+from base_case import BaseSearchTestCase
 
 
-class ConditionalUpdateTestCase(BaseModuleTestCase):
+class ConditionalUpdateTestCase(BaseSearchTestCase):
 
     def testConditionalUpdateOnNoneExistingNumericField(self):
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 'id1', 'numeric', 'SORTABLE'))
         self.assertOk(self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', '5'))
 
@@ -42,7 +41,6 @@ class ConditionalUpdateTestCase(BaseModuleTestCase):
                                'fields', 'id1', '3', 'id2', '4'))
 
     def testConditionalUpdateOnNoneExistingTextField(self):
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 'id1', 'text', 'SORTABLE'))
         self.assertOk(self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', 'some_text'))
 
@@ -75,7 +73,6 @@ class ConditionalUpdateTestCase(BaseModuleTestCase):
                                'fields', 'id1', 'some_text', 'id2', 'some_text'))
 
     def testConditionalUpdateOnNoneExistingTagField(self):
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 'id1', 'tag', 'SORTABLE'))
         self.assertOk(self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', 'some_text'))
 

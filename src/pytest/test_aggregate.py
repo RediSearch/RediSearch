@@ -1,4 +1,4 @@
-from rmtest import BaseModuleTestCase
+from base_case import BaseSearchTestCase
 import redis
 import bz2
 import json
@@ -17,7 +17,7 @@ def to_dict(res):
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
 
-class AggregateTestCase(BaseModuleTestCase):
+class AggregateTestCase(BaseSearchTestCase):
     process_per_test = False
 
     @classmethod

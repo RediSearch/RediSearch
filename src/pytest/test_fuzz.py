@@ -1,11 +1,11 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import random
 import time
+from base_case import BaseSearchTestCase
 
 
-class SearchTestCase(BaseModuleTestCase):
+class SearchTestCase(BaseSearchTestCase):
 
     _tokens = {}
     _docs = {}
@@ -34,8 +34,6 @@ class SearchTestCase(BaseModuleTestCase):
         return self._docId - 1, tokens
 
     def createIndex(self, r):
-
-        r.flushdb()
         self.assertOk(r.execute_command(
             'ft.create', 'idx', 'schema', 'txt', 'text'))
 
@@ -74,12 +72,12 @@ class SearchTestCase(BaseModuleTestCase):
     def testFuzzy(self):
 
         # print self._tokens
-        with self.redis() as r:
-            self.createIndex(r)
-            self.assertTrue(True)
+        r = self
+        self.createIndex(r)
+        self.assertTrue(True)
 
-            for x in range(100):
-                self.assertFalse(self.compareResults(r, 5, 40))
+        for x in range(100):
+            self.assertFalse(self.compareResults(r, 5, 40))
 
 
 if __name__ == '__main__':
