@@ -34,6 +34,7 @@
 #include "cursor.h"
 #include "version.h"
 #include "debug_commads.h"
+#include "spell_check.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -462,6 +463,119 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
+}
+
+int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  char *err = NULL;
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+
+  char* error;
+  int retVal = SpellCheck_DictDump(ctx, dictName, &error);
+  if(retVal < 0){
+    RedisModule_ReplyWithError(ctx, error);
+  }
+
+  return REDISMODULE_OK;
+}
+
+int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  char *err = NULL;
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+
+  char* error;
+  int retVal = SpellCheck_DictDel(ctx, dictName, argv + 2, argc - 2, &error);
+  if(retVal < 0){
+    RedisModule_ReplyWithError(ctx, error);
+  }else{
+    RedisModule_ReplyWithLongLong(ctx, retVal);
+  }
+
+  return REDISMODULE_OK;
+}
+
+int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  char *err = NULL;
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+
+  char* error;
+  int retVal = SpellCheck_DictAdd(ctx, dictName, argv + 2, argc - 2, &error);
+  if(retVal < 0){
+    RedisModule_ReplyWithError(ctx, error);
+  }else{
+    RedisModule_ReplyWithLongLong(ctx, retVal);
+  }
+
+  return REDISMODULE_OK;
+}
+
+int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+#define DICT_INITIAL_ZISE 5
+  char *err = NULL;
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  size_t len;
+  const char* rawQuery = RedisModule_StringPtrLen(argv[2], &len);
+  QueryParseCtx *q = NewQueryParseCtx(sctx, rawQuery, len, NULL);
+  if (!q) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Error parsing query");
+  }
+
+  if (!Query_Parse(q, &err)) {
+
+    if (err) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+      RedisModule_ReplyWithError(ctx, err);
+      ERR_FREE(err);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    goto end;
+  }
+
+  int nextPos = 0;
+  char** include = array_new(char*, DICT_INITIAL_ZISE);
+  char** exclude = array_new(char*, DICT_INITIAL_ZISE);
+  while((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))){
+    char* operation = (char*)RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
+    char* dictName = (char*)RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+    if(strcmp(operation, "INCLUDE") == 0){
+      include = array_append(include, dictName);
+    }else if(strcmp(operation, "EXCLUDE") == 0){
+      exclude = array_append(exclude, dictName);
+    }else{
+      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
+      goto end;
+    }
+  }
+
+  SpellCheck_Reply(sctx, q, include, exclude);
+
+end:
+    Query_Free(q);
+    return REDISMODULE_OK;
 }
 
 /* FT.EXPLAIN {index_name} {query} */
@@ -1615,6 +1729,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
+
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
 
   return REDISMODULE_OK;
 }
