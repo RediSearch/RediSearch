@@ -75,7 +75,6 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 * Spelling correction
 
-### License: AGPL
+### License
 
-Which basically means you can freely use this for your own projects without "virality" to your code,
-as long as you're not modifying the module itself. See [This Blog Post](https://redislabs.com/blog/why-redis-labs-modules-are-agpl/) for more details.
+Apache 2.0 with Commons Clause - see [LICENSE](LICENSE)
