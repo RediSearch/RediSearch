@@ -3,7 +3,7 @@ author: RedisLabs
 email: dvir@redislabs.com
 description: High performance search index on top of redis
 homepage: http://redisearch.io
-license: AGPLv3
+license: Apache 2.0 with Commons Clause
 command_line_args: ""
 min_redis_version: "4.0"
 min_redis_pack_version: "5.0"
