@@ -522,6 +522,9 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define DICT_INITIAL_ZISE 5
+#define DEFAULT_LEV_DISTANCE 1
+#define MAX_LEV_DISTANCE 4
+#define str(s) #s
   char *err = NULL;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -541,6 +544,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
+  char** includeDict = array_new(char*, DICT_INITIAL_ZISE);
+  char** excludeDict = array_new(char*, DICT_INITIAL_ZISE);
+
   if (!Query_Parse(q, &err)) {
 
     if (err) {
@@ -555,27 +561,77 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto end;
   }
 
+  Stemmer *stemmer = NULL;
+  if(!RMUtil_ArgExists("VERBATIM", argv, argc, 0)){
+    int languageArgPos = RMUtil_ArgExists("LANGUAGE", argv, argc, 0);
+    const char* language = DEFAULT_LANGUAGE;
+    if(languageArgPos){
+      if(languageArgPos + 1 < argc){
+        language = RedisModule_StringPtrLen(argv[languageArgPos + 1], NULL);
+      }else{
+        RedisModule_ReplyWithError(ctx, "LANGUAGE arg is given but no language after it");
+        goto end;
+      }
+    }
+    //Query_Expand(q, STEMMER_EXPENDER_NAME);
+    stemmer = NewStemmer(SnowballStemmer, language);
+    if(!stemmer){
+      RedisModule_ReplyWithError(ctx, "failed to create stemmer");
+      goto end;
+    }
+  }
+
+  int distanceArgPos = 0;
+  long long distance = DEFAULT_LEV_DISTANCE;
+  if((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))){
+    if(distanceArgPos + 1 >= argc){
+      RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
+      goto end;
+    }
+    if(RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
+       distance < 1 || distance > MAX_LEV_DISTANCE){
+      RedisModule_ReplyWithError(ctx, "bad distance given, distance must be a natural number between 1 to " str(MAX_LEV_DISTANCE));
+      goto end;
+    }
+  }
+
   int nextPos = 0;
-  char** include = array_new(char*, DICT_INITIAL_ZISE);
-  char** exclude = array_new(char*, DICT_INITIAL_ZISE);
   while((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))){
+    if(nextPos + 2 >= argc){
+      RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
+      goto end;
+    }
     char* operation = (char*)RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
     char* dictName = (char*)RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if(strcmp(operation, "INCLUDE") == 0){
-      include = array_append(include, dictName);
+      includeDict = array_append(includeDict, dictName);
     }else if(strcmp(operation, "EXCLUDE") == 0){
-      exclude = array_append(exclude, dictName);
+      excludeDict = array_append(excludeDict, dictName);
     }else{
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
     }
   }
 
-  SpellCheck_Reply(sctx, q, include, exclude);
+  SpellCheckCtx scCtx = {
+      .sctx = sctx,
+      .includeDict = includeDict,
+      .excludeDict = excludeDict,
+      .stemmer = stemmer,
+      .distance = distance
+  };
+
+  SpellCheck_Reply(&scCtx, q);
 
 end:
-    Query_Free(q);
-    return REDISMODULE_OK;
+  array_free(includeDict);
+  array_free(excludeDict);
+  if(stemmer){
+    stemmer->Free(stemmer);
+  }
+  Query_Free(q);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
 }
 
 /* FT.EXPLAIN {index_name} {query} */

@@ -19,7 +19,15 @@ typedef struct RS_Suggestions{
   char* suggestion;
 }RS_Suggestion;
 
-void SpellCheck_Reply(RedisSearchCtx *sctx, QueryParseCtx *q, char** includeDict, char** excludeDict);
+typedef struct SpellCheckCtx{
+  RedisSearchCtx *sctx;
+  char** includeDict;
+  char** excludeDict;
+  Stemmer *stemmer;
+  long long distance;
+}SpellCheckCtx;
+
+void SpellCheck_Reply(SpellCheckCtx *ctx, QueryParseCtx *q);
 
 int SpellCheck_DictAdd(RedisModuleCtx *ctx, const char* dictName, RedisModuleString **values, int len, char** err);
 
