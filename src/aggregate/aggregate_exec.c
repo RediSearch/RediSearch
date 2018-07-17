@@ -79,7 +79,12 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     req->plan->opts.flags |= Search_IsCursor;
     cursor->execState = req;
     /* Don't let the context get removed from under our feet */
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    if (cmdCtx) {
+      ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    } else {
+      sctx->redisCtx = RedisModule_GetThreadSafeContext(NULL);
+      // ctx is still the original output context - so don't change it!
+    }
     runCursor(ctx, cursor, req->ap.cursor.count);
     return;
   }
