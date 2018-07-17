@@ -578,7 +578,13 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
-  RedisModuleString *idstr = DMD_CreateKeyString(r->scorerPrivateData, lc->ctx->redisCtx);
+  const RSDocumentMetadata *dmd = DocTable_Get(&lc->ctx->spec->docs, r->docId);
+  if (dmd == NULL || (dmd->flags & Document_Deleted)) {
+    return RS_RESULT_OK;
+  }
+
+  RedisModuleString *idstr = DMD_CreateKeyString(dmd, lc->ctx->redisCtx);
+
   if (!lc->explicitReturn) {
     Redis_LoadDocument(lc->ctx, idstr, &doc);
   } else {
