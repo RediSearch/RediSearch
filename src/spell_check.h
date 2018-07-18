@@ -14,16 +14,21 @@
 #define DICT_KEY_PREFIX "dict:"
 #define DICT_KEY_FMT DICT_KEY_PREFIX "%s"
 
-typedef struct RS_Suggestions{
+typedef struct RS_Suggestion{
   double score;
   char* suggestion;
+  size_t len;
 }RS_Suggestion;
+
+typedef struct RS_Suggestions{
+  Trie* suggestionsTrie;
+  RS_Suggestion** suggestions;
+}RS_Suggestions;
 
 typedef struct SpellCheckCtx{
   RedisSearchCtx *sctx;
   char** includeDict;
   char** excludeDict;
-  Stemmer *stemmer;
   long long distance;
 }SpellCheckCtx;
 

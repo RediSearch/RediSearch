@@ -561,26 +561,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto end;
   }
 
-  Stemmer *stemmer = NULL;
-  if(!RMUtil_ArgExists("VERBATIM", argv, argc, 0)){
-    int languageArgPos = RMUtil_ArgExists("LANGUAGE", argv, argc, 0);
-    const char* language = DEFAULT_LANGUAGE;
-    if(languageArgPos){
-      if(languageArgPos + 1 < argc){
-        language = RedisModule_StringPtrLen(argv[languageArgPos + 1], NULL);
-      }else{
-        RedisModule_ReplyWithError(ctx, "LANGUAGE arg is given but no language after it");
-        goto end;
-      }
-    }
-    //Query_Expand(q, STEMMER_EXPENDER_NAME);
-    stemmer = NewStemmer(SnowballStemmer, language);
-    if(!stemmer){
-      RedisModule_ReplyWithError(ctx, "failed to create stemmer");
-      goto end;
-    }
-  }
-
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
   if((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))){
@@ -617,7 +597,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       .sctx = sctx,
       .includeDict = includeDict,
       .excludeDict = excludeDict,
-      .stemmer = stemmer,
       .distance = distance
   };
 
@@ -626,9 +605,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 end:
   array_free(includeDict);
   array_free(excludeDict);
-  if(stemmer){
-    stemmer->Free(stemmer);
-  }
   Query_Free(q);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;

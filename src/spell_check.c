@@ -2,6 +2,9 @@
 #include "util/arr.h"
 #include <stdbool.h>
 
+/** Forward declaration **/
+static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len);
+
 static int RS_SuggestionCompare(const RS_Suggestion* a, const RS_Suggestion* b){
   if(a->score > b->score){
     return 1;
@@ -12,9 +15,10 @@ static int RS_SuggestionCompare(const RS_Suggestion* a, const RS_Suggestion* b){
   return 0;
 }
 
-static RS_Suggestion* RS_SuggestionCreate(char* suggestion, double score){
+static RS_Suggestion* RS_SuggestionCreate(char* suggestion, size_t len, double score){
   RS_Suggestion* res = calloc(1, sizeof(RS_Suggestion));
   res->suggestion = suggestion;
+  res->len = len;
   res->score = score;
   return res;
 }
@@ -22,6 +26,29 @@ static RS_Suggestion* RS_SuggestionCreate(char* suggestion, double score){
 static void RS_SuggestionFree(RS_Suggestion* suggestion){
   free(suggestion->suggestion);
   free(suggestion);
+}
+
+static RS_Suggestions* RS_SuggestionsCreate(){
+#define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
+  RS_Suggestions* ret = calloc(1, sizeof(RS_Suggestions));
+  ret->suggestionsTrie = NewTrie();
+  ret->suggestions = array_new(RS_Suggestion*, SUGGESTIONS_ARRAY_INITIAL_SIZE);
+  return ret;
+}
+
+static void RS_SuggestionsAdd(RS_Suggestions* s, char* term, size_t len, double score){
+  if(SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len)){
+    return;
+  }
+
+  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, 1, NULL);
+  s->suggestions = array_append(s->suggestions, RS_SuggestionCreate(term, len, score));
+}
+
+static void RS_SuggestionsFree(RS_Suggestions* s){
+  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion**)ptr));
+  TrieType_Free(s->suggestionsTrie);
+  free(s);
 }
 
 static Trie* SpellCheck_OpenDict(RedisModuleCtx *ctx, const char* dictName, int mode, RedisModuleKey **k){
@@ -83,8 +110,24 @@ end:
   return retVal;
 }
 
+static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len){
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  bool retVal = false;
+  TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  if(TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)){
+    retVal = true;
+  }
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
+  TrieIterator_Free(it);
+  return retVal;
+}
+
 static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
-                                       t_fieldMask fieldMask, RS_Suggestion** suggestions){
+                                       t_fieldMask fieldMask, RS_Suggestions* s){
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -96,7 +139,9 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     char* res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1){
-      array_append(suggestions, RS_SuggestionCreate(res, score));
+      RS_SuggestionsAdd(s, res, suggestionLen, score);
+    }else{
+      free(res);
     }
   }
   DFAFilter_Free(it->ctx);
@@ -107,12 +152,12 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
 static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char* term, size_t len, t_fieldMask fieldMask){
 #define NO_SUGGESTIONS_REPLY "no spelling corrections found"
 #define TERM "TERM"
-#define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
+  // searching the term on the term trie, if its there we just return false
+  // because there is no need to return suggestions on it.
+  if(SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len)){
+    return false;
+  }
 
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
@@ -122,41 +167,23 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char* term, si
     if(t == NULL){
       continue;
     }
-    TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
-    if(TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)){
-      // todo: we should move it to be free by the TrieIterator_Free function, check if possible
-      DFAFilter_Free(it->ctx);
-      free(it->ctx);
-      TrieIterator_Free(it);
+    if(SpellCheck_IsTermExistsInTrie(t, term, len)){
       RedisModule_CloseKey(k);
       return false;
     }
-    DFAFilter_Free(it->ctx);
-    free(it->ctx);
-    TrieIterator_Free(it);
     RedisModule_CloseKey(k);
   }
 
-  RS_Suggestion** suggestions = array_new(RS_Suggestion*, SUGGESTIONS_ARRAY_INITIAL_SIZE);
-
-  size_t stemStrLen;
-  const char* stemStr = NULL;
-  if(scCtx->stemmer){
-    stemStr = scCtx->stemmer->Stem(scCtx->stemmer->ctx, term, len, &stemStrLen);
-  }
+  RS_Suggestions* s = RS_SuggestionsCreate();
 
   RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
   RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
 
-  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, suggestions);
-  if(stemStr){
-    // ignore the '+' prefix
-    SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, stemStr + 1, stemStrLen - 1, fieldMask, suggestions);
-  }
+  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s);
 
   // sorting results by score
-  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion*), (__compar_fn_t)RS_SuggestionCompare);
+  qsort(s->suggestions, array_len(s->suggestions), sizeof(RS_Suggestion*), (__compar_fn_t)RS_SuggestionCompare);
 
   // searching the term on the include list for more suggestions.
   for(int i = 0 ; i < array_len(scCtx->includeDict) ; ++i){
@@ -165,26 +192,22 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char* term, si
     if(t == NULL){
       continue;
     }
-    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, suggestions);
-    if(stemStr){
-      // ignore the '+' prefix
-      SpellCheck_FindSuggestions(scCtx, t, stemStr + 1, stemStrLen - 1, fieldMask, suggestions);
-    }
+    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s);
     RedisModule_CloseKey(k);
   }
 
-  if(array_len(suggestions) == 0){
+  if(array_len(s->suggestions) == 0){
     RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, NO_SUGGESTIONS_REPLY, strlen(NO_SUGGESTIONS_REPLY));
   }else{
-    RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, array_len(suggestions));
-    for(int i = 0 ; i < array_len(suggestions) ; ++i){
+    RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, array_len(s->suggestions));
+    for(int i = 0 ; i < array_len(s->suggestions) ; ++i){
       RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 2);
-      RedisModule_ReplyWithDouble(scCtx->sctx->redisCtx, suggestions[i]->score);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, suggestions[i]->suggestion, strlen(suggestions[i]->suggestion));
+      RedisModule_ReplyWithDouble(scCtx->sctx->redisCtx, s->suggestions[i]->score);
+      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, s->suggestions[i]->suggestion, s->suggestions[i]->len);
     }
   }
 
-  array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion**)ptr));
+  RS_SuggestionsFree(s);
 
   return true;
 
