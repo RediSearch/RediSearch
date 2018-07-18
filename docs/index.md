@@ -33,7 +33,7 @@ See [Clients Page](/Clients)
 
 RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
 
-## Primary Features:
+## Primary Features
 
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
