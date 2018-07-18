@@ -20,6 +20,9 @@ class ExtensionTestCase(BaseSearchTestCase):
         return super(ExtensionTestCase, cls).get_module_args() + ['EXTLOAD', TEST_MODULE]
 
     def testExt(self):
+        if self.is_external_server():
+            self.skipTest("External server detected!")
+
         if not os.path.exists(TEST_MODULE):
             subprocess.call(['make', '-C', os.path.dirname(TEST_MODULE)])
 
