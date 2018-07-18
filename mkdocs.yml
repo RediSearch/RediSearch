@@ -56,5 +56,8 @@ pages:
       - 'Multi-Threading in RediSearch': Threading.md
 
     - 'Chinese Support': 'Chinese.md'
+    
+    - 'Contributor agreement': contrib.md
+
 
 #google_analytics: ['UA-89573912-1', 'redisearch']
