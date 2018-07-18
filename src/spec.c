@@ -239,6 +239,7 @@ RSValueType fieldTypeToValueType(FieldType ft) {
     case FIELD_TAG:
       return RSValue_String;
     case FIELD_GEO:
+    default:
       // geo is not sortable so we don't care as of now...
       return RSValue_Null;
   }
