@@ -8,8 +8,11 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                     struct ConcurrentCmdCtx *cmdCtx) {
-  AggregateCommand_ExecAggregateEx(
-      ctx, argv, argc, cmdCtx, &(AggregateRequestSettings){.pcb = Aggregate_DefaultChainBuilder});
+  AggregateRequestSettings settings = {.pcb = Aggregate_DefaultChainBuilder};
+  if (!cmdCtx) {
+    settings.flags |= AGGREGATE_REQUEST_NO_CONCURRENT;
+  }
+  AggregateCommand_ExecAggregateEx(ctx, argv, argc, cmdCtx, &settings);
 }
 
 /**
