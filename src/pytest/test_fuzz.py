@@ -5,7 +5,7 @@ import time
 from base_case import BaseSearchTestCase
 
 
-class SearchTestCase(BaseSearchTestCase):
+class FuzzTestCase(BaseSearchTestCase):
 
     _tokens = {}
     _docs = {}

@@ -3,7 +3,7 @@ import platform
 from base_case import BaseSearchTestCase
 
 
-class SearchTestCase(BaseSearchTestCase):
+class WideSchemaTestCase(BaseSearchTestCase):
     def testWideSchema(self):
         r = self
         schema = []

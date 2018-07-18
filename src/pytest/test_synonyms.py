@@ -122,12 +122,8 @@ class SynonymsTestCase(BaseSearchTestCase):
         self.assertOk(r.execute_command(
             'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
         r.execute_command('ft.synadd', 'idx', 'boy', 'child')
-        exceptionStr = None
-        try:
+        with self.assertResponseError(contained='wrong number of arguments'):
             r.execute_command('ft.synupdate', 'idx', '0')
-        except Exception as e:
-            exceptionStr = str(e)
-        self.assertEqual(exceptionStr, 'wrong number of arguments for \'ft.synupdate\' command')
 
     def testSynonymUpdateUnknownIndex(self):
         r = self

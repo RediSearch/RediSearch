@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from rmtest import BaseModuleTestCase
+from base_case import BaseSearchTestCase
 import redis
 import unittest
 from hotels import hotels
@@ -8,8 +8,11 @@ import random
 import time
 
 
-class SearchTestCase(BaseModuleTestCase):
+class SearchTestCase(BaseSearchTestCase):
     def testAdd(self):
+        if self.is_cluster():
+            raise unittest.SkipTest()
+
         r = self
         self.assertOk(r.execute_command(
             'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
@@ -248,7 +251,7 @@ class SearchTestCase(BaseModuleTestCase):
 
         for i in range(100):
             # the doc hash should exist now
-            self.assertTrue(r.exists('doc%d' % i))
+            self.assertTrue(r.ftexists('idx', 'doc%d' % i))
             # Delete the actual docs only half of the time
             self.assertEqual(1, r.execute_command(
                 'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
@@ -260,7 +263,7 @@ class SearchTestCase(BaseModuleTestCase):
             if i % 2 == 0:
                 self.assertFalse(r.exists('doc%d' % i))
             else:
-                self.assertTrue(r.exists('doc%d' % i))
+                self.assertTrue(r.ftexists('idx', 'doc%d' % i))
             res = r.execute_command(
                 'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
             self.assertNotIn('doc%d' % i, res)
@@ -333,7 +336,7 @@ class SearchTestCase(BaseModuleTestCase):
                                             'f', 'hello world', 'n', 666, 't', 'foo bar',
                                             'g', '19.04,47.497'))
         keys = r.keys('*')
-        self.assertEqual(106, len(keys))
+        self.assertGreaterEqual(len(keys), 100)
 
         self.assertOk(r.execute_command('ft.drop', 'idx'))
         keys = r.keys('*')
@@ -348,12 +351,13 @@ class SearchTestCase(BaseModuleTestCase):
                                             'f', 'hello world', 'n', 666, 't', 'foo bar',
                                             'g', '19.04,47.497'))
         keys = r.keys('*')
-        self.assertEqual(106, len(keys))
+        self.assertGreaterEqual(len(keys), 100)
 
-        self.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
-        keys = r.keys('*')
-        self.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
-                              'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+        if not self.is_cluster():
+            self.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
+            keys = r.keys('*')
+            self.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
+                                  'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
 
     def testCustomStopwords(self):
         r = self
@@ -885,6 +889,9 @@ class SearchTestCase(BaseModuleTestCase):
             self.assertListEqual(res, res2)
 
     def testAddHash(self):
+        if self.is_cluster():
+            raise unittest.SkipTest()
+
         r = self
         self.assertOk(r.execute_command('ft.create', 'idx', 'schema',
                                         'title', 'text', 'weight', 10.0, 'body', 'text', 'price', 'numeric'))
@@ -1288,16 +1295,17 @@ class SearchTestCase(BaseModuleTestCase):
             stats = get_stats(r)
             if stats['num_records'] == '0':
                 break
-        self.assertEqual('0', stats['num_docs'])
-        self.assertEqual('0', stats['num_records'])
-        self.assertEqual('100', stats['max_doc_id'])
-        self.assertGreater(stats['gc_stats']['current_hz'], 50)
-        currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
-        # print initialIndexSize, currentIndexSize,
-        # stats['gc_stats']['bytes_collected']
-        self.assertGreater(initialIndexSize, currentIndexSize)
-        self.assertGreater(stats['gc_stats'][
-                           'bytes_collected'], currentIndexSize)
+        self.assertEqual(0, int(stats['num_docs']))
+        self.assertEqual(0, int(stats['num_records']))
+        if not self.is_cluster():
+            self.assertEqual(100, int(stats['max_doc_id']))
+            self.assertGreater(stats['gc_stats']['current_hz'], 50)
+            currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
+            # print initialIndexSize, currentIndexSize,
+            # stats['gc_stats']['bytes_collected']
+            self.assertGreater(initialIndexSize, currentIndexSize)
+            self.assertGreater(stats['gc_stats'][
+                                   'bytes_collected'], currentIndexSize)
 
         for i in range(10):
 
@@ -1340,7 +1348,7 @@ class SearchTestCase(BaseModuleTestCase):
 
         # Test that we don't crash if we're given the wrong number of fields
         with self.assertResponseError():
-            res = self.cmd('ft.search', 'idx', 'val*', 'return', 2, 'nonexist')
+            res = self.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
     def _test_create_options_real(self, *options):
         options = [x for x in options if x]
@@ -1412,17 +1420,19 @@ class SearchTestCase(BaseModuleTestCase):
             self.assertEqual(d['index_options'], ['NOFIELDS'])
             self.assertListEqual(
                 d['fields'], [['title', 'type', 'TEXT', 'WEIGHT', '1']])
-            self.assertEquals(int(d['num_docs']), N)
-            self.assertEquals(int(d['num_terms']), N + 1)
-            self.assertEquals(int(d['max_doc_id']), N)
-            self.assertEquals(int(d['records_per_doc_avg']), 2)
-            self.assertEquals(int(d['num_records']), N * 2)
 
-            self.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            self.assertGreater(float(d['key_table_size_mb']), 0)
-            self.assertGreater(float(d['inverted_sz_mb']), 0)
-            self.assertGreater(float(d['bytes_per_record_avg']), 0)
-            self.assertGreater(float(d['doc_table_size_mb']), 0)
+            if not self.is_cluster():
+                self.assertEquals(int(d['num_docs']), N)
+                self.assertEquals(int(d['num_terms']), N + 1)
+                self.assertEquals(int(d['max_doc_id']), N)
+                self.assertEquals(int(d['records_per_doc_avg']), 2)
+                self.assertEquals(int(d['num_records']), N * 2)
+
+                self.assertGreater(float(d['offset_vectors_sz_mb']), 0)
+                self.assertGreater(float(d['key_table_size_mb']), 0)
+                self.assertGreater(float(d['inverted_sz_mb']), 0)
+                self.assertGreater(float(d['bytes_per_record_avg']), 0)
+                self.assertGreater(float(d['doc_table_size_mb']), 0)
 
         for x in range(1, 5):
             for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
@@ -1568,7 +1578,10 @@ class SearchTestCase(BaseModuleTestCase):
     def testNonDefaultDb(self):
         # Should be ok
         self.cmd('FT.CREATE', 'idx1', 'schema', 'txt', 'text')
-        self.cmd('SELECT 1')
+        try:
+            self.cmd('SELECT 1')
+        except redis.ResponseError:
+            return
 
         # Should fail
         with self.assertResponseError():
@@ -1594,18 +1607,13 @@ class SearchTestCase(BaseModuleTestCase):
                          'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
 
             # Try add hash
-            self.cmd('HMSET', 'newDoc', 'txt', 'foo',
-                     'Txt', 'bar', 'txT', 'baz')
+            self.hmset('newDoc', {'txt': 'foo', 'Txt': 'bar', 'txT': 'baz'})
             # Get the actual value:
 
             from redis import ResponseError
-            caught = False
-            try:
-                self.cmd('FT.ADDHASH', 'idx', 'newDoc', 1.0)
-            except ResponseError as err:
-                caught = True
-                self.assertTrue('twice' in err.message)
-            self.assertTrue(caught)
+            if not self.is_cluster():
+                with self.assertResponseError(contained='twice'):
+                    self.cmd('FT.ADDHASH', 'idx', 'newDoc', 1.0)
 
             # Try with REPLACE
             with self.assertResponseError():
@@ -1635,6 +1643,8 @@ class SearchTestCase(BaseModuleTestCase):
         self.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
 
     def testLuaAndMulti(self):
+        if self.is_cluster():
+            raise unittest.SkipTest()
         # Ensure we can work in Lua and Multi environments without crashing
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
         self.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
@@ -1739,21 +1749,23 @@ class SearchTestCase(BaseModuleTestCase):
         # test with no fields!
         self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
 
-
-    def testIssue366(self):
+    def testIssue366_1(self):
+        if self.is_cluster():
+            raise unittest.SkipTest('ADDHASH unsupported!')
         # Test random RDB regressions, see GH 366
         self.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
-        self.cmd('HSET', 'foo', 'textfield', 'blah', 'numfield', 1)
+        self.hmset('foo', {'textfield': 'blah', 'numfield': 1})
         self.cmd('FT.ADDHASH', 'idx1', 'foo', 1, 'replace')
         self.cmd('FT.DEL', 'idx1', 'foo')
         for _ in self.retry_with_reload():
             pass  #  --just ensure it doesn't crash
-        
-# FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
-# FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234
-# FT.ADD atest anId 1 PAYLOAD '{"hello":"world2"}' REPLACE PARTIAL FIELDS numfield 1111
-# shutdown
-        self.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
+
+    def testIssue366_2(self):
+        # FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
+        # FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234
+        # FT.ADD atest anId 1 PAYLOAD '{"hello":"world2"}' REPLACE PARTIAL FIELDS numfield 1111
+        # shutdown
+        self.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
         self.cmd('FT.ADD', 'idx1', 'doc1', 1, 'PAYLOAD', '{"hello":"world"}',
             'FIELDS', 'textfield', 'sometext', 'numfield', 1234)
         self.cmd('ft.add', 'idx1', 'doc1', 1,

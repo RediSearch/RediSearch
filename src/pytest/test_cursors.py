@@ -12,6 +12,9 @@ def to_dict(res):
 
 
 class CursorTestCase(BaseSearchTestCase):
+    @classmethod
+    def get_module_args(cls):
+        return super(CursorTestCase, cls).get_module_args() + ['SAFEMODE']
 
     def loadDocs(self, count=100, idx='idx', text='hello world'):
         self.cmd('FT.CREATE', idx, 'SCHEMA', 'f1', 'TEXT')
@@ -19,9 +22,8 @@ class CursorTestCase(BaseSearchTestCase):
             cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
             self.cmd(*cmd)
 
-
     def exhaustCursor(self, idx, resp, *args):
-        first, cid=resp
+        first, cid = resp
         rows = [resp]
         while cid:
             resp, cid=self.cmd('FT.CURSOR', 'READ', idx, cid, *args)
@@ -46,8 +48,8 @@ class CursorTestCase(BaseSearchTestCase):
 
         # Issue the same query, but using a specified count
         resp = self.cmd(*(query[::]+['COUNT', 10]))
+
         resp = self.exhaustCursor('idx', resp)
-        # pprint.pprint(resp)
         self.assertEqual(11, len(resp))
     
     def testMultipleIndexes(self):
@@ -67,6 +69,8 @@ class CursorTestCase(BaseSearchTestCase):
         self.assertEqual(['f1', 'goodbye'], last2)
     
     def testCapacities(self):
+        if self.is_cluster():
+            raise unittest.SkipTest()
         self.loadDocs(idx='idx1')
         self.loadDocs(idx='idx2')
         q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]

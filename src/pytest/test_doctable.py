@@ -6,10 +6,10 @@ import time
 from base_case import BaseSearchTestCase
 
 
-class SearchTestCase(BaseSearchTestCase):
+class DocTableTestCase(BaseSearchTestCase):
     @classmethod
     def get_module_args(cls):
-        return super(SearchTestCase, cls).get_module_args () + ['MAXDOCTABLESIZE', '100']
+        return super(DocTableTestCase, cls).get_module_args () + ['MAXDOCTABLESIZE', '100']
 
     # mainly this test adding and removing docs while the doc table size is 100
     # and make sure we are not crashing and not leaking memory (when runs with valgrind).
