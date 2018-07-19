@@ -4,6 +4,7 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
+#include "dep/phonetics/double_metaphone_capi.h"
 
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
@@ -133,7 +134,35 @@ end:
   }
 }
 
+static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term){
+  const char* term_c = RedisModule_StringPtrLen(term, NULL);
+
+  char* primary = NULL;
+  char* secondary = NULL;
+
+  DoubleMetaphone_c(term_c, &primary, &secondary);
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+
+  free(primary);
+  free(secondary);
+}
+
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  const char *subCommand = NULL;
+
+  if (argc == 3){
+    subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+    if (strcmp(subCommand, DUMP_PHONETIC_HASH) == 0) {
+      DumpPhoneticHash(ctx, argv[2]);
+    } else {
+      RedisModule_ReplyWithError(ctx, "no such subcommand");
+    }
+    return REDISMODULE_OK;
+  }
 
   if (argc != 4) return RedisModule_WrongArity(ctx);
 
@@ -146,7 +175,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   sctx.redisCtx = ctx;
   sctx.spec = sp;
 
-  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+  subCommand = RedisModule_StringPtrLen(argv[1], NULL);
 
   if (strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0) {
     DumpInvertedIndex(&sctx, argv[3]);
