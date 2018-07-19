@@ -1275,6 +1275,8 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
+  RedisModule_ReplicateVerbatim(ctx);
+
   IndexSpec_InitializeSynonym(sp);
 
   uint32_t id = SynonymMap_AddRedisStr(sp->smap, argv + 2, argc - 2);
@@ -1327,6 +1329,8 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
+  RedisModule_ReplicateVerbatim(ctx);
+
   return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, true);
 }
 
@@ -1343,6 +1347,8 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
     return REDISMODULE_OK;
   }
+
+  RedisModule_ReplicateVerbatim(ctx);
 
   return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, false);
 }
@@ -1420,6 +1426,8 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  RedisModule_ReplicateVerbatim(ctx);
   return REDISMODULE_OK;
 }
 
