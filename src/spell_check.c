@@ -213,8 +213,41 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char* term, si
 
 }
 
+static bool SpellCheck_CheckDictExistance(SpellCheckCtx *scCtx, char* dict){
+#define BUFF_SIZE 1000
+  RedisModuleKey *k = NULL;
+  Trie* t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ, &k);
+  if(t == NULL){
+    char buff[BUFF_SIZE];
+    snprintf(buff, BUFF_SIZE, "the given dict are not exists: %s", dict);
+    RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);
+    return false;
+  }
+  RedisModule_CloseKey(k);
+  return true;
+}
+
+static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx){
+  for(int i = 0 ; i < array_len(scCtx->includeDict) ; ++i){
+    if(!SpellCheck_CheckDictExistance(scCtx, scCtx->includeDict[i])){
+      return false;
+    }
+  }
+
+  for(int i = 0 ; i < array_len(scCtx->excludeDict) ; ++i){
+    if(!SpellCheck_CheckDictExistance(scCtx, scCtx->excludeDict[i])){
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q){
 #define NODES_INITIAL_SIZE 5
+  if(!SpellCheck_CheckTermDictsExistance(scCtx)){
+    return;
+  }
   size_t results = 0;
 
   QueryNode **nodes = array_new(QueryNode*, NODES_INITIAL_SIZE);

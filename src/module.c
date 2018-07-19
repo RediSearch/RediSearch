@@ -523,7 +523,7 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define DICT_INITIAL_ZISE 5
 #define DEFAULT_LEV_DISTANCE 1
-#define MAX_LEV_DISTANCE 4
+#define MAX_LEV_DISTANCE 100
 #define str(s) #s
   char *err = NULL;
   if (argc < 3) {

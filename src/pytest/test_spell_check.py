@@ -67,6 +67,15 @@ class SpellCheckTestCase(BaseModuleTestCase):
         res = self.cmd('ft.spellcheck', 'idx', '@body:name')
         self.assertEqual(res, [['TERM', 'name', [['0.66666666666666663', 'name2']]]])
 
+    def testSpellCheckOnExistingTerm(self):
+        self.cmd('flushdb')
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+        res = self.cmd('ft.spellcheck', 'idx', 'name')
+        self.assertEqual(res, [])
+
     def testSpellCheckWithIncludeDict(self):
         self.cmd('flushdb')
         self.cmd('ft.dictadd', 'dict', 'name3', 'name4', 'name5')
@@ -98,3 +107,52 @@ class SpellCheckTestCase(BaseModuleTestCase):
         self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
         res = self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict')
         self.assertEqual(res, [])
+
+    def testSpellCheckNoneExistingIndex(self):
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict')
+
+    def testSpellCheckWrongArity(self):
+        self.cmd('flushdb')
+        self.cmd('ft.dictadd', 'dict', 'name')
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck')
+
+    def testSpellCheckBadFormat(self):
+        self.cmd('flushdb')
+        self.cmd('ft.dictadd', 'dict', 'name')
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'DISTANCE')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'DISTANCE', 0)
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'DISTANCE', -1)
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'DISTANCE', 101)
+
+    def testSpellCheckNoneExistingDicts(self):
+        self.cmd('flushdb')
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
+        with self.assertResponseError():
+            self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict')
