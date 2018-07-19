@@ -15,10 +15,9 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
   RedisModuleString *ks = fmtGeoIndexKey(gi);
 
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
+
   /* GEOADD key longitude latitude member*/
-  RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEOADD", "sccs", ks, slon, slat,
-                       RedisModule_CreateStringFromLongLong(ctx, (long long)docId));
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
   RedisModule_FreeString(gi->ctx->redisCtx, ks);
   if (rep == NULL) {
     return REDISMODULE_ERR;
