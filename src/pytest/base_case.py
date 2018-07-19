@@ -1,4 +1,4 @@
-from rmtest import BaseModuleTestCase
+from rmtest2 import BaseModuleTestCase
 import redis
 
 

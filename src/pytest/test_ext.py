@@ -1,4 +1,4 @@
-from rmtest import config
+from rmtest2 import config
 import redis
 import unittest
 from hotels import hotels
