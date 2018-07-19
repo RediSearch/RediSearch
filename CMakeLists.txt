@@ -49,6 +49,7 @@ ADD_DEFINITIONS(-DREDIS_MODULE_TARGET)
 ADD_SUBDIRECTORY(src/rmutil)
 ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
+ADD_SUBDIRECTORY(src/dep/phonetics)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -74,7 +75,8 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
-    $<TARGET_OBJECTS:snowball>)
+    $<TARGET_OBJECTS:snowball>
+    $<TARGET_OBJECTS:metaphone>)
 
 ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
