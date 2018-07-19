@@ -953,10 +953,7 @@ void DoubleMetaphone(const string &str, vector<string> *codes)
 }
 
 
-#ifdef __cplusplus
 extern "C" {
-#endif
-
 void DoubleMetaphone_c(const char* str, char** primary, char** secondary){
   vector<string> codes;
   string s = string(str);
@@ -964,9 +961,4 @@ void DoubleMetaphone_c(const char* str, char** primary, char** secondary){
   *primary = strdup(codes[0].c_str());
   *secondary = strdup(codes[1].c_str());
 }
-
-#ifdef __cplusplus
 }
-#endif
-
-
