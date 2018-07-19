@@ -16,7 +16,7 @@ class AofTestCase(BaseSearchTestCase):
     
     def setUp(self):
         super(AofTestCase, self).setUp()
-        if self.is_external_server:
+        if self.is_external_server():
             raise unittest.SkipTest('Cannot run AOF tests on external server')
 
     def aofTestCommon(self, reloadfn):
