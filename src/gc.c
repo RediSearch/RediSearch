@@ -63,7 +63,11 @@ GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initi
   GarbageCollectorCtx *gc = malloc(sizeof(*gc));
 
   *gc = (GarbageCollectorCtx){
-      .timer = NULL, .hz = initialHZ, .keyName = k, .stats = {}, .rdbPossiblyLoading = 1,
+      .timer = NULL,
+      .hz = initialHZ,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
   };
 
   gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
@@ -230,6 +234,7 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
 
 size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   size_t totalRemoved = 0;
+  char *randomKey = NULL;
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
@@ -251,7 +256,6 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   }
 
   InvertedIndex *iv;
-  char *randomKey;
   tm_len_t len;
 
   if (!TrieMap_RandomKey(indexTag->values, &randomKey, &len, (void **)&iv)) {
@@ -295,6 +299,9 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
 
 end:
   if (idxKey) RedisModule_CloseKey(idxKey);
+  if (randomKey) {
+    free(randomKey);
+  }
 
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
