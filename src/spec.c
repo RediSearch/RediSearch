@@ -146,6 +146,9 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   sp->sortIdx = -1;
   sp->options = 0;
   // the field name comes here
+  if (sp->name) {
+    free(sp->name);
+  }
   sp->name = rm_strdup(argv[*offset]);
 
   // we can't be at the end
@@ -575,7 +578,7 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
-  if (sp->stopwords && sp->flags & Index_HasCustomStopwords) {
+  if (sp->stopwords) {
     StopWordList_Unref(sp->stopwords);
     sp->stopwords = NULL;
   }
