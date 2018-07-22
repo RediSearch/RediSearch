@@ -334,7 +334,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   }
 
   if (FieldSpec_IsIndexable(fs)) {
-    Stemmer *stemmer = FieldSpec_IsNoStem(fs) ? NULL : aCtx->fwIdx->stemmer;
     ForwardIndexTokenizerCtx tokCtx;
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
@@ -346,8 +345,16 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
     ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->textOpts.id,
                                   fs->textOpts.weight);
-    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl,
-                           FieldSpec_IsNoStem(fs) ? TOKENIZE_NOSTEM : TOKENIZE_DEFAULT_OPTIONS);
+
+    uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
+    if(FieldSpec_IsNoStem(fs)){
+      options |= TOKENIZE_NOSTEM;
+    }
+    if(FieldSpec_IsPhonetics(fs)){
+      options |= TOKENIZE_PHONETICS;
+    }
+    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
+
     Token tok;
     uint32_t lastTokPos = 0;
     uint32_t newTokPos;

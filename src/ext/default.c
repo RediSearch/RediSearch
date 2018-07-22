@@ -10,6 +10,7 @@
 #include "../tokenize.h"
 #include "../rmutil/vector.h"
 #include "../stemmer.h"
+#include "../dep/phonetics/double_metaphone_capi.h"
 
 /******************************************************************************************
  *
@@ -318,6 +319,24 @@ void StemmerExpanderFree(void *p) {
 
 /******************************************************************************************
  *
+ * phonetic based query expander
+ *
+ ******************************************************************************************/
+void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+  char* primary = NULL;
+
+  DoubleMetaphone_c(token->str, token->len, &primary, NULL);
+
+  if(primary){
+    ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
+  }
+}
+
+void PhoneticExpanderFree(void *p) {
+}
+
+/******************************************************************************************
+ *
  * Synonyms based query expander
  *
  ******************************************************************************************/
@@ -350,13 +369,19 @@ void SynonymExpanderFree(void *p) {
  *
  ******************************************************************************************/
 void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+  int phonetic = (*(ctx->currentNode))->opts.phonetic;
   StemmerExpander(ctx, token);
   SynonymExpand(ctx, token);
+  // todo: if phonetic default check if the field spec has phonetics
+  if(phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED){
+    PhoneticExpand(ctx, token);
+  }
 }
 
 void DefaultExpanderFree(void *p) {
   StemmerExpanderFree(p);
   SynonymExpanderFree(p);
+  PhoneticExpanderFree(p);
 }
 
 /* Register the default extension */
@@ -407,7 +432,13 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  /* Synonyms expender */
+  /* Phonetic expender */
+  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, PhoneticExpanderFree,
+                                 NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Default expender */
   if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;

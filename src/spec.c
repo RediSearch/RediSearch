@@ -175,6 +175,14 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
         }
         sp->textOpts.weight = d;
 
+      } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
+        // phonetic with no matcher
+        if (++*offset == argc) {
+          return 0;
+        }
+        // try and parse the matcher
+        // char* matcher = strdup(argv[*offset]); todo: add matcher capabilities
+        sp->options |= FieldSpec_Phonetics;
       } else {
         break;
       }

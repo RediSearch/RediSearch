@@ -954,11 +954,15 @@ void DoubleMetaphone(const string &str, vector<string> *codes)
 
 
 extern "C" {
-void DoubleMetaphone_c(const char* str, char** primary, char** secondary){
+void DoubleMetaphone_c(const char* str, size_t len, char** primary, char** secondary){
   vector<string> codes;
-  string s = string(str);
+  string s = string(str, len);
   DoubleMetaphone(s, &codes);
-  *primary = strdup(codes[0].c_str());
-  *secondary = strdup(codes[1].c_str());
+  if(primary != NULL){
+    *primary = strdup(codes[0].c_str());
+  }
+  if(secondary != NULL){
+    *secondary = strdup(codes[1].c_str());
+  }
 }
 }

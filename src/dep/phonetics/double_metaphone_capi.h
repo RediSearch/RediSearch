@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-void DoubleMetaphone_c(const char* str, char** primary, char** secondary);
+void DoubleMetaphone_c(const char* str, size_t len, char** primary, char** secondary);
 
 #ifdef __cplusplus
 }

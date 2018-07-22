@@ -25,6 +25,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
+#define SPEC_PHONETIC_STR "PHONETIC"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
@@ -47,7 +48,8 @@ static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
 typedef enum {
   FieldSpec_Sortable = 0x01,
   FieldSpec_NoStemming = 0x02,
-  FieldSpec_NotIndexable = 0x04
+  FieldSpec_NotIndexable = 0x04,
+  FieldSpec_Phonetics = 0x08,
 } FieldSpecOptions;
 
 // Specific options for text fields
@@ -99,6 +101,7 @@ typedef struct fieldSpec {
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
+#define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 
 typedef struct {

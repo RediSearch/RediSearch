@@ -242,6 +242,11 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
     }
   }
 
+  if(tokInfo->phoneticsPrimary){
+    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary, strlen(tokInfo->phoneticsPrimary),
+                             tokInfo->pos, tokCtx->fieldScore, tokCtx->fieldId, 0, 0);
+  }
+
   return 0;
 }
 

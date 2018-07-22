@@ -135,12 +135,13 @@ end:
 }
 
 static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term){
-  const char* term_c = RedisModule_StringPtrLen(term, NULL);
+  size_t len;
+  const char* term_c = RedisModule_StringPtrLen(term, &len);
 
   char* primary = NULL;
   char* secondary = NULL;
 
-  DoubleMetaphone_c(term_c, &primary, &secondary);
+  DoubleMetaphone_c(term_c, len, &primary, &secondary);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));

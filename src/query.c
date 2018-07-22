@@ -298,6 +298,17 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
   }
+
+  // todo : move to query validation
+  if(qn->opts.fieldMask != RS_FIELDMASK_ALL && qn->opts.phonetic != PHONETIC_DEFAULT){
+    char* fieldName = GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask);
+    FieldSpec* fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
+    if(!(fieldSpec->options & FieldSpec_Phonetics)){
+      // Phonetic requested but field are not declared phonetics
+      return NULL;
+    }
+  }
+
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
@@ -972,6 +983,21 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
       return 0;
     }
     qn->opts.weight = d;
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, "phonetic")) {
+    // Apply phonetic: true|false
+    int b;
+    if (!ParseBoolean(attr->value, &b)) {
+      SET_ERR(err, "Invalid value for 'inorder'");
+      return 0;
+    }
+    if(b){
+      qn->opts.phonetic = PHONETIC_ENABLED; // means we specifically asked for phonetic matching
+    }else{
+      qn->opts.phonetic = PHONETIC_DESABLED; // means we specifically asked no for phonetic matching
+    }
+    //qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
+    //                                          will be enable if field was declared phonetic
 
   } else {
     FMT_ERR(err, "Invalid attribute '%.*s'", (int)attr->namelen, attr->name);

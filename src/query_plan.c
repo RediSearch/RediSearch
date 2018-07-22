@@ -274,6 +274,7 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
                               Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
     }
   }
+  //todo: add queryPlan_ValidateQuery here!!!
   if (parsedQuery && !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
     QueryPlan_Free(plan);
     return NULL;

@@ -26,6 +26,8 @@ typedef struct {
   // Stem. May be NULL
   const char *stem;
 
+  char *phoneticsPrimary;
+
   // stem length
   uint32_t stemLen;
 
@@ -70,6 +72,8 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
 #define TOKENIZE_NOMODIFY 0x01
 // don't stem a field
 #define TOKENIZE_NOSTEM 0x02
+// perform phonetic matching
+#define TOKENIZE_PHONETICS 0x04
 
 /**
  * Pooled tokenizer functions:
