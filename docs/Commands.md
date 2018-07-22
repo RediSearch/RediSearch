@@ -375,54 +375,61 @@ Search the index with a textual query, returning either documents or just ids.
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
   Refer to [query syntax](/Query_Syntax) for more details. 
+  
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if RediSearch is only an index on an external document collection
-- **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
-  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
-- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
-  matched text.
-  See [Highlighting](/Highlight) for more detailts
-- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight) for more
-  details
-- **LIMIT first num**: If the parameters appear after the query, we limit the results to 
-  the offset and number of results given. The default is 0 10
-- **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or URL. num is the number of specified field arguments
-- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the 
-  list. 
-  the first argument must be the length of the list, and greater than zero.
-  Non-existent keys are ignored - unless all the keys are non-existent.
-- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
-  phrase terms. (i.e the slop for exact phrases is 0)
-- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
-  in the same order in the document as in the query, regardless of the offsets between them. 
+- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
+  verbatim.
+- **NOSTOPWORDS**: If set, we do not filter stopwords from the query.
+- **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
+  used to merge results from multiple instances
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
+  the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
+- **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
+  right after the id and score and /or payload if requested. This is usually not needed by users, and 
+  exists for distributed search coordination purposes.
+    
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
   Multiple numeric filters for different fields are supported in one query.
 - **GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius 
-  from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius) for more details. 
-- **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
-- **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
-  used to merge results from multiple instances
-- **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
-  right after the id and score and /or payload if requested. This is usually not needed by users, and 
-  exists for distributed search coordination purposes.
-- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
-  verbatim.
+  from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius) 
+  for more details.
+- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the 
+  list. 
+  the first argument must be the length of the list, and greater than zero.
+  Non-existent keys are ignored - unless all the keys are non-existent.
+- **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
+  fields of the document, like title or URL. num is the number of specified field arguments  
+    
+- **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
+  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.  
+- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
+  matched text.
+  See [Highlighting](/Highlight) for more detailts
+- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight) for more
+  details
+- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
+  phrase terms. (i.e the slop for exact phrases is 0)
+- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
+  in the same order in the document as in the query, regardless of the offsets between them. 
 - **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query 
   expansion.
   If querying documents in Chinese, this should be set to `chinese` in order to
   properly tokenize the query terms. 
-  Defaults to English. If an unsupported language is sent, the command returns an error. See FT.ADD for the list of languages.
+  Defaults to English. If an unsupported language is sent, the command returns an error.
+  See FT.ADD for the list of languages.
+
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/Extensions).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/Extensions).
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](/Extensions).
-- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
-  the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
+  
 - **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](/Sorting), the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
+- **LIMIT first num**: If the parameters appear after the query, we limit the results to 
+  the offset and number of results given. The default is 0 10
 
 ### Complexity
 
