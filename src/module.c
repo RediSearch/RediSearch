@@ -471,11 +471,11 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char* error;
+  char *error;
   int retVal = SpellCheck_DictDump(ctx, dictName, &error);
-  if(retVal < 0){
+  if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
   }
 
@@ -488,13 +488,13 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char* error;
+  char *error;
   int retVal = SpellCheck_DictDel(ctx, dictName, argv + 2, argc - 2, &error);
-  if(retVal < 0){
+  if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
-  }else{
+  } else {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
 
@@ -507,13 +507,13 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char* dictName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char* error;
+  char *error;
   int retVal = SpellCheck_DictAdd(ctx, dictName, argv + 2, argc - 2, &error);
-  if(retVal < 0){
+  if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
-  }else{
+  } else {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
 
@@ -537,15 +537,15 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   size_t len;
-  const char* rawQuery = RedisModule_StringPtrLen(argv[2], &len);
+  const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   QueryParseCtx *q = NewQueryParseCtx(sctx, rawQuery, len, NULL);
   if (!q) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
-  char** includeDict = array_new(char*, DICT_INITIAL_ZISE);
-  char** excludeDict = array_new(char*, DICT_INITIAL_ZISE);
+  char **includeDict = array_new(char *, DICT_INITIAL_ZISE);
+  char **excludeDict = array_new(char *, DICT_INITIAL_ZISE);
 
   if (!Query_Parse(q, &err)) {
 
@@ -563,42 +563,40 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
-  if((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))){
-    if(distanceArgPos + 1 >= argc){
+  if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
+    if (distanceArgPos + 1 >= argc) {
       RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
       goto end;
     }
-    if(RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
-       distance < 1 || distance > MAX_LEV_DISTANCE){
-      RedisModule_ReplyWithError(ctx, "bad distance given, distance must be a natural number between 1 to " str(MAX_LEV_DISTANCE));
+    if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
+        distance < 1 || distance > MAX_LEV_DISTANCE) {
+      RedisModule_ReplyWithError(
+          ctx, "bad distance given, distance must be a natural number between 1 to " str(
+                   MAX_LEV_DISTANCE));
       goto end;
     }
   }
 
   int nextPos = 0;
-  while((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))){
-    if(nextPos + 2 >= argc){
+  while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
+    if (nextPos + 2 >= argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
       goto end;
     }
-    char* operation = (char*)RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
-    char* dictName = (char*)RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
-    if(strcmp(operation, "INCLUDE") == 0){
+    char *operation = (char *)RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
+    char *dictName = (char *)RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+    if (strcmp(operation, "INCLUDE") == 0) {
       includeDict = array_append(includeDict, dictName);
-    }else if(strcmp(operation, "EXCLUDE") == 0){
+    } else if (strcmp(operation, "EXCLUDE") == 0) {
       excludeDict = array_append(excludeDict, dictName);
-    }else{
+    } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
     }
   }
 
   SpellCheckCtx scCtx = {
-      .sctx = sctx,
-      .includeDict = includeDict,
-      .excludeDict = excludeDict,
-      .distance = distance
-  };
+      .sctx = sctx, .includeDict = includeDict, .excludeDict = excludeDict, .distance = distance};
 
   SpellCheck_Reply(&scCtx, q);
 
@@ -1761,7 +1759,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
-
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", 1, 1, 1);
 
