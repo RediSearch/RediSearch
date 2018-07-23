@@ -3,13 +3,22 @@ PROJECT(redisearch)
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
 
+ADD_DEFINITIONS(-UNDEBUG)
+
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -Werror=implicit-function-declaration -pthread")
-
-STRING(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-STRING(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
-STRING(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+# Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
+FOREACH (flags_var_to_scrub
+    CMAKE_CXX_FLAGS_RELEASE
+    CMAKE_CXX_FLAGS_RELWITHDEBINFO
+    CMAKE_CXX_FLAGS_MINSIZEREL
+    CMAKE_C_FLAGS_RELEASE
+    CMAKE_C_FLAGS_RELWITHDEBINFO
+    CMAKE_C_FLAGS_MINSIZEREL)
+  STRING(REGEX REPLACE "(^| )[/-]D *NDEBUG($| )" " "
+    "${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
+ENDFOREACH()
 
 
 EXECUTE_PROCESS(COMMAND git describe
