@@ -1,29 +1,10 @@
-all:
-	$(MAKE) -C ./src all
-
-test:
-	$(MAKE) -C ./src $@
-
-clean:
-	$(MAKE) -C ./src $@
-
-distclean:
-	$(MAKE) -C ./src $@
-.PHONY: distclean
-
-package: all
+package:
 	$(MAKE) -C ./src package
 .PHONY: package
-
-buildall:
-	$(MAKE) -C ./src $@
 
 deploydocs:
 	mkdocs gh-deploy
 .PHONY: deploydocs
-
-staticlib:
-	$(MAKE) -C ./src $@
 
 # Builds a small utility that outputs the current version
 print_version:
