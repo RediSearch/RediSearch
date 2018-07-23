@@ -299,16 +299,6 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  // todo : move to query validation
-  if(qn->opts.fieldMask != RS_FIELDMASK_ALL && qn->opts.phonetic != PHONETIC_DEFAULT){
-    char* fieldName = GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask);
-    FieldSpec* fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
-    if(!(fieldSpec->options & FieldSpec_Phonetics)){
-      // Phonetic requested but field are not declared phonetics
-      return NULL;
-    }
-  }
-
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
@@ -937,6 +927,59 @@ const char *Query_DumpExplain(QueryParseCtx *q) {
   const char *ret = strndup(s, sdslen(s));
   sdsfree(s);
   return ret;
+}
+
+int Query_NodeForEach(QueryParseCtx *q, QueryNode_ForEachCallback callback, void* ctx) {
+#define INITIAL_ARRAY_NODE_SIZE 5
+  QueryNode **nodes = array_new(QueryNode*, INITIAL_ARRAY_NODE_SIZE);
+  nodes = array_append(nodes, q->root);
+  int retVal = 1;
+  while(array_len(nodes) > 0){
+    QueryNode *curr = array_pop(nodes);
+    if(!callback(curr, q, ctx)){
+      retVal = 0;
+      break;
+    }
+    switch(curr->type){
+      case QN_PHRASE:
+        for (int i = 0; i < curr->pn.numChildren; i++) {
+          nodes = array_append(nodes, curr->pn.children[i]);
+        }
+        break;
+
+      case QN_NOT:
+        nodes = array_append(nodes, curr->not.child);
+        break;
+
+      case QN_OPTIONAL:
+        nodes = array_append(nodes, curr->opt.child);
+        break;
+
+      case QN_UNION:
+        for (int i = 0; i < curr->un.numChildren; i++) {
+          nodes = array_append(nodes, curr->un.children[i]);
+        }
+        break;
+
+      case QN_TAG:
+        for (int i = 0; i < curr->tag.numChildren; i++) {
+          nodes = array_append(nodes, curr->tag.children[i]);
+        }
+        break;
+
+      case QN_GEO:
+      case QN_IDS:
+      case QN_WILDCARD:
+      case QN_FUZZY:
+      case QN_TOKEN:
+      case QN_PREFX:
+      case QN_NUMERIC:
+        break;
+    }
+  }
+
+  array_free(nodes);
+  return retVal;
 }
 
 void QueryNode_Print(QueryParseCtx *q, QueryNode *qn, int depth) {

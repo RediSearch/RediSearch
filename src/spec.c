@@ -137,6 +137,28 @@ char *strtolower(char *str) {
   }
   return str;
 }
+
+static bool checkPhoneticAlgorithmAndLang(char* matcher){
+  if(strlen(matcher) != 5){
+    return false;
+  }
+  if(matcher[0] != 'd' || matcher[1] != 'm' || matcher[2] != ':'){
+    return false;
+  }
+
+#define LANGUAGES_SIZE 4
+  char* languages[] = {"en", "pt", "fr", "es"};
+
+  bool langauge_found = false;
+  for(int i = 0 ; i < LANGUAGES_SIZE ; ++i){
+    if(matcher[3] == languages[i][0] || matcher[4] == languages[i][1]){
+      langauge_found = true;
+    }
+  }
+
+  return langauge_found;
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
@@ -181,7 +203,15 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
           return 0;
         }
         // try and parse the matcher
-        // char* matcher = strdup(argv[*offset]); todo: add matcher capabilities
+        char* matcher = strdup(argv[*offset]);
+        // currently we just make sure algorithm is double metaphone (dm)
+        // and language is one of the following : English (en), French (fr), Portuguese (pt) and Spanish (es)
+        // in the future we will support more algorithms and more languages
+        if(!checkPhoneticAlgorithmAndLang(matcher)){
+          SET_ERR(err, "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: double metaphone (dm). Supported languages: English (en), French (fr), Portuguese (pt) and Spanish (es)");
+          return 0;
+        }
+
         sp->options |= FieldSpec_Phonetics;
       } else {
         break;

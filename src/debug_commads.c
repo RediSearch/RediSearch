@@ -4,7 +4,7 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
-#include "dep/phonetics/double_metaphone_capi.h"
+#include "phonetic_manager.h"
 
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
@@ -141,7 +141,7 @@ static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term){
   char* primary = NULL;
   char* secondary = NULL;
 
-  DoubleMetaphone_c(term_c, len, &primary, &secondary);
+  PhoneticManager_ExpandPhonerics(NULL, term_c, len, &primary, &secondary);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));

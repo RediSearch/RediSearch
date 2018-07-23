@@ -20,6 +20,8 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
+
+  bool addToTermsTrie;
 } ForwardIndexEntry;
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index

@@ -10,7 +10,7 @@
 #include "../tokenize.h"
 #include "../rmutil/vector.h"
 #include "../stemmer.h"
-#include "../dep/phonetics/double_metaphone_capi.h"
+#include "../phonetic_manager.h"
 
 /******************************************************************************************
  *
@@ -325,7 +325,7 @@ void StemmerExpanderFree(void *p) {
 void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   char* primary = NULL;
 
-  DoubleMetaphone_c(token->str, token->len, &primary, NULL);
+  PhoneticManager_ExpandPhonerics(NULL, token->str, token->len, &primary, NULL);
 
   if(primary){
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);

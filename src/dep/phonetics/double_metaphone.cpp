@@ -167,11 +167,11 @@ void DoubleMetaphone(const string &str, vector<string> *codes)
         current += 1;
       break;
 
-//    case '�':
-//      primary += "S";
-//      secondary += "S";
-//      current += 1;
-//      break;
+    case 'Ç':
+      primary += "S";
+      secondary += "S";
+      current += 1;
+      break;
 
     case 'C':
       /* various germanic */
@@ -631,11 +631,11 @@ void DoubleMetaphone(const string &str, vector<string> *codes)
       secondary += "N";
       break;
 
-//    case '�':
-//      current += 1;
-//      primary += "N";
-//      secondary += "N";
-//      break;
+    case 'Ñ':
+      current += 1;
+      primary += "N";
+      secondary += "N";
+      break;
 
     case 'P':
       if (GetAt(original, current + 1) == 'H') {
