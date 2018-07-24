@@ -370,12 +370,17 @@ void SynonymExpanderFree(void *p) {
  ******************************************************************************************/
 void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
-  StemmerExpander(ctx, token);
   SynonymExpand(ctx, token);
   // todo: if phonetic default check if the field spec has phonetics
   if(phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED){
     PhoneticExpand(ctx, token);
   }
+
+  // stemmer is happenning last because it might free the given 'RSToken *token'
+  // this is a bad solution and should be fixed, but for now its good enough
+  // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
+  //       expnders ordering!!
+  StemmerExpander(ctx, token);
 }
 
 void DefaultExpanderFree(void *p) {

@@ -151,7 +151,7 @@ static bool checkPhoneticAlgorithmAndLang(char* matcher){
 
   bool langauge_found = false;
   for(int i = 0 ; i < LANGUAGES_SIZE ; ++i){
-    if(matcher[3] == languages[i][0] || matcher[4] == languages[i][1]){
+    if(matcher[3] == languages[i][0] && matcher[4] == languages[i][1]){
       langauge_found = true;
     }
   }
