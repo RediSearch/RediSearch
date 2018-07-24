@@ -1,4 +1,4 @@
-#include "../phonetics/double_metaphone.h"
+#include "double_metaphone.h"
 
 #include <vector>
 #include <string>
@@ -10,7 +10,7 @@
 #include <stdarg.h>
 #include <assert.h>
 
-#include "../phonetics/double_metaphone_capi.h"
+#include "double_metaphone_capi.h"
 
 const unsigned int max_length = 32;
 
