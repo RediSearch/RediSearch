@@ -347,10 +347,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
                                   fs->textOpts.weight);
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
-    if(FieldSpec_IsNoStem(fs)){
+    if (FieldSpec_IsNoStem(fs)) {
       options |= TOKENIZE_NOSTEM;
     }
-    if(FieldSpec_IsPhonetics(fs)){
+    if (FieldSpec_IsPhonetics(fs)) {
       options |= TOKENIZE_PHONETICS;
     }
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
@@ -583,9 +583,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   // create a mock search result
   SearchResult res = (SearchResult){
-      .docId = doc.docId,
-      .fields = fm,
-      .scorerPrivateData = md,
+      .docId = doc.docId, .fields = fm, .scorerPrivateData = md,
   };
   // All this is needed to eval the expression
   RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();

@@ -86,9 +86,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry,
-      .Compare = khtCompare,
-      .Hash = khtHash,
+      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -219,7 +217,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
-                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw, true);
+                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw,
+                           true);
 
   if (tokCtx->allOffsets) {
     VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
@@ -244,9 +243,10 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
     }
   }
 
-  if(tokInfo->phoneticsPrimary){
-    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary, strlen(tokInfo->phoneticsPrimary),
-                             tokInfo->pos, tokCtx->fieldScore, tokCtx->fieldId, 0, 0, true);
+  if (tokInfo->phoneticsPrimary) {
+    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
+                             strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
+                             tokCtx->fieldId, 0, 0, true);
   }
 
   return 0;

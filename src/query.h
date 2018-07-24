@@ -104,9 +104,8 @@ void Query_Expand(QueryParseCtx *q, const char *expander);
  */
 const char *Query_DumpExplain(QueryParseCtx *q);
 
-
-typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryParseCtx *q, void* ctx);
-int Query_NodeForEach(QueryParseCtx *q, QueryNode_ForEachCallback callback, void* ctx);
+typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryParseCtx *q, void *ctx);
+int Query_NodeForEach(QueryParseCtx *q, QueryNode_ForEachCallback callback, void *ctx);
 
 /* Free a QueryParseCtx object */
 void Query_Free(QueryParseCtx *q);

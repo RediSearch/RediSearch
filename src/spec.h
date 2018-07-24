@@ -33,8 +33,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 
 static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
-                                      [FIELD_NUMERIC] = NUMERIC_STR,
-                                      [FIELD_GEO] = GEO_STR,
+                                      [FIELD_NUMERIC] = NUMERIC_STR, [FIELD_GEO] = GEO_STR,
                                       [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"

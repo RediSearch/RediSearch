@@ -232,18 +232,18 @@ void QueryPlan_Free(QueryPlan *plan) {
   free(plan);
 }
 
-static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx){
+static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx) {
 #define PHONETIC_ERR_STR "Phonetic requested but field are not declared phonetic"
-  char** err = ctx;
-  if(node->type != QN_TOKEN){
+  char **err = ctx;
+  if (node->type != QN_TOKEN) {
     // currently only tokens needs validation
     // maybe in the future we will add more validations to other nodes types
     return 1;
   }
-  if(node->opts.fieldMask != RS_FIELDMASK_ALL && node->opts.phonetic != PHONETIC_DEFAULT){
-    char* fieldName = GetFieldNameByBit(q->sctx->spec, node->opts.fieldMask);
-    FieldSpec* fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
-    if(!(fieldSpec->options & FieldSpec_Phonetics)){
+  if (node->opts.fieldMask != RS_FIELDMASK_ALL && node->opts.phonetic != PHONETIC_DEFAULT) {
+    char *fieldName = GetFieldNameByBit(q->sctx->spec, node->opts.fieldMask);
+    FieldSpec *fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
+    if (!(fieldSpec->options & FieldSpec_Phonetics)) {
       *err = strdup(PHONETIC_ERR_STR);
       return 0;
     }

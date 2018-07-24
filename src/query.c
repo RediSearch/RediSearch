@@ -107,11 +107,7 @@ static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
   s->opts = (QueryNodeOptions){
-      .fieldMask = RS_FIELDMASK_ALL,
-      .flags = 0,
-      .maxSlop = -1,
-      .inOrder = 0,
-      .weight = 1,
+      .fieldMask = RS_FIELDMASK_ALL, .flags = 0, .maxSlop = -1, .inOrder = 0, .weight = 1,
   };
   return s;
 }
@@ -154,10 +150,7 @@ QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist
   ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
-              .str = (char *)s,
-              .len = len,
-              .expanded = 0,
-              .flags = 0,
+              .str = (char *)s, .len = len, .expanded = 0, .flags = 0,
           },
       .maxDist = maxDist,
   };
@@ -338,9 +331,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
     // Create a token for the reader
     RSToken tok = (RSToken){
-        .expanded = 0,
-        .flags = 0,
-        .len = 0,
+        .expanded = 0, .flags = 0, .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
     if (q->sctx && q->sctx->redisCtx) {
@@ -929,18 +920,18 @@ const char *Query_DumpExplain(QueryParseCtx *q) {
   return ret;
 }
 
-int Query_NodeForEach(QueryParseCtx *q, QueryNode_ForEachCallback callback, void* ctx) {
+int Query_NodeForEach(QueryParseCtx *q, QueryNode_ForEachCallback callback, void *ctx) {
 #define INITIAL_ARRAY_NODE_SIZE 5
-  QueryNode **nodes = array_new(QueryNode*, INITIAL_ARRAY_NODE_SIZE);
+  QueryNode **nodes = array_new(QueryNode *, INITIAL_ARRAY_NODE_SIZE);
   nodes = array_append(nodes, q->root);
   int retVal = 1;
-  while(array_len(nodes) > 0){
+  while (array_len(nodes) > 0) {
     QueryNode *curr = array_pop(nodes);
-    if(!callback(curr, q, ctx)){
+    if (!callback(curr, q, ctx)) {
       retVal = 0;
       break;
     }
-    switch(curr->type){
+    switch (curr->type) {
       case QN_PHRASE:
         for (int i = 0; i < curr->pn.numChildren; i++) {
           nodes = array_append(nodes, curr->pn.children[i]);
@@ -1034,12 +1025,13 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
       SET_ERR(err, "Invalid value for 'inorder'");
       return 0;
     }
-    if(b){
-      qn->opts.phonetic = PHONETIC_ENABLED; // means we specifically asked for phonetic matching
-    }else{
-      qn->opts.phonetic = PHONETIC_DESABLED; // means we specifically asked no for phonetic matching
+    if (b) {
+      qn->opts.phonetic = PHONETIC_ENABLED;  // means we specifically asked for phonetic matching
+    } else {
+      qn->opts.phonetic =
+          PHONETIC_DESABLED;  // means we specifically asked no for phonetic matching
     }
-    //qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
+    // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
 
   } else {

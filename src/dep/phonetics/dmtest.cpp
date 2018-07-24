@@ -11,13 +11,14 @@ int main(int argc, char *argv[]) {
   char *word;
 
   if (argc != 2) {
-    printf ("Usage: dmtest <filename>\n"
-            "  where <filename> contains one word per line, will print\n"
-            "  each word with its 2 double metaphone values.\n");
+    printf(
+        "Usage: dmtest <filename>\n"
+        "  where <filename> contains one word per line, will print\n"
+        "  each word with its 2 double metaphone values.\n");
     exit(1);
   }
 
-  FILE* f = fopen(argv[1], "r");
+  FILE *f = fopen(argv[1], "r");
 
   while (!feof(f)) {
     word = fgets(line, sizeof(line), f);
@@ -28,7 +29,7 @@ int main(int argc, char *argv[]) {
       }
       string s = string(word);
       DoubleMetaphone(s, &codes);
-      printf ("%s,%s,%s\n", word, codes[0].c_str(), codes[1].c_str());
+      printf("%s,%s,%s\n", word, codes[0].c_str(), codes[1].c_str());
     }
   }
 }

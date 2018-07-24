@@ -6,7 +6,6 @@
 
 using namespace std;
 
-
 void DoubleMetaphone(const string &str, vector<string> *codes);
 
 #endif /* DOUBLE_METAPHONE__H */

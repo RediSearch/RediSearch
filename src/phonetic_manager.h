@@ -12,10 +12,10 @@
 
 #define PHONETIC_PREFIX '<'
 
-typedef struct{
+typedef struct {
   char* algorithm;
   char* language;
-}PhoneticManagerCtx;
+} PhoneticManagerCtx;
 
 void PhoneticManager_ExpandPhonerics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary);

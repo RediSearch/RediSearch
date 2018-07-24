@@ -48,14 +48,14 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
 
 static void IdToDocId(RedisSearchCtx *sctx, RedisModuleString *strId) {
   long long id;
-  if(RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK){
+  if (RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     return;
   }
   RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
-  if(!doc || (doc->flags & Document_Deleted)){
+  if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
-  }else{
+  } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
 }
@@ -134,12 +134,12 @@ end:
   }
 }
 
-static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term){
+static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term) {
   size_t len;
-  const char* term_c = RedisModule_StringPtrLen(term, &len);
+  const char *term_c = RedisModule_StringPtrLen(term, &len);
 
-  char* primary = NULL;
-  char* secondary = NULL;
+  char *primary = NULL;
+  char *secondary = NULL;
 
   PhoneticManager_ExpandPhonerics(NULL, term_c, len, &primary, &secondary);
 
@@ -155,7 +155,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *subCommand = NULL;
 
-  if (argc == 3){
+  if (argc == 3) {
     subCommand = RedisModule_StringPtrLen(argv[1], NULL);
     if (strcmp(subCommand, DUMP_PHONETIC_HASH) == 0) {
       DumpPhoneticHash(ctx, argv[2]);

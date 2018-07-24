@@ -18,5 +18,4 @@ void DoubleMetaphone_c(const char* str, size_t len, char** primary, char** secon
 }
 #endif
 
-
 #endif /* SRC_DEP_PHONETICS_DOUBLE_METAPHONE_CAPI_H_ */
