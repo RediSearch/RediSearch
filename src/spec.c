@@ -145,14 +145,12 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   if (*offset >= argc) return 0;
   sp->sortIdx = -1;
   sp->options = 0;
-  // the field name comes here
-  if (sp->name) {
-    free(sp->name);
-  }
   sp->name = rm_strdup(argv[*offset]);
 
   // we can't be at the end
-  if (++*offset == argc) return 0;
+  if (++*offset == argc) {
+    goto error;
+  }
 
   // this is a text field
   if (!strcasecmp(argv[*offset], SPEC_TEXT_STR)) {
@@ -168,12 +166,12 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       } else if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
         // weight with no value is invalid
         if (++*offset == argc) {
-          return 0;
+          goto error;
         }
         // try and parse the weight
         double d = strtod(argv[*offset], NULL);
         if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
-          return 0;
+          goto error;
         }
         sp->textOpts.weight = d;
 
@@ -205,12 +203,12 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
         sp->tagOpts.separator = argv[*offset][0];
       } else {
         SET_ERR(err, "Invalid separator, only 1 byte ascii characters allowed");
-        return 0;
+        goto error;
       }
       ++*offset;
     }
   } else {  // not numeric and not text - nothing more supported currently
-    return 0;
+    goto error;
   }
 
   while (*offset < argc) {
@@ -218,7 +216,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       // cannot sort by geo fields
       if (sp->type == FIELD_GEO) {
         SET_ERR(err, "Geo fields cannot be sortable");
-        return 0;
+        goto error;
       }
       sp->options |= FieldSpec_Sortable;
       ++*offset;
@@ -231,6 +229,13 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   }
 
   return 1;
+
+error:
+  if (sp->name) {
+    free(sp->name);
+    sp->name = NULL;
+  }
+  return 0;
 }
 
 /* Convert field type rsvalue type */
