@@ -75,6 +75,12 @@ static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Curso
   for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
     Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
     Cursor *oldCur = NULL;
+    /**
+     * The cursor `cur` might have been changed in the callback, if it has been
+     * swapped with another one, as deletion means swapping the last cursor to
+     * the current position. We ensure that we do not 'skip' over this cursor
+     * (effectively skipping over the cursor that was just relocated).
+     */
 
     while (cur && cur != oldCur) {
       callback(cl, cur, arg);
