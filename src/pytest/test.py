@@ -42,14 +42,17 @@ class SearchTestCase(BaseSearchTestCase):
                                '@foo == "world"', 'fields', 'bar', '234'))
         self.assertOk(self.cmd('ft.add', 'idx', '1', '1', 'replace', 'if',
                                '@bar == 234', 'fields', 'foo', 'hello', 'bar', '123'))
-        
+
         # Ensure that conditionals are ignored if the document doesn't exist
-        self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
+        self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1',
+                               'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
         # Ensure that it fails if we try again, because it already exists
-        self.assertEqual('NOADD', self.cmd('FT.ADD', 'idx', '666', '1', 'REPLACE', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
+        self.assertEqual('NOADD', self.cmd('FT.ADD', 'idx', '666', '1',
+                                           'REPLACE', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
         # Ensure that it fails because we're not using 'REPLACE'
         with self.assertResponseError():
-            self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1', 'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
+            self.assertOk(self.cmd('FT.ADD', 'idx', '666', '1',
+                                   'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
 
     def testUnionIdList(self):
         # Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306
@@ -1305,7 +1308,7 @@ class SearchTestCase(BaseSearchTestCase):
             # stats['gc_stats']['bytes_collected']
             self.assertGreater(initialIndexSize, currentIndexSize)
             self.assertGreater(stats['gc_stats'][
-                                   'bytes_collected'], currentIndexSize)
+                'bytes_collected'], currentIndexSize)
 
         for i in range(10):
 
@@ -1700,13 +1703,15 @@ class SearchTestCase(BaseSearchTestCase):
 
         self.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
         for x in range(10):
-            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0, 'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
-        
+            self.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0,
+                     'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
+
         for _ in self.retry_with_reload():
             # Test that sortable works
             res = self.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
             self.assertEqual(
-                [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', ['f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']],
+                [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
+                    'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']],
                 res)
 
         # Test that we can add a numeric field
@@ -1725,26 +1730,28 @@ class SearchTestCase(BaseSearchTestCase):
         # OK for now.
 
         # Should be too many indexes
-        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx1', 'SCHEMA', 'ADD', 'tooBig', 'TEXT')
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER',
+                          'idx1', 'SCHEMA', 'ADD', 'tooBig', 'TEXT')
 
         self.cmd('FT.CREATE', 'idx2', 'MAXTEXTFIELDS', 'SCHEMA', 'f0', 'TEXT')
         # print self.cmd('FT.INFO', 'idx2')
         for x in range(1, 50):
             self.cmd('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'f{}'.format(x + 1), 'TEXT')
-        
+
         self.cmd('FT.ADD', 'idx2', 'doc1', 1.0, 'FIELDS', 'f50', 'hello')
         for _ in self.retry_with_reload():
             ret = self.cmd('FT.SEARCH', 'idx2', '@f50:hello')
             self.assertEqual([1, 'doc1', ['f50', 'hello']], ret)
-        
 
         self.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'f0', 'text')
         # Try to alter the index with garbage
-        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx3', 'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx3',
+                          'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
         ret = to_dict(self.cmd('ft.info', 'idx3'))
         self.assertEqual(1, len(ret['fields']))
 
-        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'nonExist', 'SCHEMA', 'ADD', 'f1', 'TEXT')
+        self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER',
+                          'nonExist', 'SCHEMA', 'ADD', 'f1', 'TEXT')
 
         # test with no fields!
         self.assertRaises(redis.ResponseError, self.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
@@ -1758,7 +1765,7 @@ class SearchTestCase(BaseSearchTestCase):
         self.cmd('FT.ADDHASH', 'idx1', 'foo', 1, 'replace')
         self.cmd('FT.DEL', 'idx1', 'foo')
         for _ in self.retry_with_reload():
-            pass  #  --just ensure it doesn't crash
+            pass  # --just ensure it doesn't crash
 
     def testIssue366_2(self):
         # FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
@@ -1767,11 +1774,11 @@ class SearchTestCase(BaseSearchTestCase):
         # shutdown
         self.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
         self.cmd('FT.ADD', 'idx1', 'doc1', 1, 'PAYLOAD', '{"hello":"world"}',
-            'FIELDS', 'textfield', 'sometext', 'numfield', 1234)
+                 'FIELDS', 'textfield', 'sometext', 'numfield', 1234)
         self.cmd('ft.add', 'idx1', 'doc1', 1,
-            'PAYLOAD', '{"hello":"world2"}',
-            'REPLACE', 'PARTIAL',
-            'FIELDS', 'textfield', 'sometext', 'numfield', 1111)
+                 'PAYLOAD', '{"hello":"world2"}',
+                 'REPLACE', 'PARTIAL',
+                 'FIELDS', 'textfield', 'sometext', 'numfield', 1111)
         for _ in self.retry_with_reload():
             pass  #
 
@@ -1779,14 +1786,17 @@ class SearchTestCase(BaseSearchTestCase):
         self.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
         # Create a document and then replace it.
         self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'textfield', 's1', 'numfield', 99)
-        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'textfield', 's100', 'numfield', 990)
+        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL',
+                 'FIELDS', 'textfield', 's100', 'numfield', 990)
         self.server.dump_and_reload()
         # RDB Should still be fine
 
-        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL', 'FIELDS', 'textfield', 's200', 'numfield', 1090)
+        self.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL',
+                 'FIELDS', 'textfield', 's200', 'numfield', 1090)
         doc = to_dict(self.cmd('FT.GET', 'idx2', 'doc2'))
         self.assertEqual('s200', doc['textfield'])
         self.assertEqual('1090', doc['numfield'])
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
@@ -1794,6 +1804,7 @@ def grouper(iterable, n, fillvalue=None):
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
     return izip_longest(fillvalue=fillvalue, *args)
+
 
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
