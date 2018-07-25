@@ -558,7 +558,7 @@ class SearchTestCase(BaseSearchTestCase):
         while True:
 
             res = r.execute_command(
-                'ft.search', 'idx', 'hello', 'nocontent', 'limit', offset, chunk)
+                'ft.search', 'idx', 'hello', 'nocontent', 'sortby', 'bar', 'desc', 'limit', offset, chunk)
             self.assertEqual(res[0], N)
 
             if offset + chunk > N:
