@@ -35,6 +35,7 @@
 #include "version.h"
 #include "debug_commads.h"
 #include "spell_check.h"
+#include "dictionary.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -465,66 +466,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
-
-  char *error;
-  int retVal = SpellCheck_DictDump(ctx, dictName, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  }
-
-  return REDISMODULE_OK;
-}
-
-int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
-
-  char *error;
-  int retVal = SpellCheck_DictDel(ctx, dictName, argv + 2, argc - 2, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  } else {
-    RedisModule_ReplyWithLongLong(ctx, retVal);
-  }
-
-  return REDISMODULE_OK;
-}
-
-int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
-
-  char *error;
-  int retVal = SpellCheck_DictAdd(ctx, dictName, argv + 2, argc - 2, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  } else {
-    RedisModule_ReplyWithLongLong(ctx, retVal);
-  }
-
-  return REDISMODULE_OK;
-}
-
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define DICT_INITIAL_ZISE 5
+#define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 100
-#define str(s) #s
+#define STRINGIFY(s) #s
   char *err = NULL;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -544,8 +490,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
-  char **includeDict = array_new(char *, DICT_INITIAL_ZISE);
-  char **excludeDict = array_new(char *, DICT_INITIAL_ZISE);
+  char **includeDict = array_new(char *, DICT_INITIAL_SIZE);
+  char **excludeDict = array_new(char *, DICT_INITIAL_SIZE);
 
   if (!Query_Parse(q, &err)) {
 
@@ -571,7 +517,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
         distance < 1 || distance > MAX_LEV_DISTANCE) {
       RedisModule_ReplyWithError(
-          ctx, "bad distance given, distance must be a natural number between 1 to " str(
+          ctx, "bad distance given, distance must be a natural number between 1 to " STRINGIFY(
                    MAX_LEV_DISTANCE));
       goto end;
     }
@@ -583,12 +529,12 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
       goto end;
     }
-    char *operation = (char *)RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
-    char *dictName = (char *)RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+    const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
+    const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if (strcmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, dictName);
+      includeDict = array_append(includeDict, (char*)dictName);
     } else if (strcmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, dictName);
+      excludeDict = array_append(excludeDict, (char*)dictName);
     } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
@@ -1292,8 +1238,8 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
   }
   size_t len;
-  const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)str, len));
+  const char *STRINGIFY = RedisModule_StringPtrLen(argv[2], &len);
+  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)STRINGIFY, len));
 }
 
 /*
