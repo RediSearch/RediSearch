@@ -232,7 +232,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
 
 error:
   if (sp->name) {
-    free(sp->name);
+    rm_free(sp->name);
     sp->name = NULL;
   }
   return 0;
