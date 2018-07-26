@@ -1,7 +1,7 @@
 #include "phonetic_manager.h"
 #include "dep/phonetics/double_metaphone_capi.h"
 #include <string.h>
-#include "malloc.h"
+#include <stdlib.h>
 
 static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   if (!phoneticTerm || !(*phoneticTerm)) {

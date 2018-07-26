@@ -12,6 +12,9 @@
 
 #include "double_metaphone_capi.h"
 
+// TODO: Change references from unsigned int to int, or remove redundant comparisons
+#pragma GCC diagnostic ignored "-Wtautological-compare"
+
 const unsigned int max_length = 32;
 
 void MakeUpper(string &s) {
@@ -154,12 +157,14 @@ void DoubleMetaphone(const string &str, vector<string> *codes) {
           current += 1;
         break;
 
+#if 0
+// This is broken because this is a multibyte on UTF8
       case 'Ç':
         primary += "S";
         secondary += "S";
         current += 1;
         break;
-
+#endif
       case 'C':
         /* various germanic */
         if ((current > 1) && !IsVowel(original, current - 2) &&
@@ -588,12 +593,14 @@ void DoubleMetaphone(const string &str, vector<string> *codes) {
         secondary += "N";
         break;
 
+#if 0
+// Multibyte UTF8!
       case 'Ñ':
         current += 1;
         primary += "N";
         secondary += "N";
         break;
-
+#endif
       case 'P':
         if (GetAt(original, current + 1) == 'H') {
           primary += "F";
