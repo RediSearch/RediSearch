@@ -108,6 +108,9 @@ size_t unescapen(char *s, size_t sz) {
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
 
+%type fuzzy { QueryNode *}
+%destructor fuzzy { QueryNode_Free($$); }
+
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
@@ -368,6 +371,16 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 expr(A) ::=  PERCENT TERM(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+}
+
+expr(A) ::= PERCENT PERCENT TERM(B) PERCENT PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+}
+
+expr(A) ::= PERCENT PERCENT PERCENT TERM(B) PERCENT PERCENT PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
 
