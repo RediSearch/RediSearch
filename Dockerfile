@@ -1,13 +1,14 @@
 FROM redislabsmodules/rmbuilder:latest as builder
 
 # Build the source
+ARG GIT_DESCRIBE_VERSION
 ADD . /RSBUILD
 WORKDIR /RSBUILD
 RUN set -ex;\
     rm -rf docker-build; \
     mkdir docker-build; \
     cd docker-build; \
-    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../; \
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ -DGIT_DESCRIBE_VERSION="$GIT_DESCRIBE_VERSION"; \
     make -j4; \
     pip install git+https://github.com/RedisLabs/rmtest@2.0; \
     make test;

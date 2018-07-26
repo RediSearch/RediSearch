@@ -35,8 +35,10 @@ deploydocs:
 	mkdocs gh-deploy
 .PHONY: deploydocs
 
+GIT_DESCRIBE_VERSION=$(shell git describe)
+
 docker:
-	docker build . -t redislabs/redisearch
+	docker build . -t redislabs/redisearch --build-arg=GIT_DESCRIBE_VERSION=$(GIT_DESCRIBE_VERSION)
 
 docker_push: docker
 	docker push redislabs/redisearch:latest
