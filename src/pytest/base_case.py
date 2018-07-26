@@ -1,5 +1,6 @@
 from rmtest2 import BaseModuleTestCase
 import redis
+import os
 
 
 class FTBaseCaseMethods(object):
@@ -24,4 +25,9 @@ class FTBaseCaseMethods(object):
 
 
 class BaseSearchTestCase(BaseModuleTestCase, FTBaseCaseMethods):
-    pass
+    @classmethod
+    def get_module_args(cls):
+        rv = super(BaseSearchTestCase, cls).get_module_args()
+        if os.environ.get('RS_TEST_SAFEMODE'):
+            rv += ['SAFEMODE']
+        return rv
