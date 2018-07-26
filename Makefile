@@ -1,38 +1,46 @@
-all:
-	$(MAKE) -C ./src all
+COMPAT_MODULE = src/redisearch.so
+all: $(COMPAT_MODULE)
+
+COMPAT_DIR := build-compat
+
+
+$(COMPAT_MODULE): $(COMPAT_DIR)/redisearch.so
+	cp $^ $@
+
+$(COMPAT_DIR)/redisearch.so:
+	@echo "*** Raw Makefile build uses CMake. Use CMake directly!"
+	@echo "*** e.g."
+	@echo "    mkdir build && cd build"
+	@echo "    cmake .. && make && redis-server --loadmodule ./redisearch.so"
+	@echo "***"
+	mkdir $(COMPAT_DIR) && cd $(COMPAT_DIR) && cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	$(MAKE) -C $(COMPAT_DIR)
+	cp $(COMPAT_DIR)/redisearch.so src
+
+$(COMPAT_DIR): compat-build
 
 test:
-	$(MAKE) -C ./src $@
+	cd $(COMPAT_DIR)
+	make -C $(COMPAT_DIR) test
 
 clean:
-	$(MAKE) -C ./src $@
+	rm -rf $(COMPAT_DIR)
+	rm -f src/redisearch.so
 
-distclean:
-	$(MAKE) -C ./src $@
-.PHONY: distclean
-
-package: all
+package:
 	$(MAKE) -C ./src package
 .PHONY: package
-
-buildall:
-	$(MAKE) -C ./src $@
 
 deploydocs:
 	mkdocs gh-deploy
 .PHONY: deploydocs
 
-staticlib:
-	$(MAKE) -C ./src $@
+GIT_DESCRIBE_VERSION=$(shell git describe)
 
-# Builds a small utility that outputs the current version
-print_version:
-	$(MAKE) -C ./src print_version
-
-docker: distclean print_version
-	docker build . -t redislabs/redisearch
+docker:
+	docker build . -t redislabs/redisearch --build-arg=GIT_DESCRIBE_VERSION=$(GIT_DESCRIBE_VERSION)
 
 docker_push: docker
 	docker push redislabs/redisearch:latest
-	docker tag redislabs/redisearch:latest redislabs/redisearch:`./src/print_version`
+	docker tag redislabs/redisearch:latest redislabs/redisearch:`git describe`
 	docker push redislabs/redisearch:`./src/print_version`

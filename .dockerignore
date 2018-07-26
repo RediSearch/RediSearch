@@ -10,3 +10,4 @@
 **/*.a
 .git
 site
+build*/
