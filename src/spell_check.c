@@ -72,7 +72,11 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
-    retVal = invidx->numDocs / (double)(scCtx->sctx->spec->docs.size - 1);
+    if(scCtx->fullScoreInfo){
+      retVal = invidx->numDocs;
+    }else{
+      retVal = invidx->numDocs / (double)(scCtx->sctx->spec->docs.size - 1);
+    }
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
@@ -236,6 +240,11 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
 
   RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
+  if(scCtx->fullScoreInfo){
+    // sending the total number of docs for the ability to calculate score on cluster
+    RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
+  }
+
   while (array_len(nodes) > 0) {
     currNode = array_pop(nodes);
 
@@ -285,5 +294,5 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
 
   array_free(nodes);
 
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx, results);
+  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx, results + (scCtx->fullScoreInfo ? 1 : 0));
 }

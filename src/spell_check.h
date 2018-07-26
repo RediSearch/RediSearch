@@ -27,6 +27,7 @@ typedef struct SpellCheckCtx {
   char** includeDict;
   char** excludeDict;
   long long distance;
+  bool fullScoreInfo;
 } SpellCheckCtx;
 
 void SpellCheck_Reply(SpellCheckCtx* ctx, QueryParseCtx* q);

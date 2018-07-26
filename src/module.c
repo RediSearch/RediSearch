@@ -541,8 +541,13 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  bool fullScoreInfo = false;
+  if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
+    fullScoreInfo = true;
+  }
+
   SpellCheckCtx scCtx = {
-      .sctx = sctx, .includeDict = includeDict, .excludeDict = excludeDict, .distance = distance};
+      .sctx = sctx, .includeDict = includeDict, .excludeDict = excludeDict, .distance = distance, .fullScoreInfo = fullScoreInfo};
 
   SpellCheck_Reply(&scCtx, q);
 
