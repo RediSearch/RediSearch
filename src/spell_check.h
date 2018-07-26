@@ -32,7 +32,7 @@ typedef struct SpellCheckCtx {
 } SpellCheckCtx;
 
 RS_Suggestions *RS_SuggestionsCreate();
-void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score);
+void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr);
 void RS_SuggestionsFree(RS_Suggestions *s);
 
 RS_Suggestion** spellCheckReducerTerm_GetSuggestions(RS_Suggestions *s);

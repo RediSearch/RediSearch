@@ -38,7 +38,17 @@ RS_Suggestions *RS_SuggestionsCreate() {
   return ret;
 }
 
-void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score) {
+void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr) {
+  /** score can not be zero, so we are starting from score = 1 and we should remove one at the end :\ **/
+  if(!incr){
+    if(SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len)){
+      return;
+    }
+  }
+  if(score == 0){
+    /** we can not add zero score so we set it to -1 instead :\ **/
+    score = -1;
+  }
   Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, 1, NULL);
 }
 
@@ -101,7 +111,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len)
 }
 
 static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
-                                       t_fieldMask fieldMask, RS_Suggestions *s) {
+                                       t_fieldMask fieldMask, RS_Suggestions *s, int incr) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -113,7 +123,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
-      RS_SuggestionsAdd(s, res, suggestionLen, score);
+      RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
     } else {
       free(res);
     }
@@ -150,7 +160,11 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx* ctx, char *term, size_t len,
 
   if(totalDocNumber > 0){
     for(int i = 0 ; i < array_len(suggestions) ; ++i){
-      suggestions[i]->score = suggestions[i]->score / totalDocNumber;
+      if(suggestions[i]->score == -1){
+        suggestions[i]->score = 0;
+      }else{
+        suggestions[i]->score = (suggestions[i]->score) / totalDocNumber;
+      }
     }
   }
 
@@ -207,7 +221,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   RS_Suggestions *s = RS_SuggestionsCreate();
 
-  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s);
+  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
 
   // sorting results by score
 
@@ -219,11 +233,11 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     if (t == NULL) {
       continue;
     }
-    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s);
+    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
     RedisModule_CloseKey(k);
   }
 
-  SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s, scCtx->fullScoreInfo? scCtx->sctx->spec->docs.size : 0);
+  SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s, (!scCtx->fullScoreInfo)? scCtx->sctx->spec->docs.size - 1 : 0);
 
   RS_SuggestionsFree(s);
 
