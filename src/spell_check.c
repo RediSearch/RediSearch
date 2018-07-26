@@ -6,19 +6,19 @@
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len);
 
-static int RS_SuggestionCompare(const void *val1, const void *val2) {
-  const RS_Suggestion *a = val1;
-  const RS_Suggestion *b = val2;
-  if (a->score > b->score) {
-    return 1;
-  }
-  if (a->score < b->score) {
+int RS_SuggestionCompare(const void *val1, const void *val2) {
+  const RS_Suggestion **a = (const RS_Suggestion**)val1;
+  const RS_Suggestion **b = (const RS_Suggestion**)val2;
+  if ((*a)->score > (*b)->score) {
     return -1;
+  }
+  if ((*a)->score < (*b)->score) {
+    return 1;
   }
   return 0;
 }
 
-static RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
+RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
   RS_Suggestion *res = calloc(1, sizeof(RS_Suggestion));
   res->suggestion = suggestion;
   res->len = len;
@@ -31,25 +31,19 @@ static void RS_SuggestionFree(RS_Suggestion *suggestion) {
   free(suggestion);
 }
 
-static RS_Suggestions *RS_SuggestionsCreate() {
+RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
   RS_Suggestions *ret = calloc(1, sizeof(RS_Suggestions));
   ret->suggestionsTrie = NewTrie();
-  ret->suggestions = array_new(RS_Suggestion *, SUGGESTIONS_ARRAY_INITIAL_SIZE);
   return ret;
 }
 
-static void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score) {
-  if (SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len)) {
-    return;
-  }
-
+void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score) {
   Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, 1, NULL);
-  s->suggestions = array_append(s->suggestions, RS_SuggestionCreate(term, len, score));
 }
 
-static void RS_SuggestionsFree(RS_Suggestions *s) {
-  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
+void RS_SuggestionsFree(RS_Suggestions *s) {
+//  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
   TrieType_Free(s->suggestionsTrie);
   free(s);
 }
@@ -75,7 +69,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     if(scCtx->fullScoreInfo){
       retVal = invidx->numDocs;
     }else{
-      retVal = invidx->numDocs / (double)(scCtx->sctx->spec->docs.size - 1);
+      retVal = invidx->numDocs;
     }
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
@@ -129,15 +123,70 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   TrieIterator_Free(it);
 }
 
-static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
-                                            t_fieldMask fieldMask) {
+RS_Suggestion** spellCheckReducerTerm_GetSuggestions(RS_Suggestions *s){
+  TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
+  RS_Suggestion** ret = array_new(RS_Suggestion*, s->suggestionsTrie->size);
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
+  }
+  return ret;
+}
+
+void SpellCheck_SendReplyOnTerm(RedisModuleCtx* ctx, char *term, size_t len,
+                                RS_Suggestions *s, uint64_t totalDocNumber){
 #define NO_SUGGESTIONS_REPLY "no spelling corrections found"
 #define TERM "TERM"
+  RedisModule_ReplyWithArray(ctx, 3);
+  RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
+  RedisModule_ReplyWithStringBuffer(ctx, term, len);
+
+  RS_Suggestion** suggestions = spellCheckReducerTerm_GetSuggestions(s);
+
+  if(totalDocNumber > 0){
+    for(int i = 0 ; i < array_len(suggestions) ; ++i){
+      suggestions[i]->score = suggestions[i]->score / totalDocNumber;
+    }
+  }
+
+  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
+
+  if (array_len(suggestions) == 0) {
+    RedisModule_ReplyWithStringBuffer(ctx, NO_SUGGESTIONS_REPLY,
+                                      strlen(NO_SUGGESTIONS_REPLY));
+  } else {
+    RedisModule_ReplyWithArray(ctx, array_len(suggestions));
+    for (int i = 0; i < array_len(suggestions); ++i) {
+      RedisModule_ReplyWithArray(ctx, 2);
+      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score);
+      RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
+    }
+  }
+}
+
+static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
+                                            t_fieldMask fieldMask) {
 
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
   if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len)) {
-    return false;
+    if(scCtx->fullScoreInfo){\
+      // if a full score info is requested we need to send information that
+      // we found the term as is on the index
+      RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
+      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
+      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
+      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, FOUND_TERM_IN_INDEX,
+                                        strlen(FOUND_TERM_IN_INDEX));
+      return true;
+    }else{
+      return false;
+    }
   }
 
   // searching the term on the exclude list, if its there we just return false
@@ -158,14 +207,9 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   RS_Suggestions *s = RS_SuggestionsCreate();
 
-  RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
-  RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
-  RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
-
   SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s);
 
   // sorting results by score
-  qsort(s->suggestions, array_len(s->suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
 
   // searching the term on the include list for more suggestions.
   for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
@@ -179,18 +223,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     RedisModule_CloseKey(k);
   }
 
-  if (array_len(s->suggestions) == 0) {
-    RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, NO_SUGGESTIONS_REPLY,
-                                      strlen(NO_SUGGESTIONS_REPLY));
-  } else {
-    RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, array_len(s->suggestions));
-    for (int i = 0; i < array_len(s->suggestions); ++i) {
-      RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 2);
-      RedisModule_ReplyWithDouble(scCtx->sctx->redisCtx, s->suggestions[i]->score);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, s->suggestions[i]->suggestion,
-                                        s->suggestions[i]->len);
-    }
-  }
+  SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s, scCtx->fullScoreInfo? scCtx->sctx->spec->docs.size : 0);
 
   RS_SuggestionsFree(s);
 
