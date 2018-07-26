@@ -8,8 +8,11 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                     struct ConcurrentCmdCtx *cmdCtx) {
-  AggregateCommand_ExecAggregateEx(
-      ctx, argv, argc, cmdCtx, &(AggregateRequestSettings){.pcb = Aggregate_DefaultChainBuilder});
+  AggregateRequestSettings settings = {.pcb = Aggregate_DefaultChainBuilder};
+  if (!cmdCtx) {
+    settings.flags |= AGGREGATE_REQUEST_NO_CONCURRENT;
+  }
+  AggregateCommand_ExecAggregateEx(ctx, argv, argc, cmdCtx, &settings);
 }
 
 /**
@@ -79,7 +82,12 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     req->plan->opts.flags |= Search_IsCursor;
     cursor->execState = req;
     /* Don't let the context get removed from under our feet */
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    if (cmdCtx) {
+      ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    } else {
+      sctx->redisCtx = RedisModule_GetThreadSafeContext(NULL);
+      // ctx is still the original output context - so don't change it!
+    }
     runCursor(ctx, cursor, req->ap.cursor.count);
     return;
   }

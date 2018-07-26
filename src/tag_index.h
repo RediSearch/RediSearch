@@ -101,6 +101,7 @@ TagIndex *NewTagIndex();
 char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
+  array_foreach(s, tmpv, { free(tmpv); });
   array_free(s);
 }
 

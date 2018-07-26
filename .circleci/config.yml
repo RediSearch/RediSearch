@@ -10,7 +10,7 @@ jobs:
           command: make -j 8
       - run:
           name: Test
-          command: pip install "rmtest >= 0.7.0" && make test
+          command: pip install git+https://github.com/RedisLabs/rmtest@2.0 && make test
       - run:
           name: Persist Artifacts
           command: >-

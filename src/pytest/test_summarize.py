@@ -1,10 +1,13 @@
-from rmtest import BaseModuleTestCase
 import time
 import unittest
 import os.path
 
+from base_case import BaseSearchTestCase
+
 GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
-class SummarizeTestCase(BaseModuleTestCase):
+
+
+class SummarizeTestCase(BaseSearchTestCase):
 
     def setupGenesis(self):
         txt = open(GENTEXT, 'r').read()

@@ -1400,6 +1400,8 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Need at least <cmd> <index> <subcommand> <args...>
+  RedisModule_AutoMemory(ctx);
+
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }

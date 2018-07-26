@@ -1,21 +1,22 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
 import random
 import time
+from base_case import BaseSearchTestCase
 
-class AofTestCase(BaseModuleTestCase):
-    @property
-    def server_args(self):
-        args = super(AofTestCase, self).server_args
+
+class AofTestCase(BaseSearchTestCase):
+    @classmethod
+    def get_server_args(self):
+        args = super(AofTestCase, self).get_server_args()
         args['use_aof'] = True
         args['aof-use-rdb-preamble'] = 'yes'
         return args
     
     def setUp(self):
         super(AofTestCase, self).setUp()
-        if self.is_external_server:
+        if self.is_external_server():
             raise unittest.SkipTest('Cannot run AOF tests on external server')
 
     def aofTestCommon(self, reloadfn):

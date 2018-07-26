@@ -1,15 +1,14 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 from hotels import hotels
 import random
 import time
+from base_case import BaseSearchTestCase
 
 
-class SearchGCTestCase(BaseModuleTestCase):
+class SearchGCTestCase(BaseSearchTestCase):
 
     def testBasicGC(self):
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
         self.assertOk(self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                'title', 'hello world',
@@ -36,7 +35,6 @@ class SearchGCTestCase(BaseModuleTestCase):
 
     def testNumerciGCIntensive(self):
         NumberOfDocs = 1000
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 'id', 'numeric'))
 
         for i in range(NumberOfDocs):
@@ -54,7 +52,6 @@ class SearchGCTestCase(BaseModuleTestCase):
 
     def testTagGC(self):
         NumberOfDocs = 10
-        self.cmd('flushdb')
         self.assertOk(self.cmd('ft.create', 'idx', 'schema', 't', 'tag'))
 
         for i in range(NumberOfDocs):

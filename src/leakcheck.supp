@@ -6,6 +6,140 @@
    fun:DefaultExtensionInit
    ...
 }
+
+{
+    supp
+    Memcheck:Leak
+    ...
+    fun:loadServerConfig
+    ...
+}
+
+{
+    supp
+    Memcheck:Leak
+    ...
+    fun:initServerConfig
+    fun:main
+}
+
+{
+    supp
+    Memcheck:Leak
+    ...
+    fun:initServer
+    ...
+}
+
+{
+    supp
+    Memcheck:Leak
+    ...
+    fun:moduleInitModulesSystem
+    ...
+}
+
+{
+    supp
+    Memcheck:Leak
+    ...
+    fun:RM_SetModuleAttribs
+    fun:RedisModule_Init
+    ...
+}
+
+{
+    global_indexer
+    Memcheck:Leak
+    ...
+    fun:NewDocumentIndexer
+    ...
+}
+
+{
+    create_command
+    Memcheck:Leak
+    ...
+    fun:RM_CreateCommand
+    ...
+}
+
+{
+    redis_get_absolute_path
+    Memcheck:Leak
+    ...
+    fun:getAbsolutePath
+    fun:main
+    ...
+}
+
+{
+    slowlog
+    Memcheck:Leak
+    ...
+    fun:slowlogCreateEntry
+    ...
+}
+
+{
+    timer_context
+    Memcheck:Leak
+    ...
+    fun:RM_GetThreadSafeContext
+    fun:rmutilTimer_Loop
+    ...
+}
+
+{
+    gc_globals
+    Memcheck:Leak
+    ...
+    fun:IndexSpec_StartGC
+    ...
+}
+
+{
+    threadpool_array
+    Memcheck:Leak
+    ...
+    fun:ConcurrentSearch_CreatePool
+    ...
+    fun:RedisModule_OnLoad
+    ...
+}
+
+{
+    lua
+    Memcheck:Leak
+    ...
+    fun:lua*alloc*
+    ...
+}
+
+{
+    module_init
+    Memcheck:Leak
+    ...
+    fun:moduleLoad
+    ...
+}
+
+{
+   sds_client_buffer
+    Memcheck:Leak
+    ...
+    fun:readQueryFromClient
+    ...
+}
+
+{
+    send_buffer
+    Memcheck:Leak
+    ...
+    fun:clusterSendMessage
+    ...
+}
+ 
 {
    <insert_a_suppression_name_here>
    Memcheck:Leak

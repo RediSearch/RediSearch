@@ -558,12 +558,79 @@ ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t l
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
  *******************************************************************************************************************/
+typedef struct {
+  const char *name;  // Key to use on output
+  int sortIndex;     // If sortable, sort index; otherwise -1
+  int type;          // Type, if in field spec, otherwise -1
+} LoadedField;
+
 struct loaderCtx {
   RedisSearchCtx *ctx;
-  const char **fields;
+  LoadedField *fields;
   size_t numFields;
   int explicitReturn;
 };
+
+static RSValue *getValueFromField(RedisModuleString *origval, int typeCode) {
+  switch (typeCode) {
+    case FIELD_NUMERIC: {
+      double d;
+      if (RedisModule_StringToDouble(origval, &d) == REDISMODULE_OK) {
+        return RS_NumVal(d);
+        break;
+      }
+    }
+    case FIELD_FULLTEXT:
+    case FIELD_TAG:
+    case FIELD_GEO:
+    default:
+      return RS_RedisStringVal(origval);
+      // Just store as a string
+  }
+}
+
+static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, RedisModuleString *idstr,
+                               const RSDocumentMetadata *dmd, SearchResult *r) {
+
+  RedisModuleKey *k = NULL;
+  int triedOpen = 0;
+
+  for (size_t ii = 0; ii < lc->numFields; ++ii) {
+    const LoadedField *field = lc->fields + ii;
+
+    // NOTE: Text fulltext fields are normalized
+    if (field->type == FIELD_NUMERIC && field->sortIndex > -1 && dmd->sortVector) {
+      RSSortingKey k = {.index = field->sortIndex};
+      RSValue *v = RSSortingVector_Get(dmd->sortVector, &k);
+      if (v) {
+        RSFieldMap_Set(&r->fields, field->name, RSValue_IncrRef(v));
+        continue;
+      }
+    }
+    // Otherwise, we need to load from the fieldspec
+    if (triedOpen && !k) {
+      continue;  // not gonna open the key
+    }
+    k = RedisModule_OpenKey(sctx->redisCtx, idstr, REDISMODULE_READ);
+    triedOpen = 1;
+    if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
+      continue;
+    }
+
+    // Try to get the field
+    RedisModuleString *v = NULL;
+    int rv = RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->name, &v, NULL);
+    if (rv == REDISMODULE_OK && v) {
+      RSFieldMap_Set(&r->fields, field->name, getValueFromField(v, field->type));
+    } else {
+      RSFieldMap_Set(&r->fields, field->name, RS_NullVal());
+    }
+  }
+
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
+}
 
 int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   struct loaderCtx *lc = ctx->privdata;
@@ -574,26 +641,33 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
     return rc;
   }
   Document doc = {NULL};
-  RedisModuleKey *rkey = NULL;
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
-  RedisModuleString *idstr = DMD_CreateKeyString(r->scorerPrivateData, lc->ctx->redisCtx);
+  const RSDocumentMetadata *dmd = DocTable_Get(&lc->ctx->spec->docs, r->docId);
+  if (dmd == NULL || (dmd->flags & Document_Deleted)) {
+    return RS_RESULT_OK;
+  }
+
+  RedisModuleString *idstr = DMD_CreateKeyString(dmd, lc->ctx->redisCtx);
+
   if (!lc->explicitReturn) {
     Redis_LoadDocument(lc->ctx, idstr, &doc);
-  } else {
-
-    Redis_LoadDocumentEx(lc->ctx, idstr, lc->fields, lc->numFields, &doc, &rkey);
-    RedisModule_FreeString(lc->ctx->redisCtx, idstr);
-  }
-  // TODO: load should return strings, not redis strings
-  for (int i = 0; i < doc.numFields; i++) {
-    if (doc.fields[i].text) {
-      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
-    } else {
-      RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());
+    for (int i = 0; i < doc.numFields; i++) {
+      if (doc.fields[i].text) {
+        RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
+      } else {
+        RSFieldMap_Set(&r->fields, doc.fields[i].name, RS_NullVal());
+      }
     }
+  } else {
+    // Figure out if we need to load the document at all; or maybe a simple
+    // load from sortables is sufficient?
+    loadExplicitFields(lc, lc->ctx, idstr, dmd, r);
   }
+
+  // TODO: load should return strings, not redis strings
+  RedisModule_FreeString(lc->ctx->redisCtx, idstr);
   Document_Free(&doc);
 
   return RS_RESULT_OK;
@@ -609,10 +683,26 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, Fiel
   struct loaderCtx *sc = malloc(sizeof(*sc));
 
   sc->ctx = sctx;
-  sc->fields = calloc(fields->numFields, sizeof(char *));
   sc->numFields = fields->numFields;
-  for (size_t i = 0; i < fields->numFields; i++) {
-    sc->fields[i] = fields->fields[i].name;
+  sc->fields = calloc(fields->numFields, sizeof(*sc->fields));
+
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    const char *name = fields->fields[ii].name;
+    LoadedField *lf = sc->fields + ii;
+    lf->name = name;
+    // Find the fieldspec
+    const FieldSpec *fs = IndexSpec_GetField(sctx->spec, name, strlen(name));
+    if (fs) {
+      lf->type = fs->type;
+      if (FieldSpec_IsSortable(fs)) {
+        lf->sortIndex = fs->sortIdx;
+      } else {
+        lf->sortIndex = -1;
+      }
+    } else {
+      lf->sortIndex = -1;
+      lf->type = -1;
+    }
   }
   sc->explicitReturn = fields->explicitReturn;
 

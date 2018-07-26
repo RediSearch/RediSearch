@@ -1,15 +1,20 @@
-from rmtest import BaseModuleTestCase
 import redis
 import unittest
 import pprint
 from redis import ResponseError
 from time import sleep, time
+from base_case import BaseSearchTestCase
+
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
-class CursorTestCase(BaseModuleTestCase):
+
+class CursorTestCase(BaseSearchTestCase):
+    @classmethod
+    def get_module_args(cls):
+        return super(CursorTestCase, cls).get_module_args() + ['SAFEMODE']
 
     def loadDocs(self, count=100, idx='idx', text='hello world'):
         self.cmd('FT.CREATE', idx, 'SCHEMA', 'f1', 'TEXT')
@@ -17,9 +22,8 @@ class CursorTestCase(BaseModuleTestCase):
             cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
             self.cmd(*cmd)
 
-
     def exhaustCursor(self, idx, resp, *args):
-        first, cid=resp
+        first, cid = resp
         rows = [resp]
         while cid:
             resp, cid=self.cmd('FT.CURSOR', 'READ', idx, cid, *args)
@@ -44,8 +48,8 @@ class CursorTestCase(BaseModuleTestCase):
 
         # Issue the same query, but using a specified count
         resp = self.cmd(*(query[::]+['COUNT', 10]))
+
         resp = self.exhaustCursor('idx', resp)
-        # pprint.pprint(resp)
         self.assertEqual(11, len(resp))
     
     def testMultipleIndexes(self):
@@ -65,6 +69,8 @@ class CursorTestCase(BaseModuleTestCase):
         self.assertEqual(['f1', 'goodbye'], last2)
     
     def testCapacities(self):
+        if self.is_cluster():
+            raise unittest.SkipTest()
         self.loadDocs(idx='idx1')
         self.loadDocs(idx='idx2')
         q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -76,7 +82,7 @@ class CursorTestCase(BaseModuleTestCase):
         for _ in range(128):
             cursors1.append(self.cmd( * q1))
             cursors2.append(self.cmd( * q2))
-        
+
         # Get info for the cursors
         info = self.getCursorStats('idx1')
         self.assertEqual(128, info['index_total'])
@@ -87,15 +93,16 @@ class CursorTestCase(BaseModuleTestCase):
         # Try to create another cursor
         self.assertRaises(ResponseError, self.cmd, * q1)
         self.assertRaises(ResponseError, self.cmd, * q2)
-        
+
         # Clear all the cursors
         for c in cursors1:
             self.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
         self.assertEqual(0, self.getCursorStats('idx1')['index_total'])
+
         # Check that we can create a new cursor
         c = self.cmd( * q1)
         self.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
-    
+
     def testTimeout(self):
         self.loadDocs(idx='idx1')
         # Maximum idle of 1ms
