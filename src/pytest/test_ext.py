@@ -9,9 +9,7 @@ import os
 import os.path
 from base_case import BaseSearchTestCase
 
-SELF_DIR = os.path.abspath(os.path.dirname(__file__))
-DEFAULT_TEST_MODULE = SELF_DIR + '/../tests/ext-example/example.so'
-TEST_MODULE = config.get_param('EXT_TEST_PATH', DEFAULT_TEST_MODULE)
+TEST_MODULE = config.get_param('EXT_TEST_PATH')
 
 
 class ExtensionTestCase(BaseSearchTestCase):
