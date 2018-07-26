@@ -1,6 +1,9 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
 PROJECT(redisearch)
 
+# Allow to use 'LOCATION' setting
+CMAKE_POLICY(SET CMP0026 OLD)
+
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
 
 ADD_DEFINITIONS(-UNDEBUG)
@@ -81,3 +84,12 @@ IF (RS_RUN_TESTS)
     ADD_SUBDIRECTORY(src/tests)
     ADD_SUBDIRECTORY(src/pytest)
 ENDIF()
+
+# SET(RMTEST_MODULE_PATH $<TARGET_FILE:redisearch>)
+# SET(RMTEST_EXT_PATH $<TARGET_FILE:example_extension>)
+
+GET_TARGET_PROPERTY(RMTEST_MODULE_PATH redisearch LOCATION)
+GET_TARGET_PROPERTY(RMTEST_EXT_PATH example_extension LOCATION)
+
+CONFIGURE_FILE(cmake/rmtest.config.in
+    ${PROJECT_BINARY_DIR}/rmtest.config.default)
