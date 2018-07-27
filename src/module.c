@@ -1243,8 +1243,8 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
   }
   size_t len;
-  const char *STRINGIFY = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)STRINGIFY, len));
+  const char *str = RedisModule_StringPtrLen(argv[2], &len);
+  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)str, len));
 }
 
 /*

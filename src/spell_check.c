@@ -204,7 +204,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
   if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
-    if(scCtx->fullScoreInfo){\
+    if(scCtx->fullScoreInfo){
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
       RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
