@@ -1,12 +1,7 @@
-from rmtest import BaseModuleTestCase
-import redis
-import unittest
-from hotels import hotels
-import random
-import time
+from base_case import BaseSearchTestCase
 
 
-class SpellCheckTestCase(BaseModuleTestCase):
+class SpellCheckTestCase(BaseSearchTestCase):
 
     def testDictAdd(self):
         res = self.cmd('ft.dictadd', 'dict', 'term1', 'term2', 'term3')
