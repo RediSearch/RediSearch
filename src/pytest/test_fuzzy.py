@@ -23,6 +23,7 @@ class FuzzyTestCase(BaseSearchTestCase):
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
         self.assertEqual([1L, 'doc1', ['title', 'hello world']], self.cmd('ft.search', 'idx', '%word%'))  # should be ok
         self.assertEqual([0L], self.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
+        self.assertEqual([1L, 'doc1', ['title', 'hello world']], self.cmd('ft.search', 'idx', r'%%sword%%'))
     
     def testFuzzyMultipleResults(self):
         r = self
