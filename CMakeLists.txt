@@ -7,10 +7,13 @@ CMAKE_POLICY(SET CMP0026 OLD)
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
 
 ADD_DEFINITIONS(-UNDEBUG)
+SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
+SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
+SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -Werror=implicit-function-declaration -pthread")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_COMMON_FLAGS} -std=gnu99")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions")
+
 # Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
 FOREACH (flags_var_to_scrub
     CMAKE_CXX_FLAGS_RELEASE
@@ -46,6 +49,7 @@ ADD_DEFINITIONS(-DREDIS_MODULE_TARGET)
 ADD_SUBDIRECTORY(src/rmutil)
 ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
+ADD_SUBDIRECTORY(src/dep/phonetics)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -71,7 +75,8 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
-    $<TARGET_OBJECTS:snowball>)
+    $<TARGET_OBJECTS:snowball>
+    $<TARGET_OBJECTS:metaphone>)
 
 ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)

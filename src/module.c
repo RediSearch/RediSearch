@@ -830,7 +830,6 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (err) {
       RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
       RedisModule_ReplyWithError(ctx, err);
-      free(err);
     } else {
       /* Simulate an empty response - this means an empty query */
       RedisModule_ReplyWithArray(ctx, 1);

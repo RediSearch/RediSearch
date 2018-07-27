@@ -86,9 +86,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry,
-      .Compare = khtCompare,
-      .Hash = khtHash,
+      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -159,7 +157,7 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId, int isStem,
-                                     int shouldCopy) {
+                                     int shouldCopy, bool addToTermsTrie) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
@@ -189,6 +187,8 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
       h->vw = NULL;
     }
 
+    h->addToTermsTrie = addToTermsTrie;
+
   } else {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
@@ -217,7 +217,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
-                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw);
+                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw,
+                           true);
 
   if (tokCtx->allOffsets) {
     VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
@@ -226,7 +227,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   if (tokInfo->stem) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
                              tokCtx->fieldScore, tokCtx->fieldId, 1,
-                             tokInfo->flags & Token_CopyStem);
+                             tokInfo->flags & Token_CopyStem, true);
   }
 
   if (tokCtx->idx->smap) {
@@ -237,9 +238,15 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
       for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
         ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
-                                 tokCtx->fieldScore, tokCtx->fieldId, 0, 1);
+                                 tokCtx->fieldScore, tokCtx->fieldId, 0, 1, true);
       }
     }
+  }
+
+  if (tokInfo->phoneticsPrimary) {
+    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
+                             strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
+                             tokCtx->fieldId, 0, 0, true);
   }
 
   return 0;

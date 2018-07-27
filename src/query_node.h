@@ -68,13 +68,9 @@ typedef struct {
   int numChildren;
 } QueryTagNode;
 
-typedef struct {
-  struct RSQueryNode *child;
-} QueryNotNode;
+typedef struct { struct RSQueryNode *child; } QueryNotNode;
 
-typedef struct {
-  struct RSQueryNode *child;
-} QueryOptionalNode;
+typedef struct { struct RSQueryNode *child; } QueryOptionalNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
@@ -92,17 +88,11 @@ typedef struct {
 } QueryWildcardNode;
 
 /* A node with a numeric filter */
-typedef struct {
-  struct numericFilter *nf;
-} QueryNumericNode;
+typedef struct { struct numericFilter *nf; } QueryNumericNode;
 
-typedef struct {
-  struct geoFilter *gf;
-} QueryGeofilterNode;
+typedef struct { struct geoFilter *gf; } QueryGeofilterNode;
 
-typedef struct {
-  struct idFilter *f;
-} QueryIdFilterNode;
+typedef struct { struct idFilter *f; } QueryIdFilterNode;
 
 typedef enum {
   QueryNode_Verbatim = 0x01,
@@ -118,6 +108,10 @@ typedef struct {
   size_t vallen;
 } QueryAttribute;
 
+#define PHONETIC_ENABLED 1
+#define PHONETIC_DESABLED 2
+#define PHONETIC_DEFAULT 0
+
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
 typedef struct {
   QueryNodeFlags flags;
@@ -125,6 +119,7 @@ typedef struct {
   int maxSlop;
   int inOrder;
   double weight;
+  int phonetic;
 } QueryNodeOptions;
 
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it

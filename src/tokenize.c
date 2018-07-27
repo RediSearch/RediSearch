@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <assert.h>
+#include "phonetic_manager.h"
 
 typedef struct {
   RSTokenizer base;
@@ -108,6 +109,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
                  .stem = NULL,
+                 .phoneticsPrimary = NULL,
                  .flags = Token_CopyStem};
 
     // if we support stemming - try to stem the word
@@ -119,6 +121,11 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
         t->stemLen = sl;
       }
     }
+
+    if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= MIN_STEM_CANDIDATE_LEN) {
+      PhoneticManager_ExpandPhonerics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
+    }
+
     return ctx->lastOffset;
   }
 

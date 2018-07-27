@@ -4,6 +4,7 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
+#include "phonetic_manager.h"
 
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
@@ -47,14 +48,14 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
 
 static void IdToDocId(RedisSearchCtx *sctx, RedisModuleString *strId) {
   long long id;
-  if(RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK){
+  if (RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     return;
   }
   RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
-  if(!doc || (doc->flags & Document_Deleted)){
+  if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
-  }else{
+  } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
 }
@@ -133,7 +134,36 @@ end:
   }
 }
 
+static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term) {
+  size_t len;
+  const char *term_c = RedisModule_StringPtrLen(term, &len);
+
+  char *primary = NULL;
+  char *secondary = NULL;
+
+  PhoneticManager_ExpandPhonerics(NULL, term_c, len, &primary, &secondary);
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+
+  free(primary);
+  free(secondary);
+}
+
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  const char *subCommand = NULL;
+
+  if (argc == 3) {
+    subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+    if (strcmp(subCommand, DUMP_PHONETIC_HASH) == 0) {
+      DumpPhoneticHash(ctx, argv[2]);
+    } else {
+      RedisModule_ReplyWithError(ctx, "no such subcommand");
+    }
+    return REDISMODULE_OK;
+  }
 
   if (argc != 4) return RedisModule_WrongArity(ctx);
 
@@ -146,7 +176,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   sctx.redisCtx = ctx;
   sctx.spec = sp;
 
-  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+  subCommand = RedisModule_StringPtrLen(argv[1], NULL);
 
   if (strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0) {
     DumpInvertedIndex(&sctx, argv[3]);

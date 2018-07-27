@@ -12,6 +12,8 @@
 #include "index_iterator.h"
 #include <stdbool.h>
 
+#define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
+
 #define DUMP_INVIDX_COMMAND "DUMP_INVIDX"
 #define DUMP_NUMIDX_COMMAND "DUMP_NUMIDX"
 #define DUMP_TAGIDX_COMMAND "DUMP_TAGIDX"
