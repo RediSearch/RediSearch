@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 /** Forward declaration **/
-static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len);
+static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double* outScore);
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
   const RS_Suggestion **a = (const RS_Suggestion**)val1;
@@ -39,17 +39,29 @@ RS_Suggestions *RS_SuggestionsCreate() {
 }
 
 void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr) {
-  /** score can not be zero, so we are starting from score = 1 and we should remove one at the end :\ **/
-  if(!incr){
-    if(SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len)){
-      return;
-    }
-  }
+  double currScore;
+  bool isExists = SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len, &currScore);
   if(score == 0){
     /** we can not add zero score so we set it to -1 instead :\ **/
     score = -1;
   }
-  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, 1, NULL);
+
+  if(!incr){
+    if(!isExists){
+      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
+    }
+    return;
+  }
+
+  if(isExists && score == -1){
+    return;
+  }
+
+  if(!isExists || currScore == -1){
+    incr = 0;
+  }
+
+  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
 }
 
 void RS_SuggestionsFree(RS_Suggestions *s) {
@@ -94,7 +106,7 @@ end:
   return retVal;
 }
 
-static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len) {
+static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double* outScore) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -107,6 +119,9 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len)
   DFAFilter_Free(it->ctx);
   free(it->ctx);
   TrieIterator_Free(it);
+  if(outScore){
+    *outScore = score;
+  }
   return retVal;
 }
 
@@ -188,7 +203,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len)) {
+  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
     if(scCtx->fullScoreInfo){\
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
@@ -212,7 +227,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     if (t == NULL) {
       continue;
     }
-    if (SpellCheck_IsTermExistsInTrie(t, term, len)) {
+    if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
       RedisModule_CloseKey(k);
       return false;
     }
