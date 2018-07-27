@@ -30,7 +30,6 @@ static void DumpInvertedIndex(RedisSearchCtx *sctx, RedisModuleString *invidxNam
   }
   IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ReplyReaderResults(reader, sctx->redisCtx);
-
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);

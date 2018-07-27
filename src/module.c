@@ -34,6 +34,8 @@
 #include "cursor.h"
 #include "version.h"
 #include "debug_commads.h"
+#include "spell_check.h"
+#include "dictionary.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -460,6 +462,99 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     Document_ReplyFields(ctx, &doc);
     Document_Free(&doc);
   }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+#define DICT_INITIAL_SIZE 5
+#define DEFAULT_LEV_DISTANCE 1
+#define MAX_LEV_DISTANCE 100
+#define STRINGIFY(s) #s
+  char *err = NULL;
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  if (sctx == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  size_t len;
+  const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
+  QueryParseCtx *q = NewQueryParseCtx(sctx, rawQuery, len, NULL);
+  if (!q) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Error parsing query");
+  }
+
+  char **includeDict = array_new(char *, DICT_INITIAL_SIZE);
+  char **excludeDict = array_new(char *, DICT_INITIAL_SIZE);
+
+  if (!Query_Parse(q, &err)) {
+
+    if (err) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
+      RedisModule_ReplyWithError(ctx, err);
+      ERR_FREE(err);
+    } else {
+      /* Simulate an empty response - this means an empty query */
+      RedisModule_ReplyWithArray(ctx, 1);
+      RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    goto end;
+  }
+
+  int distanceArgPos = 0;
+  long long distance = DEFAULT_LEV_DISTANCE;
+  if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
+    if (distanceArgPos + 1 >= argc) {
+      RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
+      goto end;
+    }
+    if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
+        distance < 1 || distance > MAX_LEV_DISTANCE) {
+      RedisModule_ReplyWithError(
+          ctx, "bad distance given, distance must be a natural number between 1 to " STRINGIFY(
+                   MAX_LEV_DISTANCE));
+      goto end;
+    }
+  }
+
+  int nextPos = 0;
+  while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
+    if (nextPos + 2 >= argc) {
+      RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
+      goto end;
+    }
+    const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
+    const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+    if (strcmp(operation, "INCLUDE") == 0) {
+      includeDict = array_append(includeDict, (char*)dictName);
+    } else if (strcmp(operation, "EXCLUDE") == 0) {
+      excludeDict = array_append(excludeDict, (char*)dictName);
+    } else {
+      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
+      goto end;
+    }
+  }
+
+  bool fullScoreInfo = false;
+  if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
+    fullScoreInfo = true;
+  }
+
+  SpellCheckCtx scCtx = {
+      .sctx = sctx, .includeDict = includeDict, .excludeDict = excludeDict, .distance = distance, .fullScoreInfo = fullScoreInfo};
+
+  SpellCheck_Reply(&scCtx, q);
+
+end:
+  array_free(includeDict);
+  array_free(excludeDict);
+  Query_Free(q);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1615,6 +1710,14 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
 
   return REDISMODULE_OK;
 }
