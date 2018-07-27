@@ -22,6 +22,12 @@ class FTBaseCaseMethods(object):
 
     def ftget(self, idx, doc):
         return self.execute_command('ft.get', idx, doc)
+    
+    def ftadd(self, idx, docid, weight=1.0, **fields):
+        cmd = ['FT.ADD', idx, docid, weight, 'FIELDS']
+        for k, v in fields.items():
+            cmd += [k, v]
+        return self.cmd(*cmd)
 
 
 class BaseSearchTestCase(BaseModuleTestCase, FTBaseCaseMethods):
