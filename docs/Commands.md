@@ -74,6 +74,14 @@ Creates an index with the given spec. The index name will be used in all the key
         Fields can have the `NOINDEX` option, which means they will not be indexed. 
         This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
 
+    * **PHONETIC {matcher}**
+        Declaring field as phonetic will enabled a phonetic search on this field {match} is used to specify the
+        phonetic algorithm and the language.
+        Matcher Format: <2 chars algorithm>:<2 chars language>. 
+        Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
+        Currently we support those languages: English (en), French (fr), Portuguese (pt) and Spanish (es).
+        Notice that double metaphone is not a language spacific and so it might miss from time to time ...
+
 ### Complexity
 O(1)
 
@@ -952,3 +960,122 @@ FT.SYNDUMP <index name>
 ### Description
 
 The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
+
+---
+
+## FT.SPELLCHECK 
+
+### Format
+```
+  FT.SPELLCHECK {index} {query}
+    [DISTANCE dist]
+    [TERMS {INCLUDE | EXCLUDE} {dict} [TERMS ...]]
+```
+
+### Description
+Run a spell check on the given query and return suggestions for spelling correction.
+The spelling correction is performed using LD on the terms exists in the index and on terms from
+the include dictionaries given. It is also possible to specify exclude disctionaries such that term
+which appears on those dictionaries will not return in the result. Suggestion are order by there score
+which is the suggestion cardinality in the given index (if suggestion exists on dictionary only, its score
+will be zero).
+
+### Parameters
+
+* **index**: the index name to run the spell check againts.
+
+* **query**: the query which contains terms for spell check.
+
+* **TERMS**: include/exclude terms appears in the given dictionary.
+
+* **DISTANCE**: LD for spell check.
+
+
+### Returns
+The response is as follow:
+```
+1)  1) "TERM"
+    2) "{term}"
+    3)  1)  1)  "{score}"
+            2)  "{suggestion}"
+        2)  1)  "{score}"
+            2)  "{suggestion}"
+        .
+        .
+        .
+2)  1) "TERM"
+    2) "{term}"
+    3)  1)  1)  "{score}"
+            2)  "{suggestion}"
+        2)  1)  "{score}"
+            2)  "{suggestion}"
+        .
+        .
+        .
+.
+.
+.
+
+```
+
+---
+
+
+## FT.DICTADD
+
+### Format
+```
+  FT.DICTADD {dict} {term} [{term} ...]
+```
+
+### Description
+Allow to add terms to dictionaries
+
+### Parameters
+
+* **dict**: the dictionary name.
+
+* **term**: the term to add to the dictionary
+
+### Returns
+Returns int, specifically the number of new terms that were added.
+
+---
+
+## FT.DICTDEL
+
+### Format
+```
+  FT.DICTDEL {dict} {term} [{term} ...]
+```
+
+### Description
+Allow to delete terms to dictionaries
+
+### Parameters
+
+* **dict**: the dictionary name.
+
+* **term**: the term to delete from the dictionary
+
+### Returns
+Returns int, specifically the number of terms that were deleted.
+
+---
+
+## FT.DICTDUMP
+
+### Format
+```
+  FT.DICTDUMP {dict}
+```
+
+### Description
+Dump all terms in the given dictionary
+
+### Parameters
+
+* **dict**: the dictionary name.
+
+### Returns
+Returns an array, where each element is term (string).
