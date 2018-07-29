@@ -297,11 +297,11 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
                               Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
     }
   }
-  if (!parsedQuery || !queryPlan_ValidateQuery(parsedQuery, err)) {
+  if (parsedQuery && !queryPlan_ValidateQuery(parsedQuery, err)) {
     QueryPlan_Free(plan);
     return NULL;
   }
-  if (!parsedQuery || !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
+  if (parsedQuery && !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
     QueryPlan_Free(plan);
     return NULL;
   }
