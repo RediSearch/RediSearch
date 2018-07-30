@@ -89,6 +89,16 @@ static size_t stripDuplicateSpaces(char *s, size_t n) {
   return oix;
 }
 
+/**
+ * Returns the length of the buffer without trailing spaces
+ */
+static size_t trimTrailingSpaces(const char *s, size_t input) {
+  for (; input && isspace(s[input - 1]); --input) {
+    // Nothing
+  }
+  return input;
+}
+
 static void normalizeSettings(const char *name, const ReturnedField *srcField,
                               const ReturnedField *defaults, ReturnedField *out) {
   if (srcField == NULL) {
@@ -138,13 +148,15 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   Array_Resize(&bufTmp, headLen);
 
   while (bufTmp.len > 1) {
-    if (istoksep(bufTmp.data[--bufTmp.len])) {
-      --bufTmp.len;
+    if (istoksep(bufTmp.data[bufTmp.len - 1])) {
       break;
     }
+    bufTmp.len--;
   }
 
-  return Array_Steal(&bufTmp, docLen);
+  bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
+  char *ret = Array_Steal(&bufTmp, docLen);
+  return ret;
 }
 
 static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,

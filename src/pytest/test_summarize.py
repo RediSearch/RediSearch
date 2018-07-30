@@ -52,7 +52,7 @@ class SummarizeTestCase(BaseSearchTestCase):
         # Attempt a query which doesn't have a corresponding matched term
         res = self.cmd('FT.SEARCH', 'idx', '-blah', 'SUMMARIZE', 'LEN', 3)
         self.assertEqual(
-            [1L, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} I']], res)
+            [1L, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} In']], res)
 
         # Try the same, but attempting to highlight
         res = self.cmd('FT.SEARCH', 'idx', '-blah', 'HIGHLIGHT')
@@ -145,6 +145,23 @@ class SummarizeTestCase(BaseSearchTestCase):
             "description", "90", "year", "2017", "uscore", "91", "usize", "80")
         res = self.cmd('ft.search', 'netflix', 'vampire', 'highlight')
         self.assertEqual([1L, '15ad80086ccc7f', ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level', 'Parents strongly cautioned. May be unsuitable for children ages 14 and under.', 'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']], res)
+        
+    def testIssue364(self):
+        # FT.CREATE testset "SCHEMA" "permit_timestamp" "NUMERIC" "SORTABLE" "job_category" "TEXT" "NOSTEM" "address" "TEXT" "NOSTEM"  "neighbourhood" "TAG" "SORTABLE" "description" "TEXT"  "building_type" "TEXT" "WEIGHT" "20" "NOSTEM" "SORTABLE"     "work_type" "TEXT" "NOSTEM" "SORTABLE"     "floor_area" "NUMERIC" "SORTABLE"     "construction_value" "NUMERIC" "SORTABLE"     "zoning" "TAG"     "units_added" "NUMERIC" "SORTABLE"     "location" "GEO"
+        # ft.add testset 109056573-002 1 fields building_type "Retail and Shops" description "To change the use from a Restaurant to a Personal Service Shop (Great Clips)"
+        # FT.SEARCH testset retail RETURN 1 description SUMMARIZE LIMIT 0 1
+        self.ftcreate('idx', 'SCHEMA', 'building_type', 'TEXT', 'description', 'TEXT')
+        self.ftadd('idx', 'doc1',
+            building_type='Retail and Shops',
+            description="To change the use from a Restaurant to a Personal Service Shop (Great Clips)")
+        
+        self.ftadd('idx', 'doc2',
+            building_type='Retail and Shops',
+            description="To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the end")
+
+        ret = self.cmd('FT.SEARCH', 'idx', 'retail', 'RETURN', 1, 'description', 'SUMMARIZE')
+        self.assertEqual([2L, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']],
+            ret)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
