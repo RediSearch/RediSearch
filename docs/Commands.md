@@ -80,7 +80,7 @@ Creates an index with the given spec. The index name will be used in all the key
         Matcher Format: <2 chars algorithm>:<2 chars language>. 
         Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
         Currently we support those languages: English (en), French (fr), Portuguese (pt) and Spanish (es).
-        Notice that double metaphone is not a language spacific and so it might miss from time to time ...
+        Notice that double metaphone is not a language spacific and so it might might not provide an optimal result.
 
 ### Complexity
 O(1)
