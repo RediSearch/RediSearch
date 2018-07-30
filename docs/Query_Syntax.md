@@ -152,6 +152,7 @@ The supported attributes are:
 * **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
 2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
 3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
+4. **$phonetic**: whether or not to perform phonetic search on the term (setting this value on feild which are not declared phonetic will results in error).
 
 ## A few query examples
 
