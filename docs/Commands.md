@@ -75,7 +75,7 @@ Creates an index with the given spec. The index name will be used in all the key
         This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
 
     * **PHONETIC {matcher}**
-        Declaring field as phonetic will enabled a phonetic search on this field {match} is used to specify the
+        Declaring field as phonetic will enabled a phonetic search on this field. {match} is used to specify the
         phonetic algorithm and the language.
         Matcher Format: <2 chars algorithm>:<2 chars language>. 
         Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
