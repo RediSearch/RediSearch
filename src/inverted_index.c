@@ -51,8 +51,10 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 }
 
 void indexBlock_Free(IndexBlock *blk) {
-  Buffer_Free(blk->data);
-  free(blk->data);
+  if(blk->data){
+    Buffer_Free(blk->data);
+    free(blk->data);
+  }
 }
 
 void InvertedIndex_Free(void *ctx) {
@@ -912,7 +914,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
-static int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
                              IndexRepairParams *params) {
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;

@@ -87,6 +87,7 @@
  *
  */
 typedef struct {
+  uint32_t uniqueId;
   TrieMap *values;
 } TagIndex;
 

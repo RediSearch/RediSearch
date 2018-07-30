@@ -11,12 +11,28 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
+typedef enum {
+  GCPolicy_Default = 0,
+  GCPolicy_Fork,
+}GCPolicy;
+
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
 /**
  * Returns TimeoutPolicy_Invalid if the string could not be parsed
  */
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+
+static inline const char *GCPolicy_ToString(GCPolicy policy) {
+  switch (policy) {
+    case GCPolicy_Default:
+      return "default";
+    case GCPolicy_Fork:
+      return "fork";
+    default:
+      return "huh?";
+  }
+}
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
@@ -57,6 +73,9 @@ typedef struct {
   size_t gcScanSize;
 
   size_t minPhoneticTermLen;
+
+  GCPolicy gcPolicy;
+  GCPolicy forkGcRunIntervalSec;
 
   // Chained configuration data
   void *chainedConfig;
@@ -124,6 +143,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define CONCURRENT_INDEX_MAX_POOL_SIZE 200  // Maximum number of threads to create
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
+#define DEFAULT_FORK_GC_RUN_INTERVAL 10
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                       \
   {                                                                                             \
@@ -132,7 +152,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE, \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                      \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
-    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN              \
+    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,             \
+    .gcPolicy = GCPolicy_Default, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL          \
   }
 
 #endif

@@ -76,6 +76,33 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
   return ret;
 }
 
+FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+#define FIELDS_ARRAY_CAP 2
+  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  for (int i = 0; i < spec->numFields; ++i) {
+    if (spec->fields[i].type == type) {
+      fields = array_append(fields, &(spec->fields[i]));
+    }
+  }
+  return fields;
+}
+
+/* Check if Redis is currently loading from RDB. Our thread starts before RDB loading is finished */
+int isRdbLoading(RedisModuleCtx *ctx) {
+  long long isLoading = 0;
+  RMUtilInfo *info = RMUtil_GetRedisInfo(ctx);
+  if (!info) {
+    return 0;
+  }
+
+  if (!RMUtilInfo_GetInt(info, "loading", &isLoading)) {
+    isLoading = 0;
+  }
+
+  RMUtilRedisInfo_Free(info);
+  return isLoading == 1;
+}
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                char **err) {
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
@@ -98,7 +125,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  sp->unique_id = spec_unique_ids++;
+  sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
 
@@ -510,8 +537,8 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
-  if (spec->gc) {
-    GC_Stop(spec->gc);
+  if (spec->gc.gcCtx) {
+    spec->gc.stop(spec->gc.gcCtx);
   }
 
   if (spec->terms) {
@@ -662,15 +689,27 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   return sp;
 }
 
+static GCContext IndexSpec_CreateGarbageCollection(RedisModuleString *keyName, float initialHZ, uint64_t uniqueId){
+  switch (RSGlobalConfig.gcPolicy) {
+    case GCPolicy_Fork:
+      return NewForkGC(keyName, uniqueId);
+      break;
+    case GCPolicy_Default:
+    default:
+      return NewGarbageCollector(keyName, initialHZ, uniqueId);
+      break;
+  }
+}
+
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
-  assert(sp->gc == NULL);
-  if (sp->gc == NULL && RSGlobalConfig.enableGC) {
+  assert(sp->gc.gcCtx == NULL);
+  if (RSGlobalConfig.enableGC) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
-    sp->gc = NewGarbageCollector(keyName, initialHZ, sp->unique_id);
-    GC_Start(sp->gc);
+    sp->gc = IndexSpec_CreateGarbageCollection(keyName, initialHZ, sp->uniqueId);
+    sp->gc.start(sp->gc.gcCtx);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
 }
@@ -788,7 +827,6 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  sp->gc = NULL;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -825,7 +863,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->unique_id = spec_unique_ids++;
+  sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);

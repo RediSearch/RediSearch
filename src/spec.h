@@ -9,6 +9,7 @@
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
+#include "fork_gc.h"
 #include "synonym_map.h"
 
 typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
@@ -168,6 +169,15 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
 
+typedef struct GCContext{
+  void* gcCtx;
+  int (*start)(void* ctx);
+  int (*stop)(void* ctx);
+  void (*renderStats)(RedisModuleCtx *ctx, void *gc);
+  void (*onDelete)(void *ctx);
+  void (*forceInvoke)(void *ctx, RedisModuleBlockedClient *rctx);
+}GCContext;
+
 typedef struct {
   char *name;
   FieldSpec *fields;
@@ -184,11 +194,11 @@ typedef struct {
 
   StopWordList *stopwords;
 
-  void *gc;
+  GCContext gc;
 
   SynonymMap *smap;
 
-  uint64_t unique_id;
+  uint64_t uniqueId;
 
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
@@ -223,6 +233,9 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
  */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, char **err);
+
+FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
+int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.
  * If an error occurred - we set an error string in err and return NULL.

@@ -2,6 +2,7 @@
 #define RMUTIL_PERIODIC_H_
 #include <time.h>
 #include <redismodule.h>
+#include <stdbool.h>
 
 /** periodic.h - Utility periodic timer running a task repeatedly every given time interval */
 
@@ -38,6 +39,19 @@ void RMUtilTimer_SetInterval(struct RMUtilTimer *t, struct timespec newInterval)
  * callback, as it may log stuff or free global resources.
  */
 int RMUtilTimer_Terminate(struct RMUtilTimer *t);
+
+/*
+ * This function cause the callback function to execute with out waiting for timetout.
+ * It does it by sending a signal to the conditional variable causing the pthread_cond_timedwait
+ * to return. It receive a blocked client which added to the blocks client chain.
+ * After finish executing the cb the block client is unblocked.
+ *
+ * We use this to allow running gc with ft.debug FORCE_GCINVOKE and receive a 'done' reply when
+ * the gc finished its run.
+ */
+void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t, RedisModuleBlockedClient *bClient);
+
+int RMUtilTimer_Signal(struct RMUtilTimer *t);
 
 /* DEPRECATED - do not use this function (well now you can't), use terminate instead
     Free the timer context. The caller should be responsible for freeing the private data at this

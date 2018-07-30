@@ -1290,7 +1290,8 @@ def testGarbageCollector(env):
         return d
 
     stats = get_stats(r)
-    env.assertGreater(stats['gc_stats']['current_hz'], 8)
+    if 'current_hz' in stats['gc_stats']:
+        env.assertGreater(stats['gc_stats']['current_hz'], 8)
     env.assertEqual(0, stats['gc_stats']['bytes_collected'])
     env.assertGreater(int(stats['num_records']), 0)
 
@@ -1298,17 +1299,19 @@ def testGarbageCollector(env):
     for i in range(N):
         env.assertEqual(1, r.execute_command(
             'ft.del', 'idx', 'doc%d' % i))
-    st = time.time()
-    while st + 2 > time.time():
-        time.sleep(0.1)
-        stats = get_stats(r)
-        if stats['num_records'] == '0':
-            break
+
+    for _ in range(100):
+        # gc is random so we need to do it long enough times for it to work
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    stats = get_stats(r)
+
     env.assertEqual(0, int(stats['num_docs']))
     env.assertEqual(0, int(stats['num_records']))
     if not env.is_cluster():
         env.assertEqual(100, int(stats['max_doc_id']))
-        env.assertGreater(stats['gc_stats']['current_hz'], 50)
+        if 'current_hz' in stats['gc_stats']:
+            env.assertGreater(stats['gc_stats']['current_hz'], 30)
         currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
         # print initialIndexSize, currentIndexSize,
         # stats['gc_stats']['bytes_collected']

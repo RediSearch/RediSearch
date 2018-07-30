@@ -8,12 +8,15 @@
 #include "util/arr.h"
 #include <assert.h>
 
+static uint32_t tagUniqueId = 0;
+
 // Tags are limited to 4096 each
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
 TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
+  idx->uniqueId = tagUniqueId++;
   return idx;
 }
 

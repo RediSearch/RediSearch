@@ -1,6 +1,10 @@
+<<<<<<< 079de0c0fe6e8d101f6d0f4a308f2179b0ba498a
 import time
 import unittest
 
+=======
+from base_case import BaseSearchTestCase
+>>>>>>> review fixes
 
 def testBasicGC(env):
     if env.isCluster():
@@ -22,7 +26,9 @@ def testBasicGC(env):
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc2'), 1)
 
-    time.sleep(1)
+    for i in range(100):
+        # gc is random so we need to do it long enough times for it to work
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
 
     # check that the gc collected the deleted docs
     env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1])
@@ -42,7 +48,8 @@ def testNumerciGCIntensive(env):
     for i in range(0, NumberOfDocs, 2):
         env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
 
-    time.sleep(1)
+    for i in range(100):
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
 
     res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id')
     for r1 in res:
@@ -62,7 +69,9 @@ def testTagGC(env):
     for i in range(0, NumberOfDocs, 2):
         env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
 
-    time.sleep(1)
+    for i in range(100):
+        # gc is random so we need to do it long enough times for it to work
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
 
     res = env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't')
     for r1 in res:

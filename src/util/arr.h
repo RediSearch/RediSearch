@@ -111,7 +111,7 @@ static inline uint32_t array_len(array_t arr) {
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
   assert(len >= 0 && "trimming len is negative");
-  assert((cap == -1 || cap > 0) && "trimming capacity is illegal");
+  assert((cap == -1 || cap > 0 || len == cap) && "trimming capacity is illegal");
   assert((cap == -1 || cap >= len) && "trimming len is greater then capacity");
   assert((len <= arr_hdr->len) && "trimming len is greater then current len");
   arr_hdr->len = len;

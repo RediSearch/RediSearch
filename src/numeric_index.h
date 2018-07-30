@@ -14,6 +14,11 @@
 
 #define RT_LEAF_CARDINALITY_MAX 500
 
+typedef struct {
+  double value;
+  size_t appearances;
+} CardinalityValue;
+
 /* A numeric range is a node in a numeric range tree, representing a range of values bunched
  * toghether.
  * Since we do not know the distribution of scores ahead, we use a splitting approach - we start
@@ -28,7 +33,7 @@ typedef struct {
 
   u_int16_t card;
   uint32_t splitCard;
-  double *values;
+  CardinalityValue *values;
   InvertedIndex *entries;
 } NumericRange;
 
@@ -43,9 +48,7 @@ typedef struct rtNode {
   NumericRange *range;
 } NumericRangeNode;
 
-typedef struct {
-  NumericRangeNode **nodesStack;
-} NumericRangeTreeIterator;
+typedef struct { NumericRangeNode **nodesStack; } NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
 typedef struct {
@@ -56,6 +59,8 @@ typedef struct {
   t_docId lastDocId;
 
   uint32_t revisionId;
+
+  uint32_t uniqueId;
 
 } NumericRangeTree;
 

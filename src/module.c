@@ -186,9 +186,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
 
-  RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
-  GC_RenderStats(ctx, sp->gc);
-  n += 2;
+  if (sp->gc.gcCtx) {
+    RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
+    sp->gc.renderStats(ctx, sp->gc.gcCtx);
+    n += 2;
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
   Cursors_RenderStats(&RSCursors, sp->name, ctx);
@@ -516,7 +518,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     // Increment the index's garbage collector's scanning frequency after document deletions
-    GC_OnDelete(sp->gc);
+    if (sp->gc.gcCtx) {
+      sp->gc.onDelete(sp->gc.gcCtx);
+    }
   }
 
   return RedisModule_ReplyWithLongLong(ctx, rc);

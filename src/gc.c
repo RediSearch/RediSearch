@@ -13,6 +13,9 @@
 #include "numeric_index.h"
 #include "tag_index.h"
 #include "config.h"
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdbool.h>
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -53,43 +56,36 @@ typedef struct GarbageCollectorCtx {
 
   NumericFieldGCCtx **numericGCCtx;
 
-  uint64_t spec_unique_id;
+  uint64_t specUniqueId;
+
+  bool noLockMode;
 
 } GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ,
-                                         uint64_t spec_unique_id) {
-  GarbageCollectorCtx *gc = malloc(sizeof(*gc));
+GCContext NewGarbageCollector(const RedisModuleString *k, float initialHZ, uint64_t specUniqueId) {
+  GarbageCollectorCtx *gcCtx = malloc(sizeof(*gcCtx));
 
-  *gc = (GarbageCollectorCtx){
+  *gcCtx = (GarbageCollectorCtx){
       .timer = NULL,
       .hz = initialHZ,
       .keyName = k,
-      .stats = {},
+      .stats = {0},
       .rdbPossiblyLoading = 1,
+      .noLockMode = false,
   };
 
-  gc->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
-  gc->spec_unique_id = spec_unique_id;
+  gcCtx->numericGCCtx = array_new(NumericFieldGCCtx *, NUMERIC_GC_INITIAL_SIZE);
+  gcCtx->specUniqueId = specUniqueId;
 
-  return gc;
-}
-
-/* Check if Redis is currently loading from RDB. Our thread starts before RDB loading is finished */
-int isRdbLoading(RedisModuleCtx *ctx) {
-  long long isLoading = 0;
-  RMUtilInfo *info = RMUtil_GetRedisInfo(ctx);
-  if (!info) {
-    return 0;
-  }
-
-  if (!RMUtilInfo_GetInt(info, "loading", &isLoading)) {
-    isLoading = 0;
-  }
-
-  RMUtilRedisInfo_Free(info);
-  return isLoading == 1;
+  return (GCContext){
+    .gcCtx = gcCtx,
+    .start = GC_Start,
+    .stop = GC_Stop,
+    .renderStats = GC_RenderStats,
+    .onDelete = GC_OnDelete,
+    .forceInvoke = GC_ForceInvoke,
+  };
 }
 
 void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t recordsRemoved,
@@ -104,7 +100,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
-  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+  if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
     *status = SPEC_STATUS_INVALID;
@@ -141,7 +137,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
       RedisModule_CloseKey(idxKey);
       sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
       // sctx null --> means it was deleted and we need to stop right now
-      if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+      if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
         *status = SPEC_STATUS_INVALID;
         break;
       }
@@ -205,17 +201,6 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
-static FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
-#define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (spec->fields[i].type == type) {
-      fields = array_append(fields, &(spec->fields[i]));
-    }
-  }
-  return fields;
-}
-
 static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
   FieldSpec **tagFields = NULL;
   tagFields = getFieldsByType(spec, type);
@@ -237,7 +222,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   char *randomKey = NULL;
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
-  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+  if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
     *status = SPEC_STATUS_INVALID;
@@ -280,7 +265,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
     RedisModule_CloseKey(idxKey);
     sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
     // sctx null --> means it was deleted and we need to stop right now
-    if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+    if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       *status = SPEC_STATUS_INVALID;
       break;
     }
@@ -316,7 +301,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = NULL;
   RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
-  if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+  if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
     *status = SPEC_STATUS_INVALID;
@@ -379,7 +364,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
     sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
     // sctx null --> means it was deleted and we need to stop right now
-    if (!sctx || sctx->spec->unique_id != gc->spec_unique_id) {
+    if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       *status = SPEC_STATUS_INVALID;
       break;
     }
@@ -404,10 +389,12 @@ end:
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
  * random) */
 static int gc_periodicCallback(RedisModuleCtx *ctx, void *privdata) {
+  GarbageCollectorCtx *gc = privdata;
+
   int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
-  GarbageCollectorCtx *gc = privdata;
+
   assert(gc);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
@@ -467,41 +454,45 @@ static void gc_onTerm(void *privdata) {
 }
 
 // Start the collector thread
-int GC_Start(GarbageCollectorCtx *ctx) {
-  assert(ctx->timer == NULL);
-  ctx->timer = RMUtil_NewPeriodicTimer(gc_periodicCallback, gc_onTerm, ctx, hzToTimeSpec(ctx->hz));
+int GC_Start(void *ctx) {
+  GarbageCollectorCtx *gc = ctx;
+  assert(gc->timer == NULL);
+  gc->timer = RMUtil_NewPeriodicTimer(gc_periodicCallback, gc_onTerm, ctx, hzToTimeSpec(gc->hz));
   return REDISMODULE_OK;
 }
 
 /* Stop the garbage collector, and call its termination function asynchronously when its thread is
  * finished. This also frees the resources allocated for the GC context */
-int GC_Stop(GarbageCollectorCtx *ctx) {
-  if (ctx->timer) {
-    RMUtilTimer_Terminate(ctx->timer);
+int GC_Stop(void *ctx) {
+  GarbageCollectorCtx *gc = ctx;
+  if (gc->timer) {
+    RMUtilTimer_Terminate(gc->timer);
     // set the timer to NULL so we won't call this twice
-    ctx->timer = NULL;
+    gc->timer = NULL;
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 
-// get the current stats from the collector
-const GCStats *GC_GetStats(GarbageCollectorCtx *ctx) {
-  if (!ctx) return NULL;
-  return &ctx->stats;
-}
-
 // called externally when the user deletes a document to hint at increasing the HZ
-void GC_OnDelete(GarbageCollectorCtx *ctx) {
-  if (!ctx) return;
-  ctx->hz = MIN(ctx->hz * 1.5, GC_MAX_HZ);
+void GC_OnDelete(void *ctx) {
+  GarbageCollectorCtx *gc = ctx;
+  if (!gc) return;
+  gc->hz = MIN(gc->hz * 1.5, GC_MAX_HZ);
 }
 
-void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
+void GC_ForceInvoke(void *ctx, RedisModuleBlockedClient *bc){
+  GarbageCollectorCtx *gc = ctx;
+  RMUtilTimer_ForceInvoke(gc->timer, bc);
+}
+
+void GC_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
 #define REPLY_KVNUM(n, k, v)                   \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
   n += 2
+
+  GarbageCollectorCtx *gc = gcCtx;
 
   int n = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -514,3 +505,4 @@ void GC_RenderStats(RedisModuleCtx *ctx, GarbageCollectorCtx *gc) {
   }
   RedisModule_ReplySetArrayLength(ctx, n);
 }
+

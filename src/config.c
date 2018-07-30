@@ -218,6 +218,20 @@ CONFIG_GETTER(getGcScanSize) {
 }
 
 // MIN_PHONETIC_TERM_LEN
+CONFIG_SETTER(setForkGcInterval) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcRunIntervalSec = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGcInterval) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+}
+
 CONFIG_SETTER(setMinPhoneticTermLen) {
   long long val;
   if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
@@ -230,6 +244,26 @@ CONFIG_SETTER(setMinPhoneticTermLen) {
 CONFIG_GETTER(getMinPhoneticTermLen) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
+}
+
+CONFIG_SETTER(setGcPolicy) {
+  if (*offset == argc) {
+    RETURN_ERROR("Missing argument");
+  }
+  const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
+  if (!strcasecmp(policy, "DEFAULT")) {
+    config->gcPolicy = GCPolicy_Default;
+  } else if (!strcasecmp(policy, "FORK")) {
+    config->gcPolicy = GCPolicy_Fork;
+  } else {
+    RETURN_ERROR("Invalid GC Policy value");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getGcPolicy) {
+  return sdsnew(GCPolicy_ToString(config->gcPolicy));
 }
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -276,6 +310,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
   }
+
   return REDISMODULE_OK;
 }
 
@@ -344,6 +379,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Minumum length of term to be considered for phonetic matching",
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
+        {.name = "GC_POLICY",
+         .helpText = "gc policy to use (DEFAULT/FORK)",
+         .setValue = setGcPolicy,
+         .getValue = getGcPolicy,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "FORK_GC_RUN_INTERVAL",
+         .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
+         .setValue = setForkGcInterval,
+         .getValue = getForkGcInterval,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
