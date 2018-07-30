@@ -139,16 +139,15 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     double score;
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
       RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
-    } else {
-      free(res);
     }
+    free(res);
   }
   DFAFilter_Free(it->ctx);
   free(it->ctx);
   TrieIterator_Free(it);
 }
 
-RS_Suggestion** spellCheckReducerTerm_GetSuggestions(RS_Suggestions *s){
+RS_Suggestion** spellCheck_GetSuggestions(RS_Suggestions *s){
   TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
   RS_Suggestion** ret = array_new(RS_Suggestion*, s->suggestionsTrie->size);
   rune *rstr = NULL;
@@ -160,6 +159,9 @@ RS_Suggestion** spellCheckReducerTerm_GetSuggestions(RS_Suggestions *s){
     char *res = runesToStr(rstr, slen, &termLen);
     ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
+  DFAFilter_Free(iter->ctx);
+  free(iter->ctx);
+  TrieIterator_Free(iter);
   return ret;
 }
 
@@ -171,7 +173,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx* ctx, char *term, size_t len,
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
-  RS_Suggestion** suggestions = spellCheckReducerTerm_GetSuggestions(s);
+  RS_Suggestion** suggestions = spellCheck_GetSuggestions(s);
 
   if(totalDocNumber > 0){
     for(int i = 0 ; i < array_len(suggestions) ; ++i){
@@ -196,6 +198,8 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx* ctx, char *term, size_t len,
       RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
     }
   }
+
+  array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
 }
 
 static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,

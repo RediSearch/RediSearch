@@ -35,7 +35,7 @@ RS_Suggestions *RS_SuggestionsCreate();
 void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr);
 void RS_SuggestionsFree(RS_Suggestions *s);
 
-RS_Suggestion** spellCheckReducerTerm_GetSuggestions(RS_Suggestions *s);
+RS_Suggestion** spellCheck_GetSuggestions(RS_Suggestions *s);
 
 RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score);
 int RS_SuggestionCompare(const void *val1, const void *val2);
