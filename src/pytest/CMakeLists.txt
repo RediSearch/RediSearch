@@ -1,5 +1,5 @@
 # Find all the Python files with test_* in them
-FILE(GLOB PY_TEST_FILES "test_*.py")
+FILE(GLOB PY_TEST_FILES "test*.py")
 
 FOREACH(n ${PY_TEST_FILES})
     GET_FILENAME_COMPONENT(test_name ${n} NAME_WE)
