@@ -109,8 +109,8 @@ typedef struct {
 } QueryAttribute;
 
 #define PHONETIC_ENABLED 1
-#define PHONETIC_DESABLED 2
-#define PHONETIC_DEFAULT 0
+#define PHONETIC_DISABLED 2
+#define PHONETIC_DEFAULT PHONETIC_DISABLED
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
 typedef struct {

@@ -106,9 +106,12 @@ void QueryNode_Free(QueryNode *n) {
 static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
-  s->opts = (QueryNodeOptions){
-      .fieldMask = RS_FIELDMASK_ALL, .flags = 0, .maxSlop = -1, .inOrder = 0, .weight = 1,
-  };
+  s->opts = (QueryNodeOptions){.fieldMask = RS_FIELDMASK_ALL,
+                               .flags = 0,
+                               .maxSlop = -1,
+                               .inOrder = 0,
+                               .weight = 1,
+                               .phonetic = PHONETIC_DEFAULT};
   return s;
 }
 
@@ -1022,18 +1025,15 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
     // Apply phonetic: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
-      SET_ERR(err, "Invalid value for 'inorder'");
+      SET_ERR(err, "Invalid value for 'phonetic'");
       return 0;
     }
     if (b) {
       qn->opts.phonetic = PHONETIC_ENABLED;  // means we specifically asked for phonetic matching
     } else {
       qn->opts.phonetic =
-          PHONETIC_DESABLED;  // means we specifically asked no for phonetic matching
+          PHONETIC_DISABLED;  // means we specifically asked no for phonetic matching
     }
-    // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
-    //                                          will be enable if field was declared phonetic
-
   } else {
     FMT_ERR(err, "Invalid attribute '%.*s'", (int)attr->namelen, attr->name);
     return 0;
