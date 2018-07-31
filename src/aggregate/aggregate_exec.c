@@ -56,13 +56,13 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     return;
   }
 
-  char *err = NULL;
   AggregateRequest req_s = {NULL}, *req = &req_s;
   int hasCursor = 0;
+  QueryError status = {0};
 
-  if (AggregateRequest_Start(req, sctx, settings, argv, argc, &err) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, err ? err : "Could not perform request");
-    ERR_FREE(err);
+  if (AggregateRequest_Start(req, sctx, settings, argv, argc, &status) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
     goto done;
   }
 
@@ -71,10 +71,12 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     const char *idxName = settings->cursorLookupName ? settings->cursorLookupName
                                                      : RedisModule_StringPtrLen(argv[1], NULL);
 
-    Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, idxName, req->ap.cursor.maxIdle, &err);
+    Cursor *cursor =
+        Cursors_Reserve(&RSCursors, sctx, idxName, req->ap.cursor.maxIdle, &status.detail);
     if (!cursor) {
-      RedisModule_ReplyWithError(ctx, err ? err : "Could not open cursor");
-      ERR_FREE(err);
+      QueryError_MaybeSetCode(&status, QUERY_ECURSORALLOC);
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
       goto done;
     }
 

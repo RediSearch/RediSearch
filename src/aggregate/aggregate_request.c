@@ -113,24 +113,26 @@ void Aggregate_BuildSchema() {
                      CmdSchema_Optional);
 }
 
-CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, char **err) {
+CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, QueryError *status) {
 
   CmdArg *ret = NULL;
 
-  if (CMDPARSE_ERR != CmdParser_ParseRedisModuleCmd(requestSchema, &ret, argv, argc, err, 0)) {
+  if (CMDPARSE_ERR !=
+      CmdParser_ParseRedisModuleCmd(requestSchema, &ret, argv, argc, &status->detail, 0)) {
+    QueryError_MaybeSetCode(status, QUERY_EKEYWORD);
     return ret;
   }
   return NULL;
 }
 
 ResultProcessor *buildGroupBy(AggregateGroupStep *grp, RedisSearchCtx *sctx,
-                              ResultProcessor *upstream, char **err) {
+                              ResultProcessor *upstream, QueryError *status) {
 
   Grouper *g = NewGrouper(RSMultiKey_Copy(grp->properties, 0),
                           sctx && sctx->spec ? sctx->spec->sortables : NULL);
 
   array_foreach(grp->reducers, red, {
-    Reducer *r = GetReducer(sctx, red.reducer, red.alias, red.args, array_len(red.args), err);
+    Reducer *r = GetReducer(sctx, red.reducer, red.alias, red.args, array_len(red.args), status);
     if (!r) {
       goto fail;
     }
@@ -141,29 +143,31 @@ ResultProcessor *buildGroupBy(AggregateGroupStep *grp, RedisSearchCtx *sctx,
 
 fail:
   if (sctx && sctx->redisCtx)
-    RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s", *err);
+    RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s",
+                    QueryError_GetError(status));
 
   Grouper_Free(g);
   return NULL;
 }
 
-ResultProcessor *buildSortBY(AggregateSortStep *srt, ResultProcessor *upstream, char **err) {
+ResultProcessor *buildSortBY(AggregateSortStep *srt, ResultProcessor *upstream,
+                             QueryError *status) {
   return NewSorterByFields(RSMultiKey_Copy(srt->keys, 0), srt->ascMap, srt->max, upstream);
 }
 
 ResultProcessor *buildProjection(AggregateApplyStep *a, ResultProcessor *upstream,
-                                 RedisSearchCtx *sctx, char **err) {
-  return NewProjector(sctx, upstream, a->alias, a->rawExpr, strlen(a->rawExpr), err);
+                                 RedisSearchCtx *sctx, QueryError *status) {
+  return NewProjector(sctx, upstream, a->alias, a->rawExpr, strlen(a->rawExpr), status);
 }
 
 ResultProcessor *buildFilter(AggregateFilterStep *f, ResultProcessor *upstream,
-                             RedisSearchCtx *sctx, char **err) {
-  return NewFilter(sctx, upstream, f->rawExpr, strlen(f->rawExpr), err);
+                             RedisSearchCtx *sctx, QueryError *status) {
+  return NewFilter(sctx, upstream, f->rawExpr, strlen(f->rawExpr), status);
 }
-ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, char **err) {
+ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, QueryError *status) {
 
   if (l->offset < 0 || l->num <= 0) {
-    return SET_ERR(err, "Invalid offset/num for LIMIT");
+    QueryError_SetError(status, QUERY_EKEYWORD, "Invalid offset/num for LIMIT");
   }
   return NewPager(upstream, (uint32_t)l->offset, (uint32_t)l->num);
 }
@@ -183,7 +187,7 @@ ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
 }
 
 ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSearchCtx *sctx,
-                                                   ResultProcessor *root, char **err) {
+                                                   ResultProcessor *root, QueryError *status) {
   ResultProcessor *prev = NULL;
   ResultProcessor *next = root;
   // Load LOAD based stuff from hash vals
@@ -201,21 +205,21 @@ ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSea
 
       case AggregateStep_Group:
 
-        next = buildGroupBy(&current->group, sctx, next, err);
+        next = buildGroupBy(&current->group, sctx, next, status);
         break;
       case AggregateStep_Sort:
-        next = buildSortBY(&current->sort, next, err);
+        next = buildSortBY(&current->sort, next, status);
         break;
       case AggregateStep_Apply:
-        next = buildProjection(&current->apply, next, sctx, err);
+        next = buildProjection(&current->apply, next, sctx, status);
         break;
       case AggregateStep_Limit:
 
-        next = addLimit(&current->limit, next, err);
+        next = addLimit(&current->limit, next, status);
         break;
 
       case AggregateStep_Filter:
-        next = buildFilter(&current->filter, next, sctx, err);
+        next = buildFilter(&current->filter, next, sctx, status);
         break;
       case AggregateStep_Load:
         if (current->load.keys->len > 0 && sctx != NULL) {
@@ -242,11 +246,12 @@ fail:
     ResultProcessor_Free(prev);
   }
   if (sctx && sctx->redisCtx)
-    RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s", *err);
+    RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s",
+                    QueryError_GetError(status));
   return NULL;
 }
 
-ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char **err) {
+ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, QueryError *status) {
 
   AggregatePlan *ap = ctx;
   // The base processor translates index results into search results
@@ -254,22 +259,22 @@ ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char 
 
   if (!root) return NULL;
 
-  return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, err);
+  return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, status);
 }
 
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
                            const AggregateRequestSettings *settings, RedisModuleString **argv,
-                           int argc, char **err) {
+                           int argc, QueryError *status) {
 
-  req->args = Aggregate_ParseRequest(argv, argc, (char **)err);
+  req->args = Aggregate_ParseRequest(argv, argc, status);
   if (!req->args) {
-    SET_ERR(err, "Could not parse aggregate request");
+    QueryError_MaybeSetCode(status, QUERY_EPARSEARGS);
     return REDISMODULE_ERR;
   }
 
   req->ap = (AggregatePlan){};
-  if (!AggregatePlan_Build(&req->ap, req->args, (char **)err)) {
-    SET_ERR(err, "Could not build aggregate plan");
+  if (!AggregatePlan_Build(&req->ap, req->args, &status->detail)) {
+    QueryError_MaybeSetCode(status, QUERY_EAGGPLAN);
     return REDISMODULE_ERR;
   }
 
@@ -292,8 +297,8 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
   } else {
     req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
 
-    if (!Query_Parse(req->parseCtx, (char **)err)) {
-      SET_ERR(err, "Unknown error");
+    if (!Query_Parse(req->parseCtx, (char **)status->detail)) {
+      QueryError_MaybeSetCode(status, QUERY_ESYNTAX);
       return REDISMODULE_ERR;
     }
 
@@ -301,9 +306,9 @@ int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
       Query_Expand(req->parseCtx, opts.expander);
     }
   }
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, settings->pcb, &req->ap, (char **)err);
+  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, settings->pcb, &req->ap, status);
   if (!req->plan) {
-    SET_ERR(err, QUERY_ERROR_INTERNAL_STR);
+    QueryError_MaybeSetCode(status, QUERY_EBUILDPLAN);
     return REDISMODULE_ERR;
   }
 

@@ -233,8 +233,8 @@ void QueryPlan_Free(QueryPlan *plan) {
 }
 
 static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx) {
-#define PHONETIC_ERR_STR "Phonetic requested but field are not declared phonetic"
-  char **err = ctx;
+#define PHONETIC_ERR_STR "Phonetic requested but field is not declared phonetic"
+  QueryError *status = ctx;
   if (node->type != QN_TOKEN) {
     // currently only tokens needs validation
     // maybe in the future we will add more validations to other nodes types
@@ -244,7 +244,7 @@ static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx) 
     char *fieldName = GetFieldNameByBit(q->sctx->spec, node->opts.fieldMask);
     FieldSpec *fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
     if (!(fieldSpec->options & FieldSpec_Phonetics)) {
-      *err = strdup(PHONETIC_ERR_STR);
+      QueryError_SetError(status, QUERY_EBADATTR, PHONETIC_ERR_STR);
       return 0;
     }
   }
@@ -256,7 +256,8 @@ static int queryPlan_ValidateQuery(QueryParseCtx *parsedQuery, void *ctx) {
   return Query_NodeForEach(parsedQuery, queryPlan_ValidateNode, ctx);
 }
 
-static int queryPlan_EvalQuery(QueryPlan *plan, QueryParseCtx *parsedQuery, RSSearchOptions *opts) {
+static int queryPlan_EvalQuery(QueryPlan *plan, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
+                               QueryError *status) {
   QueryEvalCtx ev = {.docTable = plan->ctx && plan->ctx->spec ? &plan->ctx->spec->docs : NULL,
                      .conc = plan->conc,
                      .numTokens = parsedQuery->numTokens,
@@ -265,11 +266,15 @@ static int queryPlan_EvalQuery(QueryPlan *plan, QueryParseCtx *parsedQuery, RSSe
                      .opts = opts};
 
   plan->rootFilter = Query_EvalNode(&ev, parsedQuery->root);
-  return plan->rootFilter ? 1 : 0;
+  if (!plan->rootFilter) {
+    QueryError_SetError(status, QUERY_ENORESULTS, NULL);
+  }
+  return status->code == QUERY_OK ? 1 : 0;
 }
 
 QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
-                           ProcessorChainBuilder pcb, void *chainBuilderContext, char **err) {
+                           ProcessorChainBuilder pcb, void *chainBuilderContext,
+                           QueryError *status) {
   QueryPlan *plan = calloc(1, sizeof(*plan));
   plan->ctx = ctx;
   plan->conc = opts->concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
@@ -297,17 +302,24 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
                               Query_OnReopen, plan, NULL, ConcurrentKey_SharedKeyString);
     }
   }
-  if (parsedQuery && !queryPlan_ValidateQuery(parsedQuery, err)) {
-    QueryPlan_Free(plan);
-    return NULL;
+
+  if (parsedQuery) {
+    // Is there ever a time when this is not NULL?
+    if (!queryPlan_ValidateQuery(parsedQuery, status)) {
+      QueryPlan_Free(plan);
+      QueryError_SetError(status, QUERY_EINVAL, NULL);
+      return NULL;
+    }
+    if (!queryPlan_EvalQuery(plan, parsedQuery, opts, status)) {
+      QueryPlan_Free(plan);
+      return NULL;
+    }
   }
-  if (parsedQuery && !queryPlan_EvalQuery(plan, parsedQuery, opts)) {
-    QueryPlan_Free(plan);
-    return NULL;
-  }
+
   plan->execCtx.rootFilter = plan->rootFilter;
-  plan->rootProcessor = pcb(plan, chainBuilderContext, err);
+  plan->rootProcessor = pcb(plan, chainBuilderContext, status);
   if (!plan->rootProcessor) {
+    QueryError_SetError(status, QUERY_ECONSTRUCT_PIPELINE, NULL);
     QueryPlan_Free(plan);
     return NULL;
   }

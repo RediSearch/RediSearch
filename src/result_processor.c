@@ -716,8 +716,7 @@ ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, Fiel
 /*******************************************************************************************************************
  * Building the processor chaing based on the processors available and the request parameters
  *******************************************************************************************************************/
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err) {
-  *err = NULL;
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, QueryError *status) {
   RSSearchRequest *req = privdata;
   // The base processor translates index results into search results
   ResultProcessor *next = NewBaseProcessor(q, &q->execCtx);

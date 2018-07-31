@@ -9,6 +9,7 @@
 #include "sortable.h"
 #include "search_options.h"
 #include "query_plan.h"
+#include "query_error.h"
 
 typedef struct {
 
@@ -31,12 +32,13 @@ typedef struct {
 } RSSearchRequest;
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
-                              char **errStr);
+                              QueryError *status);
 
 void RSSearchRequest_Free(RSSearchRequest *req);
-QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err);
+QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req,
+                                        QueryError *status);
 QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, QueryParseCtx *q,
-                                   char **err);
+                                   QueryError *error);
 
 // Remove any fields not explicitly requested by `RETURN`, iff any explicit
 // fields actually exist.

@@ -68,9 +68,13 @@ typedef struct {
   int numChildren;
 } QueryTagNode;
 
-typedef struct { struct RSQueryNode *child; } QueryNotNode;
+typedef struct {
+  struct RSQueryNode *child;
+} QueryNotNode;
 
-typedef struct { struct RSQueryNode *child; } QueryOptionalNode;
+typedef struct {
+  struct RSQueryNode *child;
+} QueryOptionalNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
@@ -88,11 +92,17 @@ typedef struct {
 } QueryWildcardNode;
 
 /* A node with a numeric filter */
-typedef struct { struct numericFilter *nf; } QueryNumericNode;
+typedef struct {
+  struct numericFilter *nf;
+} QueryNumericNode;
 
-typedef struct { struct geoFilter *gf; } QueryGeofilterNode;
+typedef struct {
+  struct geoFilter *gf;
+} QueryGeofilterNode;
 
-typedef struct { struct idFilter *f; } QueryIdFilterNode;
+typedef struct {
+  struct idFilter *f;
+} QueryIdFilterNode;
 
 typedef enum {
   QueryNode_Verbatim = 0x01,

@@ -583,7 +583,9 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   // create a mock search result
   SearchResult res = (SearchResult){
-      .docId = doc.docId, .fields = fm, .scorerPrivateData = md,
+      .docId = doc.docId,
+      .fields = fm,
+      .scorerPrivateData = md,
   };
   // All this is needed to eval the expression
   RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();

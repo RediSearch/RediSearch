@@ -6,6 +6,7 @@
 #include "index_iterator.h"
 #include "result_processor.h"
 #include "query.h"
+#include "query_error.h"
 
 /******************************************************************************************************
  *   Query Plan - the actual binding context of the whole execution plan - from filters to
@@ -64,13 +65,15 @@ typedef struct QueryPlan {
  * it off, resulting in the QueryParseCtx not performing context switches */
 void Query_SetConcurrentMode(QueryPlan *q, int concurrent);
 
-typedef ResultProcessor *(*ProcessorChainBuilder)(QueryPlan *plan, void *privdata, char **err);
+typedef ResultProcessor *(*ProcessorChainBuilder)(QueryPlan *plan, void *privdata,
+                                                  QueryError *status);
 
 /* Build the processor chain of the QueryParseCtx, returning the root processor */
 QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
-                           ProcessorChainBuilder pcb, void *chainBuilderContext, char **err);
+                           ProcessorChainBuilder pcb, void *chainBuilderContext,
+                           QueryError *status);
 
-ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, char **err);
+ResultProcessor *Query_BuildProcessorChain(QueryPlan *q, void *privdata, QueryError *status);
 
 void QueryPlan_SetHook(QueryPlan *plan, QueryPlanHookType ht, QueryHookCallback cb, void *privdata,
                        void (*free)(void *));

@@ -528,7 +528,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       next = newLimit(child, err);
       isLoadAllow = false;
     } else if (!strcasecmp(key, "LOAD")) {
-      if(!isLoadAllow){
+      if (!isLoadAllow) {
         *err = strdup(LOAD_NO_ALLOW_ERROR);
         goto fail;
       }

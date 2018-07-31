@@ -29,7 +29,7 @@ typedef struct {
 
 void Aggregate_BuildSchema();
 
-ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, char **err);
+ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, QueryError *status);
 
 // Don't enable concurrent mode.
 #define AGGREGATE_REQUEST_NO_CONCURRENT 0x01
@@ -51,7 +51,7 @@ typedef struct {
  */
 int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
                            const AggregateRequestSettings *settings, RedisModuleString **argv,
-                           int argc, char **err);
+                           int argc, QueryError *status);
 void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx);
 void AggregateRequest_Free(AggregateRequest *req);
 
@@ -70,10 +70,10 @@ ResultProcessor *NewGrouperProcessor(Grouper *g, ResultProcessor *upstream);
 void Grouper_AddReducer(Grouper *g, Reducer *r);
 
 ResultProcessor *GetProjector(ResultProcessor *upstream, const char *name, const char *alias,
-                              CmdArg *args, char **err);
+                              CmdArg *args, QueryError *status);
 
 ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *expr,
-                           size_t len, char **err);
+                           size_t len, QueryError *status);
 
 // Entry points
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

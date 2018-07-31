@@ -18,6 +18,7 @@
 #include "rmutil/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
+#include "query_error.h"
 
 /* A QueryParseCtx represents the parse tree and execution plan for a single
  * search QueryParseCtx */
@@ -55,6 +56,7 @@ typedef struct {
   int tokenId;
   DocTable *docTable;
   RSSearchOptions *opts;
+  QueryError *status;
 } QueryEvalCtx;
 
 /* Evaluate a QueryParseCtx stage and prepare it for execution. As execution is lazy

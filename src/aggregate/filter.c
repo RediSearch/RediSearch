@@ -3,6 +3,7 @@
 #include <rmutil/cmdparse.h>
 #include <aggregate/expr/expression.h>
 #include <aggregate/functions/function.h>
+#include "aggregate.h"
 
 typedef struct {
   RSExpr *exp;
@@ -44,14 +45,15 @@ int Filter_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 }
 
 ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, const char *expr,
-                           size_t len, char **err) {
+                           size_t len, QueryError *status) {
 
   FilterCtx *ctx = NewFilterCtx();
   ctx->ctx.sctx = sctx;
   ctx->ctx.sortables = sctx && sctx->spec ? sctx->spec->sortables : NULL;
   ctx->ctx.fctx = RS_NewFunctionEvalCtx();
-  ctx->exp = RSExpr_Parse(expr, len, err);
+  ctx->exp = RSExpr_Parse(expr, len, &status->detail);
   if (!ctx->exp) {
+    QueryError_MaybeSetCode(status, QUERY_EEXPR);
     free(ctx);
     return NULL;
   }
