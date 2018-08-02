@@ -5,7 +5,7 @@
 ### Full-Text search over Redis by RedisLabs
 ![logo.png](docs/logo.png)
 
-### See Full Documentation at [http://redisearch.io](http://redisearch.io)
+### See Full Documentation at [https://oss.redislabs.com/redisearch/](https://oss.redislabs.com/redisearch/)
 
 ### Latest Release: [1.2.0](https://github.com/RedisLabsModules/RediSearch/releases)
 
@@ -55,7 +55,7 @@ Official (Redis Labs) and community Clients:
 * Complex boolean queries with AND, OR, NOT operators between sub-queries.
 * Prefix matching, fuzzy matching and exact phrase search in full-text queries.
 * Auto-complete suggestions (with fuzzy prefix suggestions).
-* Stemming based query expansion in [many languages](http://redisearch.io/Stemming/) (using [Snowball](http://snowballstem.org/)).
+* Stemming based query expansion in [many languages](https://oss.redislabs.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Limiting searches to specific document fields (up to 128 fields supported).
 * Numeric filters and ranges.
