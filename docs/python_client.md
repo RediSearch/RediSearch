@@ -60,7 +60,7 @@ suggs = ac.get_suggestions('goo', fuzzy = True) # returns ['foo']
 
 1. Install Redis 4.0 or above
 
-2. [Install RediSearch](http://redisearch.io/Quick_Start/#building-and-running)
+2. [Install RediSearch](https://oss.redislabs.com/redisearch/Quick_Start/#building-and-running)
 
 3. Install the python client
 
@@ -706,7 +706,7 @@ def __init__(self, string, score=1.0, payload=None)
 
 ## Class TagField
 TagField is a tag-indexing field with simpler compression and tokenization.
-See http://redisearch.io/Tags/
+See https://oss.redislabs.com/redisearch/Tags/
 ### \_\_init\_\_
 ```py
 
