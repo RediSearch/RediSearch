@@ -532,9 +532,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
     const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if (strcmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, (char*)dictName);
+      includeDict = array_append(includeDict, (char *)dictName);
     } else if (strcmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, (char*)dictName);
+      excludeDict = array_append(excludeDict, (char *)dictName);
     } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
@@ -546,8 +546,11 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     fullScoreInfo = true;
   }
 
-  SpellCheckCtx scCtx = {
-      .sctx = sctx, .includeDict = includeDict, .excludeDict = excludeDict, .distance = distance, .fullScoreInfo = fullScoreInfo};
+  SpellCheckCtx scCtx = {.sctx = sctx,
+                         .includeDict = includeDict,
+                         .excludeDict = excludeDict,
+                         .distance = distance,
+                         .fullScoreInfo = fullScoreInfo};
 
   SpellCheck_Reply(&scCtx, q);
 
