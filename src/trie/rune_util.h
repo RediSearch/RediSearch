@@ -17,7 +17,7 @@ rune runeFold(rune r);
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(rune *in, size_t len, size_t *utflen);
 
-rune *strToFoldedRunes(char *str, size_t *len);
+rune *strToFoldedRunes(const char *str, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);

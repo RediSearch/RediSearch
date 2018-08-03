@@ -490,8 +490,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
-  char **includeDict = array_new(char *, DICT_INITIAL_SIZE);
-  char **excludeDict = array_new(char *, DICT_INITIAL_SIZE);
+  const char **includeDict = array_new(const char *, DICT_INITIAL_SIZE);
+  const char **excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
 
   if (!Query_Parse(q, &err)) {
 
@@ -532,9 +532,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
     const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if (strcmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, (char *)dictName);
+      includeDict = array_append(includeDict, dictName);
     } else if (strcmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, (char *)dictName);
+      excludeDict = array_append(excludeDict, dictName);
     } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
@@ -631,7 +631,7 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     req->numericFilters = NULL;
   }
 
-  char *explain = (char *)Query_DumpExplain(q);
+  char *explain = Query_DumpExplain(q);
   RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
   free(explain);
 
@@ -1247,7 +1247,7 @@ int SuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, (char *)str, len));
+  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
 }
 
 /*
@@ -1298,7 +1298,7 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // get the string to search for
   size_t len;
-  char *s = (char *)RedisModule_StringPtrLen(argv[2], &len);
+  const char *s = RedisModule_StringPtrLen(argv[2], &len);
   if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }

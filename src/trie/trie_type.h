@@ -28,13 +28,13 @@ typedef struct {
 
 Trie *NewTrie();
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
-int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
+int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload);
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
-int Trie_Delete(Trie *t, char *s, size_t len);
+int Trie_Delete(Trie *t, const char *s, size_t len);
 
 void TrieSearchResult_Free(TrieSearchResult *e);
-Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
+Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize);
 
 /* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the

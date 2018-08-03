@@ -40,14 +40,14 @@ char *runesToStr(rune *in, size_t len, size_t *utflen) {
 }
 
 /* implementation is identical to that of
-* strToRunes except for line where __fold is called */
-rune *strToFoldedRunes(char *str, size_t *len) {
+ * strToRunes except for line where __fold is called */
+rune *strToFoldedRunes(const char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
-     if (len) *len = 0;
-     return NULL;
-  } 
+    if (len) *len = 0;
+    return NULL;
+  }
 
   uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
@@ -70,7 +70,7 @@ rune *strToRunes(const char *str, size_t *len) {
     if (len) *len = 0;
     return NULL;
   }
-  
+
   rune *ret = malloc((rlen + 1) * sizeof(rune));
   strToRunesN(str, strlen(str), ret);
   ret[rlen] = '\0';

@@ -107,7 +107,11 @@ static QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
   s->opts = (QueryNodeOptions){
-      .fieldMask = RS_FIELDMASK_ALL, .flags = 0, .maxSlop = -1, .inOrder = 0, .weight = 1,
+      .fieldMask = RS_FIELDMASK_ALL,
+      .flags = 0,
+      .maxSlop = -1,
+      .inOrder = 0,
+      .weight = 1,
   };
   return s;
 }
@@ -150,7 +154,10 @@ QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist
   ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
-              .str = (char *)s, .len = len, .expanded = 0, .flags = 0,
+              .str = (char *)s,
+              .len = len,
+              .expanded = 0,
+              .flags = 0,
           },
       .maxDist = maxDist,
   };
@@ -331,7 +338,9 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
     // Create a token for the reader
     RSToken tok = (RSToken){
-        .expanded = 0, .flags = 0, .len = 0,
+        .expanded = 0,
+        .flags = 0,
+        .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
     if (q->sctx && q->sctx->redisCtx) {
@@ -908,14 +917,14 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
  */
-const char *Query_DumpExplain(QueryParseCtx *q) {
+char *Query_DumpExplain(QueryParseCtx *q) {
   // empty query
   if (!q || !q->root) {
     return strdup("NULL");
   }
 
   sds s = QueryNode_DumpSds(sdsnew(""), q, q->root, 0);
-  const char *ret = strndup(s, sdslen(s));
+  char *ret = strndup(s, sdslen(s));
   sdsfree(s);
   return ret;
 }

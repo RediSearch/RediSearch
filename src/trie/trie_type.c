@@ -24,7 +24,7 @@ Trie *NewTrie() {
 
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload) {
   size_t len;
-  char *str = (char *)RedisModule_StringPtrLen(s, &len);
+  const char *str = RedisModule_StringPtrLen(s, &len);
   int ret = Trie_InsertStringBuffer(t, str, len, score, incr, payload);
   return ret;
 }
@@ -59,7 +59,7 @@ static inline void runeBufFree(runeBuf *buf) {
   }
 }
 
-int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr,
+int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
   if (len > TRIE_MAX_STRING_LEN * sizeof(rune)) {
     return 0;
@@ -79,7 +79,7 @@ int Trie_InsertStringBuffer(Trie *t, char *s, size_t len, double score, int incr
   return rc;
 }
 
-int Trie_Delete(Trie *t, char *s, size_t len) {
+int Trie_Delete(Trie *t, const char *s, size_t len) {
 
   rune *runes = strToRunes(s, &len);
   if (!runes || len > TRIE_MAX_STRING_LEN) {
@@ -114,7 +114,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes((char *)prefix, &rlen);
+  rune *runes = strToFoldedRunes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     return NULL;
   }
@@ -126,7 +126,7 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
   return it;
 }
 
-Vector *Trie_Search(Trie *tree, char *s, size_t len, size_t num, int maxDist, int prefixMode,
+Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
