@@ -19,18 +19,6 @@ $(COMPAT_DIR)/redisearch.so:
 
 $(COMPAT_DIR): compat-build
 
-test:
-	cd $(COMPAT_DIR)
-	make -C $(COMPAT_DIR) test
-
-clean:
-	rm -rf $(COMPAT_DIR)
-	rm -f src/redisearch.so
-
-package:
-	$(MAKE) -C ./src package
-.PHONY: package
-
 deploydocs:
 	mkdocs gh-deploy
 .PHONY: deploydocs
