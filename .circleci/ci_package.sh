@@ -16,11 +16,11 @@ fi
 pip install git+https://github.com/mnunberg/RAMP@print_version --upgrade
 
 if [ -e /etc/redhat-release ]; then
-    DIST_SUFFIX=el7
+    DIST_SUFFIX=-rha
 elif [ -e /etc/debian_version ]; then
-    DIST_SUFFIX=debian
+    DIST_SUFFIX=""
 else
-    DIST_SUFFIX=generic # WAT?
+    DIST_SUFFIX="" # WAT?
 fi
 
 
@@ -28,11 +28,11 @@ function do_build {
     mode=$1
     case "$mode" in
         'release')
-        format={os}-$DIST_SUFFIX-{architecture}.{semantic_version}
+        format={os}$DIST_SUFFIX-{architecture}.{semantic_version}
         subdir=release
         ;;
         'snapshot')
-        format={os}-$DIST_SUFFIX-{architecture}.$CIRCLE_BRANCH-snapshot
+        format={os}$DIST_SUFFIX-{architecture}.$CIRCLE_BRANCH-snapshot
         subdir=snapshot
         ;;
         *)
