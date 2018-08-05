@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  buildUbuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
@@ -22,7 +22,29 @@ jobs:
             - '*.so'
             - ramp.yml
             - build
-  package_branch:
+  buildCentos:
+    docker:
+      - image: 'redislabsmodules/rmbuildercentos:latest'
+    steps:
+      - checkout
+      - run:
+          name: Build
+          command: make -j 8
+      - run:
+          name: Test
+          command: pip install git+https://github.com/RedisLabs/rmtest@2.0 && make test
+      - run:
+          name: Persist Artifacts
+          command: >-
+            mkdir -p /workspace/build && cp src/$MODULE_ARTIFACT /workspace/ &&
+            cp ramp.yml /workspace/
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - '*.so'
+            - ramp.yml
+            - build
+  package_branchUbuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
@@ -40,7 +62,25 @@ jobs:
             - build
       - store_artifacts:
           path: /workspace/build
-  package_release:
+  package_branchCentos:
+    docker:
+      - image: 'redislabsmodules/rmbuildercentos:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Package
+          command: >-
+            ramp pack -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.$CIRCLE_BRANCH_RHA.zip
+            /workspace/$MODULE_ARTIFACT
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - build
+      - store_artifacts:
+          path: /workspace/build
+  package_releaseUbuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
@@ -64,7 +104,31 @@ jobs:
             - build
       - store_artifacts:
           path: /workspace/build
-  deploy_branch:
+  package_releaseCentos:
+    docker:
+      - image: 'redislabsmodules/rmbuildercentos:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Package
+          command: >-
+            ramp pack -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.{semantic_version}.zip
+            /workspace/$MODULE_ARTIFACT
+      - run:
+          name: Package
+          command: >-
+            ramp pack -m /workspace/ramp.yml -o
+            /workspace/build/$PACKAGE_NAME.{os}-{architecture}.latest_RHA.zip
+            /workspace/$MODULE_ARTIFACT
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - build
+      - store_artifacts:
+          path: /workspace/build
+  deploy_branchUbuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
@@ -75,9 +139,31 @@ jobs:
           command: >-
             aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
             public-read --recursive --exclude "*" --include "*.zip"
-  deploy_release:
+  deploy_branchCentos:
+    docker:
+      - image: 'redislabsmodules/rmbuildercentos:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Deploy to S3
+          command: >-
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
+            public-read --recursive --exclude "*" --include "*.zip"
+  deploy_releaseUbuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - attach_workspace:
+          at: /workspace
+      - run:
+          name: Deploy to S3
+          command: >-
+            aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
+            public-read --recursive --exclude "*" --include "*.zip"
+  deploy_releaseCentos:
+    docker:
+      - image: 'redislabsmodules/rmbuildercentos:latest'
     steps:
       - attach_workspace:
           at: /workspace
@@ -104,33 +190,60 @@ workflows:
   version: 2
   build_and_package:
     jobs:
-      - build:
+      - buildUbuntu:
           filters:
             tags:
               only: /.*/
-      - package_branch:
+      - buildCentos:
+          filters:
+            tags:
+              only: /.*/
+      - package_branchUbuntu:
           requires:
-            - build
+            - buildUbuntu
           filters:
             branches:
               only: master
-      - package_release:
+      - package_branchCentos:
           requires:
-            - build
+            - buildCentos
+          filters:
+            branches:
+              only: master
+      - package_releaseUbuntu:
+          requires:
+            - buildUbuntu
           filters:
             branches:
               ignore: /.*/
             tags:
               only: '/^v[0-9].*/'
-      - deploy_branch:
+      - package_releaseCentos:
           requires:
-            - package_branch
-      - deploy_release:
+            - buildCentos
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: '/^v[0-9].*/'
+      - deploy_branchUbuntu:
+          requires:
+            - package_branchUbuntu
+      - deploy_branchCentos:
+          requires:
+            - package_branchCentos
+      - deploy_releaseUbuntu:
           filters:
             tags:
               only: '/^v[0-9].*/'
           requires:
-            - package_release
+            - package_releaseUbuntu
+      - deploy_releaseCentos:
+          filters:
+            tags:
+              only: '/^v[0-9].*/'
+          requires:
+            - package_releaseCentos
       - deploy_docs:
           filters:
             branches:
