@@ -1,5 +1,6 @@
 ADD_LIBRARY(rmutil OBJECT
     alloc.c
+    args.c
     cmdparse.c
     heap.c
     periodic.c
