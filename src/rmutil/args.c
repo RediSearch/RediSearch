@@ -5,10 +5,14 @@
 #include <string.h>
 
 int AC_Advance(ArgsCursor *ac) {
-  if (ac->offset == ac->argc) {
+  return AC_AdvanceBy(ac, 1);
+}
+
+int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
+  if (ac->offset + by >= ac->argc) {
     return AC_ERR_NOARG;
   } else {
-    ac->offset++;
+    ac->offset += by;
   }
   return 0;
 }
@@ -122,4 +126,12 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
   }
   MAYBE_ADVANCE();
   return 0;
+}
+
+const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
+  const char *s = NULL;
+  if (AC_GetString(ac, &s, len, 0) != 0) {
+    return NULL;
+  }
+  return s;
 }

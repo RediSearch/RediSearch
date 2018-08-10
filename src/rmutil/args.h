@@ -60,7 +60,12 @@ int AC_GetUnsigned(ArgsCursor *ac, unsigned *u, int flags);
 int AC_GetInt(ArgsCursor *ac, int *i, int flags);
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags);
 
+// Gets the string (and optionally the length). If the string does not exist,
+// it returns NULL. Used when caller is sure the arg exists
+const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
+
 int AC_Advance(ArgsCursor *ac);
+int AC_AdvanceBy(ArgsCursor *ac, size_t by);
 
 #define AC_CURRENT(ac) ((ac)->objs[(ac)->offset])
 #define AC_Clear(ac)  // NOOP
