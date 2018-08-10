@@ -14,6 +14,10 @@ SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_COMMON_FLAGS} -std=gnu99")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions")
 
+IF(RS_RUN_TESTS)
+    ENABLE_TESTING()
+ENDIF()
+
 # Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
 FOREACH (flags_var_to_scrub
     CMAKE_CXX_FLAGS_RELEASE
@@ -86,7 +90,6 @@ SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 TARGET_LINK_LIBRARIES(redisearchS -lm -lc -ldl)
 
 IF (RS_RUN_TESTS)
-    ENABLE_TESTING()
     ADD_SUBDIRECTORY(src/tests)
     ADD_SUBDIRECTORY(src/pytest)
 ENDIF()
