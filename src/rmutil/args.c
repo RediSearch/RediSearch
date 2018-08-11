@@ -9,7 +9,7 @@ int AC_Advance(ArgsCursor *ac) {
 }
 
 int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
-  if (ac->offset + by >= ac->argc) {
+  if (ac->offset + by > ac->argc) {
     return AC_ERR_NOARG;
   } else {
     ac->offset += by;
@@ -142,4 +142,21 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
     return NULL;
   }
   return s;
+}
+
+int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
+  unsigned nargs;
+  int rv = AC_GetUnsigned(ac, &nargs, 0);
+  if (rv) {
+    return rv;
+  }
+  if (nargs > AC_NumRemaining(ac)) {
+    return AC_ERR_NOARG;
+  }
+
+  dst->objs = ac->objs + ac->offset;
+  dst->argc = nargs;
+  dst->offset = 0;
+  AC_AdvanceBy(ac, nargs);
+  return 0;
 }

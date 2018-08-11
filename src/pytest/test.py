@@ -1643,7 +1643,7 @@ class SearchTestCase(BaseSearchTestCase):
                  'SORTABLE', 'firstName', 'text', 'SORTABLE')
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
         res = self.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
-                       "firstName", "ASC", "lastName", "DESC", "limit", 0, 100)
+                       "firstName", "ASC", "limit", 0, 100)
         self.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
 
     def testLuaAndMulti(self):

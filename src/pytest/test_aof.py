@@ -55,13 +55,12 @@ class AofTestCase(BaseSearchTestCase):
             self.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS',
                      'field1', 'txt{}'.format(random.random()),
                      'num1', random.random())
-
-        cmd = ['FT.SEARCH', 'idx', 'txt', 'SORTBY',
-               '2', 'field1', 'ASC', 'num1', 'DESC']
-        res = self.cmd(*cmd)
-        self.restart_and_reload()
-        res2 = self.cmd(*cmd)
-        self.assertEqual(res, res2)
+        for sspec in [('field1', 'asc'), ('num1', 'desc')]:
+            cmd = ['FT.SEARCH', 'idx', 'txt', 'SORTBY', sspec[0], sspec[1]]
+            res = self.cmd(*cmd)
+            self.restart_and_reload()
+            res2 = self.cmd(*cmd)
+            self.assertEqual(res, res2)
 
     def testAofRewriteSortkeys(self):
         self.cmd('FT.CREATE', 'idx', 'SCHEMA', 'foo',

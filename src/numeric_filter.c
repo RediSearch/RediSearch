@@ -3,21 +3,21 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 /*
-*  Parse numeric filter arguments, in the form of:
-*  <fieldname> min max
-*
-*  By default, the interval specified by min and max is closed (inclusive).
-*  It is possible to specify an open interval (exclusive) by prefixing the score
-* with the character
-* (.
-*  For example: "score (1 5"
-*  Will return filter elements with 1 < score <= 5
-*
-*  min and max can be -inf and +inf
-*
-*  Returns a numeric filter on success, NULL if there was a problem with the
-* arguments
-*/
+ *  Parse numeric filter arguments, in the form of:
+ *  <fieldname> min max
+ *
+ *  By default, the interval specified by min and max is closed (inclusive).
+ *  It is possible to specify an open interval (exclusive) by prefixing the score
+ * with the character
+ * (.
+ *  For example: "score (1 5"
+ *  Will return filter elements with 1 < score <= 5
+ *
+ *  min and max can be -inf and +inf
+ *
+ *  Returns a numeric filter on success, NULL if there was a problem with the
+ * arguments
+ */
 NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return NULL;
