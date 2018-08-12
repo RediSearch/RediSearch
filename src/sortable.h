@@ -30,7 +30,7 @@ typedef struct RSSortingVector {
 /* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
  * part of the spec */
 typedef struct {
-  int len : 8;
+  uint8_t len;
   struct sortField {
     const char *name;
     RSValueType type;

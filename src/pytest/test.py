@@ -1797,6 +1797,27 @@ class SearchTestCase(BaseSearchTestCase):
         doc = to_dict(self.cmd('FT.GET', 'idx2', 'doc2'))
         self.assertEqual('s200', doc['textfield'])
         self.assertEqual('1090', doc['numfield'])
+    
+
+    # command = 'FT.CREATE idx SCHEMA '
+    # for i in range(255):
+    #     command += 't%d NUMERIC SORTABLE ' % i
+    # command = command[:-1]
+    # r.execute_command(command)
+    # r.execute_command('save')
+    # // reload from ...
+    # r.execute_command('FT.ADD idx doc1 1.0 FIELDS t0 1')
+    def testIssue417(self):
+        command = ['ft.create', 'idx', 'schema']
+        for x in range(255):
+            command += ['t{}'.format(x), 'numeric', 'sortable']
+        command = command[:-1]
+        self.cmd(*command)
+        for _ in self.reloading_iterator():
+            try:
+                self.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
+            except redis.ResponseError as e:
+                self.assertTrue('already in index' in e.message.lower())
 
     # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
     # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
