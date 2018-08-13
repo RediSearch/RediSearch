@@ -50,8 +50,8 @@ int testSchema() {
   ASSERT_STRING_EQ("BAZ", opt.opts[2]);
 
   printf("\n\n");
-  CmdSchemaNode_Free(root);
   CmdSchemaNode_Print(root, 0);
+  CmdSchemaNode_Free(root);
   return 0;
 }
 
@@ -92,7 +92,7 @@ int testTuple() {
   cmd = NULL;
   args = CmdParser_NewArgListV(4, "FOO", "TUP", "2", "hello");
   rc = CmdParser_ParseCmd(sc, &cmd, args, 4, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_ERR, rc);
   ASSERT(cmd == NULL);
   ASSERT(err != NULL);
@@ -103,7 +103,7 @@ int testTuple() {
   cmd = NULL;
   args = CmdParser_NewArgListV(5, "FOO", "TUP", "xx", "hello", "xx");
   rc = CmdParser_ParseCmd(sc, &cmd, args, 5, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_ERR, rc);
   ASSERT(cmd == NULL);
   ASSERT(err != NULL);
@@ -188,7 +188,7 @@ int testPositional() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 3, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
 
@@ -215,7 +215,7 @@ int testFlag() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 2, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
   CmdArg *bar = CmdArg_FirstOf(cmd, "bar");
@@ -242,7 +242,7 @@ int testOption() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 2, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
   CmdArg *barvaz = CmdArg_FirstOf(cmd, "barvaz");
@@ -286,7 +286,7 @@ int testSubSchema() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 6, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
   CmdArg *s = CmdArg_FirstOf(cmd, "sub");
@@ -344,7 +344,7 @@ int testRepeating() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 9, &err, 1);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
   ASSERT(cmd->obj.len == 4);
@@ -409,7 +409,7 @@ int testVariadic() {
   CmdArg *cmd = NULL;
   char *err = NULL;
   int rc = CmdParser_ParseCmd(sc, &cmd, args, 10, &err, 0);
-  printf("%s\n", err);
+  if (err != NULL) printf("%s\n", err);
   ASSERT_EQUAL(CMDPARSE_OK, rc);
   ASSERT(cmd != NULL);
 
@@ -496,7 +496,6 @@ void exampleZadd() {
 }
 
 TEST_MAIN({
-
   exampleZadd();
 
   TESTFUNC(testSchema);
@@ -510,6 +509,5 @@ TEST_MAIN({
   TESTFUNC(testRequired);
   TESTFUNC(testRepeating);
   TESTFUNC(testStrict);
-  TESTFUNC(testVariadic);
-
+  TESTFUNC(testVariadic)
 })
