@@ -316,7 +316,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
 
     switch (currNode->type) {
       case QN_PHRASE:
-        for (int i = 0; i < currNode->pn.numChildren; i++) {
+        for (int i = currNode->pn.numChildren - 1 ; i >= 0 ; i--) {
           nodes = array_append(nodes, currNode->pn.children[i]);
         }
         break;
@@ -336,14 +336,14 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
         break;
 
       case QN_UNION:
-        for (int i = 0; i < currNode->un.numChildren; i++) {
+        for (int i = currNode->un.numChildren - 1 ; i >= 0; i--) {
           nodes = array_append(nodes, currNode->un.children[i]);
         }
         break;
 
       case QN_TAG:
         // todo: do we need to do enything here?
-        for (int i = 0; i < currNode->tag.numChildren; i++) {
+        for (int i = currNode->tag.numChildren - 1; i >= 0 ; i--) {
           nodes = array_append(nodes, currNode->tag.children[i]);
         }
         break;
