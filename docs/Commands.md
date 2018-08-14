@@ -78,9 +78,9 @@ Creates an index with the given spec. The index name will be used in all the key
         Declaring field as phonetic will enabled a phonetic search on this field. {match} is used to specify the
         phonetic algorithm and the language.
         Matcher Format: <2 chars algorithm>:<2 chars language>. 
-        Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
+        Currently the only supported algorithm is double metaphone (dm) which is a general phonetic algorithm for Latin languages.
         Currently we support those languages: English (en), French (fr), Portuguese (pt) and Spanish (es).
-        Notice that double metaphone is not a language spacific and so it might might not provide an optimal result.
+        Note that double metaphone is not language specific and so it may not provide an optimal result.
 
 ### Complexity
 O(1)
