@@ -13,6 +13,7 @@ We support a simple syntax for complex queries with the following rules:
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
+* Fuzzy matching on terms (as of v1.2.0): `%hello%` means all terms with Levenshtein distance of 1 from it.
 * An expression in a query can be wrapped in parentheses to disambiguate, e.g. `(hello|hella) (world|werld)`.
 * Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`
 * Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
@@ -130,6 +131,10 @@ As of v1.2.0, the dictionary of all terms in the index can also be used to perfo
 
 Will perform fuzzy matching on 'hello' for all terms where LD is 1.
 
+As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' surrounding it, so that `%%hello%%` will perform fuzzy matching on 'hello' for all terms where LD is 2.
+
+The maximal LD for fuzzy matching is 3.
+
 ## Wildcard queries
 
 As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation engine. You can call it by specifying only a single star sign as the query string - i.e. `FT.SEARCH myIndex *`.
@@ -152,7 +157,7 @@ The supported attributes are:
 * **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
 2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
 3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
-4. **$phonetic**: whether or not to perform phonetic search on the term (setting this value on feild which are not declared phonetic will results in error).
+4. **$phonetic**: whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as `PHONETIC` will produce an error.
 
 ## A few query examples
 

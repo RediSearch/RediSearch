@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher} | NUMERIC | GEO] [SORTABLE [NOINDEX] ...
 ```
 
 ### Description
@@ -16,11 +16,11 @@ Creates an index with the given spec. The index name will be used in all the key
 !!! warning "Note on field number limits"
         
         RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
-
+    
         On 32 bit builds, at most 64 fields can be TEXT fields.
-
+    
         Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
-
+    
         You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
 ### Parameters
@@ -63,24 +63,27 @@ Creates an index with the given spec. The index name will be used in all the key
     * **SORTABLE**
     
         Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
-  
+      
     * **NOSTEM**
-
+    
         Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
         This may be ideal for things like proper names.
-  
+      
     * **NOINDEX**
-
+    
         Fields can have the `NOINDEX` option, which means they will not be indexed. 
         This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
-
+    
     * **PHONETIC {matcher}**
-        Declaring field as phonetic will enabled a phonetic search on this field. {match} is used to specify the
-        phonetic algorithm and the language.
-        Matcher Format: <2 chars algorithm>:<2 chars language>. 
-        Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
-        Currently we support those languages: English (en), French (fr), Portuguese (pt) and Spanish (es).
-        Notice that double metaphone is not a language spacific and so it might might not provide an optimal result.
+    
+        Declaring field as phonetic enables performing phonetic matches on it, and searchs on that field will perform such matches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+    
+        * `dm:en` - Double Metaphone for English
+        * `dm:fr` - Double Metaphone for French
+        * `dm:pt` - Double Metaphone for Portuguese
+        * `dm:es` - Double Metaphone for Spanish
+    
+        For more details see [Phonetic Matching](/Phonetic_Matching).
 
 ### Complexity
 O(1)
@@ -106,7 +109,7 @@ FT.ADD {index} {docId} {score}
 
 ### Description
 
-Add a document to the index.
+Adds a document to the index.
 
 ### Parameters
 
@@ -117,7 +120,7 @@ Add a document to the index.
 !!! note "Notes on docId"
 
         The same docId cannot be added twice to the same index.
-
+    
         The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
@@ -185,11 +188,11 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 !!! warning "FT.ADD with REPLACE and PARTIAL"
         
         By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
-
+    
         However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
-
+    
         **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
-
+    
         **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
 
 ---
@@ -204,13 +207,13 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 ### Description
 
-Add a document to the index from an existing HASH key in Redis.
+Adds a document to the index from an existing HASH key in Redis.
 
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
--  **docId**: The document's id. This has to be an existing HASH key in redis that will hold the fields 
+-  **docId**: The document's id. This has to be an existing HASH key in Redis that will hold the fields 
     the index needs.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
@@ -247,7 +250,7 @@ FT.ALTER {index} SCHEMA ADD {field} {options} ...
 
 ### Description
 
-This command alters an existing index. Currently, adding fields to the index is the only supported
+Alters an existing index. Currently, adding fields to the index is the only supported
 alteration.
 
 Adding a field to the index will cause any future document updates to use the new field when
@@ -286,7 +289,7 @@ FT.INFO {index}
 
 ### Description
 
-Return information and statistics on the index. Returned values include:
+Returns information and statistics on the index. Returned values include:
 
 * Number of documents.
 * Number of distinct terms.
@@ -376,7 +379,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
 
 ### Description
 
-Search the index with a textual query, returning either documents or just ids.
+Searches the index with a textual query, returning either documents or just ids.
 
 ### Parameters
 
@@ -396,7 +399,7 @@ Search the index with a textual query, returning either documents or just ids.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and 
   exists for distributed search coordination purposes.
-    
+  
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
@@ -410,12 +413,12 @@ Search the index with a textual query, returning either documents or just ids.
   Non-existent keys are ignored - unless all the keys are non-existent.
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
   fields of the document, like title or URL. num is the number of specified field arguments  
-    
+  
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.  
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
   matched text.
-  See [Highlighting](/Highlight) for more detailts
+  See [Highlighting](/Highlight) for more details
 - **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight) for more
   details
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
@@ -474,11 +477,11 @@ FT.AGGREGATE  {index_name}
 
 ### Description
 
-Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc form them. See [the full documentation on aggregations](/Aggregations/) for further details.
+Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](/Aggregations/) for further details.
 
 ### Parameters
 
-* **index_name**: The index the query is executed again.
+* **index_name**: The index the query is executed against.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
@@ -487,7 +490,7 @@ Run a search query on an index, and perform aggregate transformations on the res
   avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, 
   where they are available to the aggregation pipeline with very load latency. LOAD hurts the 
   performance of aggregate queries considerably, since every processed record needs to execute the 
-  equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very 
+  equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very 
   high processing times. 
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. 
@@ -499,7 +502,7 @@ Run a search query on an index, and perform aggregate transformations on the res
 
 * **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY,
   using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for 
-  each propery. `nargs` is the number of sorting parameters, including ASC and DESC. for example: 
+  each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: 
   `SORTBY 4 @foo ASC @bar DESC`. 
 
     `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
@@ -530,9 +533,9 @@ Non-deterministic. Depends on the query and aggregations performed, but it is us
 
 Array Response. Each row is an array and represents a single aggregate result.
 
-### Example Output
+### Example output
 
-Here we are counting github events by user (actor), to produce the most active users:
+Here we are counting GitHub events by user (actor), to produce the most active users:
 
 ```
 127.0.0.1:6379> FT.AGGREGATE gh "*" GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
@@ -592,7 +595,7 @@ FT.EXPLAIN {index} {query}
 
 ### Description
 
-Return the execution plan for a complex query.
+Returns the execution plan for a complex query.
 
 In the returned response, a `+` on a term is an indication of stemming. 
 
@@ -621,7 +624,7 @@ INTERSECT {
 ```
 ### Parameters
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **index**: The index name. The index must be first created with FT.CREATE
 - **query**: The query string, as if sent to FT.SEARCH
 
 ### Complexity
@@ -646,21 +649,21 @@ FT.DEL {index} {doc_id} [DD]
 
 ### Description
 
-Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. 
+Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
 After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
 
 !!! warning "FT.DEL does not delete the actual document By default!"
         
         Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
-
+    
         Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
         
         Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
 
 ### Parameters
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
   the document is stored. Use DEL to do that manually if needed.
 
@@ -673,7 +676,7 @@ O(1)
 
 Integer Reply: 1 if the document was deleted, 0 if not.
 
---- 
+---
 
 ## FT.GET
 
@@ -687,13 +690,13 @@ FT.GET {index} {doc id}
 
 Returns the full contents of a document.
 
-Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
 
-If the document does not exist or is not a HASH object, we reutrn a NULL reply
+If the document does not exist or is not a HASH object, we return a NULL reply
 
 ### Parameters
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **index**: The index name. The index must be first created with FT.CREATE
 - **documentId**: The id of the document as inserted to the index
 
 ### Returns
@@ -713,8 +716,9 @@ FT.MGET {index} {docId} ...
 ### Description
 
 Returns the full contents of multiple documents. 
+
 Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future-proof and will allow us to change the internal representation of documents inside redis in the future. 
+This command is also future-proof and will allow us to change the internal representation of documents inside Redis in the future. 
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 We return an array with exactly the same number of elements as the number of keys sent to the command. 
@@ -748,13 +752,13 @@ Deletes all the keys associated with the index.
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 
-If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
 
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
-- **KEEPDOCS**: IF set, the drop operation will not delete the actual document hashes.
+- **KEEPDOCS**: If set, the drop operation will not delete the actual document hashes.
 
 ### Returns
 
@@ -772,16 +776,16 @@ FT.TAGVALS {index} {field_name}
 
 ### Description
 
-Return the distinct tags indexed in a [Tag field](/Tags/). 
+Returns the distinct tags indexed in a [Tag field](/Tags/). 
 
 This is useful if your tag field indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
-  
+
       There is no paging or sorting, the tags are not alphabetically sorted. 
-
+    
       This command only operates on [Tag fields](/Tags/).  
-
+    
       The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
 
 ### Parameters
@@ -809,8 +813,8 @@ FT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]
 
 ### Description
 
-Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
-index definitions, and leaves creating and updating suggestino dictionaries to the user.
+Adds a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
+index definitions, and leaves creating and updating suggestions dictionaries to the user.
 
 ### Parameters
 
@@ -838,7 +842,7 @@ FT.SUGGET {key} {prefix} [FUZZY] [WITHPAYLOADS] [MAX num]
 
 ### Description
 
-Get completion suggestions for a prefix
+Gets completion suggestions for a prefix.
 
 ### Parameters
 
@@ -869,7 +873,7 @@ FT.SUGDEL {key} {string}
 
 ### Description
 
-Delete a string from a suggestion index. 
+Deletes a string from a suggestion index. 
 
 ### Parameters
 
@@ -892,7 +896,7 @@ FT.SUGLEN {key}
 
 ### Description
 
-Get the size of an autoc-complete suggestion dictionary
+Gets the size of an auto-complete suggestion dictionary
 
 ### Parameters
 
@@ -931,6 +935,8 @@ FT.SYNADD <index name> <term1> <term2> ...
 
 ### Description
 
+Adds a synonym group.
+
 The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
 
 ---
@@ -944,6 +950,8 @@ FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 ```
 
 ### Description
+
+Updates a synonym group.
 
 The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
 
@@ -959,7 +967,9 @@ FT.SYNDUMP <index name>
 
 ### Description
 
-The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
+Dumps the contents of a synonym group.
+
+The command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.
 
 ---
 
@@ -973,42 +983,47 @@ The Command is used to dump the synonyms data structure. Returns a list of synon
 ```
 
 ### Description
-Run a spell check on the given query and return suggestions for spelling correction.
-The spelling correction is performed using LD on the terms exists in the index and on terms from
-the include dictionaries given. It is also possible to specify exclude disctionaries such that term
-which appears on those dictionaries will not return in the result. Suggestion are order by there score
-which is the suggestion cardinality in the given index (if suggestion exists on dictionary only, its score
-will be zero).
+
+Performs spelling correction on a query, returning suggestions for misspelled terms.
+
+See [Query Spelling Correction](/Spellcheck) for more details.
 
 ### Parameters
 
-* **index**: the index name to run the spell check againts.
+* **index**: the index with the indexed terms.
 
-* **query**: the query which contains terms for spell check.
+* **query**: the search query.
 
-* **TERMS**: include/exclude terms appears in the given dictionary.
+* **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to [`FT.DICTADD`](Commands/#ftdictadd), [`FT.DICTDEL`](/Commands/#ftdictdel) and [`FT.DICTDUMP`](/Commands/#ftdictdump) for managing custom dictionaries.
 
-* **DISTANCE**: LD for spell check.
-
+* **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 
 ### Returns
-The response is as follow:
+
+An array, in which each element represents a misspelled term from the query. The misspelled terms are ordered by their order of appearance in the query.
+
+Each misspelled term, in turn, is a 3-element array consisting of the constant string "TERM", the term itself and an array of suggestions for spelling corrections.
+
+Each element in the spelling corrections array consists of the score of the suggestion and the suggestion itself. The suggestions array, per misspelled term, is ordered in descending order by score.
+
+### Example output
+
 ```
 1)  1) "TERM"
-    2) "{term}"
-    3)  1)  1)  "{score}"
-            2)  "{suggestion}"
-        2)  1)  "{score}"
-            2)  "{suggestion}"
+    2) "{term1}"
+    3)  1)  1)  "{score1}"
+            2)  "{suggestion1}"
+        2)  1)  "{score2}"
+            2)  "{suggestion2}"
         .
         .
         .
 2)  1) "TERM"
-    2) "{term}"
-    3)  1)  1)  "{score}"
-            2)  "{suggestion}"
-        2)  1)  "{score}"
-            2)  "{suggestion}"
+    2) "{term2}"
+    3)  1)  1)  "{score1}"
+            2)  "{suggestion1}"
+        2)  1)  "{score2}"
+            2)  "{suggestion2}"
         .
         .
         .
@@ -1029,15 +1044,17 @@ The response is as follow:
 ```
 
 ### Description
-Allow to add terms to dictionaries
+
+Adds terms to a dictionary.
 
 ### Parameters
 
 * **dict**: the dictionary name.
 
-* **term**: the term to add to the dictionary
+* **term**: the term to add to the dictionary.
 
 ### Returns
+
 Returns int, specifically the number of new terms that were added.
 
 ---
@@ -1050,15 +1067,17 @@ Returns int, specifically the number of new terms that were added.
 ```
 
 ### Description
-Allow to delete terms to dictionaries
+
+Deletes terms from a dictionary.
 
 ### Parameters
 
 * **dict**: the dictionary name.
 
-* **term**: the term to delete from the dictionary
+* **term**: the term to delete from the dictionary.
 
 ### Returns
+
 Returns int, specifically the number of terms that were deleted.
 
 ---
@@ -1071,11 +1090,13 @@ Returns int, specifically the number of terms that were deleted.
 ```
 
 ### Description
-Dump all terms in the given dictionary
+
+Dumps all terms in the given dictionary.
 
 ### Parameters
 
 * **dict**: the dictionary name.
 
 ### Returns
+
 Returns an array, where each element is term (string).

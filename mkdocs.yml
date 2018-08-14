@@ -34,7 +34,7 @@ pages:
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'
-      - 'Aggregations (NEW!)': 'Aggregations.md'
+      - 'Aggregations': 'Aggregations.md'
       - 'Tokenization and Escaping': 'Escaping.md'
       - 'Sortable Values': 'Sorting.md'
       - 'Tag Fields': 'Tags.md'
@@ -44,6 +44,8 @@ pages:
       - 'Stemming Support': Stemming.md
       - 'Synonyms Support': Synonyms.md
       - 'Document Payloads': payloads.md
+      - 'Spelling Correction': Spellcheck.md
+      - 'Phonetic Matching': Phonetic_Matching.md
     - Clients:
       - 'Client Libraries': 'Clients.md'
       - 'Python API': python_client.md
