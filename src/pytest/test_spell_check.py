@@ -73,6 +73,9 @@ class SpellCheckTestCase(BaseSearchTestCase):
         res = self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
         self.assertEqual(res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
                                                  ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
+        res = self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'include', 'dict')
+        self.assertEqual(res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
+                                                 ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
 
     def testSpellCheckWithDuplications(self):
         self.cmd('ft.dictadd', 'dict', 'name1', 'name4', 'name5')
@@ -91,6 +94,8 @@ class SpellCheckTestCase(BaseSearchTestCase):
         self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
         self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
         res = self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict')
+        self.assertEqual(res, [])
+        res = self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'exclude', 'dict')
         self.assertEqual(res, [])
 
     def testSpellCheckNoneExistingIndex(self):
