@@ -395,6 +395,56 @@ class AggregateTestCase(BaseSearchTestCase):
                      'LOAD', 1, '@brand')
 
 
+# a test cases with on a larger data set
+class AggregateTestCase2(BaseSearchTestCase):
+
+    process_per_test = False
+
+    @classmethod
+    def setUpClass(cls):
+        super(AggregateTestCase2, cls).setUpClass()
+        cls.setup_class_server()
+        client = cls.class_server.client()
+        client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                               'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
+                               'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                               'categories', 'TAG')
+        fp = bz2.BZ2File(GAMES_JSON, 'r')
+
+        for line in fp:
+            obj = json.loads(line)
+            id = obj['asin']
+            del obj['asin']
+            obj['price'] = obj.get('price') or 0
+            obj['categories'] = ','.join(obj['categories'])
+            cmd = ['FT.ADD', 'games', id, 1, 'FIELDS', ] + \
+                [str(x) if x is not None else '' for x in itertools.chain(
+                    *obj.items())]
+            client.execute_command(*cmd)
+            cmd = ['FT.ADD', 'games', id + 'new', 1, 'FIELDS', ] + \
+                [str(x) if x is not None else '' for x in itertools.chain(
+                    *obj.items())]
+            client.execute_command(*cmd)
+
+    def tearDown(self):
+        # No teardown!
+        pass
+
+    @classmethod
+    def get_module_args(cls):
+        return super(AggregateTestCase2, cls).get_module_args() + ['SAFEMODE']
+
+    def testSimpleAggregate(self):
+        res = self.cmd('ft.aggregate', 'games', '*')
+        self.assertIsNotNone(res)
+        self.assertEqual(len(res), 4531)
+
+    def testSimpleAggregateWithCursor(self):
+        res = self.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
+        print len(res[0])
+        self.assertTrue(res[1] != 0)
+
+
 if __name__ == '__main__':
 
     unittest.main()
