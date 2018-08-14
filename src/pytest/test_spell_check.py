@@ -143,3 +143,11 @@ class SpellCheckTestCase(BaseSearchTestCase):
             self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
         with self.assertResponseError():
             self.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict')
+
+    def testSpellCheckResultsOrder(self):
+        self.cmd('ft.dictadd', 'dict', 'name')
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'Elior', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
+        res = self.cmd('ft.spellcheck', 'idx', 'Elioh Hilh')
+        self.assertEqual(res, [['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])
