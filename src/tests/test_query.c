@@ -154,6 +154,10 @@ int testQueryParser() {
   assertValidQuery("a for is", ctx);
   assertValidQuery("a|for|is", ctx);
   assertValidQuery("a little bit of party", ctx);
+  assertValidQuery("no-as", ctx);
+  assertValidQuery("~no~as", ctx);
+  assertValidQuery("(no -as) =>{$weight: 0.5}", ctx);
+  assertValidQuery("@foo:-as", ctx);
 
   // test utf-8 query
   assertValidQuery("שלום עולם", ctx);

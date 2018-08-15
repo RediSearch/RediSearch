@@ -83,6 +83,27 @@ size_t unescapen(char *s, size_t sz) {
  
   return (size_t)(dst - s);
 }
+
+#define NODENN_BOTH_VALID 0
+#define NODENN_BOTH_INVALID -1
+#define NODENN_ONE_NULL 1 
+// Returns:
+// 0 if a && b
+// -1 if !a && !b
+// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
+static int one_not_null(void *a, void *b, void **out) {
+    if (a && b) {
+        return NODENN_BOTH_VALID;
+    } else if (a == NULL && b == NULL) {
+        return NODENN_BOTH_INVALID;
+    } if (a) {
+        *out = a;
+        return NODENN_ONE_NULL;
+    } else {
+        *out = b;
+        return NODENN_ONE_NULL;
+    }
+}
    
 } // END %include  
 
@@ -154,12 +175,12 @@ query ::= STAR . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-
-    // if both B and C are null we return null
-    if (B == NULL && C == NULL) {
+    int rv = one_not_null(B, C, &A);
+    if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
     } else {
-
         if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
@@ -181,19 +202,21 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    if (B == NULL && C == NULL) {
+    int rv = one_not_null(B, C, &A);
+    if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
-    } else if (B && B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-        A = B;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
     } else {
-        A = NewUnionNode();
-        QueryUnionNode_AddChild(A, B);
-        if (B) 
-         A->opts.fieldMask |= B->opts.fieldMask;
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryUnionNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
 
-    } 
-    if (C) {
-
+        // Handle C
         QueryUnionNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
@@ -202,13 +225,12 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
 }
 
 union(A) ::= union(B) OR expr(C). [ORX] {
-    
     A = B;
-    QueryUnionNode_AddChild(A, C); 
-    A->opts.fieldMask |= C->opts.fieldMask;
-    QueryNode_SetFieldMask(C, A->opts.fieldMask);
-
-
+    if (C) {
+        QueryUnionNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -280,7 +302,7 @@ attribute_list(A) ::= . {
 
 expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 
-    if (C) {
+    if (B && C) {
         char *err = NULL;
         if (!QueryNode_ApplyAttributes(B, C, array_len(C), &err)) {
             ctx->ok = 0;
@@ -344,7 +366,11 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . { 
-    A = NewNotNode(B);
+    if (B) {
+        A = NewNotNode(B);
+    } else {
+        A = NULL;
+    }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -352,7 +378,11 @@ expr(A) ::= MINUS expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= TILDE expr(B) . { 
-    A = NewOptionalNode(B);
+    if (B) {
+        A = NewOptionalNode(B);
+    } else {
+        A = NULL;
+    }
 }
 
 /////////////////////////////////////////////////////////////////
