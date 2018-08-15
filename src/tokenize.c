@@ -122,7 +122,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       }
     }
 
-    if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= MIN_STEM_CANDIDATE_LEN) {
+    if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
       PhoneticManager_ExpandPhonerics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
