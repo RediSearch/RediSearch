@@ -695,7 +695,7 @@ class SearchTestCase(BaseSearchTestCase):
         # not on self term
         self.assertEqual(r.execute_command(
             'ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
-
+        
         self.assertEqual(r.execute_command(
             'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
         # self.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
@@ -1797,6 +1797,21 @@ class SearchTestCase(BaseSearchTestCase):
         doc = to_dict(self.cmd('FT.GET', 'idx2', 'doc2'))
         self.assertEqual('s200', doc['textfield'])
         self.assertEqual('1090', doc['numfield'])
+
+    # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
+    # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
+    # >FT.SEARCH myIdx "no-as"
+    # Could not connect to Redis at 127.0.0.1:6379: Connection refused
+    # >FT.SEARCH myIdx "no-as"
+    # (error) Unknown Index name
+    def testIssue422(self):
+        self.ftcreate('myIdx', 'schema',
+            'title', 'TEXT', 'WEIGHT', '5.0',
+            'body', 'TEXT',
+            'url', 'TEXT')
+        self.ftadd('myIdx', 'doc1', title="hello world", body="lorem ipsum", url="www.google.com")
+        rv = self.search('myIdx', 'no-as')
+        self.assertEqual([0], rv)
 
 
 def grouper(iterable, n, fillvalue=None):
