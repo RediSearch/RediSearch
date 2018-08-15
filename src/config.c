@@ -109,6 +109,14 @@ int ReadConfig(RedisModuleString **argv, int argc, const char **err) {
     }
   }
 
+  if (argc >= 2 && RMUtil_ArgIndex("MIN_PHONETIC_TERM_LEN", argv, argc) >= 0) {
+    RMUtil_ParseArgsAfter("MIN_PHONETIC_TERM_LEN", argv, argc, "l", &RSGlobalConfig.minPhoneticTermLen);
+    if (RSGlobalConfig.minPhoneticTermLen <= 0) {
+      *err = "Invalid MIN_PHONETIC_TERM_LEN value";
+      return REDISMODULE_ERR;
+    }
+  }
+
   return REDISMODULE_OK;
 }
 
