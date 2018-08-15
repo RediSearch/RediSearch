@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher} | NUMERIC | GEO] [SORTABLE [NOINDEX] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO] [SORTABLE][NOINDEX] ...
 ```
 
 ### Description
@@ -76,7 +76,7 @@ Creates an index with the given spec. The index name will be used in all the key
     
     * **PHONETIC {matcher}**
     
-        Declaring field as phonetic enables performing phonetic matches on it, and searchs on that field will perform such matches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+        Declaring a text field as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
     
         * `dm:en` - Double Metaphone for English
         * `dm:fr` - Double Metaphone for French

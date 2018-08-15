@@ -1,6 +1,6 @@
 # Phonetic Matching
 
-Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronounciation. This capability is useful when searching for names of people and places.
+Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronounciation. This capability can be a useful tool when searching for names of people.
 
 Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronounciation. This allows indexing terms, and consequently searching, by their pronounciation.
 
