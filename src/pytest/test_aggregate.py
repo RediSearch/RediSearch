@@ -17,23 +17,19 @@ def to_dict(res):
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
 
-class AggregateTestCase(BaseSearchTestCase):
-    process_per_test = False
+def add_values(cls, number_of_iterations=1):
+    cls.setup_class_server()
+    client = cls.class_server.client()
+    client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                           'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
+                           'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                           'categories', 'TAG')
 
-    @classmethod
-    def setUpClass(cls):
-        super(AggregateTestCase, cls).setUpClass()
-        cls.setup_class_server()
-        client = cls.class_server.client()
-        client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                               'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                               'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
-                               'categories', 'TAG')
+    for i in range(number_of_iterations):
         fp = bz2.BZ2File(GAMES_JSON, 'r')
-
         for line in fp:
             obj = json.loads(line)
-            id = obj['asin']
+            id = obj['asin'] + (str(i) if i > 0 else '')
             del obj['asin']
             obj['price'] = obj.get('price') or 0
             obj['categories'] = ','.join(obj['categories'])
@@ -41,6 +37,16 @@ class AggregateTestCase(BaseSearchTestCase):
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
             client.execute_command(*cmd)
+        fp.close()
+
+
+class AggregateTestCase(BaseSearchTestCase):
+    process_per_test = False
+
+    @classmethod
+    def setUpClass(cls):
+        super(AggregateTestCase, cls).setUpClass()
+        add_values(cls)
 
     def tearDown(self):
         # No teardown!
@@ -403,28 +409,7 @@ class AggregateTestCase2(BaseSearchTestCase):
     @classmethod
     def setUpClass(cls):
         super(AggregateTestCase2, cls).setUpClass()
-        cls.setup_class_server()
-        client = cls.class_server.client()
-        client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                               'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                               'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
-                               'categories', 'TAG')
-        fp = bz2.BZ2File(GAMES_JSON, 'r')
-
-        for line in fp:
-            obj = json.loads(line)
-            id = obj['asin']
-            del obj['asin']
-            obj['price'] = obj.get('price') or 0
-            obj['categories'] = ','.join(obj['categories'])
-            cmd = ['FT.ADD', 'games', id, 1, 'FIELDS', ] + \
-                [str(x) if x is not None else '' for x in itertools.chain(
-                    *obj.items())]
-            client.execute_command(*cmd)
-            cmd = ['FT.ADD', 'games', id + 'new', 1, 'FIELDS', ] + \
-                [str(x) if x is not None else '' for x in itertools.chain(
-                    *obj.items())]
-            client.execute_command(*cmd)
+        add_values(cls, number_of_iterations=2)
 
     def tearDown(self):
         # No teardown!
@@ -441,7 +426,6 @@ class AggregateTestCase2(BaseSearchTestCase):
 
     def testSimpleAggregateWithCursor(self):
         res = self.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
-        print len(res[0])
         self.assertTrue(res[1] != 0)
 
 
