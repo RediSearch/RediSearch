@@ -25,7 +25,7 @@ void CursorList_Init(CursorList *cl) {
   pthread_mutex_init(&cl->lock, NULL);
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
-  srand(getpid());
+  srand48(getpid());
 }
 
 static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName) {
@@ -165,7 +165,7 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48();
+  uint64_t id = lrand48() + 1; // 0 should never be returned as cursor id
   return id;
 }
 

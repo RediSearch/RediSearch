@@ -17,23 +17,19 @@ def to_dict(res):
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
 
-class AggregateTestCase(BaseSearchTestCase):
-    process_per_test = False
+def add_values(cls, number_of_iterations=1):
+    cls.setup_class_server()
+    client = cls.class_server.client()
+    client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                           'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
+                           'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                           'categories', 'TAG')
 
-    @classmethod
-    def setUpClass(cls):
-        super(AggregateTestCase, cls).setUpClass()
-        cls.setup_class_server()
-        client = cls.class_server.client()
-        client.execute_command('FT.CREATE', 'games', 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                               'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                               'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
-                               'categories', 'TAG')
+    for i in range(number_of_iterations):
         fp = bz2.BZ2File(GAMES_JSON, 'r')
-
         for line in fp:
             obj = json.loads(line)
-            id = obj['asin']
+            id = obj['asin'] + (str(i) if i > 0 else '')
             del obj['asin']
             obj['price'] = obj.get('price') or 0
             obj['categories'] = ','.join(obj['categories'])
@@ -41,6 +37,16 @@ class AggregateTestCase(BaseSearchTestCase):
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
             client.execute_command(*cmd)
+        fp.close()
+
+
+class AggregateTestCase(BaseSearchTestCase):
+    process_per_test = False
+
+    @classmethod
+    def setUpClass(cls):
+        super(AggregateTestCase, cls).setUpClass()
+        add_values(cls)
 
     def tearDown(self):
         # No teardown!
@@ -393,6 +399,34 @@ class AggregateTestCase(BaseSearchTestCase):
             self.cmd('ft.aggregate', 'games', '*',
                      'LIMIT', '0', '5',
                      'LOAD', 1, '@brand')
+
+
+# a test cases with on a larger data set
+class AggregateTestCase2(BaseSearchTestCase):
+
+    process_per_test = False
+
+    @classmethod
+    def setUpClass(cls):
+        super(AggregateTestCase2, cls).setUpClass()
+        add_values(cls, number_of_iterations=2)
+
+    def tearDown(self):
+        # No teardown!
+        pass
+
+    @classmethod
+    def get_module_args(cls):
+        return super(AggregateTestCase2, cls).get_module_args() + ['SAFEMODE']
+
+    def testSimpleAggregate(self):
+        res = self.cmd('ft.aggregate', 'games', '*')
+        self.assertIsNotNone(res)
+        self.assertEqual(len(res), 4531)
+
+    def testSimpleAggregateWithCursor(self):
+        res = self.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
+        self.assertTrue(res[1] != 0)
 
 
 if __name__ == '__main__':
