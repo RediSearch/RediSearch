@@ -9,13 +9,36 @@ docker run -p 6379:6379 redislabs/redisearch:latest
 
 ## Building and running from source
 
+RediSearch uses [CMake](https://cmake.org/) as its build system. CMake is
+available for almost every available platform. You can obtain cmake through
+your operating system's package manager. RediSearch requires CMake version
+3 or greater. If your package repository does not contain CMake3, you can
+download a precompiled binary from [CMake downloads](https://cmake.org/download/).
+
+To build using CMake:
+
 ```sh
 git clone https://github.com/RedisLabsModules/RediSearch.git
-cd RediSearch/src
-make all
+cd RediSearch
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+make
 
-# Assuming you have a Redis build from the unstable branch:
-/path/to/redis-server --loadmodule ./redisearch.so
+redis-server --loadmodule ./redisearch.so
+```
+
+The resulting module will be in the current directory.
+
+You can also simply type `make` from the top level directory, this will
+take care of running `cmake` with the appropriate arguments, and provide you
+with a `redisearch.so` file in the `src` directory:
+
+```sh
+git clone https://github.com/RedisLabsModules/RediSearch.git
+cd RediSearch
+make
+redis-server --loadmodule ./src/redisearch.so
 ```
 
 ## Creating an index with fields and weights (default weight is 1.0)
