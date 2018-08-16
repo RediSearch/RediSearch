@@ -157,7 +157,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
 
 void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  struct ConcurrentCmdCtx *unused) {
-  if (argc < 3) {
+  if (argc < 4) {
     RedisModule_WrongArity(ctx);
     return;
   }
