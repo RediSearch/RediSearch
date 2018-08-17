@@ -175,11 +175,11 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
 
-  if (totalDocNumber > 0) {
-    for (int i = 0; i < array_len(suggestions); ++i) {
-      if (suggestions[i]->score == -1) {
-        suggestions[i]->score = 0;
-      } else {
+  for (int i = 0; i < array_len(suggestions); ++i) {
+    if (suggestions[i]->score == -1) {
+      suggestions[i]->score = 0;
+    } else {
+      if (totalDocNumber > 0) {
         suggestions[i]->score = (suggestions[i]->score) / totalDocNumber;
       }
     }
