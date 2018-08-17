@@ -151,3 +151,9 @@ class SpellCheckTestCase(BaseSearchTestCase):
         self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
         res = self.cmd('ft.spellcheck', 'idx', 'Elioh Hilh')
         self.assertEqual(res, [['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])
+
+    def testSpellCheckIssue437(self):
+        self.cmd('ft.create', 'incidents', 'SCHEMA', 'report', 'text')
+        self.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
+        res = self.cmd('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS', 'EXCLUDE', 'slang', 'TERMS', 'INCLUDE', 'slang')
+        self.assertEqual(res, [['TERM', 'tooni', [['0', 'toonie']]]])
