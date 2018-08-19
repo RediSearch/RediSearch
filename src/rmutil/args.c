@@ -24,7 +24,7 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
 
 static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   double dTmp = 0.0;
-  if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE)) {
+  if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
   if (flags & AC_F_COALESCE) {
@@ -138,7 +138,7 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
 
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
   const char *s = NULL;
-  if (AC_GetString(ac, &s, len, 0) != 0) {
+  if (AC_GetString(ac, &s, len, 0) != AC_OK) {
     return NULL;
   }
   return s;
