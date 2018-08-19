@@ -14,7 +14,7 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
   } else {
     ac->offset += by;
   }
-  return 0;
+  return AC_OK;
 }
 
 #define MAYBE_ADVANCE()            \
@@ -29,14 +29,14 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   }
   if (flags & AC_F_COALESCE) {
     *ll = dTmp;
-    return 0;
+    return AC_OK;
   }
 
   if ((double)(long long)dTmp != dTmp) {
     return AC_ERR_PARSE;
   } else {
     *ll = dTmp;
-    return 0;
+    return AC_OK;
   }
 }
 
@@ -44,19 +44,27 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
   if (ac->offset == ac->argc) {
     return AC_ERR_NOARG;
   }
+
+  int hasErr = 0;
+  // Try to parse the number as a normal integer first. If that fails, try
+  // to parse it as a double. This will work if the number is in the format of
+  // 3.00, OR if the number is in the format of 3.14 *AND* AC_F_COALESCE is set.
   if (ac->type == AC_TYPE_RSTRING) {
-    if (RedisModule_StringToLongLong(AC_CURRENT(ac), ll) == REDISMODULE_ERR &&
-        tryReadAsDouble(ac, ll, flags)) {
+    if (RedisModule_StringToLongLong(AC_CURRENT(ac), ll) == REDISMODULE_ERR) {
+      hasErr = 1;
     }
   } else {
     char *endptr = AC_CURRENT(ac);
     *ll = strtoll(AC_CURRENT(ac), &endptr, 10);
     if (*endptr != '\0' || *ll == LLONG_MIN || *ll == LLONG_MAX) {
-      if (tryReadAsDouble(ac, ll, flags) != 0) {
-        return AC_ERR_PARSE;
-      }
+      hasErr = 1;
     }
   }
+
+  if (hasErr && tryReadAsDouble(ac, ll, flags) != AC_OK) {
+    return AC_ERR_PARSE;
+  }
+
   if ((flags & AC_F_GE0) && *ll < 0) {
     return AC_ERR_ELIMIT;
   }
@@ -65,7 +73,7 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();
-  return 0;
+  return AC_OK;
 }
 
 #define GEN_AC_FUNC(name, T, minVal, maxVal, isUnsigned)      \
@@ -83,7 +91,7 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
     }                                                         \
     *p = ll;                                                  \
     MAYBE_ADVANCE();                                          \
-    return 0;                                                 \
+    return AC_OK;                                             \
   }
 
 GEN_AC_FUNC(AC_GetUnsignedLongLong, unsigned long long, 0, LLONG_MAX, 1)
@@ -109,7 +117,7 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();
-  return 0;
+  return AC_OK;
 }
 
 int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
@@ -125,7 +133,7 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
     }
   }
   MAYBE_ADVANCE();
-  return 0;
+  return AC_OK;
 }
 
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
