@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="http://redisearch.io/Tags/">
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Tags/">
       
       
       
@@ -33,7 +33,7 @@
       
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
-      <link rel="shortcut icon" href="../assets/images/favicon.png">
+      <link rel="shortcut icon" href="../img/favicon.png">
       <meta name="generator" content="mkdocs-0.17.3, mkdocs-material-2.7.3">
     
     
@@ -104,7 +104,7 @@
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
-        <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
             <img src="../logo_small.png" width="24" height="24">
           
@@ -175,7 +175,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -224,7 +224,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -677,6 +677,18 @@
   </li>
 
     
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../contrib/" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
   </ul>
 </nav>
                   </div>
@@ -814,7 +826,7 @@ FT.ADD myIndex user1 1.0 FIELDS name &quot;John Doe&quot; cities &quot;New York,
 
 
 <h2 id="multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping">Multi-word tags And escaping<a class="headerlink" href="#multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h2>
-<p>Tags can be composed multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). </p>
+<p>Tags can be composed multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). <em>NOTE:</em> in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as hello\-world.</p>
 <p>It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
 <p>The following are identical:</p>
 <div class="codehilite"><pre><span></span>@tags:{foo\ bar\ baz | hello\ world}

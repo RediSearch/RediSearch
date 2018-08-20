@@ -3,40 +3,40 @@
 
     
     <url>
-     <loc>http://redisearch.io/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
 
     
     <url>
-     <loc>http://redisearch.io/Quick_Start/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Quick_Start/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
 
     
     <url>
-     <loc>http://redisearch.io/Commands/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Commands/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
 
     
     <url>
-     <loc>http://redisearch.io/Configuring/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Configuring/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
 
     
     <url>
-     <loc>http://redisearch.io/Administration/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Administration/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     
@@ -44,102 +44,74 @@
     
         
     <url>
-     <loc>http://redisearch.io/Query_Syntax/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Query_Syntax/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Stopwords/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Stopwords/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Aggregations/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Aggregations/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Escaping/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Escaping/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Sorting/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Sorting/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Tags/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Tags/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Highlight/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Highlight/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Scoring/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Scoring/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Extensions/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Extensions/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Stemming/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Stemming/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/Synonyms/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Synonyms/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
     <url>
-     <loc>http://redisearch.io/payloads/</loc>
-     <lastmod>2018-07-05</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    
-
-    
-        
-    <url>
-     <loc>http://redisearch.io/Clients/</loc>
-     <lastmod>2018-07-05</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    <url>
-     <loc>http://redisearch.io/python_client/</loc>
-     <lastmod>2018-07-05</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    <url>
-     <loc>http://redisearch.io/java_client/</loc>
-     <lastmod>2018-07-05</lastmod>
-     <changefreq>daily</changefreq>
-    </url>
-        
-    <url>
-     <loc>http://redisearch.io/go_client/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/payloads/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
@@ -148,8 +120,26 @@
     
         
     <url>
-     <loc>http://redisearch.io/design/gc/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Clients/</loc>
+     <lastmod>2018-08-20</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
+    <url>
+     <loc>https://oss.redislabs.com/redisearch/python_client/</loc>
+     <lastmod>2018-08-20</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
+    <url>
+     <loc>https://oss.redislabs.com/redisearch/java_client/</loc>
+     <lastmod>2018-08-20</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
+    <url>
+     <loc>https://oss.redislabs.com/redisearch/go_client/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
@@ -158,8 +148,18 @@
     
         
     <url>
-     <loc>http://redisearch.io/Threading/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/design/gc/</loc>
+     <lastmod>2018-08-20</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+        
+    
+
+    
+        
+    <url>
+     <loc>https://oss.redislabs.com/redisearch/Threading/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
         
@@ -167,8 +167,16 @@
 
     
     <url>
-     <loc>http://redisearch.io/Chinese/</loc>
-     <lastmod>2018-07-05</lastmod>
+     <loc>https://oss.redislabs.com/redisearch/Chinese/</loc>
+     <lastmod>2018-08-20</lastmod>
+     <changefreq>daily</changefreq>
+    </url>
+    
+
+    
+    <url>
+     <loc>https://oss.redislabs.com/redisearch/contrib/</loc>
+     <lastmod>2018-08-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     

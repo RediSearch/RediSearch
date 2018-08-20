@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="http://redisearch.io/Query_Syntax/">
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Query_Syntax/">
       
       
       
@@ -33,7 +33,7 @@
       
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
-      <link rel="shortcut icon" href="../assets/images/favicon.png">
+      <link rel="shortcut icon" href="../img/favicon.png">
       <meta name="generator" content="mkdocs-0.17.3, mkdocs-material-2.7.3">
     
     
@@ -104,7 +104,7 @@
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
-        <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
             <img src="../logo_small.png" width="24" height="24">
           
@@ -175,7 +175,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -224,7 +224,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -759,6 +759,18 @@
   </li>
 
     
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../contrib/" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
   </ul>
 </nav>
                   </div>
@@ -1043,6 +1055,7 @@ e.g.
 <li><strong>$weight</strong>: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).</li>
 <li><strong>$slop</strong>: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).</li>
 <li><strong>$inorder</strong>: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with <code>$slop</code> (default: false).</li>
+<li><strong>$phonetic</strong>: whether or not to perform phonetic search on the term (setting this value on feild which are not declared phonetic will results in error).</li>
 </ul>
 <h2 id="a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples">A few query examples<a class="headerlink" href="#a&quot;_&quot;few&quot;_&quot;query&quot;_&quot;examples" title="Permanent link">&para;</a></h2>
 <ul>

@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="http://redisearch.io/Quick_Start/">
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Quick_Start/">
       
       
       
@@ -33,7 +33,7 @@
       
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
-      <link rel="shortcut icon" href="../assets/images/favicon.png">
+      <link rel="shortcut icon" href="../img/favicon.png">
       <meta name="generator" content="mkdocs-0.17.3, mkdocs-material-2.7.3">
     
     
@@ -104,7 +104,7 @@
   <nav class="md-header-nav md-grid">
     <div class="md-flex">
       <div class="md-flex__cell md-flex__cell--shrink">
-        <a href="http://redisearch.io" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
             <img src="../logo_small.png" width="24" height="24">
           
@@ -175,7 +175,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -224,7 +224,7 @@
       </div>
     
     <div class="md-source__repository">
-      GitHub
+      RedisLabsModules/RediSearch
     </div>
   </a>
 
@@ -696,6 +696,18 @@
   </li>
 
     
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../contrib/" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
   </ul>
 </nav>
                   </div>
@@ -791,12 +803,31 @@
 
 
 <h2 id="building&quot;_&quot;and&quot;_&quot;running&quot;_&quot;from&quot;_&quot;source">Building and running from source<a class="headerlink" href="#building&quot;_&quot;and&quot;_&quot;running&quot;_&quot;from&quot;_&quot;source" title="Permanent link">&para;</a></h2>
+<p>RediSearch uses <a href="https://cmake.org/">CMake</a> as its build system. CMake is
+available for almost every available platform. You can obtain cmake through
+your operating system's package manager. RediSearch requires CMake version
+3 or greater. If your package repository does not contain CMake3, you can
+download a precompiled binary from <a href="https://cmake.org/download/">CMake downloads</a>.</p>
+<p>To build using CMake:</p>
 <div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
-<span class="nb">cd</span> RediSearch/src
-make all
+<span class="nb">cd</span> RediSearch
+mkdir build
+<span class="nb">cd</span> build
+cmake .. -DCMAKE_BUILD_TYPE<span class="o">=</span>RelWithDebInfo
+make
 
-<span class="c1"># Assuming you have a Redis build from the unstable branch:</span>
-/path/to/redis-server --loadmodule ./redisearch.so
+redis-server --loadmodule ./redisearch.so
+</pre></div>
+
+
+<p>The resulting module will be in the current directory.</p>
+<p>You can also simply type <code>make</code> from the top level directory, this will
+take care of running <code>cmake</code> with the appropriate arguments, and provide you
+with a <code>redisearch.so</code> file in the <code>src</code> directory:</p>
+<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
+<span class="nb">cd</span> RediSearch
+make
+redis-server --loadmodule ./src/redisearch.so
 </pre></div>
 
 
