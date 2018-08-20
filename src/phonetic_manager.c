@@ -9,7 +9,7 @@ static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   }
   size_t len = strlen(*phoneticTerm) + 1;
   *phoneticTerm = realloc(*phoneticTerm, sizeof(char*) * (len + 1));
-  memcpy((*phoneticTerm) + 1, *phoneticTerm, len);
+  memmove((*phoneticTerm) + 1, *phoneticTerm, len);
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
