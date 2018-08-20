@@ -56,6 +56,14 @@ class SpellCheckTestCase(BaseSearchTestCase):
         else:
             self.skipTest("FIXME: Test not working on cluster")
 
+    def testBasicSpellCheckWithNoResult(self):
+        self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+        self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
+        self.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
+        self.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+        res = self.cmd('ft.spellcheck', 'idx', 'somenotexiststext')
+        self.assertEqual(res, [['TERM', 'somenotexiststext', []]])
+
     def testSpellCheckOnExistingTerm(self):
         self.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
         self.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name', 'body', 'body1')
