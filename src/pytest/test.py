@@ -1834,6 +1834,13 @@ class SearchTestCase(BaseSearchTestCase):
         rv = self.search('myIdx', 'no-as')
         self.assertEqual([0], rv)
 
+    def testIssue446(self):
+        self.ftcreate('myIdx', 'schema',
+                      'title', 'TEXT', 'SORTABLE')
+        self.ftadd('myIdx', 'doc1', title="hello world", body="lorem ipsum", url="www.google.com")
+        rv = self.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
+        self.assertEqual([1], rv)
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
