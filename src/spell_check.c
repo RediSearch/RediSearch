@@ -167,7 +167,6 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 
 void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
-#define NO_SUGGESTIONS_REPLY "no spelling corrections found"
 #define TERM "TERM"
   RedisModule_ReplyWithArray(ctx, 3);
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
@@ -188,7 +187,8 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
   qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
 
   if (array_len(suggestions) == 0) {
-    RedisModule_ReplyWithStringBuffer(ctx, NO_SUGGESTIONS_REPLY, strlen(NO_SUGGESTIONS_REPLY));
+    // no results found, we return an empty array
+    RedisModule_ReplyWithArray(ctx, 0);
   } else {
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
