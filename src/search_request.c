@@ -69,7 +69,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
   // Parse LIMIT argument
   long long offset = 0, limit = 10;
   if (RMUtil_ParseArgsAfter("LIMIT", argv, argc, "ll", &offset, &limit) == REDISMODULE_OK) {
-    if (offset < 0 || limit <= 0 || (offset + limit > SEARCH_REQUEST_RESULTS_MAX)) {
+    if (offset < 0 || limit < 0 || (offset + limit > SEARCH_REQUEST_RESULTS_MAX)) {
       SET_ERR(errStr, "Invalid LIMIT parameters");
       goto err;
     }
