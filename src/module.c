@@ -1530,6 +1530,44 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Not bound to a specific index, so...
+  RedisModule_AutoMemory(ctx);
+
+  // CONFIG <GET|SET> <NAME> [value]
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *action = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *name = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp(action, "GET")) {
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 0);
+  } else if (!strcasecmp(action, "HELP")) {
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 1);
+  } else if (!strcasecmp(action, "SET")) {
+    size_t offset = 3;  // Might be == argc. SetOption deals with it.
+    char *err = NULL;
+    if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
+                           &err) == REDISMODULE_ERR) {
+      RedisModule_ReplyWithSimpleString(ctx, err ? err : "Failed to set value");
+      ERR_FREE(err);
+      return REDISMODULE_OK;
+    }
+    if (offset != argc) {
+      RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");
+    } else {
+      RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
+      RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    return REDISMODULE_OK;
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "No such configuration action");
+    return REDISMODULE_OK;
+  }
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1592,9 +1630,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RedisModule_Log(ctx, "notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
                   REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
 
-  const char *err;
+  char *err;
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
+    free(err);
     return REDISMODULE_ERR;
   }
   sds confstr = RSConfig_GetInfoString(&RSGlobalConfig);
@@ -1722,5 +1761,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }

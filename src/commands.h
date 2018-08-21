@@ -47,4 +47,5 @@
 
 #define RS_DICT_DUMP RS_CMD_PREFIX ".DICTDUMP"
 
+#define RS_CONFIG RS_CMD_PREFIX ".CONFIG"
 #endif
