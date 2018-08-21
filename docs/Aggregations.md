@@ -53,6 +53,13 @@ FT.AGGREGATE
 
 #### Parameters in detail
 
+Parameters which may take a variable number of arguments are expressed in the
+form of `param {nargs} {property_1... property_N}`. The first argument to the
+parameter is the number of arguments following the parameter. This allows
+RediSearch to avoid a parsing ambiguity in case one of your arguments has the
+name of another parameter. For example, to sort by first name, last name, and
+country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
+
 * **index_name**: The index the query is executed again.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
