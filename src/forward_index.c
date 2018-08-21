@@ -86,7 +86,9 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry, .Compare = khtCompare, .Hash = khtHash,
+      .Alloc = allocBucketEntry,
+      .Compare = khtCompare,
+      .Hash = khtHash,
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -122,8 +124,6 @@ static inline int hasOffsets(const ForwardIndex *idx) {
 }
 
 void ForwardIndexFree(ForwardIndex *idx) {
-  size_t elemSize = sizeof(khIdxEntry);
-
   BlkAlloc_FreeAll(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
   KHTable_Free(idx->hits);
@@ -253,7 +253,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {
-  int dummy;
   KHTableEntry *baseEnt = KHTable_GetEntry(i->hits, s, n, hash, NULL);
   if (!baseEnt) {
     return NULL;
