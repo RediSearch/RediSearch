@@ -17,7 +17,7 @@ typedef struct {
   char* language;
 } PhoneticManagerCtx;
 
-void PhoneticManager_ExpandPhonerics(PhoneticManagerCtx* ctx, const char* term, size_t len,
+void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary);
 
 #endif /* SRC_PHONETIC_MANAGER_H_ */

@@ -1,5 +1,5 @@
 #include "phonetic_manager.h"
-#include "dep/phonetics/double_metaphone_capi.h"
+#include "dep/phonetics/double_metaphone.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -13,11 +13,14 @@ static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
-void PhoneticManager_ExpandPhonerics(PhoneticManagerCtx* ctx, const char* term, size_t len,
+void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary) {
   // currently ctx is irrelevant we support only one universal algorithm for all 4 languages
   // this phonetic manager was built for future thinking and easily add more algorithms
-  DoubleMetaphone_c(term, len, primary, secondary);
+  char bufTmp[len + 1];
+  bufTmp[len] = 0;
+  memcpy(bufTmp, term, len);
+  DoubleMetaphone(bufTmp, primary, secondary);
   PhoneticManager_AddPrefix(primary);
   PhoneticManager_AddPrefix(secondary);
 }

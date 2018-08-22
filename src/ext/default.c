@@ -323,11 +323,11 @@ void StemmerExpanderFree(void *p) {
  *
  ******************************************************************************************/
 void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
-  char* primary = NULL;
+  char *primary = NULL;
 
-  PhoneticManager_ExpandPhonerics(NULL, token->str, token->len, &primary, NULL);
+  PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
 
-  if(primary){
+  if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
   }
 }
@@ -372,7 +372,7 @@ void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
   SynonymExpand(ctx, token);
   // todo: if phonetic default check if the field spec has phonetics
-  if(phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED){
+  if (phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED) {
     PhoneticExpand(ctx, token);
   }
 
