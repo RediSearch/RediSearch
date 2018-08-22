@@ -532,9 +532,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
     const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if (strcasecmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, (char*)dictName);
+      includeDict = array_append(includeDict, (char *)dictName);
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, (char*)dictName);
+      excludeDict = array_append(excludeDict, (char *)dictName);
     } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;
@@ -562,9 +562,8 @@ end:
   return REDISMODULE_OK;
 }
 
-/* FT.EXPLAIN {index_name} {query} */
-int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
+static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              int newlinesAsElements) {
   // at least one field, and number of field/text args must be even
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -631,15 +630,35 @@ int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     req->numericFilters = NULL;
   }
 
-  char *explain = Query_DumpExplain(q);
-  RedisModule_ReplyWithStringBuffer(ctx, explain, strlen(explain));
-  free(explain);
+  char *explainRoot = Query_DumpExplain(q);
+  if (newlinesAsElements) {
+    size_t numElems = 0;
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    char *explain = explainRoot;
+    char *curLine = NULL;
+    while ((curLine = strsep(&explain, "\n")) != NULL) {
+      RedisModule_ReplyWithSimpleString(ctx, curLine);
+      numElems++;
+    }
+    RedisModule_ReplySetArrayLength(ctx, numElems);
+  } else {
+    RedisModule_ReplyWithStringBuffer(ctx, explainRoot, strlen(explainRoot));
+  }
+  free(explainRoot);
 
 end:
 
   Query_Free(q);
   RSSearchRequest_Free(req);
   return REDISMODULE_OK;
+}
+
+/* FT.EXPLAIN {index_name} {query} */
+int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return queryExplainCommon(ctx, argv, argc, 0);
+}
+int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return queryExplainCommon(ctx, argv, argc, 1);
 }
 
 #define GEN_CONCURRENT_WRAPPER(name, argcond, target, pooltype)                      \
@@ -1689,6 +1708,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1,
+         1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, SuggestAddCommand, "write deny-oom", 1, 1,
          1);
