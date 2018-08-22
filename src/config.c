@@ -5,10 +5,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <assert.h>
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 
 static int readLongLong(RedisModuleString **argv, size_t argc, size_t *offset, long long *out) {
+  assert(*offset <= argc);
   if (*offset == argc) {
     // printf("Missing argument!\n");
     RETURN_ERROR("Missing argument");
@@ -97,7 +99,6 @@ CONFIG_GETTER(getMinPrefix) {
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
   long long size;
-  printf("Hello!!\n");
   if (readLongLongLimit(argv, argc, offset, &size, 1, MAX_DOC_TABLE_SIZE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
