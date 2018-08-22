@@ -42,16 +42,16 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Optional query clauses.
 * Prefix based searches.
 * Field weights.
-* Auto-complete suggestions (with fuzzy prefix suggestions)
+* Auto-complete suggestions (with fuzzy prefix suggestions).
 * Exact Phrase Search, Slop based search.
 * Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
-* Limiting searches to specific document fields (**Up to ~~32~~ 128 TEXT fields supported; Unlimited TAG and NUMERIC fields**).
+* Limiting searches to specific document fields.
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands. 
-* Unicode support (UTF-8 input required)
+* Unicode support (UTF-8 input required).
 * Retrieve full document content or just ids
 * Document deletion and updating with index garbage collection.
-* Partial document updates.
+* Partial and conditional document updates.
 
 
