@@ -32,8 +32,7 @@ static inline void ArgsCursor_InitCString(ArgsCursor *cursor, const char **argv,
   cursor->argc = argc;
 }
 
-static inline void ArgsCursor_InitRString(ArgsCursor *cursor, const RedisModuleString **argv,
-                                          int argc) {
+static inline void ArgsCursor_InitRString(ArgsCursor *cursor, RedisModuleString **argv, int argc) {
   cursor->objs = (void **)argv;
   cursor->type = AC_TYPE_RSTRING;
   cursor->offset = 0;
@@ -67,8 +66,17 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
 int AC_Advance(ArgsCursor *ac);
 int AC_AdvanceBy(ArgsCursor *ac, size_t by);
 
+/**
+ * Read the argument list in the format of
+ * <NUM_OF_ARGS> <ARG[1]> <ARG[2]> .. <ARG[NUM_OF_ARGS]>
+ * The output is stored in dest which contains a sub-array of argv/argc
+ */
+int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dest);
+
 #define AC_CURRENT(ac) ((ac)->objs[(ac)->offset])
 #define AC_Clear(ac)  // NOOP
+#define AC_IsAtEnd(ac) ((ac)->offset >= (ac)->argc)
+#define AC_NumRemaining(ac) ((ac)->argc - (ac)->offset)
 
 #ifdef __cplusplus
 }

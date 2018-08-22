@@ -61,7 +61,7 @@ int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t);
  * default is ASC if not specified.  This function returns 1 if we found sorting args, they are
  * valid and the field name exists */
 int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
-                            int argc);
+                            int argc, size_t *offset);
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
 

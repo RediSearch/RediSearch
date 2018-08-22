@@ -30,7 +30,7 @@ class TagsTestCase(BaseSearchTestCase):
 
             # inorder should not affect tags
             res = self.search(
-                r, 'idx', '@tags:{tag 1} @tags:{foo bar}', 'slop 0', 'inorder')
+                r, 'idx', '@tags:{tag 1} @tags:{foo bar}', 'slop', '0', 'inorder')
             self.assertEqual(1, res[0])
 
             for n in range(N - 1):

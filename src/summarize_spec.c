@@ -7,7 +7,7 @@
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]
  * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
-*/
+ */
 
 static int parseTags(RedisModuleString **argv, int argc, size_t *offset, const char **open,
                      const char **close) {
@@ -123,7 +123,6 @@ static int parseCommon(RedisModuleString **argv, int argc, size_t *offset, Field
                                                  .closeTag = SUMMARIZE_DEFAULT_CLOSE_TAG}};
 
   Array fieldPtrs;
-  ++*offset;
   Array_Init(&fieldPtrs);
 
   if (*offset == argc) {
