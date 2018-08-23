@@ -575,14 +575,14 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  char *err = NULL;
-
-  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &err);
+  QueryError status = {0};
+  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &status);
   if (req == NULL) {
-    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
+    const char *errstr = QueryError_GetError(&status);
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s", errstr);
     SearchCtx_Free(sctx);
-    RedisModule_ReplyWithError(ctx, err);
-    ERR_FREE(err);
+    RedisModule_ReplyWithError(ctx, errstr);
+    QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
 
@@ -592,12 +592,12 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(ctx, "Error parsing query");
   }
 
-  if (!Query_Parse(q, &err)) {
-
-    if (err) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
-      RedisModule_ReplyWithError(ctx, err);
-      ERR_FREE(err);
+  if (!Query_Parse(q, &status.detail)) {
+    // TODO: Use proper 'status' for this...
+    if (status.detail) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", status.detail);
+      RedisModule_ReplyWithError(ctx, status.detail);
+      ERR_FREE(status.detail);
     } else {
       /* Simulate an empty response - this means an empty query */
       RedisModule_ReplyWithArray(ctx, 1);
@@ -922,31 +922,30 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return;
   }
 
-  char *err = NULL;
+  QueryError status = {0};
   RSSearchRequest *req = NULL;
   QueryParseCtx *q = NULL;
   QueryPlan *plan = NULL;
 
-  req = ParseRequest(sctx, argv, argc, &err);
+  req = ParseRequest(sctx, argv, argc, &status);
   if (req == NULL) {
-    RedisModule_Log(ctx, "warning", "Error parsing request: %s", err);
-    RedisModule_ReplyWithError(ctx, err ? err : "Error parsing request");
-
+    RedisModule_Log(ctx, "warning", "Error parsing request: %s", status.detail);
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     goto end;
   }
 
-  q = SearchRequest_ParseQuery(sctx, req, &err);
-  if (!q && err) {
-    RedisModule_Log(ctx, "warning", "Error parsing query: %s", err);
-    RedisModule_ReplyWithError(ctx, err);
+  q = SearchRequest_ParseQuery(sctx, req, &status);
+  if (!q && status.code != QUERY_OK) {
+    RedisModule_Log(ctx, "warning", "Error parsing query: %s", QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     goto end;
   }
 
-  plan = SearchRequest_BuildPlan(sctx, req, q, &err);
+  plan = SearchRequest_BuildPlan(sctx, req, q, &status);
   if (!plan) {
-    if (err) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
-      RedisModule_ReplyWithError(ctx, err);
+    if (QueryError_HasError(&status) && status.code != QUERY_ENORESULTS) {
+      RedisModule_Log(ctx, "debug", "Error parsing query: %s", QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     } else {
       /* Simulate an empty response - this means an empty query */
       RedisModule_ReplyWithArray(ctx, 1);
@@ -956,12 +955,12 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   QueryPlan_Run(plan, ctx);
-  if (err) {
-    RedisModule_ReplyWithError(ctx, err);
+  if (QueryError_HasError(&status)) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
   }
 
 end:
-  ERR_FREE(err);
+  QueryError_ClearError(&status);
 
   if (plan) QueryPlan_Free(plan);
   if (sctx) SearchCtx_Free(sctx);

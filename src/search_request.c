@@ -17,6 +17,11 @@
 #include <err.h>
 #include <assert.h>
 
+#undef SET_ERR
+#undef FMT_ERR
+#define SET_ERR(status, s) QueryError_SetError(status, QUERY_EKEYWORD, s)
+#define FMT_ERR(unused, s, ...) QueryError_SetErrorFmt(status, QUERY_EKEYWORD, ##__VA_ARGS__)
+
 /**
  * Handler signature. argv and argc are the original arguments passed (for the
  * entire query). offset contains the index of the keyword for this handler.
@@ -30,7 +35,7 @@
  * handler's errStr (i.e. KeywordHandler::errStr) will be used instead.
  */
 typedef int (*KeywordParser)(ArgsCursor *ac, RSSearchRequest *req, RSSearchOptions *opts,
-                             RedisSearchCtx *sctx, char **errStr);
+                             RedisSearchCtx *sctx, QueryError *status);
 
 typedef struct {
   // The keyword this parser handles
@@ -50,7 +55,7 @@ typedef struct {
 
 #define KEYWORD_HANDLER(name)                                                  \
   static int name(ArgsCursor *ac, RSSearchRequest *req, RSSearchOptions *opts, \
-                  RedisSearchCtx *sctx, char **errStr)
+                  RedisSearchCtx *sctx, QueryError *status)
 
 KEYWORD_HANDLER(parseLimit) {
   long long tmpLimit, tmpOffset;
@@ -61,7 +66,7 @@ KEYWORD_HANDLER(parseLimit) {
   }
 
   if (tmpLimit < 0 || tmpOffset < 0 || tmpOffset + tmpLimit > SEARCH_REQUEST_RESULTS_MAX) {
-    SET_ERR(errStr, "LIMIT: Limit or offset too large");
+    SET_ERR(status, "LIMIT: Limit or offset too large");
     return REDISMODULE_ERR;
   }
   opts->num = tmpLimit;
@@ -143,7 +148,7 @@ KEYWORD_HANDLER(handlePayload) {
 KEYWORD_HANDLER(handleScorer) {
   opts->scorer = strdup(AC_GetStringNC(ac, NULL));
   if (Extensions_GetScoringFunction(NULL, opts->scorer) == NULL) {
-    SET_ERR(errStr, "Invalid scorer name");
+    SET_ERR(status, "Invalid scorer name");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -228,7 +233,7 @@ static const KeywordHandler keywordHandlers_g[] = {HANDLER_ENTRY("LIMIT", parseL
 #define NUM_HANDLERS (sizeof(keywordHandlers_g) / sizeof(keywordHandlers_g[0]))
 
 static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char *keyword,
-                         ArgsCursor *ac, char **errStr) {
+                         ArgsCursor *ac, QueryError *status) {
 
   const KeywordHandler *handler = NULL;
   for (size_t ii = 0; ii < NUM_HANDLERS; ++ii) {
@@ -240,7 +245,7 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
 
   if (!handler) {
     // printf("Unknown keyword %s\n", RedisModule_StringPtrLen(argv[*offset], NULL));
-    FMT_ERR(errStr, "Unknown keyword `%s`", keyword);
+    FMT_ERR(status, "Unknown keyword `%s`", keyword);
     return REDISMODULE_ERR;
   }
 
@@ -250,8 +255,8 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
     return REDISMODULE_ERR;
   }
 
-  if (handler->parser(ac, req, &req->opts, sctx, errStr) != REDISMODULE_OK) {
-    SET_ERR(errStr, handler->errStr);
+  if (handler->parser(ac, req, &req->opts, sctx, status) != REDISMODULE_OK) {
+    SET_ERR(status, handler->errStr);
     return REDISMODULE_ERR;
   }
 
@@ -259,11 +264,10 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
 }
 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
-                              char **errStr) {
+                              QueryError *status) {
 
   RSSearchRequest *req = calloc(1, sizeof(*req));
   *req = (RSSearchRequest){.opts = RS_DEFAULT_SEARCHOPTS, .payload = {.data = NULL, .len = 0}};
-  *errStr = NULL;
 
 #define CUR_ARG_EQ(s) (!strcasecmp(curArg, s))
   const char *curArg = NULL;
@@ -289,7 +293,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
     } else if (CUR_ARG_EQ("NOSTOPWORDS")) {
       req->opts.flags |= Search_NoStopwrods;
     } else {
-      if (handleKeyword(req, ctx, curArg, &ac, errStr) != REDISMODULE_OK) {
+      if (handleKeyword(req, ctx, curArg, &ac, status) != REDISMODULE_OK) {
         goto err;
       }
     }
@@ -297,7 +301,7 @@ RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int
 
 opts_done:
   if (req->opts.fields.wantSummaries && !Index_SupportsHighlight(ctx->spec)) {
-    SET_ERR(errStr, "HIGHLIGHT and SUMMARIZE not supported for this index");
+    SET_ERR(status, "HIGHLIGHT and SUMMARIZE not supported for this index");
     goto err;
   }
 
@@ -421,12 +425,16 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   free(req);
 }
 
-QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req, char **err) {
+QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req,
+                                        QueryError *status) {
 
   QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
   RedisModuleCtx *ctx = sctx->redisCtx;
 
-  if (!Query_Parse(q, err)) {
+  if (!Query_Parse(q, &status->detail)) {
+    if (status->detail) {
+      status->code = QUERY_ESYNTAX;
+    }
     Query_Free(q);
     return NULL;
   }
@@ -460,7 +468,7 @@ QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *r
 }
 
 QueryPlan *SearchRequest_BuildPlan(RedisSearchCtx *sctx, RSSearchRequest *req, QueryParseCtx *q,
-                                   char **err) {
+                                   QueryError *status) {
   if (!q) return NULL;
-  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req, err);
+  return Query_BuildPlan(sctx, q, &req->opts, Query_BuildProcessorChain, req, status);
 }

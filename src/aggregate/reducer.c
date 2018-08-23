@@ -201,14 +201,17 @@ static struct {
 };
 
 Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RSValue **args,
-                    size_t argc, char **err) {
+                    size_t argc, QueryError *status) {
   for (int i = 0; reducers_g[i].k != NULL; i++) {
     if (!strcasecmp(reducers_g[i].k, name)) {
-      return reducers_g[i].f(ctx, args, argc, alias, err);
+      Reducer *r = reducers_g[i].f(ctx, args, argc, alias, &status->detail);
+      if (!r) {
+        QueryError_MaybeSetCode(status, QUERY_EREDUCERINIT);
+      }
+      return r;
     }
   }
-
-  FMT_ERR(err, "Could not find reducer '%s'", name);
+  QueryError_SetErrorFmt(status, QUERY_ENOREDUCER, "Missing reducer for '%s'", name);
   return NULL;
 }
 

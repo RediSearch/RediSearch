@@ -6,6 +6,7 @@
 #include <dep/triemap/triemap.h>
 #include <rmutil/cmdparse.h>
 #include <util/block_alloc.h>
+#include "query_error.h"
 
 /* Maximum possible value to random sample group size */
 #define MAX_SAMPLE_SIZE 1000
@@ -91,7 +92,7 @@ Reducer *NewCountDistinctish(RedisSearchCtx *, const char *, const char *);
 Reducer *NewQuantile(RedisSearchCtx *, const char *, const char *, double, size_t);
 Reducer *NewStddev(RedisSearchCtx *, const char *, const char *);
 Reducer *GetReducer(RedisSearchCtx *ctx, const char *name, const char *alias, RSValue **args,
-                    size_t argc, char **err);
+                    size_t argc, QueryError *err);
 RSValueType GetReducerType(const char *name);
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias);
