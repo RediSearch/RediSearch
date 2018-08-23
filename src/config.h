@@ -62,12 +62,52 @@ typedef struct {
   size_t minPhoneticTermLen;
 } RSConfig;
 
-// global config extern reference
+typedef enum {
+  RSCONFIGVAR_F_IMMUTABLE = 0x01,
+  RSCONFIGVAR_F_MODIFIED = 0x02,
+  RSCONFIGVAR_F_FLAG = 0x04,
+  RSCONFIGVAR_F_SHORTHAND = 0x08
+} RSConfigVarFlags;
+
+typedef struct {
+  const char *name;
+  const char *helpText;
+  uint32_t flags;
+  // Whether this configuration option can be modified after initial loading
+  int (*setValue)(RSConfig *, RedisModuleString **, size_t argc, size_t *);
+  sds (*getValue)(const RSConfig *);
+} RSConfigVar;
+
+#define RS_MAX_CONFIG_VARS 255
+typedef struct {
+  RSConfigVar vars[RS_MAX_CONFIG_VARS];
+} RSConfigOptions;
+
+// global config extern references
 extern RSConfig RSGlobalConfig;
+extern RSConfigOptions RSGlobalConfigOptions;
 
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
-int ReadConfig(RedisModuleString **argv, int argc, const char **err);
+int ReadConfig(RedisModuleString **argv, int argc, char **err);
+
+/**
+ * Writes the retrieval of the configuration value to the network.
+ * isHelp will use a more dict-like pattern, which should be a bit friendlier
+ * on the eyes
+ */
+void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, const char *name,
+                        RedisModuleCtx *ctx, int isHelp);
+
+/**
+ * Sets a configuration variable. The argv, argc, and offset variables should
+ * point to the global argv array. You can also make argv point at the specific
+ * (after-the-option-name) arguments and set offset to 0, and argc to the number
+ * of remaining arguments. offset is advanced to the next unread argument (which
+ * can be == argc)
+ */
+int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
+                       RedisModuleString **argv, int argc, size_t *offset, char **err);
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
@@ -86,7 +126,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE, \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                      \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
-	  .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN               \
+    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN              \
   }
 
 #endif
