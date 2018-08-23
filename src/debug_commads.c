@@ -140,7 +140,7 @@ static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term) {
   char *primary = NULL;
   char *secondary = NULL;
 
-  PhoneticManager_ExpandPhonerics(NULL, term_c, len, &primary, &secondary);
+  PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
