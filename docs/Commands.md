@@ -7,7 +7,7 @@
   FT.CREATE {index} 
     [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO] [SORTABLE][NOINDEX] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
 
 ### Description
@@ -62,7 +62,7 @@ Creates an index with the given spec. The index name will be used in all the key
 
     * **SORTABLE**
     
-        Numeric or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
       
     * **NOSTEM**
     
