@@ -19,6 +19,7 @@
 #include "redismodule.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
+#include "rmutil/args.h"
 #include "spec.h"
 #include "stopwords.h"
 #include "trie/trie_type.h"
@@ -109,53 +110,119 @@ English.
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
 true or an error if something went wrong.
 */
+
+static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status) {
+  // Assume argc and argv are at proper indices
+  int nosave = 0, replace = 0, partial = 0, foundFields = 0;
+  opts->fieldsArray = NULL;
+  opts->numFieldElems = 0;
+  opts->options = 0;
+
+  ACArgSpec specs[] = {{.name = "NOSAVE", .type = AC_ARGTYPE_BOOLFLAG, .target = &nosave},
+                       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
+                       {.name = "PARTIAL", .type = AC_ARGTYPE_BOOLFLAG, .target = &partial},
+                       {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
+                       {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &opts->language},
+                       {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
+                       {.name = NULL}};
+
+  while (!AC_IsAtEnd(ac)) {
+    int rv = 0;
+    const ACArgSpec *curSpec = NULL;
+    if ((curSpec = AC_ParseArgSpec(ac, specs, &rv))) {
+      if (rv != AC_OK) {
+        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", curSpec->name, AC_Strerror(rv));
+        return REDISMODULE_ERR;
+      }
+      continue;
+    }
+
+    // Otherwise, we need to handle the argument ourselves
+    size_t narg;
+    const char *arg;
+    rv = AC_GetString(ac, &arg, &narg, 0);
+    if (rv != AC_OK) {
+      assert(rv == AC_ERR_NOARG);
+      break;  // Presumably, no argument exists
+    }
+
+    if (!strncasecmp("FIELDS", arg, narg)) {
+      size_t numRemaining = AC_NumRemaining(ac);
+      if (numRemaining % 2 != 0) {
+        QueryError_SetError(status, QUERY_EADDARGS,
+                            "Fields must be specified in FIELD VALUE pairs");
+        return REDISMODULE_ERR;
+      } else {
+        opts->fieldsArray = (RedisModuleString **)ac->objs + ac->offset;
+        opts->numFieldElems = numRemaining;
+        foundFields = 1;
+        break;
+      }
+
+    } else {
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
+                             arg);
+    }
+  }
+
+  if (!foundFields) {
+    // If we've reached here, there is no fields list. This is an error??
+    QueryError_SetError(status, QUERY_EADDARGS, "No field list found");
+    return REDISMODULE_ERR;
+  }
+
+  if (opts->language && !IsSupportedLanguage(opts->language, strlen(opts->language))) {
+    QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
+    return REDISMODULE_ERR;
+  }
+
+  if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+  if (partial) {
+    opts->options |= DOCUMENT_ADD_PARTIAL;
+  }
+  if (nosave) {
+    opts->options |= DOCUMENT_ADD_NOSAVE;
+  }
+  if (replace) {
+    opts->options |= DOCUMENT_ADD_REPLACE;
+  }
+  return REDISMODULE_OK;
+}
+
 static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
-  int nosave = RMUtil_ArgExists("NOSAVE", argv, argc, 1);
-  int fieldsIdx = RMUtil_ArgExists("FIELDS", argv, argc, 1);
-  int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
-  int partial = RMUtil_ArgExists("PARTIAL", argv, argc, 1);
+  if (argc < 4) {
+    // cmd, index, document, [arg] ...
+    return RedisModule_WrongArity(ctx);
+  }
+
+  ArgsCursor ac;
+  AddDocumentOptions opts = {0};
+  QueryError status = {0};
+
+  double ds = 0;
+  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+
+  int rv = 0;
+  if ((rv = AC_GetDouble(&ac, &ds, 0) != AC_OK)) {
+    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
+  } else if (ds < 0 || ds > 1.0) {
+    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
+  } else if (parseDocumentOptions(&opts, &ac, &status) != REDISMODULE_OK) {
+    QueryError_MaybeSetCode(&status, QUERY_EADDARGS);
+  }
+
+  if (QueryError_HasError(&status)) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    goto cleanup;
+  }
 
   if (canBlock) {
     canBlock = CheckConcurrentSupport(ctx);
   }
-
-  // printf("argc: %d, fieldsIdx: %d, argc - fieldsIdx: %d, nosave: %d\n", argc,
-  // fieldsIdx,
-  // argc-fieldsIdx, nosave);
-  // nosave must be at place 4 and we must have at least 7 fields
-  if (argc < 7 || fieldsIdx == 0 || (argc - fieldsIdx) % 2 == 0 || (nosave && nosave != 4)) {
-    return RedisModule_WrongArity(ctx);
-  }
-
   RedisModule_AutoMemory(ctx);
-
   RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
-  // Load the document score
-  double ds = 0;
-  if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, "Could not parse document score");
-    goto cleanup;
-  }
-
-  if (ds > 1 || ds < 0) {
-    RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
-    goto cleanup;
-  }
-
-  // Parse the optional LANGUAGE flag
-  const char *lang = NULL;
-  int langIdx = RMUtil_ArgIndex("LANGUAGE", argv, argc);
-  if (langIdx > 0 && langIdx < fieldsIdx - 1) {
-    lang = RedisModule_StringPtrLen(argv[langIdx + 1], NULL);
-  }
-  if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
-    RedisModule_ReplyWithError(ctx, "Unsupported Language");
-    goto cleanup;
-  }
-
-  // Parse the optional payload field
-  RedisModuleString *payload = NULL;
-  RMUtil_ParseArgsAfter("PAYLOAD", argv, argc, "s", &payload);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -166,17 +233,16 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // If the ID is 0, then the document does not exist.
   int exists = !!DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
-  if (exists && !replace) {
+  if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
     RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
   }
 
-  // Parse optional IF "expr" flag before FIELDS, only if the document exists
-  const char *expr = NULL;
-  if (exists && RMUtil_ParseArgsAfter("IF", argv, fieldsIdx, "c", &expr) == REDISMODULE_OK) {
+  // handle update condition, only if the document exists
+  if (exists && opts.evalExpr) {
     char *err = NULL;
     int res = 0;
-    if (Document_EvalExpression(&sctx, argv[2], expr, &res, &err) == REDISMODULE_OK) {
+    if (Document_EvalExpression(&sctx, argv[2], opts.evalExpr, &res, &err) == REDISMODULE_OK) {
       if (res == 0) {
         RedisModule_ReplyWithSimpleString(ctx, "NOADD");
         goto cleanup;
@@ -191,9 +257,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   Document doc;
-  Document_PrepareForAdd(&doc, argv[2], ds, argv, fieldsIdx, argc, lang, payload, ctx);
+  Document_PrepareForAdd(&doc, argv[2], ds, &opts, ctx);
 
-  if (!nosave) {
+  if (!(opts.options & DOCUMENT_ADD_NOSAVE)) {
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
     if (Redis_SaveDocument(&sctx, &doc) != REDISMODULE_OK) {
       Document_FreeDetached(&doc, ctx);
@@ -210,26 +276,17 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, err);
   }
 
-  // in partial mode
-  uint32_t options = 0;
-  if (exists) {
-    if (replace) {
-      options |= DOCUMENT_ADD_REPLACE;
-    }
-    if (partial) {
-      options |= DOCUMENT_ADD_PARTIAL;
-    }
+  if (!exists) {
+    // If the document does not exist, remove replace/partial settings
+    opts.options &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
   }
-  if (nosave) {
-    options |= DOCUMENT_ADD_NOSAVE;
-  }
-
   if (!canBlock) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }
-  AddDocumentCtx_Submit(aCtx, &sctx, options);
+  AddDocumentCtx_Submit(aCtx, &sctx, opts.options);
 
 cleanup:
+  QueryError_ClearError(&status);
   return REDISMODULE_OK;
 }
 
@@ -1377,9 +1434,9 @@ int SuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /**
  * FT.SYNADD <index> <term1> <term2> ...
  *
- * Add a synonym group to the given index. The synonym data structure is compose of synonyms groups.
- * Each Synonym group has a unique id. The SYNADD command creates a new synonym group with the given
- * terms and return its id.
+ * Add a synonym group to the given index. The synonym data structure is compose of synonyms
+ * groups. Each Synonym group has a unique id. The SYNADD command creates a new synonym group with
+ * the given terms and return its id.
  */
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);

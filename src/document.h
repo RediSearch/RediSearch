@@ -7,6 +7,8 @@
 #include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
+#include "rmutil/args.h"
+#include "query_error.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -47,6 +49,17 @@ typedef struct {
   int stringOwner;
 } Document;
 
+typedef struct {
+  uint32_t options;  // DOCUMENT_ADD_XXX
+  const char *language;
+  RedisModuleString *payload;
+  RedisModuleString **fieldsArray;
+  size_t numFieldElems;
+  const char *evalExpr;
+} AddDocumentOptions;
+
+int AddDocumentOptions_Parse(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status);
+
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
  * the fields array, but you must still actually copy the data along.
@@ -67,17 +80,12 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
  * doc: The document to initialize
  * docKey: The string ID of the document
  * score: Document store
- * argv: The argv as passed to the command's entry point
- * fieldsOffset: The index at which the first field name is present
- * argc: The total length of argv
- * language: Language to use. DEFAULT_LANGUAGE will be used if this is NULL
- * payload: Optional payload
+ * options: fields and other input parameters for the operation
  * ctx: Owning context, used for Detach()
  *
  */
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
-                            RedisModuleString **argv, size_t fieldsOffset, size_t argc,
-                            const char *language, RedisModuleString *payload, RedisModuleCtx *ctx);
+                            AddDocumentOptions *opts, RedisModuleCtx *ctx);
 
 /**
  * Copy any data from the document into its own independent copies. srcCtx is
@@ -236,8 +244,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 /* Load a single document */
 int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
 
-/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
- * from the sorting table or from the hash representation of the document.
+/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
+ * properties from the sorting table or from the hash representation of the document.
  *
  * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
  * of it internally
