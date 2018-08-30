@@ -825,32 +825,52 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RedisModule_AutoMemory(ctx);
   RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
 
+  QueryError status = {0};
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  double ds;
+  int rv = 0;
+
+  if ((rv = AC_GetDouble(&ac, &ds, 0)) != AC_OK) {
+    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
+    goto cleanup;
+  } else if (ds < 0 || ds > 1.0) {
+    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
+    goto cleanup;
+  }
+
+  int replace = 0;
+  const char *language = NULL;
+  ACArgSpec specs[] =  // Comment to force newline
+      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &language},
+       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
+       {.name = NULL}};
+  const ACArgSpec *curSpec = NULL;
+  while (!AC_IsAtEnd(&ac)) {
+    if ((curSpec = AC_ParseArgSpec(&ac, specs, &rv))) {
+      if (rv != AC_OK) {
+        QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
+                               curSpec->name, AC_Strerror(rv));
+        goto cleanup;
+      }
+    } else {
+      QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`",
+                             AC_GetStringNC(&ac, NULL));
+      goto cleanup;
+    }
+  }
+  if (language && !IsSupportedLanguage(language, strlen(language))) {
+    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", language);
+    goto cleanup;
+  }
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
     goto cleanup;
   }
 
-  int replace = RMUtil_ArgExists("REPLACE", argv, argc, 1);
-
   // Load the document score
-  double ds = 0;
-  if (RedisModule_StringToDouble(argv[3], &ds) == REDISMODULE_ERR) {
-    RedisModule_ReplyWithError(ctx, "Could not parse document score");
-    goto cleanup;
-  }
-  if (ds > 1 || ds < 0) {
-    RedisModule_ReplyWithError(ctx, "Document scores must be normalized between 0.0 ... 1.0");
-    goto cleanup;
-  }
-
-  // Parse the optional LANGUAGE flag
-  const char *lang = NULL;
-  RMUtil_ParseArgsAfter("LANGUAGE", &argv[3], argc - 4, "c", &lang);
-  if (lang && !IsSupportedLanguage(lang, strlen(lang))) {
-    RedisModule_ReplyWithError(ctx, "Unsupported Language");
-    goto cleanup;
-  }
 
   Document doc;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -860,7 +880,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   doc.docKey = argv[2];
   doc.score = ds;
-  doc.language = lang ? lang : DEFAULT_LANGUAGE;
+  doc.language = language ? language : DEFAULT_LANGUAGE;
   doc.payload = NULL;
   doc.payloadSize = 0;
   Document_Detach(&doc, ctx);
@@ -884,8 +904,12 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
+  return REDISMODULE_OK;
 
 cleanup:
+  assert(QueryError_HasError(&status));
+  RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+  QueryError_ClearError(&status);
   return REDISMODULE_OK;
 }
 
