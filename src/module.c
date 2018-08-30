@@ -222,8 +222,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     canBlock = CheckConcurrentSupport(ctx);
   }
   RedisModule_AutoMemory(ctx);
-  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -283,6 +281,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (!canBlock) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }
+
+  // Replicate *here*
+  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
   AddDocumentCtx_Submit(aCtx, &sctx, opts.options);
 
 cleanup:
