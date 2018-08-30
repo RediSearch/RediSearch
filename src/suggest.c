@@ -1,7 +1,9 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include "rmutil/util.h"
+#include "rmutil/args.h"
 #include "trie/trie_type.h"
+#include "query_error.h"
 
 /*
 ## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
@@ -35,11 +37,28 @@ real
 Integer reply: the current size of the suggestion dictionary.
 */
 int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4 || argc > 7) return RedisModule_WrongArity(ctx);
+  if (argc < 4 || argc > 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  int incr = 0, rv = AC_OK;
+  RSPayload payload = {0};
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
+  while (!AC_IsAtEnd(&ac)) {
+    const char *s = AC_GetStringNC(&ac, NULL);
+    if (!strcasecmp(s, "INCR")) {
+      incr = 1;
+    } else if (!strcasecmp(s, "PAYLOAD")) {
+      if ((rv = AC_GetString(&ac, (const char **)&payload.data, &payload.len, 0)) != AC_OK) {
+        return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));
+      }
+    } else {
+      return RMUtil_ReplyWithErrorFmt(ctx, "Unknown argument `%s`", s);
+    }
+  }
 
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
-  RedisModule_ReplicateVerbatim(ctx);
-
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -50,14 +69,6 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   double score;
   if ((RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK)) {
     return RedisModule_ReplyWithError(ctx, "ERR invalid score");
-  }
-
-  int incr = RMUtil_ArgExists("INCR", argv, argc, 4);
-
-  // Parse the optional payload field
-  RSPayload payload = {.data = NULL, .len = 0};
-  if (argc > 4) {
-    RMUtil_ParseArgsAfter("PAYLOAD", &argv[3], argc - 3, "b", &payload.data, &payload.len);
   }
 
   /* Create an empty value object if the key is currently empty. */
@@ -167,12 +178,90 @@ payload
 ### Returns:
 
 Array reply: a list of the top suggestions matching the prefix
-
 */
+
+typedef struct {
+  int fuzzy;
+  int withScores;
+  int trim;
+  int optimize;
+  int withPayloads;
+  unsigned maxDistance;
+  unsigned numResults;
+} SuggestOptions;
+
+int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *options,
+                        QueryError *status) {
+  ACArgSpec argList[] = {
+      {.name = "FUZZY", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->fuzzy},
+      {.name = "MAX",
+       .type = AC_ARGTYPE_UINT,
+       .target = &options->numResults,
+       .intflags = AC_F_COALESCE | AC_F_GE1},
+      {
+          .name = "WITHSCORES",
+          .type = AC_ARGTYPE_BOOLFLAG,
+          .target = &options->withScores,
+      },
+      {.name = "OPTIMIZE", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->optimize},
+      {.name = "TRIM", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->trim},
+      {.name = "WITHPAYLOADS", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->withPayloads}};
+
+  ACArgSpec *errArg = NULL;
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  int rv = AC_ParseArgSpec(&ac, argList, &errArg);
+  if (rv != AC_OK) {
+    if (rv == AC_ERR_ENOENT) {
+      // Argument not recognized
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+                             AC_GetStringNC(&ac, NULL));
+    } else if (errArg) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+    } else {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+                             AC_Strerror(rv));
+    }
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
+
+  // get the string to search for
+  size_t len;
+  const char *s = RedisModule_StringPtrLen(argv[2], &len);
+  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid query length");
+  }
+
+  SuggestOptions options = {.numResults = 5};
+  QueryError status = {0};
+  if (parseSuggestOptions(argv + 3, argc - 3, &options, &status) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    goto parse_error;
+  }
+
+  if (options.fuzzy) {
+    options.maxDistance = 1;
+  }
+
+  if (options.numResults > 10) {
+    QueryError_SetError(&status, QUERY_EPARSEARGS, "MAX must be > 0 and <= 10");
+    goto parse_error;
+  }
+
+parse_error:
+  if (QueryError_HasError(&status)) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
+  }
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   // make sure the key is a trie
@@ -186,53 +275,26 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithNull(ctx);
   }
 
-  // get the string to search for
-  size_t len;
-  const char *s = RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
-    return RedisModule_ReplyWithError(ctx, "Invalid query length");
-  }
-  // get optional FUZZY argument
-  long maxDist = 0;
-  if (RMUtil_ArgExists("FUZZY", argv, argc, 3)) {
-    maxDist = 1;
-  }
-  // RedisModuleString **argv, int argc,const char *fmt
-  long num = 5;
-  RMUtil_ParseArgsAfter("MAX", argv, argc, "l", &num);
-  if (num <= 0 || num > 10) {
-    num = 5;
-  }
-  // detect WITHSCORES
-  int withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, 3);
-
-  // detect TRIM
-  int trim = RMUtil_ArgExists("TRIM", argv, argc, 3);
-
-  int optimize = RMUtil_ArgExists("OPTIMIZE", argv, argc, 3);
-
-  // detect WITHPAYLOADS
-  int withPayloads = RMUtil_ArgExists("WITHPAYLOADS", argv, argc, 3);
-
-  Vector *res = Trie_Search(tree, s, len, num, maxDist, 1, trim, optimize);
+  Vector *res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
+                            options.optimize);
   if (!res) {
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
   // if we also need to return scores, we need double the records
-  int mul = 1;
-  mul = withScores ? mul + 1 : mul;
-  mul = withPayloads ? mul + 1 : mul;
+  unsigned mul = 1;
+  mul = options.withScores ? mul + 1 : mul;
+  mul = options.withPayloads ? mul + 1 : mul;
   RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);
 
-  for (int i = 0; i < Vector_Size(res); i++) {
+  for (size_t i = 0; i < Vector_Size(res); i++) {
     TrieSearchResult *e;
     Vector_Get(res, i, &e);
 
     RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
-    if (withScores) {
+    if (options.withScores) {
       RedisModule_ReplyWithDouble(ctx, e->score);
     }
-    if (withPayloads) {
+    if (options.withPayloads) {
       if (e->payload)
         RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
       else
