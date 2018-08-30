@@ -120,6 +120,19 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
   return AC_OK;
 }
 
+int AC_GetRString(ArgsCursor *ac, RedisModuleString **s, int flags) {
+  if (ac->offset == ac->argc) {
+    return AC_ERR_NOARG;
+  }
+  if (ac->type == AC_TYPE_RSTRING) {
+    *s = AC_CURRENT(ac);
+  } else {
+    abort();
+  }
+  MAYBE_ADVANCE();
+  return AC_OK;
+}
+
 int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
   if (ac->offset == ac->argc) {
     return AC_ERR_NOARG;
@@ -159,4 +172,57 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   dst->offset = 0;
   AC_AdvanceBy(ac, nargs);
   return 0;
+}
+
+const ACArgSpec *AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *spec, int *err) {
+  const char *s = NULL;
+  size_t n;
+  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
+    // WAT!?
+    return NULL;
+  }
+
+  for (; spec->name != NULL; spec++) {
+    if (!strncasecmp(spec->name, s, n)) {
+      break;
+    }
+  }
+
+  if (spec->name == NULL) {
+    return NULL;
+  }
+
+  AC_Advance(ac);
+
+  *err = AC_OK;
+  switch (spec->type) {
+    case AC_ARGTYPE_BOOLFLAG:
+      *(int *)spec->target = 1;
+      break;
+    case AC_ARGTYPE_DOUBLE:
+      *err = AC_GetDouble(ac, spec->target, spec->intflags);
+      break;
+    case AC_ARGTYPE_INT:
+      *err = AC_GetInt(ac, spec->target, spec->intflags);
+      break;
+    case AC_ARGTYPE_LLONG:
+      *err = AC_GetLongLong(ac, spec->target, spec->intflags);
+      break;
+    case AC_ARGTYPE_ULLONG:
+      *err = AC_GetUnsignedLongLong(ac, spec->target, spec->intflags);
+      break;
+    case AC_ARGTYPE_UINT:
+      *err = AC_GetUnsigned(ac, spec->target, spec->intflags);
+      break;
+    case AC_ARGTYPE_STRING:
+      *err = AC_GetString(ac, spec->target, spec->len, 0);
+      break;
+    case AC_ARGTYPE_RSTRING:
+      *err = AC_GetRString(ac, spec->target, 0);
+      break;
+    default:
+      fprintf(stderr, "Unknown type");
+      abort();
+  }
+  return spec;
 }

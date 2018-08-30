@@ -53,6 +53,7 @@ static inline void ArgsCursor_InitRString(ArgsCursor *cursor, RedisModuleString 
 // These functions return AC_OK or an error code on error. Note that the
 // output value is not guaranteed to remain untouched in the case of an error
 int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags);
+int AC_GetRString(ArgsCursor *ac, RedisModuleString **s, int flags);
 int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags);
 int AC_GetUnsignedLongLong(ArgsCursor *ac, unsigned long long *ull, int flags);
 int AC_GetUnsigned(ArgsCursor *ac, unsigned *u, int flags);
@@ -72,6 +73,57 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by);
  * The output is stored in dest which contains a sub-array of argv/argc
  */
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dest);
+
+typedef enum {
+  AC_ARGTYPE_STRING,
+  AC_ARGTYPE_RSTRING,
+  AC_ARGTYPE_LLONG,
+  AC_ARGTYPE_ULLONG,
+  AC_ARGTYPE_UINT,
+  AC_ARGTYPE_INT,
+  AC_ARGTYPE_DOUBLE,
+  /**
+   * This means the name is a flag and does not accept any additional arguments.
+   * In this case, the target value is assumed to be an int, and is set to
+   * nonzero
+   */
+  AC_ARGTYPE_BOOLFLAG
+} ACArgType;
+
+typedef struct {
+  const char *name;  // Name of the argument
+  void *target;      // [out] Target pointer, e.g. `int*`, `RedisModuleString**`
+  size_t *len;       // [out] Target length pointer. Valid only for strings
+  ACArgType type;    // Type of argument
+  int intflags;      // AC_F_COALESCE, etc.
+} ACArgSpec;
+
+/**
+ * Parses the current argument per the arg spec. Returns the spec matching the
+ * argument if found, and NULL if the argument was not found in
+ * the spec. Note that a true value does not mean success, but rather that the
+ * current argument exists within `specs`. Likewise, a NULL return value does
+ * not mean an error, but simply that the spec was not found in the list.
+ *
+ * The goal of this function is to eliminate boilerplate for parsing simple
+ * scalar values. More complex parsing can be done directly.
+ */
+const ACArgSpec *AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, int *err);
+
+static inline const char *AC_Strerror(int code) {
+  switch (code) {
+    case AC_OK:
+      return "SUCCESS";
+    case AC_ERR_ELIMIT:
+      return "Value is outside acceptable bounds";
+    case AC_ERR_NOARG:
+      return "Expected an argument, but none provided";
+    case AC_ERR_PARSE:
+      return "Could not convert argument to expected type";
+    default:
+      return "(AC: You should not be seeing this message. This is a bug)";
+  }
+}
 
 #define AC_CURRENT(ac) ((ac)->objs[(ac)->offset])
 #define AC_Clear(ac)  // NOOP
