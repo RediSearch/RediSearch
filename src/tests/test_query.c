@@ -450,7 +450,7 @@ int testTags() {
 void RMUTil_InitAlloc();
 TEST_MAIN({
   RMUTil_InitAlloc();
-  LOGGING_INIT(L_INFO);
+  RSLoggingInit(L_INFO);
   TESTFUNC(testTags)
   TESTFUNC(testGeoQuery);
   TESTFUNC(testQueryParser);
