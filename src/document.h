@@ -271,4 +271,11 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
+
+// Document add functions:
+int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 #endif
