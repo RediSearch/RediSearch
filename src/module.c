@@ -823,7 +823,6 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
 
   QueryError status = {0};
   ArgsCursor ac = {0};
@@ -903,6 +902,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
   }
 
+  RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
   AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
   return REDISMODULE_OK;
 
