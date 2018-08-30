@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,24 +6,17 @@
 
 #include "commands.h"
 #include "document.h"
-#include "forward_index.h"
-#include "geo_index.h"
 #include "tag_index.h"
 #include "index.h"
-#include "numeric_filter.h"
-#include "numeric_index.h"
 #include "query.h"
-#include "query_node.h"
 #include "redis_index.h"
 #include "redismodule.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
-#include "stopwords.h"
 #include "trie/trie_type.h"
 #include "util/logging.h"
-#include "varint.h"
 #include "extension.h"
 #include "ext/default.h"
 #include "search_request.h"
