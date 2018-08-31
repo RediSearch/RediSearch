@@ -181,8 +181,6 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
   primary = NewMetaString("");
   secondary = NewMetaString("");
-  primary->free_string_on_destroy = 0;
-  secondary->free_string_on_destroy = 0;
 
   MakeUpper(original);
 
@@ -962,9 +960,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
   if (secondary->length > 4) SetAt(secondary, 4, '\0');
   if (primary_pp) {
     *primary_pp = primary->str;
+    primary->free_string_on_destroy = 0;
   }
   if (secondary_pp) {
     *secondary_pp = secondary->str;
+    secondary->free_string_on_destroy = 0;
   }
 
   DestroyMetaString(original);
