@@ -174,55 +174,63 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   return 0;
 }
 
-const ACArgSpec *AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *spec, int *err) {
-  const char *s = NULL;
-  size_t n;
-  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
-    // WAT!?
-    return NULL;
-  }
-
-  for (; spec->name != NULL; spec++) {
-    if (!strncasecmp(spec->name, s, n)) {
-      break;
-    }
-  }
-
-  if (spec->name == NULL) {
-    return NULL;
-  }
-
-  AC_Advance(ac);
-
-  *err = AC_OK;
+static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
   switch (spec->type) {
     case AC_ARGTYPE_BOOLFLAG:
       *(int *)spec->target = 1;
-      break;
+      return AC_OK;
     case AC_ARGTYPE_DOUBLE:
-      *err = AC_GetDouble(ac, spec->target, spec->intflags);
-      break;
+      return AC_GetDouble(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_INT:
-      *err = AC_GetInt(ac, spec->target, spec->intflags);
-      break;
+      return AC_GetInt(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_LLONG:
-      *err = AC_GetLongLong(ac, spec->target, spec->intflags);
-      break;
+      return AC_GetLongLong(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_ULLONG:
-      *err = AC_GetUnsignedLongLong(ac, spec->target, spec->intflags);
-      break;
+      return AC_GetUnsignedLongLong(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_UINT:
-      *err = AC_GetUnsigned(ac, spec->target, spec->intflags);
-      break;
+      return AC_GetUnsigned(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_STRING:
-      *err = AC_GetString(ac, spec->target, spec->len, 0);
-      break;
+      return AC_GetString(ac, spec->target, spec->len, 0);
     case AC_ARGTYPE_RSTRING:
-      *err = AC_GetRString(ac, spec->target, 0);
-      break;
+      return AC_GetRString(ac, spec->target, 0);
     default:
       fprintf(stderr, "Unknown type");
       abort();
   }
-  return spec;
+}
+
+int AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, ACArgSpec **errSpec) {
+  const char *s = NULL;
+  size_t n;
+  int rv;
+
+  if (errSpec) {
+    *errSpec = NULL;
+  }
+
+  while (!AC_IsAtEnd(ac)) {
+    if ((rv = AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK)) {
+      return rv;
+    }
+    ACArgSpec *cur = specs;
+
+    for (; cur->name != NULL; cur++) {
+      if (!strncasecmp(cur->name, s, n)) {
+        break;
+      }
+    }
+
+    if (cur->name == NULL) {
+      return AC_ERR_ENOENT;
+    }
+
+    AC_Advance(ac);
+    if ((rv = parseSingleSpec(ac, cur)) != AC_OK) {
+      if (errSpec) {
+        *errSpec = cur;
+      }
+      return rv;
+    }
+  }
+  return AC_OK;
 }

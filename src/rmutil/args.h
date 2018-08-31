@@ -39,10 +39,13 @@ static inline void ArgsCursor_InitRString(ArgsCursor *cursor, RedisModuleString 
   cursor->argc = argc;
 }
 
-#define AC_OK 0          // if (!AC_...)
-#define AC_ERR_PARSE 1   // Couldn't parse string as integer
-#define AC_ERR_NOARG 2   // No such argument
-#define AC_ERR_ELIMIT 3  // Exceeded limitations of type
+typedef enum {
+  AC_OK = 0,      // Not an error
+  AC_ERR_PARSE,   // Couldn't parse as integer or other type
+  AC_ERR_NOARG,   // Missing required argument
+  AC_ERR_ELIMIT,  // Exceeded limitations of this type (i.e. bad value, but parsed OK)
+  AC_ERR_ENOENT   // Argument name not found in list
+} ACStatus;
 
 // These flags can be AND'd with the original type
 #define AC_F_GE1 0x100        // Must be >= 1 (no zero or negative)
@@ -99,16 +102,18 @@ typedef struct {
 } ACArgSpec;
 
 /**
- * Parses the current argument per the arg spec. Returns the spec matching the
- * argument if found, and NULL if the argument was not found in
- * the spec. Note that a true value does not mean success, but rather that the
- * current argument exists within `specs`. Likewise, a NULL return value does
- * not mean an error, but simply that the spec was not found in the list.
+ * Utilizes the argument cursor to traverse a list of known argument specs. This
+ * function will return:
+ * - AC_OK if the argument parsed successfully
+ * - AC_ERR_ENOENT if an argument not mentioned in `specs` is encountered.
+ * - Any other error is assumed to be a parser error, in which the argument exists
+ *   but did not meet constraints of the type
  *
- * The goal of this function is to eliminate boilerplate for parsing simple
- * scalar values. More complex parsing can be done directly.
+ * Note that ENOENT is not a 'hard' error. It simply means that the argument
+ * was not provided within the list. This may be intentional if, for example,
+ * it requires complex processing.
  */
-const ACArgSpec *AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, int *err);
+int AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, ACArgSpec **errSpec);
 
 static inline const char *AC_Strerror(int code) {
   switch (code) {
@@ -120,6 +125,8 @@ static inline const char *AC_Strerror(int code) {
       return "Expected an argument, but none provided";
     case AC_ERR_PARSE:
       return "Could not convert argument to expected type";
+    case AC_ERR_ENOENT:
+      return "Unknown argument";
     default:
       return "(AC: You should not be seeing this message. This is a bug)";
   }

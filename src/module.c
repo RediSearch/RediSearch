@@ -128,40 +128,36 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 
   while (!AC_IsAtEnd(ac)) {
     int rv = 0;
-    const ACArgSpec *curSpec = NULL;
-    if ((curSpec = AC_ParseArgSpec(ac, specs, &rv))) {
-      if (rv != AC_OK) {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", curSpec->name, AC_Strerror(rv));
-        return REDISMODULE_ERR;
-      }
+    ACArgSpec *errArg = NULL;
+
+    if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) == AC_OK) {
       continue;
-    }
-
-    // Otherwise, we need to handle the argument ourselves
-    size_t narg;
-    const char *arg;
-    rv = AC_GetString(ac, &arg, &narg, 0);
-    if (rv != AC_OK) {
-      assert(rv == AC_ERR_NOARG);
-      break;  // Presumably, no argument exists
-    }
-
-    if (!strncasecmp("FIELDS", arg, narg)) {
-      size_t numRemaining = AC_NumRemaining(ac);
-      if (numRemaining % 2 != 0) {
-        QueryError_SetError(status, QUERY_EADDARGS,
-                            "Fields must be specified in FIELD VALUE pairs");
-        return REDISMODULE_ERR;
-      } else {
-        opts->fieldsArray = (RedisModuleString **)ac->objs + ac->offset;
-        opts->numFieldElems = numRemaining;
-        foundFields = 1;
+    } else if (rv == AC_ERR_ENOENT) {
+      size_t narg;
+      const char *s = AC_GetStringNC(ac, &narg);
+      if (!strncasecmp("FIELDS", s, narg)) {
+        size_t numRemaining = AC_NumRemaining(ac);
+        if (numRemaining % 2 != 0) {
+          printf("NumRemaining: %d\n", numRemaining);
+          QueryError_SetError(status, QUERY_EADDARGS,
+                              "Fields must be specified in FIELD VALUE pairs");
+          return REDISMODULE_ERR;
+        } else {
+          opts->fieldsArray = (RedisModuleString **)ac->objs + ac->offset;
+          opts->numFieldElems = numRemaining;
+          foundFields = 1;
+        }
         break;
-      }
 
+      } else {
+        const char *unknown = AC_GetStringNC(ac, NULL);
+        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
+                               unknown);
+      }
+      // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
-                             arg);
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      return REDISMODULE_ERR;
     }
   }
 
@@ -844,20 +840,18 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &language},
        {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
        {.name = NULL}};
-  const ACArgSpec *curSpec = NULL;
-  while (!AC_IsAtEnd(&ac)) {
-    if ((curSpec = AC_ParseArgSpec(&ac, specs, &rv))) {
-      if (rv != AC_OK) {
-        QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
-                               curSpec->name, AC_Strerror(rv));
-        goto cleanup;
-      }
-    } else {
-      QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`",
-                             AC_GetStringNC(&ac, NULL));
-      goto cleanup;
-    }
+  ACArgSpec *errArg = NULL;
+  rv = AC_ParseArgSpec(&ac, specs, &errArg);
+  if (rv == AC_OK) {
+    // OK. No error
+  } else if (rv == AC_ERR_ENOENT) {
+    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`",
+                           AC_GetStringNC(&ac, NULL));
+  } else {
+    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
+                           errArg ? errArg->name : "", AC_Strerror(rv));
   }
+
   if (language && !IsSupportedLanguage(language, strlen(language))) {
     QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", language);
     goto cleanup;
