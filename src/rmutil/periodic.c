@@ -4,18 +4,6 @@
 #include <stdlib.h>
 #include <errno.h>
 
-typedef struct BlockClient {
-  RedisModuleBlockedClient* bClient;
-  struct BlockClient* next;
-  struct BlockClient* prev;
-}BlockClient;
-
-typedef struct BlockClients {
-  BlockClient* head;
-  BlockClient* tail;
-  pthread_mutex_t lock;
-}BlockClients;
-
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
   RMUtilTimerTerminationFunc onTerm;
@@ -25,47 +13,7 @@ typedef struct RMUtilTimer {
   pthread_mutex_t lock;
   pthread_cond_t cond;
   volatile bool isCanceled;
-  BlockClients bClients;
 } RMUtilTimer;
-
-static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient *bClient){
-  pthread_mutex_lock(&ctx->lock);
-  BlockClient* bc = rm_calloc(1, sizeof(BlockClient));
-  bc->bClient = bClient;
-
-  if(ctx->head == NULL){
-    ctx->head = ctx->tail = bc;
-    pthread_mutex_unlock(&ctx->lock);
-    return;
-  }
-
-  bc->next = ctx->head;
-  ctx->head->prev = bc;
-  ctx->head = bc;
-  pthread_mutex_unlock(&ctx->lock);
-}
-
-static RedisModuleBlockedClient* BlockClients_pop(BlockClients* ctx){
-  pthread_mutex_lock(&ctx->lock);
-  BlockClient* bc = ctx->tail;
-  if(!bc){
-    pthread_mutex_unlock(&ctx->lock);
-    return NULL;
-  }
-
-  ctx->tail = bc->prev;
-  if(ctx->tail){
-    ctx->tail->next = NULL;
-  }else{
-    ctx->head = NULL;
-  }
-
-  RedisModuleBlockedClient* ret = bc->bClient;
-  rm_free(bc);
-
-  pthread_mutex_unlock(&ctx->lock);
-  return ret;
-}
 
 static struct timespec timespecAdd(struct timespec *a, struct timespec *b) {
   struct timespec ret;
@@ -110,11 +58,6 @@ static void *rmutilTimer_Loop(void *ctx) {
     // If needed - free the thread safe context.
     // It's up to the user to decide whether automemory is active there
     if (rctx) RedisModule_FreeThreadSafeContext(rctx);
-
-    RedisModuleBlockedClient* bClient = BlockClients_pop(&tm->bClients);
-    if(bClient){
-      RedisModule_UnblockClient(bClient, NULL);
-    }
   }
 
   // call the termination callback if needed
@@ -144,18 +87,15 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
       .cb = cb,
       .onTerm = onTerm,
       .isCanceled=false,
-      .bClients = {0},
   };
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
-  pthread_mutex_init(&ret->bClients.lock, NULL);
 
   pthread_create(&ret->thread, NULL, rmutilTimer_Loop, ret);
   return ret;
 }
 
-void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t, RedisModuleBlockedClient *bClient){
-  BlockClients_push(&t->bClients, bClient);
+void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t){
   RMUtilTimer_Signal(t);
 }
 

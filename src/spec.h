@@ -3,13 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
-#include "fork_gc.h"
 #include "synonym_map.h"
 
 typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
@@ -169,15 +169,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
 
-typedef struct GCContext{
-  void* gcCtx;
-  int (*start)(void* ctx);
-  int (*stop)(void* ctx);
-  void (*renderStats)(RedisModuleCtx *ctx, void *gc);
-  void (*onDelete)(void *ctx);
-  void (*forceInvoke)(void *ctx, RedisModuleBlockedClient *rctx);
-}GCContext;
-
 typedef struct {
   char *name;
   FieldSpec *fields;
@@ -194,7 +185,7 @@ typedef struct {
 
   StopWordList *stopwords;
 
-  GCContext gc;
+  GCContext* gc;
 
   SynonymMap *smap;
 

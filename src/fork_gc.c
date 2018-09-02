@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <wait.h>
 
+#define GC_WRITERFD 1
+#define GC_READERFD 0
+
 static void ForkGc_updateStats(RedisSearchCtx *sctx, ForkGCCtx *gc, size_t recordsRemoved,
                                size_t bytesCollected) {
   sctx->spec->stats.numRecords -= recordsRemoved;
@@ -59,7 +62,7 @@ static char *ForkGc_FDReadBuffer(int fd, size_t *len) {
   if (*len == 0) {
     return NULL;
   }
-  char *buff = rm_malloc(*len * sizeof(char *));
+  char *buff = rm_malloc(*len * sizeof(char));
   read(fd, buff, *len);
   return buff;
 }
@@ -99,37 +102,37 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
 
   if (array_len(blocksFixed) == 0) {
     // no blocks was repaired
-    ForkGc_FDWriteLongLong(gc->pipefd[1], 0);
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);
     array_free(blocksFixed);
     return false;
   }
 
   // write number of repaired blocks
-  ForkGc_FDWriteLongLong(gc->pipefd[1], array_len(blocksFixed));
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], array_len(blocksFixed));
 
   // write total bytes collected
-  ForkGc_FDWriteLongLong(gc->pipefd[1], totalBytesCollected);
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], totalBytesCollected);
 
   // write total docs collected
-  ForkGc_FDWriteLongLong(gc->pipefd[1], totalDocsCollected);
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], totalDocsCollected);
 
   // write total number of blocks
-  ForkGc_FDWriteLongLong(gc->pipefd[1], idx->size);
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], idx->size);
 
   for (int i = 0; i < array_len(blocksFixed); ++i) {
     // write fix block
     IndexBlock *blk = idx->blocks + blocksFixed[i];
-    ForkGc_FDWriteLongLong(gc->pipefd[1], blocksFixed[i]);  // writing the block index
-    ForkGc_FDWriteLongLong(gc->pipefd[1], blk->firstId);
-    ForkGc_FDWriteLongLong(gc->pipefd[1], blk->lastId);
-    ForkGc_FDWriteLongLong(gc->pipefd[1], blk->numDocs);
-    ForkGc_FDWriteLongLong(gc->pipefd[1], numDocsBefore[blocksFixed[i]]);  // send num docs before
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blocksFixed[i]);  // writing the block index
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->firstId);
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->lastId);
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->numDocs);
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], numDocsBefore[blocksFixed[i]]);  // send num docs before
     if (blk->data->data) {
-      ForkGc_FDWriteBuffer(gc->pipefd[1], blk->data->data, blk->data->cap);
-      ForkGc_FDWriteLongLong(gc->pipefd[1], blk->data->offset);
+      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], blk->data->data, blk->data->cap);
+      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->data->offset);
     } else {
-      ForkGc_FDWriteBuffer(gc->pipefd[1], NULL, 0);
-      ForkGc_FDWriteLongLong(gc->pipefd[1], 0);
+      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], NULL, 0);
+      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);
     }
   }
   array_free(blocksFixed);
@@ -141,7 +144,7 @@ static void ForkGc_CollectTerm(ForkGCCtx *gc, RedisSearchCtx *sctx, char *term, 
   InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
   if (idx) {
     // inverted index name
-    ForkGc_FDWriteBuffer(gc->pipefd[1], term, termLen);
+    ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], term, termLen);
 
     ForkGc_InvertedIndexRepair(gc, sctx, idx, NULL, NULL);
   }
@@ -177,7 +180,7 @@ static void ForkGc_CollectGarbageFromInvIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
   TrieIterator_Free(iter);
 
   // we are done with terms
-  ForkGc_FDWriteBuffer(gc->pipefd[1], "\0", 1);
+  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], "\0", 1);
 }
 
 static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
@@ -193,10 +196,10 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       NumericRangeNode *currNode = NULL;
 
       // numeric field name
-      ForkGc_FDWriteBuffer(gc->pipefd[1], numericFields[i]->name,
+      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], numericFields[i]->name,
                            strlen(numericFields[i]->name) + 1);
       // numeric field unique id
-      ForkGc_FDWriteLongLong(gc->pipefd[1], rt->uniqueId);
+      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], rt->uniqueId);
 
       while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
         if (!currNode->range) {
@@ -211,25 +214,25 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
           valuesDeleted = array_append(valuesDeleted, valueDeleted);
         }
         // write node pointer
-        ForkGc_FDWritePtr(gc->pipefd[1], currNode);
+        ForkGc_FDWritePtr(gc->pipefd[GC_WRITERFD], currNode);
 
         bool repaired = ForkGc_InvertedIndexRepair(gc, sctx, currNode->range->entries,
                                                    ForkGc_CountDeletedCardinality, valuesDeleted);
 
         if (repaired) {
           // send reduced cardinality size
-          ForkGc_FDWriteLongLong(gc->pipefd[1], currNode->range->card);
+          ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], currNode->range->card);
 
           // send reduced cardinality
           for (int i = 0; i < currNode->range->card; ++i) {
-            ForkGc_FDWriteLongLong(gc->pipefd[1], valuesDeleted[i].appearances);
+            ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], valuesDeleted[i].appearances);
           }
         }
         array_free(valuesDeleted);
       }
 
       // we are done with the current field
-      ForkGc_FDWritePtr(gc->pipefd[1], 0);
+      ForkGc_FDWritePtr(gc->pipefd[GC_WRITERFD], 0);
 
       if (idxKey) RedisModule_CloseKey(idxKey);
 
@@ -238,7 +241,7 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
   }
 
   // we are done with numeric fields
-  ForkGc_FDWriteBuffer(gc->pipefd[1], "\0", 1);
+  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], "\0", 1);
 }
 
 static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
@@ -253,9 +256,9 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       }
 
       // tag field name
-      ForkGc_FDWriteBuffer(gc->pipefd[1], tagFields[i]->name, strlen(tagFields[i]->name) + 1);
+      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], tagFields[i]->name, strlen(tagFields[i]->name) + 1);
       // numeric field unique id
-      ForkGc_FDWriteLongLong(gc->pipefd[1], tagIdx->uniqueId);
+      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], tagIdx->uniqueId);
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
       char *ptr;
@@ -263,19 +266,19 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       InvertedIndex *value;
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         // send inverted index pointer
-        ForkGc_FDWritePtr(gc->pipefd[1], value);
+        ForkGc_FDWritePtr(gc->pipefd[GC_WRITERFD], value);
         // send repaired data
         ForkGc_InvertedIndexRepair(gc, sctx, value, NULL, NULL);
       }
 
       // we are done with the current field
-      ForkGc_FDWritePtr(gc->pipefd[1], 0);
+      ForkGc_FDWritePtr(gc->pipefd[GC_WRITERFD], 0);
 
       if (idxKey) RedisModule_CloseKey(idxKey);
     }
   }
   // we are done with numeric fields
-  ForkGc_FDWriteBuffer(gc->pipefd[1], "\0", 1);
+  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], "\0", 1);
 }
 
 static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
@@ -315,15 +318,15 @@ typedef struct {
 } ForkGc_InvertedIndexData;
 
 static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
-  blockModified->blockIndex = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  blockModified->blk.firstId = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  blockModified->blk.lastId = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  blockModified->blk.numDocs = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  blockModified->numBlocksBefore = ForkGc_FDReadLongLong(gc->pipefd[0]);
+  blockModified->blockIndex = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  blockModified->blk.firstId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  blockModified->blk.lastId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  blockModified->blk.numDocs = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  blockModified->numBlocksBefore = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   size_t cap;
-  char *data = ForkGc_FDReadBuffer(gc->pipefd[0], &cap);
+  char *data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &cap);
   blockModified->blk.data = malloc(sizeof(Buffer));
-  blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[0]);
+  blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   ;
   blockModified->blk.data->cap = cap;
   blockModified->blk.data->data = data;
@@ -333,14 +336,14 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
 }
 
 static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData) {
-  long long blocksModifiedSize = ForkGc_FDReadLongLong(gc->pipefd[0]);
+  long long blocksModifiedSize = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   if (blocksModifiedSize == 0) {
     return false;
   }
 
-  idxData->bytesCollected = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  idxData->docsCollected = ForkGc_FDReadLongLong(gc->pipefd[0]);
-  ForkGc_FDReadLongLong(gc->pipefd[0]);  // throw totalblocks in inverted index
+  idxData->bytesCollected = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  idxData->docsCollected = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);  // throw totalblocks in inverted index
 
   idxData->blocksModified = array_new(ModifiedBlock, blocksModifiedSize);
   for (int i = 0; i < blocksModifiedSize; ++i) {
@@ -369,9 +372,9 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
   }
 }
 
-bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val) {
+static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rctx) {
   size_t len;
-  char *term = ForkGc_FDReadBuffer(gc->pipefd[0], &len);
+  char *term = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &len);
   if (term == NULL || term[0] == '\0') {
     if (term) {
       rm_free(term);
@@ -385,8 +388,6 @@ bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val) {
     return true;
   }
 
-  RedisModuleCtx *rctx = NULL;
-  rctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_ThreadSafeContextLock(rctx);
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
@@ -422,9 +423,6 @@ cleanup:
   if (term) {
     rm_free(term);
   }
-  if (rctx) {
-    RedisModule_FreeThreadSafeContext(rctx);
-  }
   if (idxData.blocksModified) {
     array_free(idxData.blocksModified);
   }
@@ -440,9 +438,9 @@ cleanup:
 // performs cleanup and continue with the loop
 #define CONTINUE goto loop_cleanup;
 
-bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val) {
+static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rctx) {
   size_t fieldNameLen;
-  char *fieldName = ForkGc_FDReadBuffer(gc->pipefd[0], &fieldNameLen);
+  char *fieldName = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &fieldNameLen);
   if (fieldName == NULL || fieldName[0] == '\0') {
     if (fieldName) {
       rm_free(fieldName);
@@ -450,12 +448,11 @@ bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val) {
     return false;
   }
 
-  uint64_t rtUniqueId = ForkGc_FDReadLongLong(gc->pipefd[0]);
+  uint64_t rtUniqueId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
 
-  RedisModuleCtx *rctx = RedisModule_GetThreadSafeContext(NULL);
   NumericRangeNode *currNode = NULL;
   bool shouldReturn = false;
-  while ((currNode = ForkGc_FDReadPtr(gc->pipefd[0]))) {
+  while ((currNode = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
 
     ForkGc_InvertedIndexData idxData = {0};
     if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
@@ -463,12 +460,12 @@ bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val) {
     }
 
     // read reduced cardinality size
-    long long reduceCardinalitySize = ForkGc_FDReadLongLong(gc->pipefd[0]);
+    long long reduceCardinalitySize = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
     long long valuesDeleted[reduceCardinalitySize];
 
     // read reduced cardinality
     for (int i = 0; i < reduceCardinalitySize; ++i) {
-      valuesDeleted[i] = ForkGc_FDReadLongLong(gc->pipefd[0]);
+      valuesDeleted[i] = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
     }
 
     RedisModule_ThreadSafeContextLock(rctx);
@@ -531,7 +528,6 @@ bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val) {
       RedisModule_CloseKey(idxKey);
     }
     if (shouldReturn) {
-      RedisModule_FreeThreadSafeContext(rctx);
       if (fieldName) {
         rm_free(fieldName);
       }
@@ -539,17 +535,15 @@ bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val) {
     }
   }
 
-  RedisModule_FreeThreadSafeContext(rctx);
-
   if (fieldName) {
     rm_free(fieldName);
   }
   return true;
 }
 
-bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val) {
+static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rctx) {
   size_t fieldNameLen;
-  char *fieldName = ForkGc_FDReadBuffer(gc->pipefd[0], &fieldNameLen);
+  char *fieldName = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &fieldNameLen);
   if (fieldName == NULL || fieldName[0] == '\0') {
     if (fieldName) {
       rm_free(fieldName);
@@ -557,11 +551,10 @@ bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val) {
     return false;
   }
 
-  uint64_t tagUniqueId = ForkGc_FDReadLongLong(gc->pipefd[0]);
+  uint64_t tagUniqueId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   bool shouldReturn = false;
-  RedisModuleCtx *rctx = RedisModule_GetThreadSafeContext(NULL);
   InvertedIndex *value = NULL;
-  while ((value = ForkGc_FDReadPtr(gc->pipefd[0]))) {
+  while ((value = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
     ForkGc_InvertedIndexData idxData = {0};
     if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
       continue;
@@ -600,15 +593,12 @@ bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val) {
       RedisModule_CloseKey(idxKey);
     }
     if (shouldReturn) {
-      RedisModule_FreeThreadSafeContext(rctx);
       if (fieldName) {
         rm_free(fieldName);
       }
       return false;
     }
   }
-
-  RedisModule_FreeThreadSafeContext(rctx);
 
   if (fieldName) {
     rm_free(fieldName);
@@ -617,22 +607,27 @@ bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val) {
 }
 
 void ForkGc_ReadGarbageFromFork(ForkGCCtx *gc, int *ret_val) {
-  while (ForkGc_ReadInvertedIndex(gc, ret_val))
+  RedisModuleCtx *rctx = RedisModule_GetThreadSafeContext(NULL);
+
+  while (ForkGc_ReadInvertedIndex(gc, ret_val, rctx))
     ;
 
   if (!(*ret_val)) {
-    return;
+    goto done;
   }
 
-  while (ForkGc_ReadNumericInvertedIndex(gc, ret_val))
+  while (ForkGc_ReadNumericInvertedIndex(gc, ret_val, rctx))
     ;
 
   if (!(*ret_val)) {
-    return;
+    goto done;
   }
 
-  while (ForkGc_ReadTagIndex(gc, ret_val))
+  while (ForkGc_ReadTagIndex(gc, ret_val, rctx))
     ;
+
+done:
+  RedisModule_FreeThreadSafeContext(rctx);
 }
 
 static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
@@ -665,15 +660,15 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   cpid = fork();     // duplicate the current process
   if (cpid == 0) {
     // fork process
-    close(gc->pipefd[0]);
+    close(gc->pipefd[GC_READERFD]);
     ForkGc_CollectGarbage(gc);
-    close(gc->pipefd[1]);
+    close(gc->pipefd[GC_WRITERFD]);
     _exit(EXIT_SUCCESS);
   } else {
     // main process
-    close(gc->pipefd[1]);
+    close(gc->pipefd[GC_WRITERFD]);
     ForkGc_ReadGarbageFromFork(gc, &ret_val);
-    close(gc->pipefd[0]);
+    close(gc->pipefd[GC_READERFD]);
     wait(NULL);
   }
   TimeSampler_End(&ts);
@@ -687,7 +682,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   return ret_val;
 }
 
-static void ForkGc_OnTerm(void *privdata) {
+void ForkGc_OnTerm(void *privdata) {
   ForkGCCtx *gc = privdata;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_ThreadSafeContextLock(ctx);
@@ -695,27 +690,6 @@ static void ForkGc_OnTerm(void *privdata) {
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   free(gc);
-}
-
-int ForkGc_StartForkGC(void *ctx) {
-  ForkGCCtx *gc = ctx;
-  assert(gc->timer == NULL);
-  struct timespec interval;
-  interval.tv_sec = 30;
-  interval.tv_nsec = 0;
-  gc->timer = RMUtil_NewPeriodicTimer(ForkGc_PeriodicCallback, ForkGc_OnTerm, gc, interval);
-  return REDISMODULE_OK;
-}
-
-int ForkGc_StopForkGC(void *ctx) {
-  ForkGCCtx *gc = ctx;
-  if (gc->timer) {
-    RMUtilTimer_Terminate(gc->timer);
-    // set the timer to NULL so we won't call this twice
-    gc->timer = NULL;
-    return REDISMODULE_OK;
-  }
-  return REDISMODULE_ERR;
 }
 
 void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
@@ -740,32 +714,30 @@ void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
   RedisModule_ReplySetArrayLength(ctx, n);
 }
 
-void ForkGc_OnDelete(void *ctx) {
+void ForkGc_OnDelete(void *ctx) {}
+
+struct timespec ForkGc_GetInterval(void *ctx) {
+  struct timespec interval;
+  interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  interval.tv_nsec = 0;
+  return interval;
 }
 
-void ForkGc_ForceInvoke(void *ctx, RedisModuleBlockedClient *bc) {
-  ForkGCCtx *gc = ctx;
-  RMUtilTimer_ForceInvoke(gc->timer, bc);
-}
-
-GCContext NewForkGC(const RedisModuleString *k, uint64_t specUniqueId) {
+ForkGCCtx* NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks* callbacks){
   ForkGCCtx *forkGc = malloc(sizeof(*forkGc));
 
   *forkGc = (ForkGCCtx){
-      .timer = NULL,
       .keyName = k,
       .stats = {},
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
-      .noLockMode = false,
   };
 
-  return (GCContext){
-      .gcCtx = forkGc,
-      .start = ForkGc_StartForkGC,
-      .stop = ForkGc_StopForkGC,
-      .renderStats = ForkGc_RenderStats,
-      .onDelete = ForkGc_OnDelete,
-      .forceInvoke = ForkGc_ForceInvoke,
-  };
+  callbacks->onDelete = ForkGc_OnDelete;
+  callbacks->onTerm = ForkGc_OnTerm;
+  callbacks->periodicCallback = ForkGc_PeriodicCallback;
+  callbacks->renderStats = ForkGc_RenderStats;
+  callbacks->getInterval = ForkGc_GetInterval;
+
+  return forkGc;
 }

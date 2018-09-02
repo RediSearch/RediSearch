@@ -5,6 +5,7 @@
 #include "tag_index.h"
 #include "numeric_index.h"
 #include "phonetic_manager.h"
+#include "gc.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -337,7 +338,7 @@ DEBUG_COMMAND(GCForceInvoke){
     return REDISMODULE_OK;
   }
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
-  sp->gc.forceInvoke(sp->gc.gcCtx, bc);
+  GCContext_ForceInvoke(sp->gc, bc);
   return REDISMODULE_OK;
 }
 

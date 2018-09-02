@@ -1,52 +1,47 @@
-#ifndef RS_GARBAGE_COLLECTOR_H_
-#define RS_GARBAGE_COLLECTOR_H_
+/*
+ * gc.h
+ *
+ *  Created on: Aug 30, 2018
+ *      Author: meir
+ */
+
+#ifndef SRC_GC_H_
+#define SRC_GC_H_
 
 #include "redismodule.h"
-#include "rmutil/periodic.h"
-#include "spec.h"
 
-// the maximum frequency we are allowed to run in
-#define GC_MAX_HZ 100
-#define GC_MIN_HZ 1
-#define GC_DEFAULT_HZ 10
+typedef struct BlockClient {
+  RedisModuleBlockedClient* bClient;
+  struct BlockClient* next;
+  struct BlockClient* prev;
+}BlockClient;
 
-#define NUM_CYCLES_HISTORY 10
+typedef struct BlockClients {
+  BlockClient* head;
+  BlockClient* tail;
+  pthread_mutex_t lock;
+}BlockClients;
 
-typedef struct {
-  // total bytes collected by the GC
-  size_t totalCollected;
-  // number of cycle ran
-  size_t numCycles;
-  // the number of cycles that collected anything
-  size_t effectiveCycles;
+typedef struct GCCallbacks{
+  int (*periodicCallback)(RedisModuleCtx *ctx, void *gcCtx);
+  void (*renderStats)(RedisModuleCtx *ctx, void *gc);
+  void (*onDelete)(void *ctx);
+  void (*onTerm)(void *ctx);
+  struct timespec (*getInterval)(void *ctx);
+}GCCallbacks;
 
-  // the collection result of the last N cycles.
-  // this is a cyclical buffer
-  size_t history[NUM_CYCLES_HISTORY];
-  // the offset in the history cyclical buffer
-  int historyOffset;
-} GCStats;
+typedef struct GCContext{
+  void* gcCtx;
+  struct RMUtilTimer *timer;
+  BlockClients bClients;
+  GCCallbacks callbacks;
+}GCContext;
 
-typedef struct GarbageCollectorCtx GarbageCollectorCtx;
+GCContext* GCContext_CreateGC(RedisModuleString *keyName, float initialHZ, uint64_t uniqueId);
+void GCContext_Start(GCContext* gc);
+void GCContext_Stop(GCContext* gc);
+void GCContext_RenderStats(GCContext* gc, RedisModuleCtx *ctx);
+void GCContext_OnDelete(GCContext* gc);
+void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient *bc);
 
-typedef struct GCContext GCContext;
-
-/* Create a new garbage collector, with a string for the index name, and initial frequency */
-GCContext NewGarbageCollector(const RedisModuleString *k, float initial_hz, uint64_t spec_unique_id);
-
-// Start the collector thread
-int GC_Start(void *ctx);
-
-/* Stop the garbage collector, and call its termination function asynchronously when its thread is
- * finished. This also frees the resources allocated for the GC context */
-int GC_Stop(void *ctx);
-
-// called externally when the user deletes a document to hint at increasing the HZ
-void GC_OnDelete(void *ctx);
-
-void GC_ForceInvoke(void *ctx, RedisModuleBlockedClient *bClient);
-
-/* Render the GC stats to a redis connection, used by FT.INFO */
-void GC_RenderStats(RedisModuleCtx *ctx, void *gc);
-
-#endif
+#endif /* SRC_GC_H_ */

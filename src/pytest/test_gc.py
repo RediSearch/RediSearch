@@ -1,10 +1,6 @@
-<<<<<<< 079de0c0fe6e8d101f6d0f4a308f2179b0ba498a
-import time
+
 import unittest
 
-=======
-from base_case import BaseSearchTestCase
->>>>>>> review fixes
 
 def testBasicGC(env):
     if env.isCluster():

@@ -537,8 +537,8 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
-  if (spec->gc.gcCtx) {
-    spec->gc.stop(spec->gc.gcCtx);
+  if (spec->gc) {
+    GCContext_Stop(spec->gc);
   }
 
   if (spec->terms) {
@@ -689,27 +689,15 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
   return sp;
 }
 
-static GCContext IndexSpec_CreateGarbageCollection(RedisModuleString *keyName, float initialHZ, uint64_t uniqueId){
-  switch (RSGlobalConfig.gcPolicy) {
-    case GCPolicy_Fork:
-      return NewForkGC(keyName, uniqueId);
-      break;
-    case GCPolicy_Default:
-    default:
-      return NewGarbageCollector(keyName, initialHZ, uniqueId);
-      break;
-  }
-}
-
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
-  assert(sp->gc.gcCtx == NULL);
+  assert(!sp->gc);
   if (RSGlobalConfig.enableGC) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
-    sp->gc = IndexSpec_CreateGarbageCollection(keyName, initialHZ, sp->uniqueId);
-    sp->gc.start(sp->gc.gcCtx);
+    sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
+    GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
 }

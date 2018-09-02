@@ -49,7 +49,7 @@ int RMUtilTimer_Terminate(struct RMUtilTimer *t);
  * We use this to allow running gc with ft.debug FORCE_GCINVOKE and receive a 'done' reply when
  * the gc finished its run.
  */
-void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t, RedisModuleBlockedClient *bClient);
+void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t);
 
 int RMUtilTimer_Signal(struct RMUtilTimer *t);
 

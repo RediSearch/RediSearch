@@ -9,7 +9,7 @@
 #define SRC_FORK_GC_H_
 
 #include "redismodule.h"
-#include "spec.h"
+#include "gc.h"
 
 typedef struct {
   // total bytes collected by the GC
@@ -32,9 +32,6 @@ typedef struct ForkGCCtx {
 
   uint64_t specUniqueId;
 
-  // periodic timer
-  struct RMUtilTimer *timer;
-
   // statistics for reporting
   ForkGCStats stats;
 
@@ -43,17 +40,13 @@ typedef struct ForkGCCtx {
 
   int pipefd[2];
 
-  bool noLockMode;
-
 } ForkGCCtx;
 
-typedef struct GCContext GCContext;
-
-GCContext NewForkGC(const RedisModuleString *k, uint64_t specUniqueId);
-int ForkGc_StartForkGC(void *ctx);
-int ForkGc_StopForkGC(void *ctx);
+ForkGCCtx* NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks* callbacks);
 void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx);
 void ForkGc_OnDelete(void *ctx);
 void ForkGc_ForceInvoke(void *ctx, RedisModuleBlockedClient *bClient);
+void ForkGc_OnTerm(void *privdata);
+struct timespec ForkGc_GetInterval(void *ctx);
 
 #endif /* SRC_FORK_GC_H_ */
