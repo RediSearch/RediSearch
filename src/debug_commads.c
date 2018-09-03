@@ -6,6 +6,28 @@
 #include "numeric_index.h"
 #include "phonetic_manager.h"
 
+#define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
+
+#define DEBUG_COMMAND(name) \
+  static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+
+#define GET_SEARCH_CTX(name)\
+  RedisSearchCtx* sctx = NewSearchCtx(ctx, name);\
+  if(!sctx){\
+    RedisModule_ReplyWithError(ctx, "Can not create a search ctx");\
+    return REDISMODULE_OK;\
+  }
+
+#define REPLY_WITH_LONG_LONG(name, val, len)\
+    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));\
+    RedisModule_ReplyWithLongLong(ctx, val);\
+    len += 2;
+
+#define REPLY_WITH_Str(name, val)\
+    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));\
+    RedisModule_ReplyWithStringBuffer(ctx, val, strlen(val));\
+    bulkLen += 2;
+
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
@@ -19,10 +41,98 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   ReadIterator_Free(iter);
 }
 
-static void DumpInvertedIndex(RedisSearchCtx *sctx, RedisModuleString *invidxName) {
+static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS) {
+  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
+  FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  if (!fieldSpec) {
+    return NULL;
+  }
+  return IndexSpec_GetFormattedKey(spec, fieldSpec);
+}
+
+DEBUG_COMMAND(DumpTerms){
+  if(argc != 1){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
+
+  RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
+
+  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
+    free(res);
+  }
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
+  TrieIterator_Free(it);
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(InvertedIndexSummary){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
   RedisModuleKey *keyp = NULL;
   size_t len;
-  const char *invIdxName = RedisModule_StringPtrLen(invidxName, &len);
+  const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
+  if (!invidx) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
+    goto end;
+  }
+  size_t invIdxBulkLen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  REPLY_WITH_LONG_LONG("numDocs", invidx->numDocs, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastId", invidx->lastId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("flags", invidx->flags, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
+
+  RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
+
+  for(uint32_t i = 0 ; i < invidx->size ; ++i){
+    size_t blockBulkLen = 0;
+    IndexBlock* block = invidx->blocks + i;
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+    REPLY_WITH_LONG_LONG("firstId", block->firstId, blockBulkLen);
+    REPLY_WITH_LONG_LONG("lastId", block->lastId, blockBulkLen);
+    REPLY_WITH_LONG_LONG("numDocs", block->numDocs, blockBulkLen);
+
+    RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
+  }
+
+  invIdxBulkLen += 2;
+
+  RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
+
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpInvertedIndex){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  size_t len;
+  const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
   InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
@@ -34,40 +144,89 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
 }
 
-static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS) {
-  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
-  if (!fieldSpec) {
-    return NULL;
+DEBUG_COMMAND(NumericIndexSummary){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
   }
-  return IndexSpec_GetFormattedKey(spec, fieldSpec);
-}
-
-static void IdToDocId(RedisSearchCtx *sctx, RedisModuleString *strId) {
-  long long id;
-  if (RedisModule_StringToLongLong(strId, &id) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
-    return;
-  }
-  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
-  if (!doc || (doc->flags & Document_Deleted)) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
-  } else {
-    RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
-  }
-}
-
-static void DocIdToId(RedisSearchCtx *sctx, RedisModuleString *strDocId) {
-  RSDocumentKey docId = MakeDocKeyR(strDocId);
-  t_docId id = DocTable_GetId(&sctx->spec->docs, docId);
-  RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
-}
-
-static void DumpTagIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
+  GET_SEARCH_CTX(argv[0])
   RedisModuleKey *keyp = NULL;
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, fieldNameRS);
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1]);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+
+  size_t invIdxBulkLen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, invIdxBulkLen);
+
+  RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
+
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpNumericIndex){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1]);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+  NumericRangeNode *currNode;
+  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
+    if (currNode->range) {
+      IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
+      ReplyReaderResults(reader, sctx->redisCtx);
+      ++resultSize;
+    }
+  }
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
+  NumericRangeTreeIterator_Free(iter);
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpTagIndex){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1]);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
@@ -100,42 +259,49 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
 }
 
-static void DumpNumericIndex(RedisSearchCtx *sctx, RedisModuleString *fieldNameRS) {
-  RedisModuleKey *keyp = NULL;
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, fieldNameRS);
-  if (!keyName) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+DEBUG_COMMAND(IdToDocId){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  long long id;
+  if (RedisModule_StringToLongLong(argv[1], &id) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
-  if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
+  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  if (!doc || (doc->flags & Document_Deleted)) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
+  } else {
+    RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
-  NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
-  size_t resultSize = 0;
-  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    if (currNode->range) {
-      IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
-      ReplyReaderResults(reader, sctx->redisCtx);
-      ++resultSize;
-    }
-  }
-  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
-  NumericRangeTreeIterator_Free(iter);
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
 }
 
-static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term) {
+DEBUG_COMMAND(DocIdToId){
+  if(argc != 2){
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RSDocumentKey docId = MakeDocKeyR(argv[1]);
+  t_docId id = DocTable_GetId(&sctx->spec->docs, docId);
+  RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpPhoneticHash){
+  if(argc != 1){
+    return RedisModule_WrongArity(ctx);
+  }
   size_t len;
-  const char *term_c = RedisModule_StringPtrLen(term, &len);
+  const char *term_c = RedisModule_StringPtrLen(argv[0], &len);
 
   char *primary = NULL;
   char *secondary = NULL;
@@ -148,48 +314,51 @@ static void DumpPhoneticHash(RedisModuleCtx *ctx, RedisModuleString *term) {
 
   free(primary);
   free(secondary);
+  return REDISMODULE_OK;
 }
+
+typedef struct DebugCommandType{
+  char* name;
+  int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+}DebugCommandType;
+
+DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
+                               {"DUMP_NUMIDX", DumpNumericIndex},
+                               {"DUMP_TAGIDX", DumpTagIndex},
+                               {"IDTODOCID", IdToDocId},
+                               {"DOCIDTOID", DocIdToId},
+                               {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
+                               {"DUMP_TERMS", DumpTerms},
+                               {"INVIDX_SUMMARY", InvertedIndexSummary},
+                               {"NUMIDX_SUMMARY", NumericIndexSummary},
+                               {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  const char *subCommand = NULL;
+  if(argc < 2){
+    return RedisModule_WrongArity(ctx);
+  }
 
-  if (argc == 3) {
-    subCommand = RedisModule_StringPtrLen(argv[1], NULL);
-    if (strcmp(subCommand, DUMP_PHONETIC_HASH) == 0) {
-      DumpPhoneticHash(ctx, argv[2]);
-    } else {
-      RedisModule_ReplyWithError(ctx, "no such subcommand");
+  const char* subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+
+  if(strcasecmp(subCommand, "help") == 0){
+    size_t len = 0;
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    for(DebugCommandType* c = &commands[0]; c->name != NULL ; c++){
+      RedisModule_ReplyWithStringBuffer(ctx, c->name, strlen(c->name));
+      ++len;
     }
+    RedisModule_ReplySetArrayLength(ctx, len);
     return REDISMODULE_OK;
   }
 
-  if (argc != 4) return RedisModule_WrongArity(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[2], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+  for(DebugCommandType* c = &commands[0]; c->name != NULL ; c++){
+    if(strcasecmp(c->name, subCommand) == 0){
+      return c->callback(ctx, argv + 2, argc - 2);
+    }
   }
-  RedisSearchCtx sctx = {NULL};
-  sctx.redisCtx = ctx;
-  sctx.spec = sp;
 
-  subCommand = RedisModule_StringPtrLen(argv[1], NULL);
-
-  if (strcmp(subCommand, DUMP_INVIDX_COMMAND) == 0) {
-    DumpInvertedIndex(&sctx, argv[3]);
-  } else if (strcmp(subCommand, DUMP_NUMIDX_COMMAND) == 0) {
-    DumpNumericIndex(&sctx, argv[3]);
-  } else if (strcmp(subCommand, DUMP_TAGIDX_COMMAND) == 0) {
-    DumpTagIndex(&sctx, argv[3]);
-  } else if (strcmp(subCommand, IDTODOCID_COMMAND) == 0) {
-    IdToDocId(&sctx, argv[3]);
-  } else if (strcmp(subCommand, DOCIDTOID_COMMAND) == 0) {
-    DocIdToId(&sctx, argv[3]);
-  } else {
-    RedisModule_ReplyWithError(ctx, "no such subcommand");
-  }
+  RedisModule_ReplyWithError(ctx, "subcommand was not found");
 
   return REDISMODULE_OK;
 }
