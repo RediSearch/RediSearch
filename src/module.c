@@ -118,19 +118,19 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   opts->numFieldElems = 0;
   opts->options = 0;
 
-  ACArgSpec specs[] = {{.name = "NOSAVE", .type = AC_ARGTYPE_BOOLFLAG, .target = &nosave},
-                       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
-                       {.name = "PARTIAL", .type = AC_ARGTYPE_BOOLFLAG, .target = &partial},
-                       {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
-                       {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &opts->language},
-                       {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
-                       {.name = NULL}};
+  ACArgSpec argList[] = {{.name = "NOSAVE", .type = AC_ARGTYPE_BOOLFLAG, .target = &nosave},
+                         {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
+                         {.name = "PARTIAL", .type = AC_ARGTYPE_BOOLFLAG, .target = &partial},
+                         {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
+                         {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &opts->language},
+                         {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
+                         {.name = NULL}};
 
   while (!AC_IsAtEnd(ac)) {
     int rv = 0;
     ACArgSpec *errArg = NULL;
 
-    if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) == AC_OK) {
+    if ((rv = AC_ParseArgSpec(ac, argList, &errArg)) == AC_OK) {
       continue;
     } else if (rv == AC_ERR_ENOENT) {
       size_t narg;

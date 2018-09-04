@@ -3,6 +3,7 @@
 #include <float.h>
 #include <math.h>
 #include <string.h>
+#include <assert.h>
 
 int AC_Advance(ArgsCursor *ac) {
   return AC_AdvanceBy(ac, 1);
@@ -121,14 +122,11 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
 }
 
 int AC_GetRString(ArgsCursor *ac, RedisModuleString **s, int flags) {
+  assert(ac->type == AC_TYPE_RSTRING);
   if (ac->offset == ac->argc) {
     return AC_ERR_NOARG;
   }
-  if (ac->type == AC_TYPE_RSTRING) {
-    *s = AC_CURRENT(ac);
-  } else {
-    abort();
-  }
+  *s = AC_CURRENT(ac);
   MAYBE_ADVANCE();
   return AC_OK;
 }
