@@ -209,6 +209,18 @@ KEYWORD_HANDLER(handleReturn) {
   return REDISMODULE_OK;
 }
 
+KEYWORD_HANDLER(handleOnTimeout) {
+  const char *s;
+  size_t n = 0;
+  if (AC_GetString(ac, &s, &n, 0) != AC_OK) {
+    SET_ERR(status, "ON_TIMEOUT requires argument");
+  }
+  if ((opts->timeoutPolicy = TimeoutPolicy_Parse(s, n)) == TimeoutPolicy_Invalid) {
+    SET_ERR(status, "Invalid value for ON_TIMEOUT");
+  }
+  return REDISMODULE_OK;
+}
+
 #define HANDLER_ENTRY(name, parser_, minArgs_)               \
   {                                                          \
     .keyword = name, .parser = parser_, .minArgs = minArgs_, \
@@ -228,7 +240,8 @@ static const KeywordHandler keywordHandlers_g[] = {HANDLER_ENTRY("LIMIT", parseL
                                                    HANDLER_ENTRY("HIGHLIGHT", handleHighlight, 0),
                                                    HANDLER_ENTRY("SORTBY", handleSortBy, 1),
                                                    HANDLER_ENTRY("INKEYS", handleInkeys, 1),
-                                                   HANDLER_ENTRY("RETURN", handleReturn, 1)};
+                                                   HANDLER_ENTRY("RETURN", handleReturn, 1),
+                                                   HANDLER_ENTRY("ON_TIMEOUT", handleOnTimeout, 1)};
 
 #define NUM_HANDLERS (sizeof(keywordHandlers_g) / sizeof(keywordHandlers_g[0]))
 

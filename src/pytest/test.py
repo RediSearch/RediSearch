@@ -1848,6 +1848,12 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([1], rv)
 
+def testTimeoutSettings(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
+    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
+    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
