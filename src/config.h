@@ -7,22 +7,19 @@
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config
   TimeoutPolicy_Return,       // Return what we have on timeout
-  TimeoutPolicy_Fail          // Just fail without returning anything
+  TimeoutPolicy_Fail,         // Just fail without returning anything
+  TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static inline const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
-  switch (policy) {
-    case TimeoutPolicy_Return:
-      return "return";
-    case TimeoutPolicy_Fail:
-      return "fail";
-    default:
-      return "huh?";
-  }
-}
+const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
-/* RSConfig is a global configuration struct for the module, it can be included from each file, and
- * is initialized with user config options during module statrtup */
+/**
+ * Returns TimeoutPolicy_Invalid if the string could not be parsed
+ */
+RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+
+/* RSConfig is a global configuration struct for the module, it can be included from each file,
+ * and is initialized with user config options during module statrtup */
 typedef struct {
   // Use concurrent serach (default: 1, disable with SAFEMODE)
   int concurrentMode;
