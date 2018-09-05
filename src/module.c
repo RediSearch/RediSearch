@@ -1633,7 +1633,7 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool stopOnConfigErr) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
   if (RedisModule_GetThreadSafeContext == NULL) {
@@ -1649,7 +1649,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                   REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
 
   char *err;
-  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
+  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR && stopOnConfigErr) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     free(err);
     return REDISMODULE_ERR;
