@@ -60,6 +60,9 @@ typedef struct {
   size_t gcScanSize;
 
   size_t minPhoneticTermLen;
+
+  // Chained configuration data
+  void *chainedConfig;
 } RSConfig;
 
 typedef enum {
@@ -79,13 +82,19 @@ typedef struct {
 } RSConfigVar;
 
 #define RS_MAX_CONFIG_VARS 255
-typedef struct {
+typedef struct RSConfigOptions {
   RSConfigVar vars[RS_MAX_CONFIG_VARS];
+  struct RSConfigOptions *next;
 } RSConfigOptions;
 
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
+
+/**
+ * Add new configuration options to the chain of already recognized options
+ */
+void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst);
 
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
