@@ -13,23 +13,20 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
 }
 
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
-                            RedisModuleString **argv, size_t fieldsOffset, size_t argc,
-                            const char *language, RedisModuleString *payload, RedisModuleCtx *ctx) {
+                            AddDocumentOptions *opts, RedisModuleCtx *ctx) {
   size_t payloadSize = 0;
   const char *payloadStr = NULL;
-  if (payload) {
-    payloadStr = RedisModule_StringPtrLen(payload, &payloadSize);
+  if (opts->payload) {
+    payloadStr = RedisModule_StringPtrLen(opts->payload, &payloadSize);
   }
 
-  Document_Init(doc, docKey, score, (argc - fieldsOffset) / 2,
-                language ? language : DEFAULT_LANGUAGE, payloadStr, payloadSize);
-  int n = 0;
-  for (int i = fieldsOffset + 1; i < argc - 1; i += 2, n++) {
-    // printf ("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(argv[i],
-    // NULL),
-    // RedisModule_StringPtrLen(argv[i+1], NULL));
-    doc->fields[n].name = RedisModule_StringPtrLen(argv[i], NULL);
-    doc->fields[n].text = RedisModule_CreateStringFromString(ctx, argv[i + 1]);
+  Document_Init(doc, docKey, score, opts->numFieldElems / 2,
+                opts->language ? opts->language : DEFAULT_LANGUAGE, payloadStr, payloadSize);
+  for (size_t ii = 0, n = 0; ii < opts->numFieldElems; ii += 2, n++) {
+    // printf("indexing '%s' => '%s'\n", RedisModule_StringPtrLen(opts->fieldsArray[ii], NULL),
+    //        RedisModule_StringPtrLen(opts->fieldsArray[ii + 1], NULL));
+    doc->fields[n].name = RedisModule_StringPtrLen(opts->fieldsArray[ii], NULL);
+    doc->fields[n].text = RedisModule_CreateStringFromString(ctx, opts->fieldsArray[ii + 1]);
   }
 
   Document_Detach(doc, ctx);

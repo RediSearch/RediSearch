@@ -3,6 +3,7 @@
 #include <float.h>
 #include <math.h>
 #include <string.h>
+#include <assert.h>
 
 int AC_Advance(ArgsCursor *ac) {
   return AC_AdvanceBy(ac, 1);
@@ -120,6 +121,16 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
   return AC_OK;
 }
 
+int AC_GetRString(ArgsCursor *ac, RedisModuleString **s, int flags) {
+  assert(ac->type == AC_TYPE_RSTRING);
+  if (ac->offset == ac->argc) {
+    return AC_ERR_NOARG;
+  }
+  *s = AC_CURRENT(ac);
+  MAYBE_ADVANCE();
+  return AC_OK;
+}
+
 int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
   if (ac->offset == ac->argc) {
     return AC_ERR_NOARG;
@@ -159,4 +170,65 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   dst->offset = 0;
   AC_AdvanceBy(ac, nargs);
   return 0;
+}
+
+static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
+  switch (spec->type) {
+    case AC_ARGTYPE_BOOLFLAG:
+      *(int *)spec->target = 1;
+      return AC_OK;
+    case AC_ARGTYPE_DOUBLE:
+      return AC_GetDouble(ac, spec->target, spec->intflags);
+    case AC_ARGTYPE_INT:
+      return AC_GetInt(ac, spec->target, spec->intflags);
+    case AC_ARGTYPE_LLONG:
+      return AC_GetLongLong(ac, spec->target, spec->intflags);
+    case AC_ARGTYPE_ULLONG:
+      return AC_GetUnsignedLongLong(ac, spec->target, spec->intflags);
+    case AC_ARGTYPE_UINT:
+      return AC_GetUnsigned(ac, spec->target, spec->intflags);
+    case AC_ARGTYPE_STRING:
+      return AC_GetString(ac, spec->target, spec->len, 0);
+    case AC_ARGTYPE_RSTRING:
+      return AC_GetRString(ac, spec->target, 0);
+    default:
+      fprintf(stderr, "Unknown type");
+      abort();
+  }
+}
+
+int AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, ACArgSpec **errSpec) {
+  const char *s = NULL;
+  size_t n;
+  int rv;
+
+  if (errSpec) {
+    *errSpec = NULL;
+  }
+
+  while (!AC_IsAtEnd(ac)) {
+    if ((rv = AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK)) {
+      return rv;
+    }
+    ACArgSpec *cur = specs;
+
+    for (; cur->name != NULL; cur++) {
+      if (!strncasecmp(cur->name, s, n)) {
+        break;
+      }
+    }
+
+    if (cur->name == NULL) {
+      return AC_ERR_ENOENT;
+    }
+
+    AC_Advance(ac);
+    if ((rv = parseSingleSpec(ac, cur)) != AC_OK) {
+      if (errSpec) {
+        *errSpec = cur;
+      }
+      return rv;
+    }
+  }
+  return AC_OK;
 }

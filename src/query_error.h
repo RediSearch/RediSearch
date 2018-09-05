@@ -13,6 +13,7 @@ extern "C" {
   X(QUERY_EGENERIC, "Generic error evaluating the query")                \
   X(QUERY_ESYNTAX, "Parsing/Syntax error for query string")              \
   X(QUERY_EPARSEARGS, "Error parsing query/aggregation arguments")       \
+  X(QUERY_EADDARGS, "Error parsing document indexing arguments")         \
   X(QUERY_EEXPR, "Parsing/Evaluating dynamic expression failed")         \
   X(QUERY_EKEYWORD, "Could not handle query keyword")                    \
   X(QUERY_ENORESULTS, "Query matches no results")                        \
