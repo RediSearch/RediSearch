@@ -238,10 +238,13 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
-static RSConfigVar *findConfigVar(const RSConfigVar *vars, const char *name) {
-  for (; vars->name != NULL; vars++) {
-    if (!strcmp(name, vars->name)) {
-      return (RSConfigVar *)vars;
+static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
+  for (; config; config = config->next) {
+    const RSConfigVar *vars = config->vars;
+    for (; vars->name != NULL; vars++) {
+      if (!strcmp(name, vars->name)) {
+        return (RSConfigVar *)vars;
+      }
     }
   }
   return NULL;
@@ -259,7 +262,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   size_t offset = 0;
   while (offset < argc) {
     const char *name = RedisModule_StringPtrLen(argv[offset], NULL);
-    RSConfigVar *curVar = findConfigVar(RSGlobalConfigOptions.vars, name);
+    RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
@@ -347,6 +350,14 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getMinPhoneticTermLen},
         {.name = NULL}}};
 
+void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
+  while (src->next != NULL) {
+    src = src->next;
+  }
+  src->next = dst;
+  dst->next = NULL;
+}
+
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
@@ -407,12 +418,14 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
   size_t numElems = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (!strcmp("*", name)) {
-    for (const RSConfigVar *cur = &options->vars[0]; cur->name; cur++) {
-      dumpConfigOption(config, cur, ctx, isHelp);
-      numElems++;
+    for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
+      for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
+        dumpConfigOption(config, cur, ctx, isHelp);
+        numElems++;
+      }
     }
   } else {
-    const RSConfigVar *v = findConfigVar(options->vars, name);
+    const RSConfigVar *v = findConfigVar(options, name);
     if (v) {
       numElems++;
       dumpConfigOption(config, v, ctx, isHelp);
@@ -423,7 +436,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
                        RedisModuleString **argv, int argc, size_t *offset, char **err) {
-  RSConfigVar *var = findConfigVar(options->vars, name);
+  RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
     SET_ERR(err, "No such option");
     return REDISMODULE_ERR;
