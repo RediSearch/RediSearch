@@ -79,6 +79,14 @@ RedisModuleString **RMUtil_ParseVarArgs(RedisModuleString **argv, int argc, int 
  */
 void RMUtil_DefaultAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value);
 
+/**
+ * Reply with a formatted error. This takes printf style arguments, converts them
+ * into Redis strings (suitable for RedisModule_ReplyWithError).
+ *
+ * Returns REDISMODULE_OK for convenience
+ */
+int RMUtil_ReplyWithErrorFmt(RedisModuleCtx *ctx, const char *fmt, ...);
+
 // A single key/value entry in a redis info map
 typedef struct {
   char *key;
@@ -92,40 +100,40 @@ typedef struct {
 } RMUtilInfo;
 
 /**
-* Get redis INFO result and parse it as RMUtilInfo.
-* Returns NULL if something goes wrong.
-* The resulting object needs to be freed with RMUtilRedisInfo_Free
-*/
+ * Get redis INFO result and parse it as RMUtilInfo.
+ * Returns NULL if something goes wrong.
+ * The resulting object needs to be freed with RMUtilRedisInfo_Free
+ */
 RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx);
 
 /**
-* Free an RMUtilInfo object and its entries
-*/
+ * Free an RMUtilInfo object and its entries
+ */
 void RMUtilRedisInfo_Free(RMUtilInfo *info);
 
 /**
-* Get an integer value from an info object. Returns 1 if the value was found and
-* is an integer, 0 otherwise. the value is placed in 'val'
-*/
+ * Get an integer value from an info object. Returns 1 if the value was found and
+ * is an integer, 0 otherwise. the value is placed in 'val'
+ */
 int RMUtilInfo_GetInt(RMUtilInfo *info, const char *key, long long *val);
 
 /**
-* Get a string value from an info object. The value is placed in str.
-* Returns 1 if the key was found, 0 if not
-*/
+ * Get a string value from an info object. The value is placed in str.
+ * Returns 1 if the key was found, 0 if not
+ */
 int RMUtilInfo_GetString(RMUtilInfo *info, const char *key, const char **str);
 
 /**
-* Get a double value from an info object. Returns 1 if the value was found and is
-* a correctly formatted double, 0 otherwise. the value is placed in 'd'
-*/
+ * Get a double value from an info object. Returns 1 if the value was found and is
+ * a correctly formatted double, 0 otherwise. the value is placed in 'd'
+ */
 int RMUtilInfo_GetDouble(RMUtilInfo *info, const char *key, double *d);
 
 /*
-* Returns a call reply array's element given by a space-delimited path. E.g.,
-* the path "1 2 3" will return the 3rd element from the 2 element of the 1st
-* element from an array (or NULL if not found)
-*/
+ * Returns a call reply array's element given by a space-delimited path. E.g.,
+ * the path "1 2 3" will return the 3rd element from the 2 element of the 1st
+ * element from an array (or NULL if not found)
+ */
 RedisModuleCallReply *RedisModule_CallReplyArrayElementByPath(RedisModuleCallReply *rep,
                                                               const char *path);
 

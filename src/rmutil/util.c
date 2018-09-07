@@ -296,3 +296,14 @@ void RMUtil_DefaultAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *
   }
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+int RMUtil_ReplyWithErrorFmt(RedisModuleCtx *ctx, const char *fmt, ...) {
+  va_list ap;
+  char *s = NULL;
+  va_start(ap, fmt);
+  vasprintf(&s, fmt, ap);
+  va_end(ap);
+  RedisModule_ReplyWithError(ctx, s);
+  free(s);
+  return REDISMODULE_OK;
+}
