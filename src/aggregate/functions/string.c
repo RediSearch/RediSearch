@@ -254,9 +254,7 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
       // trim the strip set
       char *s = strtrim(tok, sl, &outlen, strp);
       if (outlen) {
-        // we mark the strings as volatile so they'll be copied if persisted
-        // otherwise we'd have to copy them...
-        tmp[l++] = RS_StringValT(s, outlen, RSString_Volatile);
+        tmp[l++] = RS_NewCopiedString(s, outlen);
       }
     }
 

@@ -128,7 +128,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
   RSValue *v = RS_NewValue(RSValue_String);
   char *cp = malloc(n + 1);
-  cp[n + 1] = 0;
+  cp[n] = 0;
   memcpy(cp, s, n);
   RSValue_SetString(v, cp, n);
   return v;
