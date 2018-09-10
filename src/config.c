@@ -191,13 +191,9 @@ CONFIG_SETTER(setOnTimeout) {
     RETURN_ERROR("Missing argument");
   }
   const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
-  if (!strcasecmp(policy, "RETURN")) {
-    config->timeoutPolicy = TimeoutPolicy_Return;
-  } else if (!strcasecmp(policy, "FAIL")) {
-    config->timeoutPolicy = TimeoutPolicy_Fail;
-  } else {
+  if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
+      TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
-    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
@@ -446,4 +442,25 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
     return REDISMODULE_ERR;
   }
   return var->setValue(config, argv, argc, offset);
+}
+
+const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
+  switch (policy) {
+    case TimeoutPolicy_Return:
+      return "return";
+    case TimeoutPolicy_Fail:
+      return "fail";
+    default:
+      return "huh?";
+  }
+}
+
+RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
+  if (!strncasecmp(s, "RETURN", n)) {
+    return TimeoutPolicy_Return;
+  } else if (!strncasecmp(s, "FAIL", n)) {
+    return TimeoutPolicy_Return;
+  } else {
+    return TimeoutPolicy_Invalid;
+  }
 }
