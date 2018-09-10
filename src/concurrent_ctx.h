@@ -201,4 +201,21 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
     conctx__didSwitch;                                       \
   })
 
+// Check if the current request can be executed in a threadb
+static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
+  // See if this client should be concurrent
+  if (!RSGlobalConfig.concurrentMode) {
+    return 0;
+  }
+
+  // Redis cannot use blocked contexts in lua and/or multi commands. Concurrent
+  // search relies on blocking a client. In such cases, force non-concurrent
+  // search mode.
+  if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) &
+                                      (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI))) {
+    return 0;
+  }
+  return 1;
+}
+
 #endif
