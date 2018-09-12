@@ -1,10 +1,13 @@
 #!/bin/bash
 set -e
 
-REPO_ROOT_DIR=$(dirname $(dirname $(dirname $(realpath "$0"))))
+if [ -z "$GIT_DIR" ]; then
+    echo "GIT_DIR not set!"
+    exit 1
+fi
 
-cd $REPO_ROOT_DIR
-./code_style.sh --dry-run
+cd $GIT_DIR
+$GIT_DIR/srcutil/code_style.sh --dry-run
 
 exit $?
 
