@@ -60,6 +60,7 @@ typedef struct {
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
+void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
                          IndexRepairParams *params);
@@ -180,6 +181,9 @@ void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
+
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
+                      IndexRepairParams *params);
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));

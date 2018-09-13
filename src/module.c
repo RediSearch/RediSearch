@@ -20,7 +20,6 @@
 #include "ext/default.h"
 #include "search_request.h"
 #include "config.h"
-#include "gc.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
@@ -186,9 +185,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
 
-  RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
-  GC_RenderStats(ctx, sp->gc);
-  n += 2;
+  if (sp->gc) {
+    RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
+    GCContext_RenderStats(sp->gc, ctx);
+    n += 2;
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
   Cursors_RenderStats(&RSCursors, sp->name, ctx);
@@ -516,7 +517,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     // Increment the index's garbage collector's scanning frequency after document deletions
-    GC_OnDelete(sp->gc);
+    if (sp->gc) {
+      GCContext_OnDelete(sp->gc);
+    }
   }
 
   return RedisModule_ReplyWithLongLong(ctx, rc);

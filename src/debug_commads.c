@@ -5,6 +5,7 @@
 #include "tag_index.h"
 #include "numeric_index.h"
 #include "phonetic_manager.h"
+#include "gc.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -317,6 +318,30 @@ DEBUG_COMMAND(DumpPhoneticHash){
   return REDISMODULE_OK;
 }
 
+static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+#define REPLY "DONE"
+  RedisModule_ReplyWithStringBuffer(ctx, REPLY, strlen(REPLY));
+  return REDISMODULE_OK;
+}
+
+static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+#define ERROR_REPLY "INVOCATION FAILED"
+  RedisModule_ReplyWithError(ctx, ERROR_REPLY);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(GCForceInvoke){
+#define INVOKATION_TIMEOUT 30000 // gc invocation timeout ms
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
+  GCContext_ForceInvoke(sp->gc, bc);
+  return REDISMODULE_OK;
+}
+
 typedef struct DebugCommandType{
   char* name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -331,6 +356,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
+                               {"GC_FORCEINVOKE", GCForceInvoke},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

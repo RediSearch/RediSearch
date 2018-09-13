@@ -1,4 +1,5 @@
 #include "periodic.h"
+#include "rmalloc.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -11,6 +12,7 @@ typedef struct RMUtilTimer {
   pthread_t thread;
   pthread_mutex_t lock;
   pthread_cond_t cond;
+  volatile bool isCanceled;
 } RMUtilTimer;
 
 static struct timespec timespecAdd(struct timespec *a, struct timespec *b) {
@@ -30,28 +32,32 @@ static void *rmutilTimer_Loop(void *ctx) {
   struct timespec ts;
 
   pthread_mutex_lock(&tm->lock);
-  while (rc != 0) {
+  while (true) {
     clock_gettime(CLOCK_REALTIME, &ts);
     struct timespec timeout = timespecAdd(&ts, &tm->interval);
-    if ((rc = pthread_cond_timedwait(&tm->cond, &tm->lock, &timeout)) == ETIMEDOUT) {
-
-      // Create a thread safe context if we're running inside redis
-      RedisModuleCtx *rctx = NULL;
-      if (RedisModule_GetThreadSafeContext) rctx = RedisModule_GetThreadSafeContext(NULL);
-
-      // call our callback...
-      if (!tm->cb(rctx, tm->privdata)) {
-        break;
-      }
-
-      // If needed - free the thread safe context.
-      // It's up to the user to decide whether automemory is active there
-      if (rctx) RedisModule_FreeThreadSafeContext(rctx);
-    }
+    rc = pthread_cond_timedwait(&tm->cond, &tm->lock, &timeout);
     if (rc == EINVAL) {
       perror("Error waiting for condition");
       break;
     }
+
+    if (tm->isCanceled) {
+      break;
+    }
+
+    // Create a thread safe context if we're running inside redis
+    RedisModuleCtx *rctx = NULL;
+    if (RedisModule_GetThreadSafeContext) rctx = RedisModule_GetThreadSafeContext(NULL);
+
+    // call our callback...
+    if (!tm->cb(rctx, tm->privdata)) {
+      if (rctx) RedisModule_FreeThreadSafeContext(rctx);
+      break;
+    }
+
+    // If needed - free the thread safe context.
+    // It's up to the user to decide whether automemory is active there
+    if (rctx) RedisModule_FreeThreadSafeContext(rctx);
   }
 
   // call the termination callback if needed
@@ -61,6 +67,7 @@ static void *rmutilTimer_Loop(void *ctx) {
 
   // free resources associated with the timer
   pthread_cond_destroy(&tm->cond);
+  pthread_mutex_unlock(&tm->lock);
   free(tm);
 
   return NULL;
@@ -79,6 +86,7 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
       .interval = interval,
       .cb = cb,
       .onTerm = onTerm,
+      .isCanceled=false,
   };
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
@@ -87,6 +95,15 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
   return ret;
 }
 
-int RMUtilTimer_Terminate(struct RMUtilTimer *t) {
+void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t){
+  RMUtilTimer_Signal(t);
+}
+
+int RMUtilTimer_Signal(struct RMUtilTimer *t){
   return pthread_cond_signal(&t->cond);
+}
+
+int RMUtilTimer_Terminate(struct RMUtilTimer *t) {
+  t->isCanceled = true;
+  return RMUtilTimer_Signal(t);
 }

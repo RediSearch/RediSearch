@@ -486,5 +486,5 @@ void DocIdMap_Free(DocIdMap *m) {
 }
 
 int DocIdMap_Delete(DocIdMap *m, RSDocumentKey key) {
-  return TrieMap_Delete(m->tm, (char *)key.str, key.len, RedisModule_Free);
+  return TrieMap_Delete(m->tm, (char *)key.str, key.len, rm_free);
 }

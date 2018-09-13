@@ -22,7 +22,7 @@ class FTBaseCaseMethods(object):
 
     def ftget(self, idx, doc):
         return self.execute_command('ft.get', idx, doc)
-    
+
     def ftadd(self, idx, docid, weight=1.0, **fields):
         cmd = ['FT.ADD', idx, docid, weight, 'FIELDS']
         for k, v in fields.items():
@@ -36,4 +36,6 @@ class BaseSearchTestCase(BaseModuleTestCase, FTBaseCaseMethods):
         rv = super(BaseSearchTestCase, cls).get_module_args()
         if os.environ.get('RS_TEST_SAFEMODE'):
             rv += ['SAFEMODE']
+        if os.environ.get('GC_POLICY_FORK'):
+            rv += ['GC_POLICY', 'FORK']
         return rv

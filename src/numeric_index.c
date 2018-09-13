@@ -70,10 +70,11 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (checkCard) {
     add = 1;
     size_t card = n->card;
-    for (int i = 0; i < MIN(card, n->splitCard); i++) {
+    for (int i = 0; i < array_len(n->values); i++) {
 
-      if (n->values[i] == value) {
+      if (n->values[i].value == value) {
         add = 0;
+        n->values[i].appearances++;
         break;
       }
     }
@@ -82,7 +83,8 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
   if (add) {
     if (n->card < n->splitCard) {
-      n->values[n->card] = value;
+      CardinalityValue val = {.value = value, .appearances = 1};
+      n->values = array_append(n->values, val);
       n->unique_sum += value;
     }
     ++n->card;
@@ -133,7 +135,8 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
                              .unique_sum = 0,
                              .card = 0,
                              .splitCard = splitCard,
-                             .values = RedisModule_Calloc(splitCard, sizeof(double)),
+                             .values = array_new(CardinalityValue, 1),
+                             //.values = RedisModule_Calloc(splitCard, sizeof(CardinalityValue)),
                              .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
@@ -158,7 +161,7 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         InvertedIndex_Free(n->range->entries);
-        RedisModule_Free(n->range->values);
+        array_free(n->range->values);
         RedisModule_Free(n->range);
         n->range = NULL;
       }
@@ -257,7 +260,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
     InvertedIndex_Free(n->range->entries);
-    RedisModule_Free(n->range->values);
+    array_free(n->range->values);
     RedisModule_Free(n->range);
     n->range = NULL;
   }
@@ -267,6 +270,8 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
 
   RedisModule_Free(n);
 }
+
+uint16_t numericTreesUniqueId = 0;
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
@@ -278,6 +283,7 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->numRanges = 1;
   ret->revisionId = 0;
   ret->lastDocId = 0;
+  ret->uniqueId = numericTreesUniqueId++;
   return ret;
 }
 

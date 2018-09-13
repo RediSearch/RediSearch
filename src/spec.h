@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -184,11 +185,11 @@ typedef struct {
 
   StopWordList *stopwords;
 
-  void *gc;
+  GCContext* gc;
 
   SynonymMap *smap;
 
-  uint64_t unique_id;
+  uint64_t uniqueId;
 
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
@@ -223,6 +224,9 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
  */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, char **err);
+
+FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
+int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.
  * If an error occurred - we set an error string in err and return NULL.
