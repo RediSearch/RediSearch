@@ -74,7 +74,7 @@ AggregateStep *newApplyStepArgs(CmdArg *arg, char **err) {
 
   const char *exp = strdup(CMDARG_STRPTR(expr));
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
-  return AggregatePlan_NewApplyStep(alias ? strdup(alias) : NULL, exp, err);
+  return AggregatePlan_NewApplyStep(alias, exp, err);
 }
 
 AggregateStep *newFilterStep(CmdArg *arg, char **err) {
