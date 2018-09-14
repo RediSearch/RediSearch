@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <wait.h>
+#include <sys/wait.h>
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -26,9 +26,9 @@ static void ForkGc_FDWriteLongLong(int fd, long long val) {
   assert(size == sizeof(long long));
 }
 
-static void ForkGc_FDWritePtr(int fd, void* val) {
-  ssize_t size = write(fd, &val, sizeof(void*));
-  assert(size == sizeof(void*));
+static void ForkGc_FDWritePtr(int fd, void *val) {
+  ssize_t size = write(fd, &val, sizeof(void *));
+  assert(size == sizeof(void *));
 }
 
 static void ForkGc_FDWriteBuffer(int fd, const char *buff, size_t len) {
@@ -48,8 +48,8 @@ static long long ForkGc_FDReadLongLong(int fd) {
   return ret;
 }
 
-static void* ForkGc_FDReadPtr(int fd) {
-  void* ret;
+static void *ForkGc_FDReadPtr(int fd) {
+  void *ret;
   ssize_t sizeRead = read(fd, &ret, sizeof(ret));
   if (sizeRead != sizeof(ret)) {
     return 0;
@@ -126,7 +126,8 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->firstId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->lastId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->numDocs);
-    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], numDocsBefore[blocksFixed[i]]);  // send num docs before
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD],
+                           numDocsBefore[blocksFixed[i]]);  // send num docs before
     if (blk->data->data) {
       ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], blk->data->data, blk->data->cap);
       ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->data->offset);
@@ -256,7 +257,8 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       }
 
       // tag field name
-      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], tagFields[i]->name, strlen(tagFields[i]->name) + 1);
+      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], tagFields[i]->name,
+                           strlen(tagFields[i]->name) + 1);
       // numeric field unique id
       ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], tagIdx->uniqueId);
 
@@ -358,8 +360,7 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
                                     InvertedIndex *idx) {
   for (int i = 0; i < array_len(idxData->blocksModified); ++i) {
     ModifiedBlock *blockModified = idxData->blocksModified + i;
-    if (blockModified->numBlocksBefore ==
-        idx->blocks[blockModified->blockIndex].numDocs) {
+    if (blockModified->numBlocksBefore == idx->blocks[blockModified->blockIndex].numDocs) {
       indexBlock_Free(&idx->blocks[blockModified->blockIndex]);
       idx->blocks[blockModified->blockIndex].data = blockModified->blk.data;
       idx->blocks[blockModified->blockIndex].firstId = blockModified->blk.firstId;
@@ -714,7 +715,8 @@ void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
   RedisModule_ReplySetArrayLength(ctx, n);
 }
 
-void ForkGc_OnDelete(void *ctx) {}
+void ForkGc_OnDelete(void *ctx) {
+}
 
 struct timespec ForkGc_GetInterval(void *ctx) {
   struct timespec interval;
@@ -723,14 +725,11 @@ struct timespec ForkGc_GetInterval(void *ctx) {
   return interval;
 }
 
-ForkGCCtx* NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks* callbacks){
+ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
   ForkGCCtx *forkGc = malloc(sizeof(*forkGc));
 
   *forkGc = (ForkGCCtx){
-      .keyName = k,
-      .stats = {},
-      .rdbPossiblyLoading = 1,
-      .specUniqueId = specUniqueId,
+      .keyName = k, .stats = {}, .rdbPossiblyLoading = 1, .specUniqueId = specUniqueId,
   };
 
   callbacks->onDelete = ForkGc_OnDelete;
