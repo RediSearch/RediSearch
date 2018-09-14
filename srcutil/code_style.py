@@ -24,6 +24,10 @@ ap.add_argument('-n', '--dry-run',
     action='store_true')
 ap.add_argument('--install',
     help="Install this script as a Git hook", action='store_true')
+ap.add_argument('-v', '--verbose',
+    help="Print commands being executed", action='store_true')
+ap.add_argument('--clang-format-path', help='path to clang-format binary',
+    default='clang-format')
 
 options = ap.parse_args()
 
@@ -65,8 +69,10 @@ else:
 
 has_error = False
 for f in files:
-
-    po = Popen(['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f], stdout=PIPE)
+    cmd = ['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f]
+    if options.verbose:
+        print "Executing", cmd
+    po = Popen(cmd, stdout=PIPE)
     output, _ = po.communicate()
     rv = po.wait()
     if rv != 0:
@@ -82,7 +88,10 @@ for f in files:
     else:
         if has_changes:
             print 'Reformatting ' + f
-            po = Popen(['clang-format'] + CLANG_ARGS + ['-i', f])
+            cmd = ['clang-format'] + CLANG_ARGS + ['-i', f]
+            if options.verbose:
+                print "Executing", cmd
+            po = Popen(cmd)
             po.communicate()
             if po.wait() != 0:
                 print "Warning: Couldn't reformat!"
