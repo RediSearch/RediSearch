@@ -349,7 +349,9 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
-    // printf("Got no filter vector\n");
+    if (v) {
+      Vector_Free(v);
+    }
     return NULL;
   }
 
