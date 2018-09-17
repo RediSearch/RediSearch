@@ -160,6 +160,11 @@ static inline RSValue *RSValue_MakePersistent(RSValue *v) {
   return v;
 }
 
+/**
+ * Copies a string using the default mechanism. Returns the copied value.
+ */
+RSValue *RS_NewCopiedString(const char *s, size_t dst);
+
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v);
