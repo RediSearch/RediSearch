@@ -277,7 +277,7 @@ static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict
   Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ, &k);
   if (t == NULL) {
     char buff[BUFF_SIZE];
-    snprintf(buff, BUFF_SIZE, "the given dict are not exists: %s", dict);
+    snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
     RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);
     return false;
   }
