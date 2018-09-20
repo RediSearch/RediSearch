@@ -71,6 +71,10 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
 int AC_Advance(ArgsCursor *ac);
 int AC_AdvanceBy(ArgsCursor *ac, size_t by);
 
+// Advances the cursor if the next argument matches the given string. This
+// will swallow it up.
+int AC_AdvanceIfMatch(ArgsCursor *ac, const char *arg);
+
 /**
  * Read the argument list in the format of
  * <NUM_OF_ARGS> <ARG[1]> <ARG[2]> .. <ARG[NUM_OF_ARGS]>

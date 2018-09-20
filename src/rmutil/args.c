@@ -18,6 +18,21 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
   return AC_OK;
 }
 
+int AC_AdvanceIfMatch(ArgsCursor *ac, const char *s) {
+  const char *cur;
+  int rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+  if (rv == AC_OK) {
+    if (!strcasecmp(s, cur)) {
+      AC_Advance(ac);
+      return AC_OK;
+    } else {
+      return AC_ERR_ENOENT;
+    }
+  } else {
+    return rv;
+  }
+}
+
 #define MAYBE_ADVANCE()            \
   if (!(flags & AC_F_NOADVANCE)) { \
     AC_Advance(ac);                \
