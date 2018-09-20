@@ -168,6 +168,7 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   dst->objs = ac->objs + ac->offset;
   dst->argc = nargs;
   dst->offset = 0;
+  dst->type = ac->type;
   AC_AdvanceBy(ac, nargs);
   return 0;
 }
@@ -191,6 +192,8 @@ static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
       return AC_GetString(ac, spec->target, spec->len, 0);
     case AC_ARGTYPE_RSTRING:
       return AC_GetRString(ac, spec->target, 0);
+    case AC_ARGTYPE_SUBARGS:
+      return AC_GetVarArgs(ac, spec->target);
     default:
       fprintf(stderr, "Unknown type");
       abort();
@@ -213,6 +216,9 @@ int AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, ACArgSpec **errSpec) {
     ACArgSpec *cur = specs;
 
     for (; cur->name != NULL; cur++) {
+      if (n != strlen(cur->name)) {
+        continue;
+      }
       if (!strncasecmp(cur->name, s, n)) {
         break;
       }

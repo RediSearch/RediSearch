@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+#define AC_TYPE_UNINIT 0
 #define AC_TYPE_RSTRING 1
 #define AC_TYPE_CHAR 2
 
@@ -90,7 +91,12 @@ typedef enum {
    * In this case, the target value is assumed to be an int, and is set to
    * nonzero
    */
-  AC_ARGTYPE_BOOLFLAG
+  AC_ARGTYPE_BOOLFLAG,
+
+  /**
+   * Uses AC_GetVarArgs, gets a sub-arg list
+   */
+  AC_ARGTYPE_SUBARGS
 } ACArgType;
 
 typedef struct {
