@@ -28,6 +28,7 @@ fi
 
 function do_build {
 mode=$1
+CIRCLE_BRANCH=`echo $CIRCLE_BRANCH|tr / -`
 case "$mode" in
     'release')
         format={os}$DIST_SUFFIX-{architecture}.{semantic_version}
