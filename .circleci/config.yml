@@ -12,6 +12,8 @@ defaults:
     - run:
         name: Package
         command: ./.circleci/ci_package.sh
+        environment:
+          - PACKAGE_NAME: redisearch-oss
     - persist_to_workspace:
         root: /workspace
         paths:
