@@ -113,6 +113,10 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   int dist = 0;
   bool retVal = false;
   TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
+  if (it == NULL) {
+    return retVal;
+  }
   if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     retVal = true;
   }
@@ -134,6 +138,10 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   size_t suggestionLen;
 
   TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
+  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
+  if (it == NULL) {
+    return;
+  }
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
