@@ -251,11 +251,6 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     options.maxDistance = 1;
   }
 
-  if (options.numResults > 10) {
-    QueryError_SetError(&status, QUERY_EPARSEARGS, "MAX must be > 0 and <= 10");
-    goto parse_error;
-  }
-
 parse_error:
   if (QueryError_HasError(&status)) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
