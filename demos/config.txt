@@ -1,0 +1,3 @@
+--module ../build-compat/redisearch.so
+--log-dir ./workingDir
+--clear-logs
