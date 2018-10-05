@@ -177,8 +177,7 @@ ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
   ls->fl = (FieldList){.explicitReturn = 1};
   for (int i = 0; i < ls->keys->len; i++) {
     const char *k = RSKEY(ls->keys->keys[i].key);
-    ReturnedField *rf =
-        FieldList_GetCreateField(&ls->fl, RedisModule_CreateString(ctx->redisCtx, k, strlen(k)));
+    ReturnedField *rf = FieldList_GetCreateField(&ls->fl, k);
 
     rf->explicitReturn = 1;
   }

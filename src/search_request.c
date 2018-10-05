@@ -156,17 +156,11 @@ KEYWORD_HANDLER(handleScorer) {
 
 KEYWORD_HANDLER(handleSummarize) {
   // Quite unsafe; need to refactor
-  size_t curOffset = ac->offset;
-  int rv = ParseSummarize((RedisModuleString **)ac->objs, ac->argc, &curOffset, &opts->fields);
-  ac->offset = curOffset;
-  return rv;
+  return ParseSummarize(ac, &opts->fields);
 }
 
 KEYWORD_HANDLER(handleHighlight) {
-  size_t curOffset = ac->offset;
-  int rv = ParseHighlight((RedisModuleString **)ac->objs, ac->argc, &curOffset, &opts->fields);
-  ac->offset = curOffset;
-  return rv;
+  return ParseHighlight(ac, &opts->fields);
 }
 
 KEYWORD_HANDLER(handleSortBy) {
@@ -200,9 +194,9 @@ KEYWORD_HANDLER(handleReturn) {
     opts->flags |= Search_NoContent;
   }
 
-  RedisModuleString **vargs = (RedisModuleString **)fieldsAC.objs;
-  for (size_t ii = 0; ii < fieldsAC.argc; ++ii) {
-    ReturnedField *field = FieldList_GetCreateField(&opts->fields, vargs[ii]);
+  while (!AC_IsAtEnd(&fieldsAC)) {
+    const char *fname = AC_GetStringNC(&fieldsAC, NULL);
+    ReturnedField *field = FieldList_GetCreateField(&opts->fields, fname);
     field->explicitReturn = 1;
   }
   opts->fields.explicitReturn = 1;
@@ -358,8 +352,7 @@ void FieldList_Free(FieldList *fields) {
   free(fields->fields);
 }
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname) {
-  const char *name = RedisModule_StringPtrLen(rname, NULL);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcasecmp(fields->fields[ii].name, name)) {

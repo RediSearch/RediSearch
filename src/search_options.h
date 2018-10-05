@@ -51,7 +51,7 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name);
 void FieldList_Free(FieldList *fields);
 
 typedef enum {

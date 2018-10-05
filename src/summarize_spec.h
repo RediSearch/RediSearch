@@ -5,7 +5,7 @@
 #include "redismodule.h"
 #include "search_request.h"
 
-int ParseSummarize(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields);
-int ParseHighlight(RedisModuleString **argv, int argc, size_t *offset, FieldList *fields);
+int ParseSummarize(ArgsCursor *ac, FieldList *fields);
+int ParseHighlight(ArgsCursor *ac, FieldList *fields);
 
 #endif
