@@ -86,8 +86,18 @@ workflows:
 
   default_flow:
     jobs:
-      - ubuntu
-      - centos
+      - ubuntu:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - centos:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - deploy_snapshots:
           requires: *default_jobs
           filters:
