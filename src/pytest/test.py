@@ -1272,6 +1272,7 @@ def testPayload(env):
             env.assertEqual(res[i + 1], 'payload %s' % res[i])
 
 def testGarbageCollector(env):
+    env.skipOnCluster()
     N = 100
     r = env
     env.assertOk(r.execute_command(
