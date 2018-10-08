@@ -64,8 +64,9 @@ jobs:
       - run:
           name: Deploy Releases to S3
           command: >-
-            aws s3 cp /workspace/release/*.zip s3://redismodules/$PACKAGE_NAME/
-            --acl public-read
+            for f in /workspace/release/*.zip; do
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read;
+            done
   
   deploy_docs:
     docker:
