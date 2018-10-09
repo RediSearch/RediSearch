@@ -1889,7 +1889,8 @@ def testIssue484(env):
         'GROUPBY', '1', '@value',
         'REDUCE', 'COUNT', '0', 'as', 'value_count')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
-    env.assertEqual(res, expected)
+    for var in expected:
+        env.assertIn(var, res)
 
 def testIssue501(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
