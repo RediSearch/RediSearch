@@ -175,7 +175,7 @@ query ::= STAR . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-    int rv = one_not_null(B, C, &A);
+    int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
     } else if (rv == NODENN_ONE_NULL) {
@@ -202,7 +202,7 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, &A);
+    int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
     } else if (rv == NODENN_ONE_NULL) {
