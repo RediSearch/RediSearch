@@ -130,7 +130,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         row = to_dict(res[1])
         # TODO: Better samples
-        self.env.assertAlmostEqual(14.99, float(row['q50']), delta=2)
+        self.env.assertAlmostEqual(14.99, float(row['q50']), delta=3)
         self.env.assertAlmostEqual(70, float(row['q90']), delta=50)
         self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
 
