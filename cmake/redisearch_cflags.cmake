@@ -19,8 +19,6 @@ IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     ENDIF()
 ENDIF()
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
-# Specific to coordinator
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fvisibility=hidden")
 
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions")
