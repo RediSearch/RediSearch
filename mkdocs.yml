@@ -4,7 +4,7 @@ repo_url: https://github.com/RedisLabsModules/RediSearch
 repo_name: RedisLabsModules/RediSearch
 
 google_analytics:
-  - 'UA-92003007-8'
+  - 'UA-92003007-1'
   - 'auto'
 markdown_extensions:
   - codehilite
