@@ -113,6 +113,8 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
 GEN_AC_FUNC(AC_GetUnsignedLongLong, unsigned long long, 0, LLONG_MAX, 1)
 GEN_AC_FUNC(AC_GetUnsigned, unsigned, 0, UINT_MAX, 1)
 GEN_AC_FUNC(AC_GetInt, int, INT_MIN, INT_MAX, 0)
+GEN_AC_FUNC(AC_GetU32, uint32_t, 0, UINT32_MAX, 1)
+GEN_AC_FUNC(AC_GetU64, uint64_t, 0, UINT64_MAX, 1)
 
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
   if (ac->type == AC_TYPE_RSTRING) {
@@ -155,7 +157,11 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
   } else {
     *s = AC_CURRENT(ac);
     if (n) {
-      *n = strlen(*s);
+      if (ac->type == AC_TYPE_SDS) {
+        *n = sdslen((const sds)*s);
+      } else {
+        *n = strlen(*s);
+      }
     }
   }
   MAYBE_ADVANCE();
@@ -176,15 +182,19 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   if (rv) {
     return rv;
   }
-  if (nargs > AC_NumRemaining(ac)) {
+  return AC_GetSlice(ac, dst, nargs);
+}
+
+int AC_GetSlice(ArgsCursor *ac, ArgsCursor *dst, size_t n) {
+  if (n > AC_NumRemaining(ac)) {
     return AC_ERR_NOARG;
   }
 
   dst->objs = ac->objs + ac->offset;
-  dst->argc = nargs;
+  dst->argc = n;
   dst->offset = 0;
   dst->type = ac->type;
-  AC_AdvanceBy(ac, nargs);
+  AC_AdvanceBy(ac, n);
   return 0;
 }
 
@@ -192,6 +202,9 @@ static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
   switch (spec->type) {
     case AC_ARGTYPE_BOOLFLAG:
       *(int *)spec->target = 1;
+      return AC_OK;
+    case AC_ARGTYPE_BITFLAG:
+      *(uint32_t *)(spec->target) |= spec->slicelen;
       return AC_OK;
     case AC_ARGTYPE_DOUBLE:
       return AC_GetDouble(ac, spec->target, spec->intflags);
@@ -209,6 +222,8 @@ static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
       return AC_GetRString(ac, spec->target, 0);
     case AC_ARGTYPE_SUBARGS:
       return AC_GetVarArgs(ac, spec->target);
+    case AC_ARGTYPE_SUBARGS_N:
+      return AC_GetSlice(ac, spec->target, spec->slicelen);
     default:
       fprintf(stderr, "Unknown type");
       abort();
