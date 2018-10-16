@@ -92,6 +92,17 @@ static inline array_t array_grow(array_t arr) {
   return array_ensure_cap(arr, ++array_hdr(arr)->len);
 }
 
+/* Ensures that array_tail will always point to a valid element. */
+#define array_ensure_tail(arrpp, T)    \
+  ({                                   \
+    if (!*(arrpp)) {                   \
+      *(arrpp) = array_new(T, 1);      \
+    } else {                           \
+      *(arrpp) = array_grow(*(arrpp)); \
+    }                                  \
+    &array_tail(*(arrpp));             \
+  })
+
 /* get the last element in the array */
 #define array_tail(arr) (arr[array_hdr(arr)->len - 1])
 
