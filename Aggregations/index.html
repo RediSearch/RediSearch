@@ -38,7 +38,7 @@
     
     
       
-        <title>Aggregations (NEW!) - RediSearch Documentation</title>
+        <title>Aggregations - RediSearch Documentation</title>
       
     
     
@@ -121,7 +121,7 @@
                 RediSearch Documentation
               </span>
               <span class="md-header-nav__topic">
-                Aggregations (NEW!)
+                Aggregations
               </span>
             
           
@@ -352,11 +352,11 @@
     
     
       <label class="md-nav__link md-nav__link--active" for="toc">
-        Aggregations (NEW!)
+        Aggregations
       </label>
     
-    <a href="./" title="Aggregations (NEW!)" class="md-nav__link md-nav__link--active">
-      Aggregations (NEW!)
+    <a href="./" title="Aggregations" class="md-nav__link md-nav__link--active">
+      Aggregations
     </a>
     
       
@@ -750,6 +750,30 @@
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Spellcheck/" title="Spelling Correction" class="md-nav__link">
+      Spelling Correction
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Phonetic_Matching/" title="Phonetic Matching" class="md-nav__link">
+      Phonetic Matching
     </a>
   </li>
 
@@ -1278,6 +1302,12 @@
 
 
 <h4 id="parameters&quot;_&quot;in&quot;_&quot;detail">Parameters in detail<a class="headerlink" href="#parameters&quot;_&quot;in&quot;_&quot;detail" title="Permanent link">&para;</a></h4>
+<p>Parameters which may take a variable number of arguments are expressed in the
+form of <code>param {nargs} {property_1... property_N}</code>. The first argument to the
+parameter is the number of arguments following the parameter. This allows
+RediSearch to avoid a parsing ambiguity in case one of your arguments has the
+name of another parameter. For example, to sort by first name, last name, and
+country, one would specify <code>SORTBY 6 firstName ASC lastName DESC country ASC</code>.</p>
 <ul>
 <li>
 <p><strong>index_name</strong>: The index the query is executed again.</p>
@@ -1820,7 +1850,7 @@ collects idle cursors every 500 operations, or every second - whichever is later
     
     
       
-        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-8","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
       
     
   </body>

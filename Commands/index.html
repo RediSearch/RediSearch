@@ -634,8 +634,8 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output" title="Example Output" class="md-nav__link">
-    Example Output
+  <a href="#example"_"output" title="Example output" class="md-nav__link">
+    Example output
   </a>
   
 </li>
@@ -1220,6 +1220,13 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#example"_"output_1" title="Example output" class="md-nav__link">
+    Example output
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1432,8 +1439,8 @@
 
 
   <li class="md-nav__item">
-    <a href="../Aggregations/" title="Aggregations (NEW!)" class="md-nav__link">
-      Aggregations (NEW!)
+    <a href="../Aggregations/" title="Aggregations" class="md-nav__link">
+      Aggregations
     </a>
   </li>
 
@@ -1542,6 +1549,30 @@
   <li class="md-nav__item">
     <a href="../payloads/" title="Document Payloads" class="md-nav__link">
       Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Spellcheck/" title="Spelling Correction" class="md-nav__link">
+      Spelling Correction
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Phonetic_Matching/" title="Phonetic Matching" class="md-nav__link">
+      Phonetic Matching
     </a>
   </li>
 
@@ -2085,8 +2116,8 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output" title="Example Output" class="md-nav__link">
-    Example Output
+  <a href="#example"_"output" title="Example output" class="md-nav__link">
+    Example output
   </a>
   
 </li>
@@ -2671,6 +2702,13 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#example"_"output_1" title="Example output" class="md-nav__link">
+    Example output
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2824,7 +2862,7 @@
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
     [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] | NUMERIC | GEO] [SORTABLE] [NOINDEX] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 </pre></div>
 
 
@@ -2880,7 +2918,7 @@
 <ul>
 <li>
 <p><strong>SORTABLE</strong></p>
-<p>Numeric or text field can have the optional SORTABLE argument that allows the user to later <a href="../Sorting">sort the results by the value of this field</a> (this adds memory overhead so do not declare it on large text fields).</p>
+<p>Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later <a href="../Sorting">sort the results by the value of this field</a> (this adds memory overhead so do not declare it on large text fields).</p>
 </li>
 <li>
 <p><strong>NOSTEM</strong></p>
@@ -2893,13 +2931,15 @@ This may be ideal for things like proper names.</p>
 This is useful in conjunction with <code>SORTABLE</code>, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.</p>
 </li>
 <li>
-<p><strong>PHONETIC {matcher}</strong>
-    Declaring field as phonetic will enabled a phonetic search on this field. {match} is used to specify the
-    phonetic algorithm and the language.
-    Matcher Format: &lt;2 chars algorithm&gt;:&lt;2 chars language&gt;. 
-    Currently the only supported algoritm is double metaphone (dm) which is a general phonetic algorithm for latin languages.
-    Currently we support those languages: English (en), French (fr), Portuguese (pt) and Spanish (es).
-    Notice that double metaphone is not a language spacific and so it might might not provide an optimal result.</p>
+<p><strong>PHONETIC {matcher}</strong></p>
+<p>Declaring a text field as <code>PHONETIC</code> will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:</p>
+<ul>
+<li><code>dm:en</code> - Double Metaphone for English</li>
+<li><code>dm:fr</code> - Double Metaphone for French</li>
+<li><code>dm:pt</code> - Double Metaphone for Portuguese</li>
+<li><code>dm:es</code> - Double Metaphone for Spanish</li>
+</ul>
+<p>For more details see <a href="../Phonetic_Matching">Phonetic Matching</a>.</p>
 </li>
 </ul>
 </li>
@@ -2922,7 +2962,7 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 
 
 <h3 id="description_1">Description<a class="headerlink" href="#description_1" title="Permanent link">&para;</a></h3>
-<p>Add a document to the index.</p>
+<p>Adds a document to the index.</p>
 <h3 id="parameters_1">Parameters<a class="headerlink" href="#parameters_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
@@ -3017,14 +3057,14 @@ information.</p>
 
 
 <h3 id="description_2">Description<a class="headerlink" href="#description_2" title="Permanent link">&para;</a></h3>
-<p>Add a document to the index from an existing HASH key in Redis.</p>
+<p>Adds a document to the index from an existing HASH key in Redis.</p>
 <h3 id="parameters_2">Parameters<a class="headerlink" href="#parameters_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</p>
 </li>
 <li>
-<p><strong>docId</strong>: The document's id. This has to be an existing HASH key in redis that will hold the fields 
+<p><strong>docId</strong>: The document's id. This has to be an existing HASH key in Redis that will hold the fields 
     the index needs.</p>
 </li>
 <li>
@@ -3058,7 +3098,7 @@ information.</p>
 
 
 <h3 id="description_3">Description<a class="headerlink" href="#description_3" title="Permanent link">&para;</a></h3>
-<p>This command alters an existing index. Currently, adding fields to the index is the only supported
+<p>Alters an existing index. Currently, adding fields to the index is the only supported
 alteration.</p>
 <p>Adding a field to the index will cause any future document updates to use the new field when
 indexing. Existing documents will not be reindexed.</p>
@@ -3088,7 +3128,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 
 
 <h3 id="description_4">Description<a class="headerlink" href="#description_4" title="Permanent link">&para;</a></h3>
-<p>Return information and statistics on the index. Returned values include:</p>
+<p>Returns information and statistics on the index. Returned values include:</p>
 <ul>
 <li>Number of documents.</li>
 <li>Number of distinct terms.</li>
@@ -3169,7 +3209,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 
 
 <h3 id="description_5">Description<a class="headerlink" href="#description_5" title="Permanent link">&para;</a></h3>
-<p>Search the index with a textual query, returning either documents or just ids.</p>
+<p>Searches the index with a textual query, returning either documents or just ids.</p>
 <h3 id="parameters_5">Parameters<a class="headerlink" href="#parameters_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The index name. The index must be first created with <code>FT.CREATE</code>.</li>
@@ -3216,7 +3256,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 </li>
 <li><strong>SUMMARIZE ...</strong>: Use this option to return only the sections of the field which contain the 
   matched text.
-  See <a href="../Highlight">Highlighting</a> for more detailts</li>
+  See <a href="../Highlight">Highlighting</a> for more details</li>
 <li><strong>HIGHLIGHT ...</strong>: Use this option to format occurrences of matched text. See <a href="../Highlight">Highligting</a> for more
   details</li>
 <li><strong>SLOP {slop}</strong>: If set, we allow a maximum of N intervening number of unmatched offsets between 
@@ -3271,11 +3311,11 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 
 
 <h3 id="description_6">Description<a class="headerlink" href="#description_6" title="Permanent link">&para;</a></h3>
-<p>Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc form them. See <a href="../Aggregations/">the full documentation on aggregations</a> for further details.</p>
+<p>Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See <a href="../Aggregations/">the full documentation on aggregations</a> for further details.</p>
 <h3 id="parameters_6">Parameters<a class="headerlink" href="#parameters_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
-<p><strong>index_name</strong>: The index the query is executed again.</p>
+<p><strong>index_name</strong>: The index the query is executed against.</p>
 </li>
 <li>
 <p><strong>query_string</strong>: The base filtering query that retrieves the documents. It follows
@@ -3286,7 +3326,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
   avoided as a general rule of thumb. Fields needed for aggregations should be stored as <strong>SORTABLE</strong>, 
   where they are available to the aggregation pipeline with very load latency. LOAD hurts the 
   performance of aggregate queries considerably, since every processed record needs to execute the 
-  equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very 
+  equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very 
   high processing times. </p>
 </li>
 <li>
@@ -3303,7 +3343,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <li>
 <p><strong>SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]</strong>: Sort the pipeline up until the point of SORTBY,
   using a list of properties. By default, sorting is ascending, but <code>ASC</code> or <code>DESC</code> can be added for 
-  each propery. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: 
+  each property. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: 
   <code>SORTBY 4 @foo ASC @bar DESC</code>. </p>
 <p><code>MAX</code> is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to <code>LIMIT</code>, you usually need just <code>SORTBY … MAX</code> for common queries. </p>
 </li>
@@ -3332,8 +3372,8 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <p>Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. </p>
 <h3 id="returns_6">Returns<a class="headerlink" href="#returns_6" title="Permanent link">&para;</a></h3>
 <p>Array Response. Each row is an array and represents a single aggregate result.</p>
-<h3 id="example&quot;_&quot;output">Example Output<a class="headerlink" href="#example&quot;_&quot;output" title="Permanent link">&para;</a></h3>
-<p>Here we are counting github events by user (actor), to produce the most active users:</p>
+<h3 id="example&quot;_&quot;output">Example output<a class="headerlink" href="#example&quot;_&quot;output" title="Permanent link">&para;</a></h3>
+<p>Here we are counting GitHub events by user (actor), to produce the most active users:</p>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.AGGREGATE gh &quot;*&quot; GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
  1) (integer) 284784
  2) 1) &quot;actor&quot;
@@ -3388,7 +3428,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 
 
 <h3 id="description_7">Description<a class="headerlink" href="#description_7" title="Permanent link">&para;</a></h3>
-<p>Return the execution plan for a complex query.</p>
+<p>Returns the execution plan for a complex query.</p>
 <p>In the returned response, a <code>+</code> on a term is an indication of stemming. </p>
 <p>Example:</p>
 <div class="codehilite"><pre><span></span>$ redis-cli --raw
@@ -3415,7 +3455,7 @@ INTERSECT <span class="o">{</span>
 
 <h3 id="parameters_7">Parameters<a class="headerlink" href="#parameters_7" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>index</strong>: The index name. The index must be first created with FT.CREATE</li>
 <li><strong>query</strong>: The query string, as if sent to FT.SEARCH</li>
 </ul>
 <h3 id="complexity_7">Complexity<a class="headerlink" href="#complexity_7" title="Permanent link">&para;</a></h3>
@@ -3431,7 +3471,7 @@ INTERSECT <span class="o">{</span>
 
 
 <h3 id="description_8">Description<a class="headerlink" href="#description_8" title="Permanent link">&para;</a></h3>
-<p>Delete a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
+<p>Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. </p>
 <p>After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.</p>
 <div class="admonition warning">
 <p class="admonition-title">FT.DEL does not delete the actual document By default!<p>Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. </p>
@@ -3441,7 +3481,7 @@ INTERSECT <span class="o">{</span>
 </div>
 <h3 id="parameters_8">Parameters<a class="headerlink" href="#parameters_8" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>index</strong>: The index name. The index must be first created with FT.CREATE</li>
 <li><strong>doc_id</strong>: the id of the document to be deleted. It does not actually delete the HASH key in which 
   the document is stored. Use DEL to do that manually if needed.</li>
 </ul>
@@ -3458,11 +3498,11 @@ INTERSECT <span class="o">{</span>
 
 <h3 id="description_9">Description<a class="headerlink" href="#description_9" title="Permanent link">&para;</a></h3>
 <p>Returns the full contents of a document.</p>
-<p>Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
-<p>If the document does not exist or is not a HASH object, we reutrn a NULL reply</p>
+<p>Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
+<p>If the document does not exist or is not a HASH object, we return a NULL reply</p>
 <h3 id="parameters_9">Parameters<a class="headerlink" href="#parameters_9" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
+<li><strong>index</strong>: The index name. The index must be first created with FT.CREATE</li>
 <li><strong>documentId</strong>: The id of the document as inserted to the index</li>
 </ul>
 <h3 id="returns_9">Returns<a class="headerlink" href="#returns_9" title="Permanent link">&para;</a></h3>
@@ -3475,9 +3515,9 @@ INTERSECT <span class="o">{</span>
 
 
 <h3 id="description_10">Description<a class="headerlink" href="#description_10" title="Permanent link">&para;</a></h3>
-<p>Returns the full contents of multiple documents. 
-Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future-proof and will allow us to change the internal representation of documents inside redis in the future. 
+<p>Returns the full contents of multiple documents. </p>
+<p>Currently it is equivalent to calling multiple HGETALL commands, although faster. 
+This command is also future-proof and will allow us to change the internal representation of documents inside Redis in the future. 
 In addition, it allows simpler implementation of fetching documents in clustered mode.</p>
 <p>We return an array with exactly the same number of elements as the number of keys sent to the command. </p>
 <p>Each element, in turn, is an array of key-value pairs representing the document. </p>
@@ -3499,12 +3539,12 @@ In addition, it allows simpler implementation of fetching documents in clustered
 <h3 id="description_11">Description<a class="headerlink" href="#description_11" title="Permanent link">&para;</a></h3>
 <p>Deletes all the keys associated with the index. </p>
 <p>By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.</p>
-<p>If no other data is on the redis instance, this is equivalent to FLUSHDB, apart from the fact
+<p>If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.</p>
 <h3 id="parameters_11">Parameters<a class="headerlink" href="#parameters_11" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>index</strong>: The Fulltext index name. The index must be first created with FT.CREATE</li>
-<li><strong>KEEPDOCS</strong>: IF set, the drop operation will not delete the actual document hashes.</li>
+<li><strong>KEEPDOCS</strong>: If set, the drop operation will not delete the actual document hashes.</li>
 </ul>
 <h3 id="returns_11">Returns<a class="headerlink" href="#returns_11" title="Permanent link">&para;</a></h3>
 <p>Status Reply: OK on success.</p>
@@ -3516,7 +3556,7 @@ that the index specification is not deleted.</p>
 
 
 <h3 id="description_12">Description<a class="headerlink" href="#description_12" title="Permanent link">&para;</a></h3>
-<p>Return the distinct tags indexed in a <a href="../Tags/">Tag field</a>. </p>
+<p>Returns the distinct tags indexed in a <a href="../Tags/">Tag field</a>. </p>
 <p>This is useful if your tag field indexes things like cities, categories, etc.</p>
 <div class="admonition warning">
 <p class="admonition-title">Limitations</p>
@@ -3541,8 +3581,8 @@ that the index specification is not deleted.</p>
 
 
 <h3 id="description_13">Description<a class="headerlink" href="#description_13" title="Permanent link">&para;</a></h3>
-<p>Add a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
-index definitions, and leaves creating and updating suggestino dictionaries to the user.</p>
+<p>Adds a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
+index definitions, and leaves creating and updating suggestions dictionaries to the user.</p>
 <h3 id="parameters_13">Parameters<a class="headerlink" href="#parameters_13" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
@@ -3563,7 +3603,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_14">Description<a class="headerlink" href="#description_14" title="Permanent link">&para;</a></h3>
-<p>Get completion suggestions for a prefix</p>
+<p>Gets completion suggestions for a prefix.</p>
 <h3 id="parameters_14">Parameters<a class="headerlink" href="#parameters_14" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
@@ -3587,7 +3627,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_15">Description<a class="headerlink" href="#description_15" title="Permanent link">&para;</a></h3>
-<p>Delete a string from a suggestion index. </p>
+<p>Deletes a string from a suggestion index. </p>
 <h3 id="parameters_15">Parameters<a class="headerlink" href="#parameters_15" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
@@ -3603,7 +3643,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_16">Description<a class="headerlink" href="#description_16" title="Permanent link">&para;</a></h3>
-<p>Get the size of an autoc-complete suggestion dictionary</p>
+<p>Gets the size of an auto-complete suggestion dictionary</p>
 <h3 id="parameters_16">Parameters<a class="headerlink" href="#parameters_16" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>key</strong>: the suggestion dictionary key.</li>
@@ -3631,6 +3671,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_18">Description<a class="headerlink" href="#description_18" title="Permanent link">&para;</a></h3>
+<p>Adds a synonym group.</p>
 <p>The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.</p>
 <hr />
 <h2 id="ftsynupdate">FT.SYNUPDATE<a class="headerlink" href="#ftsynupdate" title="Permanent link">&para;</a></h2>
@@ -3640,6 +3681,7 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_19">Description<a class="headerlink" href="#description_19" title="Permanent link">&para;</a></h3>
+<p>Updates a synonym group.</p>
 <p>The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.</p>
 <hr />
 <h2 id="ftsyndump">FT.SYNDUMP<a class="headerlink" href="#ftsyndump" title="Permanent link">&para;</a></h2>
@@ -3649,7 +3691,8 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_20">Description<a class="headerlink" href="#description_20" title="Permanent link">&para;</a></h3>
-<p>The Command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.</p>
+<p>Dumps the contents of a synonym group.</p>
+<p>The command is used to dump the synonyms data structure. Returns a list of synonym terms and their synonym group ids.</p>
 <hr />
 <h2 id="ftspellcheck">FT.SPELLCHECK<a class="headerlink" href="#ftspellcheck" title="Permanent link">&para;</a></h2>
 <h3 id="format_21">Format<a class="headerlink" href="#format_21" title="Permanent link">&para;</a></h3>
@@ -3660,44 +3703,43 @@ index definitions, and leaves creating and updating suggestino dictionaries to t
 
 
 <h3 id="description_21">Description<a class="headerlink" href="#description_21" title="Permanent link">&para;</a></h3>
-<p>Run a spell check on the given query and return suggestions for spelling correction.
-The spelling correction is performed using LD on the terms exists in the index and on terms from
-the include dictionaries given. It is also possible to specify exclude disctionaries such that term
-which appears on those dictionaries will not return in the result. Suggestion are order by there score
-which is the suggestion cardinality in the given index (if suggestion exists on dictionary only, its score
-will be zero).</p>
+<p>Performs spelling correction on a query, returning suggestions for misspelled terms.</p>
+<p>See <a href="../Spellcheck">Query Spelling Correction</a> for more details.</p>
 <h3 id="parameters_17">Parameters<a class="headerlink" href="#parameters_17" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
-<p><strong>index</strong>: the index name to run the spell check againts.</p>
+<p><strong>index</strong>: the index with the indexed terms.</p>
 </li>
 <li>
-<p><strong>query</strong>: the query which contains terms for spell check.</p>
+<p><strong>query</strong>: the search query.</p>
 </li>
 <li>
-<p><strong>TERMS</strong>: include/exclude terms appears in the given dictionary.</p>
+<p><strong>TERMS</strong>: specifies an inclusion (<code>INCLUDE</code>) or exclusion (<code>EXCLUDE</code>) custom dictionary named <code>{dict}</code>. Refer to <a href="../Commands/#ftdictadd"><code>FT.DICTADD</code></a>, <a href="../Commands/#ftdictdel"><code>FT.DICTDEL</code></a> and <a href="../Commands/#ftdictdump"><code>FT.DICTDUMP</code></a> for managing custom dictionaries.</p>
 </li>
 <li>
-<p><strong>DISTANCE</strong>: LD for spell check.</p>
+<p><strong>DISTANCE</strong>: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).</p>
 </li>
 </ul>
 <h3 id="returns_17">Returns<a class="headerlink" href="#returns_17" title="Permanent link">&para;</a></h3>
-<p>The response is as follow:</p>
+<p>An array, in which each element represents a misspelled term from the query. The misspelled terms are ordered by their order of appearance in the query.</p>
+<p>Each misspelled term, in turn, is a 3-element array consisting of the constant string "TERM", the term itself and an array of suggestions for spelling corrections.</p>
+<p>Each element in the spelling corrections array consists of the score of the suggestion and the suggestion itself. The suggestions array, per misspelled term, is ordered in descending order by score.</p>
+<h3 id="example&quot;_&quot;output_1">Example output<a class="headerlink" href="#example&quot;_&quot;output_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>1)  1) &quot;TERM&quot;
-    2) &quot;{term}&quot;
-    3)  1)  1)  &quot;{score}&quot;
-            2)  &quot;{suggestion}&quot;
-        2)  1)  &quot;{score}&quot;
-            2)  &quot;{suggestion}&quot;
+    2) &quot;{term1}&quot;
+    3)  1)  1)  &quot;{score1}&quot;
+            2)  &quot;{suggestion1}&quot;
+        2)  1)  &quot;{score2}&quot;
+            2)  &quot;{suggestion2}&quot;
         .
         .
         .
 2)  1) &quot;TERM&quot;
-    2) &quot;{term}&quot;
-    3)  1)  1)  &quot;{score}&quot;
-            2)  &quot;{suggestion}&quot;
-        2)  1)  &quot;{score}&quot;
-            2)  &quot;{suggestion}&quot;
+    2) &quot;{term2}&quot;
+    3)  1)  1)  &quot;{score1}&quot;
+            2)  &quot;{suggestion1}&quot;
+        2)  1)  &quot;{score2}&quot;
+            2)  &quot;{suggestion2}&quot;
         .
         .
         .
@@ -3715,14 +3757,14 @@ will be zero).</p>
 
 
 <h3 id="description_22">Description<a class="headerlink" href="#description_22" title="Permanent link">&para;</a></h3>
-<p>Allow to add terms to dictionaries</p>
+<p>Adds terms to a dictionary.</p>
 <h3 id="parameters_18">Parameters<a class="headerlink" href="#parameters_18" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>dict</strong>: the dictionary name.</p>
 </li>
 <li>
-<p><strong>term</strong>: the term to add to the dictionary</p>
+<p><strong>term</strong>: the term to add to the dictionary.</p>
 </li>
 </ul>
 <h3 id="returns_18">Returns<a class="headerlink" href="#returns_18" title="Permanent link">&para;</a></h3>
@@ -3735,14 +3777,14 @@ will be zero).</p>
 
 
 <h3 id="description_23">Description<a class="headerlink" href="#description_23" title="Permanent link">&para;</a></h3>
-<p>Allow to delete terms to dictionaries</p>
+<p>Deletes terms from a dictionary.</p>
 <h3 id="parameters_19">Parameters<a class="headerlink" href="#parameters_19" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>dict</strong>: the dictionary name.</p>
 </li>
 <li>
-<p><strong>term</strong>: the term to delete from the dictionary</p>
+<p><strong>term</strong>: the term to delete from the dictionary.</p>
 </li>
 </ul>
 <h3 id="returns_19">Returns<a class="headerlink" href="#returns_19" title="Permanent link">&para;</a></h3>
@@ -3755,7 +3797,7 @@ will be zero).</p>
 
 
 <h3 id="description_24">Description<a class="headerlink" href="#description_24" title="Permanent link">&para;</a></h3>
-<p>Dump all terms in the given dictionary</p>
+<p>Dumps all terms in the given dictionary.</p>
 <h3 id="parameters_20">Parameters<a class="headerlink" href="#parameters_20" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>dict</strong>: the dictionary name.</li>
@@ -3840,7 +3882,7 @@ will be zero).</p>
     
     
       
-        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-8","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(e){e.host!=document.location.host&&e.addEventListener("click",function(){var a=e.getAttribute("data-md-action")||"follow";ga("send","event","outbound",a,e.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
       
     
   </body>

@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Quick_Start/">
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Spellcheck/">
       
       
       
@@ -38,7 +38,7 @@
     
     
       
-        <title>Quick Start - RediSearch Documentation</title>
+        <title>Spelling Correction - RediSearch Documentation</title>
       
     
     
@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#quick"_"start"_"guide"_"for"_"redisearch" tabindex="1" class="md-skip">
+      <a href="#query"_"spelling"_"correction" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -121,7 +121,7 @@
                 RediSearch Documentation
               </span>
               <span class="md-header-nav__topic">
-                Quick Start
+                Spelling Correction
               </span>
             
           
@@ -248,91 +248,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="toc">
-        Quick Start
-      </label>
-    
-    <a href="./" title="Quick Start" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#running"_"with"_"docker" title="Running with Docker" class="md-nav__link">
-    Running with Docker
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building"_"and"_"running"_"from"_"source" title="Building and running from source" class="md-nav__link">
-    Building and running from source
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#creating"_"an"_"index"_"with"_"fields"_"and"_"weights"_"default"_"weight"_"is"_"10" title="Creating an index with fields and weights (default weight is 1.0)" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0)
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding"_"documents"_"to"_"the"_"index" title="Adding documents to the index" class="md-nav__link">
-    Adding documents to the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#searching"_"the"_"index" title="Searching the index" class="md-nav__link">
-    Searching the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping"_"the"_"index" title="Dropping the index" class="md-nav__link">
-    Dropping the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding"_"and"_"getting"_"auto-complete"_"suggestions" title="Adding and getting Auto-complete suggestions" class="md-nav__link">
-    Adding and getting Auto-complete suggestions
-  </a>
-  
-</li>
-      
-      
-      
-      
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -376,10 +296,12 @@
       
       
 
+  
 
-  <li class="md-nav__item md-nav__item--nested">
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
     
     <label class="md-nav__link" for="nav-6">
       Reference
@@ -539,11 +461,49 @@
           
           
 
+  
 
-  <li class="md-nav__item">
-    <a href="../Spellcheck/" title="Spelling Correction" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Spelling Correction
+      </label>
+    
+    <a href="./" title="Spelling Correction" class="md-nav__link md-nav__link--active">
       Spelling Correction
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#custom"_"dictionaries" title="Custom dictionaries" class="md-nav__link">
+    Custom dictionaries
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
         
@@ -753,50 +713,8 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#running"_"with"_"docker" title="Running with Docker" class="md-nav__link">
-    Running with Docker
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building"_"and"_"running"_"from"_"source" title="Building and running from source" class="md-nav__link">
-    Building and running from source
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#creating"_"an"_"index"_"with"_"fields"_"and"_"weights"_"default"_"weight"_"is"_"10" title="Creating an index with fields and weights (default weight is 1.0)" class="md-nav__link">
-    Creating an index with fields and weights (default weight is 1.0)
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding"_"documents"_"to"_"the"_"index" title="Adding documents to the index" class="md-nav__link">
-    Adding documents to the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#searching"_"the"_"index" title="Searching the index" class="md-nav__link">
-    Searching the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dropping"_"the"_"index" title="Dropping the index" class="md-nav__link">
-    Dropping the index
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding"_"and"_"getting"_"auto-complete"_"suggestions" title="Adding and getting Auto-complete suggestions" class="md-nav__link">
-    Adding and getting Auto-complete suggestions
+  <a href="#custom"_"dictionaries" title="Custom dictionaries" class="md-nav__link">
+    Custom dictionaries
   </a>
   
 </li>
@@ -817,86 +735,24 @@
             <article class="md-content__inner md-typeset">
               
                 
-                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Quick_Start.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Spellcheck.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="quick&quot;_&quot;start&quot;_&quot;guide&quot;_&quot;for&quot;_&quot;redisearch">Quick Start Guide for RediSearch<a class="headerlink" href="#quick&quot;_&quot;start&quot;_&quot;guide&quot;_&quot;for&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="running&quot;_&quot;with&quot;_&quot;docker">Running with Docker<a class="headerlink" href="#running&quot;_&quot;with&quot;_&quot;docker" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>docker run -p <span class="m">6379</span>:6379 redislabs/redisearch:latest
-</pre></div>
-
-
-<h2 id="building&quot;_&quot;and&quot;_&quot;running&quot;_&quot;from&quot;_&quot;source">Building and running from source<a class="headerlink" href="#building&quot;_&quot;and&quot;_&quot;running&quot;_&quot;from&quot;_&quot;source" title="Permanent link">&para;</a></h2>
-<p>RediSearch uses <a href="https://cmake.org/">CMake</a> as its build system. CMake is
-available for almost every available platform. You can obtain cmake through
-your operating system's package manager. RediSearch requires CMake version
-3 or greater. If your package repository does not contain CMake3, you can
-download a precompiled binary from <a href="https://cmake.org/download/">CMake downloads</a>.</p>
-<p>To build using CMake:</p>
-<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
-<span class="nb">cd</span> RediSearch
-mkdir build
-<span class="nb">cd</span> build
-cmake .. -DCMAKE_BUILD_TYPE<span class="o">=</span>RelWithDebInfo
-make
-
-redis-server --loadmodule ./redisearch.so
-</pre></div>
-
-
-<p>The resulting module will be in the current directory.</p>
-<p>You can also simply type <code>make</code> from the top level directory, this will
-take care of running <code>cmake</code> with the appropriate arguments, and provide you
-with a <code>redisearch.so</code> file in the <code>src</code> directory:</p>
-<div class="codehilite"><pre><span></span>git clone https://github.com/RedisLabsModules/RediSearch.git
-<span class="nb">cd</span> RediSearch
-make
-redis-server --loadmodule ./src/redisearch.so
-</pre></div>
-
-
-<h2 id="creating&quot;_&quot;an&quot;_&quot;index&quot;_&quot;with&quot;_&quot;fields&quot;_&quot;and&quot;_&quot;weights&quot;_&quot;default&quot;_&quot;weight&quot;_&quot;is&quot;_&quot;10">Creating an index with fields and weights (default weight is 1.0)<a class="headerlink" href="#creating&quot;_&quot;an&quot;_&quot;index&quot;_&quot;with&quot;_&quot;fields&quot;_&quot;and&quot;_&quot;weights&quot;_&quot;default&quot;_&quot;weight&quot;_&quot;is&quot;_&quot;10" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
-OK 
-</pre></div>
-
-
-<h2 id="adding&quot;_&quot;documents&quot;_&quot;to&quot;_&quot;the&quot;_&quot;index">Adding documents to the index<a class="headerlink" href="#adding&quot;_&quot;documents&quot;_&quot;to&quot;_&quot;the&quot;_&quot;index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.ADD myIdx doc1 1.0 FIELDS title &quot;hello world&quot; body &quot;lorem ipsum&quot; url &quot;http://redis.io&quot; 
-OK
-</pre></div>
-
-
-<h2 id="searching&quot;_&quot;the&quot;_&quot;index">Searching the index<a class="headerlink" href="#searching&quot;_&quot;the&quot;_&quot;index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SEARCH myIdx &quot;hello world&quot; LIMIT 0 10
-1) (integer) 1
-2) &quot;doc1&quot;
-3) 1) &quot;title&quot;
-   2) &quot;hello world&quot;
-   3) &quot;body&quot;
-   4) &quot;lorem ipsum&quot;
-   5) &quot;url&quot;
-   6) &quot;http://redis.io&quot;
-</pre></div>
-
-
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment. </p>
-</div>
-<h2 id="dropping&quot;_&quot;the&quot;_&quot;index">Dropping the index<a class="headerlink" href="#dropping&quot;_&quot;the&quot;_&quot;index" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.DROP myIdx
-OK
-</pre></div>
-
-
-<h2 id="adding&quot;_&quot;and&quot;_&quot;getting&quot;_&quot;auto-complete&quot;_&quot;suggestions">Adding and getting Auto-complete suggestions<a class="headerlink" href="#adding&quot;_&quot;and&quot;_&quot;getting&quot;_&quot;auto-complete&quot;_&quot;suggestions" title="Permanent link">&para;</a></h2>
-<div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.SUGADD autocomplete &quot;hello world&quot; 100
-OK
-
-127.0.0.1:6379&gt; FT.SUGGET autocomplete &quot;he&quot;
-1) &quot;hello world&quot;
-</pre></div>
+                <h1 id="query&quot;_&quot;spelling&quot;_&quot;correction">Query Spelling Correction<a class="headerlink" href="#query&quot;_&quot;spelling&quot;_&quot;correction" title="Permanent link">&para;</a></h1>
+<p>Query spelling correction, a.k.a "did you mean", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.</p>
+<p>In such cases and as of v1.4 RediSearch can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:</p>
+<ol>
+<li>Not a stop word</li>
+<li>Not in the index</li>
+<li>At least 3 characters long</li>
+</ol>
+<p>The alternatives for a misspelled term are generated from the corpus of already-indexed terms and, optionally, one or more custom dictionaries. Alternatives become spelling suggestions based on their respective Levenshtein distances (LD) from the misspelled term. Each spelling suggestion is given a normalized score based on its occurances in the index.</p>
+<p>To obtain the spelling corrections for a query, refer to the documentation of the <a href="../Commands/#ftspellcheck"><code>FT.SPELLCHECK</code></a> command.</p>
+<h2 id="custom&quot;_&quot;dictionaries">Custom dictionaries<a class="headerlink" href="#custom&quot;_&quot;dictionaries" title="Permanent link">&para;</a></h2>
+<p>A dictionary is a set of terms. Dictionaries can be added with terms, have terms deleted from them and have their entire contents dumped using the <a href="../Commands/#ftdictadd"><code>FT.DICTADD</code></a>, <a href="../Commands/#ftdictdel"><code>FT.DICTDEL</code></a> and <a href="../Commands/#ftdictdump"><code>FT.DICTDUMP</code></a> commands, respectively.</p>
+<p>Dictionaries can be used to modify the behavior of RediSearch's query spelling correction, by including or excluding their contents from potential spelling correction suggestions.</p>
+<p>When used for term inclusion, the terms in a dictionary can be provided as spelling suggestions regardless their occurances (or lack of) in the index. Scores of suggestions from inclusion dictionaries are always 0. </p>
+<p>Conversely, terms in an exlusion dictionary will never be returned as spelling alternatives.</p>
                 
                   
                 
@@ -917,7 +773,7 @@ OK
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
-          <a href=".." title="Home" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+          <a href="../payloads/" title="Document Payloads" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
             <div class="md-flex__cell md-flex__cell--shrink">
               <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
             </div>
@@ -926,19 +782,19 @@ OK
                 <span class="md-footer-nav__direction">
                   Previous
                 </span>
-                Home
+                Document Payloads
               </span>
             </div>
           </a>
         
         
-          <a href="../Commands/" title="Command Reference" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+          <a href="../Phonetic_Matching/" title="Phonetic Matching" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Command Reference
+                Phonetic Matching
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
