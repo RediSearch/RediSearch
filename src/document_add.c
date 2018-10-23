@@ -306,7 +306,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
     goto cleanup;
   }
 
