@@ -1106,22 +1106,22 @@ Returns an array, where each element is term (string).
 
 ### Format
 ```
-  FT.CONFIG <GET|HELP> {directive-name}
-  FT.CONFIG SET {directive-name} {value}
+  FT.CONFIG <GET|HELP> {option}
+  FT.CONFIG SET {option} {value}
 ```
 
 ### Description
 
-Retrieves, describes and sets runtime configuration directives.
+Retrieves, describes and sets runtime configuration options.
 
 ### Parameters
 
-* **directive-name**: the name of the configuration directive, or '*' for all.
-* **value**: a value for the configuration directive.
+* **option**: the name of the configuration option, or '*' for all.
+* **value**: a value for the configuration option.
 
-For details about the configuration directives refer to [Configuring](/Configuring).
+For details about the configuration options refer to [Configuring](/Configuring).
 
-Setting values in runtime is supported configuration directives:
+Setting values in runtime is supported for these configuration options:
 
 * `NOGC`
 * `MINPREFIX`
@@ -1132,6 +1132,6 @@ Setting values in runtime is supported configuration directives:
 
 ### Returns
 
-When provided with a valid directive name, the `GET` subcommand returns a string with the current configuration value. An array containing an array for each directive, consisting of the name and current value, is returned when '*' is provided.
+When provided with a valid option name, the `GET` subcommand returns a string with the current option's value. An array containing an array for each configuration option, consisting of the option's name and current value, is returned when '*' is provided.
 
-The `SET` subcommand returns 'OK' for valid runtime-settable directive names and values.
+The `SET` subcommand returns 'OK' for valid runtime-settable option names and values.

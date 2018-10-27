@@ -2,26 +2,31 @@
 
 RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
 
-!!! tip "Passing Configuration Options"
-    In general, passing configuration options is done by appending arguments after the `--loadmodule` argument in the command line, `loadmodule` configuration directive in a Redis config file, or the `MODULE LOAD` command. For example:
-    
-    In redis.conf:
+## Passing Configuration Options During Loading
 
-    ```
-    loadmodule redisearch.so OPT1 OPT2
-    ```
+In general, passing configuration options is done by appending arguments after the `--loadmodule` argument in the command line, `loadmodule` configuration directive in a Redis config file, or the `MODULE LOAD` command. For example:
 
-    From redis-cli:
+In redis.conf:
 
-    ```
-    127.0.0.6379> MODULE load redisearch.so OPT1 OPT2
-    ```
+```
+loadmodule redisearch.so OPT1 OPT2
+```
 
-    From command line:
+From redis-cli:
 
-    ```
-    $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
-    ```
+```
+127.0.0.6379> MODULE load redisearch.so OPT1 OPT2
+```
+
+From command line:
+
+```
+$ redis-server --loadmodule ./redisearch.so OPT1 OPT2
+```
+
+## Setting Configuration Options In Run-Time
+
+As of v1.4.1, the [`FT.CONFIG`](/Commands/#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -190,4 +195,23 @@ The garbage collection bulk size of the internal gc used for cleaning up the ind
 
 ```
 $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
+```
+
+---
+
+## GC_POLICY
+
+The policy for the garbage collector. Supported policies are:
+
+* **DEFAULT**: the default policy.
+* **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
+
+### Default
+
+default
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK
 ```
