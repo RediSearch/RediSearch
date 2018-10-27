@@ -1119,7 +1119,7 @@ Retrieves, describes and sets runtime configuration directives.
 * **directive-name**: the name of the configuration directive, or '*' for all.
 * **value**: a value for the configuration directive.
 
-For details about the configuration directives refer to [Configuration](/Configuration).
+For details about the configuration directives refer to [Configuring](/Configuring).
 
 Setting values in runtime is supported configuration directives:
 
