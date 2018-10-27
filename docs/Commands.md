@@ -1106,8 +1106,7 @@ Returns an array, where each element is term (string).
 
 ### Format
 ```
-  FT.CONFIG GET {directive-name}
-  FT.CONFIG HELP {directive-name}
+  FT.CONFIG <GET|HELP> {directive-name}
   FT.CONFIG SET {directive-name} {value}
 ```
 
