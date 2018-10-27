@@ -176,6 +176,7 @@ Not set
 $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 ```
 
+---
 
 ## GC_SCANSIZE 
 

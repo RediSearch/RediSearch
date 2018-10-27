@@ -850,8 +850,7 @@ Gets completion suggestions for a prefix.
 - **prefix**: the prefix to complete on
 - **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from 
   the prefix sent
-- **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and 
-  the number cannot be greater than 10).
+- **MAX num**: If set, we limit the results to a maximum of `num` (default: 5).
 - **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge 
   results from multiple instances
 - **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no 
@@ -1100,3 +1099,40 @@ Dumps all terms in the given dictionary.
 ### Returns
 
 Returns an array, where each element is term (string).
+
+---
+
+## FT.CONFIG
+
+### Format
+```
+  FT.CONFIG GET {directive-name}
+  FT.CONFIG HELP {directive-name}
+  FT.CONFIG SET {directive-name} {value}
+```
+
+### Description
+
+Retrieves, describes and sets runtime configuration directives.
+
+### Parameters
+
+* **directive-name**: the name of the configuration directive, or '*' for all.
+* **value**: a value for the configuration directive.
+
+For details about the configuration directives refer to [Configuration](/Configuration).
+
+Setting values in runtime is supported configuration directives:
+
+* `NOGC`
+* `MINPREFIX`
+* `MAXEXPANSIONS`
+* `TIMEOUT`
+* `ON_TIMEOUT`
+* `MIN_PHONETIC_TERM_LEN`
+
+### Returns
+
+When provided with a valid directive name, the `GET` subcommand returns a string with the current configuration value. An array containing an array for each directive, consisting of the name and current value, is returned when '*' is provided.
+
+The `SET` subcommand returns 'OK' for valid runtime-settable directive names and values.
