@@ -206,12 +206,14 @@ The policy for the garbage collector. Supported policies are:
 * **DEFAULT**: the default policy.
 * **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
 
+!!! warning "The `FORK` garbage collection policy is considered an experimental feature, and should be used responsibly."
+
 ### Default
 
-default
+"default"
 
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK
+$ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 ```
