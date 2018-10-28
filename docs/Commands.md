@@ -837,7 +837,7 @@ Integer Reply: the current size of the suggestion dictionary.
 ### Format
 
 ```
-FT.SUGGET {key} {prefix} [FUZZY] [WITHPAYLOADS] [MAX num]
+FT.SUGGET {key} {prefix} [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX num]
 ```
 
 ### Description
