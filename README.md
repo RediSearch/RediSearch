@@ -7,18 +7,16 @@
 
 ### See Full Documentation at [https://oss.redislabs.com/redisearch/](https://oss.redislabs.com/redisearch/)
 
-### Latest Release: [1.4.0](https://github.com/RedisLabsModules/RediSearch/releases)
+### Latest Release: [1.4.1](https://github.com/RedisLabsModules/RediSearch/releases)
 
 # Overview
 
-Redisearch implements a search engine on top of Redis, but unlike other redis
-search libraries, it does not use internal data structures like sorted sets.
+RediSearch implements a search engine on top of Redis, but unlike other Redis
+search libraries, it does not use internal data structures like Sorted Sets.
 
-Inverted indexes are stored as a special compressed data type that allows for fast
-indexing and search speed, and low memory footprint.
+Inverted indexes are stored as a special compressed data type that allows for fast indexing and search speed, and low memory footprint.
 
-This also enables more advanced features, like exact phrase matching and numeric filtering for text queries,
-that are not possible or efficient with traditional Redis search approaches.
+This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, that are not possible or efficient with traditional Redis search approaches.
 
 # Docker Image
 
