@@ -1355,6 +1355,47 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ftconfig" title="FT.CONFIG" class="md-nav__link">
+    FT.CONFIG
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_25" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_25" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_21" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_21" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
       
       
       
@@ -2837,6 +2878,47 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ftconfig" title="FT.CONFIG" class="md-nav__link">
+    FT.CONFIG
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format_25" title="Format" class="md-nav__link">
+    Format
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description_25" title="Description" class="md-nav__link">
+    Description
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters_21" title="Parameters" class="md-nav__link">
+    Parameters
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#returns_21" title="Returns" class="md-nav__link">
+    Returns
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
       
       
       
@@ -3598,7 +3680,7 @@ index definitions, and leaves creating and updating suggestions dictionaries to 
 <hr />
 <h2 id="ftsugget">FT.SUGGET<a class="headerlink" href="#ftsugget" title="Permanent link">&para;</a></h2>
 <h3 id="format_14">Format<a class="headerlink" href="#format_14" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="n">SUGGET</span> <span class="p">{</span><span class="n">key</span><span class="p">}</span> <span class="p">{</span><span class="n">prefix</span><span class="p">}</span> <span class="p">[</span><span class="n">FUZZY</span><span class="p">]</span> <span class="p">[</span><span class="n">WITHPAYLOADS</span><span class="p">]</span> <span class="p">[</span><span class="n">MAX</span> <span class="n">num</span><span class="p">]</span>
+<div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="n">SUGGET</span> <span class="p">{</span><span class="n">key</span><span class="p">}</span> <span class="p">{</span><span class="n">prefix</span><span class="p">}</span> <span class="p">[</span><span class="n">FUZZY</span><span class="p">]</span> <span class="p">[</span><span class="n">WITHSCORES</span><span class="p">]</span> <span class="p">[</span><span class="n">WITHPAYLOADS</span><span class="p">]</span> <span class="p">[</span><span class="n">MAX</span> <span class="n">num</span><span class="p">]</span>
 </pre></div>
 
 
@@ -3610,8 +3692,7 @@ index definitions, and leaves creating and updating suggestions dictionaries to 
 <li><strong>prefix</strong>: the prefix to complete on</li>
 <li><strong>FUZZY</strong>: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from 
   the prefix sent</li>
-<li><strong>MAX num</strong>: If set, we limit the results to a maximum of <code>num</code>. (<strong>Note</strong>: The default is 5, and 
-  the number cannot be greater than 10).</li>
+<li><strong>MAX num</strong>: If set, we limit the results to a maximum of <code>num</code> (default: 5).</li>
 <li><strong>WITHSCORES</strong>: If set, we also return the score of each suggestion. this can be used to merge 
   results from multiple instances</li>
 <li><strong>WITHPAYLOADS</strong>: If set, we return optional payloads saved along with the suggestions. If no 
@@ -3804,6 +3885,34 @@ index definitions, and leaves creating and updating suggestions dictionaries to 
 </ul>
 <h3 id="returns_20">Returns<a class="headerlink" href="#returns_20" title="Permanent link">&para;</a></h3>
 <p>Returns an array, where each element is term (string).</p>
+<hr />
+<h2 id="ftconfig">FT.CONFIG<a class="headerlink" href="#ftconfig" title="Permanent link">&para;</a></h2>
+<h3 id="format_25">Format<a class="headerlink" href="#format_25" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>  FT.CONFIG &lt;GET|HELP&gt; {option}
+  FT.CONFIG SET {option} {value}
+</pre></div>
+
+
+<h3 id="description_25">Description<a class="headerlink" href="#description_25" title="Permanent link">&para;</a></h3>
+<p>Retrieves, describes and sets runtime configuration options.</p>
+<h3 id="parameters_21">Parameters<a class="headerlink" href="#parameters_21" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>option</strong>: the name of the configuration option, or '*' for all.</li>
+<li><strong>value</strong>: a value for the configuration option.</li>
+</ul>
+<p>For details about the configuration options refer to <a href="../Configuring">Configuring</a>.</p>
+<p>Setting values in runtime is supported for these configuration options:</p>
+<ul>
+<li><code>NOGC</code></li>
+<li><code>MINPREFIX</code></li>
+<li><code>MAXEXPANSIONS</code></li>
+<li><code>TIMEOUT</code></li>
+<li><code>ON_TIMEOUT</code></li>
+<li><code>MIN_PHONETIC_TERM_LEN</code></li>
+</ul>
+<h3 id="returns_21">Returns<a class="headerlink" href="#returns_21" title="Permanent link">&para;</a></h3>
+<p>When provided with a valid option name, the <code>GET</code> subcommand returns a string with the current option's value. An array containing an array for each configuration option, consisting of the option's name and current value, is returned when '*' is provided.</p>
+<p>The <code>SET</code> subcommand returns 'OK' for valid runtime-settable option names and values.</p>
                 
                   
                 

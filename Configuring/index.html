@@ -282,9 +282,45 @@
       
     
     
+      <label class="md-nav__link md-nav__link--active" for="toc">
+        Configuration
+      </label>
+    
     <a href="./" title="Configuration" class="md-nav__link md-nav__link--active">
       Configuration
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#passing"_"configuration"_"options"_"during"_"loading" title="Passing Configuration Options During Loading" class="md-nav__link">
+    Passing Configuration Options During Loading
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting"_"configuration"_"options"_"in"_"run-time" title="Setting Configuration Options In Run-Time" class="md-nav__link">
+    Setting Configuration Options In Run-Time
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
     
   </li>
 
@@ -678,6 +714,29 @@
     
   
   
+    <label class="md-nav__title" for="toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#passing"_"configuration"_"options"_"during"_"loading" title="Passing Configuration Options During Loading" class="md-nav__link">
+    Passing Configuration Options During Loading
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting"_"configuration"_"options"_"in"_"run-time" title="Setting Configuration Options In Run-Time" class="md-nav__link">
+    Setting Configuration Options In Run-Time
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -693,16 +752,25 @@
                 
                 <h1 id="run-time&quot;_&quot;configuration">Run-time configuration<a class="headerlink" href="#run-time&quot;_&quot;configuration" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. </p>
-<div class="admonition tip">
-<p class="admonition-title">Passing Configuration Options</p>
+<h2 id="passing&quot;_&quot;configuration&quot;_&quot;options&quot;_&quot;during&quot;_&quot;loading">Passing Configuration Options During Loading<a class="headerlink" href="#passing&quot;_&quot;configuration&quot;_&quot;options&quot;_&quot;during&quot;_&quot;loading" title="Permanent link">&para;</a></h2>
 <p>In general, passing configuration options is done by appending arguments after the <code>--loadmodule</code> argument in the command line, <code>loadmodule</code> configuration directive in a Redis config file, or the <code>MODULE LOAD</code> command. For example:</p>
 <p>In redis.conf:</p>
-<p><code>loadmodule redisearch.so OPT1 OPT2</code></p>
+<div class="codehilite"><pre><span></span>loadmodule redisearch.so OPT1 OPT2
+</pre></div>
+
+
 <p>From redis-cli:</p>
-<p><code>127.0.0.6379&gt; MODULE load redisearch.so OPT1 OPT2</code></p>
+<div class="codehilite"><pre><span></span>127.0.0.6379&gt; MODULE load redisearch.so OPT1 OPT2
+</pre></div>
+
+
 <p>From command line:</p>
-<p><code>$ redis-server --loadmodule ./redisearch.so OPT1 OPT2</code></p>
-</div>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so OPT1 OPT2
+</pre></div>
+
+
+<h2 id="setting&quot;_&quot;configuration&quot;_&quot;options&quot;_&quot;in&quot;_&quot;run-time">Setting Configuration Options In Run-Time<a class="headerlink" href="#setting&quot;_&quot;configuration&quot;_&quot;options&quot;_&quot;in&quot;_&quot;run-time" title="Permanent link">&para;</a></h2>
+<p>As of v1.4.1, the <a href="../Commands/#ftconfig"><code>FT.CONFIG</code></a> allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.</p>
 <h1 id="redisearch&quot;_&quot;configuration&quot;_&quot;options">RediSearch configuration options<a class="headerlink" href="#redisearch&quot;_&quot;configuration&quot;_&quot;options" title="Permanent link">&para;</a></h1>
 <h2 id="timeout">TIMEOUT<a class="headerlink" href="#timeout" title="Permanent link">&para;</a></h2>
 <p>The maximum amount of time <strong>in milliseconds</strong> that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with <code>ON_TIMEOUT</code>. The timeout can be disabled by setting it to 0.</p>
@@ -803,12 +871,30 @@
 </pre></div>
 
 
+<hr />
 <h2 id="gc&quot;_&quot;scansize">GC_SCANSIZE<a class="headerlink" href="#gc&quot;_&quot;scansize" title="Permanent link">&para;</a></h2>
 <p>The garbage collection bulk size of the internal gc used for cleaning up the indexes.</p>
 <h3 id="default_9">Default<a class="headerlink" href="#default_9" title="Permanent link">&para;</a></h3>
 <p>100</p>
 <h3 id="example_9">Example<a class="headerlink" href="#example_9" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so GC_SCANSIZE <span class="m">10</span>
+</pre></div>
+
+
+<hr />
+<h2 id="gc&quot;_&quot;policy">GC_POLICY<a class="headerlink" href="#gc&quot;_&quot;policy" title="Permanent link">&para;</a></h2>
+<p>The policy for the garbage collector. Supported policies are:</p>
+<ul>
+<li><strong>DEFAULT</strong>: the default policy.</li>
+<li><strong>FORK</strong>: uses a forked thread for garbage collection (v1.4.1 and above).</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">The <code>FORK</code> garbage collection policy is considered an experimental feature, and should be used responsibly.</p>
+</div>
+<h3 id="default_10">Default<a class="headerlink" href="#default_10" title="Permanent link">&para;</a></h3>
+<p>"default"</p>
+<h3 id="example_10">Example<a class="headerlink" href="#example_10" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span>$ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 </pre></div>
                 
                   
