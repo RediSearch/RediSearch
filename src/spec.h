@@ -147,7 +147,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 12
+#define INDEX_CURRENT_VERSION 13
 // Those versions contains doc table as array, we modified it to be array of linked lists
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
 #define INDEX_MIN_COMPAT_VERSION 2
@@ -164,6 +164,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_MIN_DOCLEN_VERSION 9
 
 #define INDEX_MIN_BINKEYS_VERSION 10
+
+// Versions below this one do not contains expire information
+#define INDEX_MIN_EXPIRE_VERSION 13
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))

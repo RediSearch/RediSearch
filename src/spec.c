@@ -894,6 +894,11 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
+  if (encver < INDEX_MIN_EXPIRE_VERSION) {
+    sp->timeout = -1;
+  } else {
+    sp->timeout = RedisModule_LoadUnsigned(rdb);
+  }
   return sp;
 }
 
@@ -922,6 +927,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   if (sp->flags & Index_HasSmap) {
     SynonymMap_RdbSave(rdb, sp->smap);
   }
+  RedisModule_SaveUnsigned(rdb, sp->timeout);
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
