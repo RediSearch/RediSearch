@@ -61,7 +61,8 @@ typedef struct GarbageCollectorCtx {
 } GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx* NewGarbageCollector(const RedisModuleString *k, float initialHZ, uint64_t specUniqueId, GCCallbacks* callbacks) {
+GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ,
+                                         uint64_t specUniqueId, GCCallbacks *callbacks) {
   GarbageCollectorCtx *gcCtx = malloc(sizeof(*gcCtx));
 
   *gcCtx = (GarbageCollectorCtx){
@@ -92,7 +93,7 @@ void gc_updateStats(RedisSearchCtx *sctx, GarbageCollectorCtx *gc, size_t record
 
 size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   RedisModuleKey *idxKey = NULL;
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
@@ -216,7 +217,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   size_t totalRemoved = 0;
   char *randomKey = NULL;
   RedisModuleKey *idxKey = NULL;
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
@@ -295,7 +296,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = NULL;
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(gc->keyName, NULL));
@@ -476,4 +477,3 @@ void GC_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
   }
   RedisModule_ReplySetArrayLength(ctx, n);
 }
-

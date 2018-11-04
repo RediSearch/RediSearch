@@ -49,7 +49,7 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
   if (settings->flags & AGGREGATE_REQUEST_SPECLESS) {
     sctx = NewSearchCtxDefault(ctx);
   } else {
-    sctx = NewSearchCtx(ctx, argv[1]);
+    sctx = NewSearchCtx(ctx, argv[1], true);
   }
   if (sctx == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");

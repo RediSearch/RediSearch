@@ -213,7 +213,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -248,7 +248,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -276,7 +276,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -369,7 +369,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -602,7 +602,7 @@ void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // at least one field, and number of field/text args must be even
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
     return;
@@ -666,7 +666,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -813,7 +813,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, delDocs);
+  Redis_DropIndex(&sctx, delDocs, true);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

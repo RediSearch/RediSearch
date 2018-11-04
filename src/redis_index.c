@@ -128,7 +128,7 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
 
   RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, indexName);
 
@@ -140,19 +140,22 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   }
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
+  if (sp->timeout != -1 && resetTTL) {
+    RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
+    RedisModule_SetExpire(temp, sp->timeout * 1000);
+    RedisModule_CloseKey(temp);
+  }
+
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp,
-      .redisCtx = ctx,
-      .key = k,
-      .keyName = keyName,
+      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
   };
   return sctx;
 }
 
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
 
-  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL));
+  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
 RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
@@ -165,7 +168,7 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
   // try to acquire it again...
   RedisModule_ThreadSafeContextLock(redisCtx);
   // reopen the context - it might have gone away!
-  return NewSearchCtx(redisCtx, keyName);
+  return NewSearchCtx(redisCtx, keyName, true);
 }
 
 RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
@@ -455,7 +458,7 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
 
   if (deleteDocuments) {
 
@@ -484,8 +487,11 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   }
 
   // Delete the index spec
-  int deleted = Redis_DeleteKey(
-      ctx->redisCtx,
-      RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+  int deleted = 1;
+  if (deleteSpecKey) {
+    deleted = Redis_DeleteKey(
+        ctx->redisCtx,
+        RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+  }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }

@@ -23,6 +23,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_NOHL_STR "NOHL"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
+#define SPEC_EXPIRE_STR "EXPIRE"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
@@ -185,7 +186,7 @@ typedef struct {
 
   StopWordList *stopwords;
 
-  GCContext* gc;
+  GCContext *gc;
 
   SynonymMap *smap;
 
@@ -193,6 +194,7 @@ typedef struct {
 
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
+  long long timeout;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
