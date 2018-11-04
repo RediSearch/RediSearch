@@ -73,13 +73,6 @@ CONFIG_SETTER(setSafemode) {
 
 CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
 
-CONFIG_SETTER(setDropAllIndexOnSpecDeletion) {
-  config->dropAllIndexOnSpecDeletion = 1;
-  return REDISMODULE_OK;
-}
-
-CONFIG_BOOLEAN_GETTER(getDropAllIndexOnSpecDeletion, dropAllIndexOnSpecDeletion, 0)
-
 // NOGC
 CONFIG_SETTER(setNoGc) {
   config->enableGC = 0;
@@ -396,12 +389,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {
-            .name = "DROP_ALL_INDEX_ON_SPEC_DELETION",
-            .helpText = "should the all index be dropped in case of spec deletion",
-            .setValue = setDropAllIndexOnSpecDeletion,
-            .getValue = getDropAllIndexOnSpecDeletion,
-        },
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

@@ -442,7 +442,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags |= Index_WideSchema;
   }
 
-  int expireOffset = findOffset(SPEC_EXPIRE_STR, argv, argc);
+  int expireOffset = findOffset(SPEC_TEMPORARY_STR, argv, argc);
   if (expireOffset != -1) {
     if (expireOffset >= argc || expireOffset >= schemaOffset) {
       SET_ERR(err, "Invalid expire arg");
@@ -554,7 +554,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
-  if (RSGlobalConfig.dropAllIndexOnSpecDeletion) {
+  if (spec->timeout != -1) {
     RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
     Redis_DropIndex(&sctx, true, false);

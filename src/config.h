@@ -77,8 +77,6 @@ typedef struct {
   GCPolicy gcPolicy;
   GCPolicy forkGcRunIntervalSec;
 
-  int dropAllIndexOnSpecDeletion;
-
   // Chained configuration data
   void *chainedConfig;
 } RSConfig;
@@ -156,7 +154,6 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,             \
     .gcPolicy = GCPolicy_Default, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,         \
-    .dropAllIndexOnSpecDeletion = 0                                                             \
   }
 
 #endif
