@@ -9,25 +9,24 @@
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
-#define DEBUG_COMMAND(name) \
-  static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+#define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
-#define GET_SEARCH_CTX(name)\
-  RedisSearchCtx* sctx = NewSearchCtx(ctx, name);\
-  if(!sctx){\
-    RedisModule_ReplyWithError(ctx, "Can not create a search ctx");\
-    return REDISMODULE_OK;\
+#define GET_SEARCH_CTX(name)                                        \
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, name);                   \
+  if (!sctx) {                                                      \
+    RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
+    return REDISMODULE_OK;                                          \
   }
 
-#define REPLY_WITH_LONG_LONG(name, val, len)\
-    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));\
-    RedisModule_ReplyWithLongLong(ctx, val);\
-    len += 2;
+#define REPLY_WITH_LONG_LONG(name, val, len)                  \
+  RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
+  RedisModule_ReplyWithLongLong(ctx, val);                    \
+  len += 2;
 
-#define REPLY_WITH_Str(name, val)\
-    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));\
-    RedisModule_ReplyWithStringBuffer(ctx, val, strlen(val));\
-    bulkLen += 2;
+#define REPLY_WITH_Str(name, val)                             \
+  RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
+  RedisModule_ReplyWithStringBuffer(ctx, val, strlen(val));   \
+  bulkLen += 2;
 
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
@@ -51,8 +50,8 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
   return IndexSpec_GetFormattedKey(spec, fieldSpec);
 }
 
-DEBUG_COMMAND(DumpTerms){
-  if(argc != 1){
+DEBUG_COMMAND(DumpTerms) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -79,8 +78,8 @@ DEBUG_COMMAND(DumpTerms){
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(InvertedIndexSummary){
-  if(argc != 2){
+DEBUG_COMMAND(InvertedIndexSummary) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -102,9 +101,9 @@ DEBUG_COMMAND(InvertedIndexSummary){
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  for(uint32_t i = 0 ; i < invidx->size ; ++i){
+  for (uint32_t i = 0; i < invidx->size; ++i) {
     size_t blockBulkLen = 0;
-    IndexBlock* block = invidx->blocks + i;
+    IndexBlock *block = invidx->blocks + i;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     REPLY_WITH_LONG_LONG("firstId", block->firstId, blockBulkLen);
@@ -126,8 +125,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DumpInvertedIndex){
-  if(argc != 2){
+DEBUG_COMMAND(DumpInvertedIndex) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -149,8 +148,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(NumericIndexSummary){
-  if(argc != 2){
+DEBUG_COMMAND(NumericIndexSummary) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -184,8 +183,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DumpNumericIndex){
-  if(argc != 2){
+DEBUG_COMMAND(DumpNumericIndex) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -221,8 +220,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DumpTagIndex){
-  if(argc != 2){
+DEBUG_COMMAND(DumpTagIndex) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -264,8 +263,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(IdToDocId){
-  if(argc != 2){
+DEBUG_COMMAND(IdToDocId) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -285,8 +284,8 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DocIdToId){
-  if(argc != 2){
+DEBUG_COMMAND(DocIdToId) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
@@ -297,8 +296,8 @@ DEBUG_COMMAND(DocIdToId){
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DumpPhoneticHash){
-  if(argc != 1){
+DEBUG_COMMAND(DumpPhoneticHash) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
   size_t len;
@@ -318,34 +317,35 @@ DEBUG_COMMAND(DumpPhoneticHash){
   return REDISMODULE_OK;
 }
 
-static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define REPLY "DONE"
   RedisModule_ReplyWithStringBuffer(ctx, REPLY, strlen(REPLY));
   return REDISMODULE_OK;
 }
 
-static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define ERROR_REPLY "INVOCATION FAILED"
   RedisModule_ReplyWithError(ctx, ERROR_REPLY);
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(GCForceInvoke){
-#define INVOKATION_TIMEOUT 30000 // gc invocation timeout ms
+DEBUG_COMMAND(GCForceInvoke) {
+#define INVOKATION_TIMEOUT 30000  // gc invocation timeout ms
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(
+      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
   return REDISMODULE_OK;
 }
 
-typedef struct DebugCommandType{
-  char* name;
+typedef struct DebugCommandType {
+  char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-}DebugCommandType;
+} DebugCommandType;
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_NUMIDX", DumpNumericIndex},
@@ -361,16 +361,16 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  if(argc < 2){
+  if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char* subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
 
-  if(strcasecmp(subCommand, "help") == 0){
+  if (strcasecmp(subCommand, "help") == 0) {
     size_t len = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    for(DebugCommandType* c = &commands[0]; c->name != NULL ; c++){
+    for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
       RedisModule_ReplyWithStringBuffer(ctx, c->name, strlen(c->name));
       ++len;
     }
@@ -378,8 +378,8 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  for(DebugCommandType* c = &commands[0]; c->name != NULL ; c++){
-    if(strcasecmp(c->name, subCommand) == 0){
+  for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
+    if (strcasecmp(c->name, subCommand) == 0) {
       return c->callback(ctx, argv + 2, argc - 2);
     }
   }
