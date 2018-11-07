@@ -103,6 +103,33 @@ static inline array_t array_grow(array_t arr) {
     &array_tail(*(arrpp));             \
   })
 
+/*
+ * This macro is useful for sparse arrays. It ensures that `*arrpp` will
+ * point to a valid index in the array, growing the array to fit.
+ *
+ * If the array needs to be expanded in order to contain the index, then
+ * the unused portion of the array (i.e. the space between the previously
+ * last-valid element and the new index) is zero'd
+ *
+ * @param arrpp a pointer to the array (e.g. `T**`)
+ * @param pos the index that should be considered valid
+ * @param T the type of the array (in case it must be created)
+ * @return A pointer of T at the requested index
+ */
+#define array_ensure_at(arrpp, pos, T)                                   \
+  ({                                                                     \
+    if (!(*arrpp)) {                                                     \
+      *(arrpp) = array_new(T, 1);                                        \
+    } else if (array_len(*arrpp) > pos) {                                \
+    } else {                                                             \
+      size_t curlen = array_len(*arrpp);                                 \
+      array_hdr(*arrpp)->len = pos + 1;                                  \
+      *arrpp = array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len);     \
+      memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen)); \
+    }                                                                    \
+    (T *)(*arrpp) + pos;                                                 \
+  })
+
 /* get the last element in the array */
 #define array_tail(arr) (arr[array_hdr(arr)->len - 1])
 
