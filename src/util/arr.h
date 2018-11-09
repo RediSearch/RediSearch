@@ -57,7 +57,7 @@ typedef void *array_t;
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
-  array_hdr_t *hdr = array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
+  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
   hdr->cap = cap;
   hdr->elem_sz = elem_sz;
   hdr->len = len;
@@ -82,7 +82,7 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
   if (cap > hdr->cap) {
     hdr->cap = MAX(hdr->cap * 2, cap);
-    hdr = array_realloc_fn(hdr, array_sizeof(hdr));
+    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
 }
@@ -155,7 +155,7 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   arr_hdr->len = len;
   if (cap != -1) {
     arr_hdr->cap = cap;
-    arr_hdr = array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
+    arr_hdr = (array_hdr_t *)array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
   }
   return arr_hdr->buf;
 }
