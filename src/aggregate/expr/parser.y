@@ -31,6 +31,7 @@
 %include {
 #include "token.h"
 #include "expression.h"
+#include "exprast.h"
 #include "parser.h"
 
 }

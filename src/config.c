@@ -476,14 +476,14 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, char **err) {
+                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
-    SET_ERR(err, "No such option");
+    QueryError_SetError(status, QUERY_ENOOPTION, NULL);
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    SET_ERR(err, "Option not settable at runtime");
+    QueryError_SetError(status, QUERY_EINVAL, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   return var->setValue(config, argv, argc, offset);

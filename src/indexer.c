@@ -153,7 +153,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       ForwardIndexEntry *fwent = merged->head;
 
       // Add the term to the prefix trie. This only needs to be done once per term
-      if(fwent->addToTermsTrie){
+      if (fwent->addToTermsTrie) {
         IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
       }
 
@@ -215,7 +215,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
 
-    if(entry->addToTermsTrie){
+    if (entry->addToTermsTrie) {
       IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
     }
 
@@ -244,9 +244,8 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
                           const char **errorString) {
   DocTable *table = &spec->docs;
   Document *doc = &aCtx->doc;
-  RSDocumentKey docKey = MakeDocKeyR(doc->docKey);
   if (replace) {
-    RSDocumentMetadata *dmd = DocTable_Pop(table, docKey);
+    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
@@ -254,7 +253,10 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
     }
   }
 
-  doc->docId = DocTable_Put(table, docKey, doc->score, 0, doc->payload, doc->payloadSize);
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
+
+  doc->docId = DocTable_Put(table, s, n, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     *errorString = "Document already exists";
     return -1;

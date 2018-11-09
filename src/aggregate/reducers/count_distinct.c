@@ -6,31 +6,30 @@
 #include <rmutil/sds.h>
 
 #define HLL_PRECISION_BITS 8
+#define INSTANCE_BLOCK_NUM 1024
 
 static const int khid = 35;
 KHASH_SET_INIT_INT64(khid);
 
-struct distinctCounter {
+typedef struct {
   size_t count;
-  RSKey key;
-  RSSortingTable *sortables;
+  const RLookupKey *srckey;
   khash_t(khid) * dedup;
-};
+} distinctCounter;
 
-static void *countDistinct_NewInstance(ReducerCtx *ctx) {
-  BlkAlloc *ba = &ctx->alloc;
-  struct distinctCounter *ctr =
-      ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
+static void *distinctNewInstance(Reducer *r) {
+  BlkAlloc *ba = &r->alloc;
+  distinctCounter *ctr =
+      BlkAlloc_Alloc(ba, sizeof(*ctr), INSTANCE_BLOCK_NUM * sizeof(*ctr));  // malloc(sizeof(*ctr));
   ctr->count = 0;
   ctr->dedup = kh_init(khid);
-  ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
-  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
+  ctr->srckey = r->srckey;
   return ctr;
 }
 
-static int countDistinct_Add(void *ctx, SearchResult *res) {
-  struct distinctCounter *ctr = ctx;
-  RSValue *val = SearchResult_GetValue(res, ctr->sortables, &ctr->key);
+static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  distinctCounter *ctr = ctx;
+  const RSValue *val = RLookup_GetItem(ctr->srckey, srcrow);
   if (!val || val->t == RSValue_Null) {
     return 1;
   }
@@ -46,51 +45,50 @@ static int countDistinct_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-static int countDistinct_Finalize(void *ctx, const char *key, SearchResult *res) {
-  struct distinctCounter *ctr = ctx;
-  // printf("Counter finalize! count %zd\n", ctr->count);
-  RSFieldMap_SetNumber(&res->fields, key, ctr->count);
-  return 1;
+static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
+  distinctCounter *ctr = ctx;
+  return RS_NumVal(ctr->count);
 }
 
-static void countDistinct_FreeInstance(void *p) {
-  struct distinctCounter *ctr = p;
+static void distinctFreeInstance(Reducer *r, void *p) {
+  distinctCounter *ctr = p;
   // we only destroy the hash table. The object itself is allocated from a block and needs no
   // freeing
   kh_destroy(khid, ctr->dedup);
 }
 
-Reducer *NewCountDistinct(RedisSearchCtx *ctx, const char *alias, const char *key) {
-  Reducer *r = NewReducer(ctx, (void *)key);
-
-  r->Add = countDistinct_Add;
-  r->Finalize = countDistinct_Finalize;
-  r->Free = Reducer_GenericFreeWithStaticPrivdata;
-  r->FreeInstance = countDistinct_FreeInstance;
-  r->NewInstance = countDistinct_NewInstance;
-  r->alias = FormatAggAlias(alias, "count_distinct", key);
+Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
+  Reducer *r = calloc(1, sizeof(*r));
+  if (!ReducerOpts_GetKey(options, &r->srckey)) {
+    free(r);
+    return NULL;
+  }
+  r->Add = distinctAdd;
+  r->Finalize = distinctFinalize;
+  r->Free = Reducer_GenericFree;
+  r->FreeInstance = distinctFreeInstance;
+  r->NewInstance = distinctNewInstance;
+  r->reducerId = REDUCER_T_DISTINCT;
   return r;
 }
 
-struct distinctishCounter {
+typedef struct {
   struct HLL hll;
-  RSKey key;
-  RSSortingTable *sortables;
-};
+  const RLookupKey *key;
+} distinctishCounter;
 
-static void *countDistinctish_NewInstance(ReducerCtx *ctx) {
-  BlkAlloc *ba = &ctx->alloc;
-  struct distinctishCounter *ctr =
-      ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
+static void *distinctishNewInstance(Reducer *parent) {
+  BlkAlloc *ba = &parent->alloc;
+  distinctishCounter *ctr =
+      BlkAlloc_Alloc(ba, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
   hll_init(&ctr->hll, HLL_PRECISION_BITS);
-  ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
-  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
+  ctr->key = parent->srckey;
   return ctr;
 }
 
-static int countDistinctish_Add(void *ctx, SearchResult *res) {
-  struct distinctishCounter *ctr = ctx;
-  RSValue *val = SearchResult_GetValue(res, ctr->sortables, &ctr->key);
+static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
+  distinctishCounter *ctr = instance;
+  const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
   if (!val || val->t == RSValue_Null) {
     return 1;
   }
@@ -101,15 +99,13 @@ static int countDistinctish_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-static int countDistinctish_Finalize(void *ctx, const char *key, SearchResult *res) {
-  struct distinctishCounter *ctr = ctx;
-  // rintf("Counter finalize! count %f\n", hll_count(&ctr->hll));
-  RSFieldMap_SetNumber(&res->fields, key, (uint64_t)hll_count(&ctr->hll));
-  return 1;
+static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
+  distinctishCounter *ctr = instance;
+  return RS_NumVal((uint64_t)hll_count(&ctr->hll));
 }
 
-static void countDistinctish_FreeInstance(void *p) {
-  struct distinctishCounter *ctr = p;
+static void distinctishFreeInstance(Reducer *r, void *p) {
+  distinctishCounter *ctr = p;
   hll_destroy(&ctr->hll);
 }
 
@@ -120,52 +116,56 @@ typedef struct __attribute__((packed)) {
   // uint32_t size -- NOTE - always 1<<bits
 } HLLSerializedHeader;
 
-static int hllFinalize(void *ctx, const char *key, SearchResult *res) {
-  struct distinctishCounter *ctr = ctx;
+static RSValue *hllFinalize(Reducer *parent, void *ctx) {
+  distinctishCounter *ctr = ctx;
+
   // Serialize field map.
   HLLSerializedHeader hdr = {.flags = 0, .bits = ctr->hll.bits};
   char *str = malloc(sizeof(hdr) + ctr->hll.size);
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
-  RSFieldMap_Add(&res->fields, key, RS_StringVal(str, sizeof(hdr) + ctr->hll.size));
-  return 1;
+  RSValue *ret = RS_StringVal(str, sizeof(hdr) + ctr->hll.size);
+  return ret;
 }
 
-static Reducer *newHllCommon(RedisSearchCtx *ctx, const char *alias, const char *key, int isRaw) {
-  Reducer *r = NewReducer(ctx, (void *)key);
-  r->Add = countDistinctish_Add;
-  r->Free = Reducer_GenericFreeWithStaticPrivdata;
-  r->FreeInstance = countDistinctish_FreeInstance;
-  r->NewInstance = countDistinctish_NewInstance;
+static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
+  Reducer *r = calloc(1, sizeof(*r));
+  if (!ReducerOpts_GetKey(options, &r->srckey)) {
+    free(r);
+    return NULL;
+  }
+  r->Add = distinctishAdd;
+  r->Free = Reducer_GenericFree;
+  r->FreeInstance = distinctishFreeInstance;
+  r->NewInstance = distinctishNewInstance;
 
   if (isRaw) {
+    r->reducerId = REDUCER_T_HLL;
     r->Finalize = hllFinalize;
-    r->alias = FormatAggAlias(alias, "hll", key);
   } else {
-    r->Finalize = countDistinctish_Finalize;
-    r->alias = FormatAggAlias(alias, "count_distinctish", key);
+    r->reducerId = REDUCER_T_DISTINCTISH;
+    r->Finalize = distinctishFinalize;
   }
   return r;
 }
 
-Reducer *NewCountDistinctish(RedisSearchCtx *ctx, const char *alias, const char *key) {
-  return newHllCommon(ctx, alias, key, 0);
+Reducer *RDCRCountDistinctish_New(const ReducerOptions *options) {
+  return newHllCommon(options, 0);
 }
 
-Reducer *NewHLL(RedisSearchCtx *ctx, const char *alias, const char *key) {
-  return newHllCommon(ctx, alias, key, 1);
+Reducer *RDCRHLL_New(const ReducerOptions *options) {
+  return newHllCommon(options, 1);
 }
 
 typedef struct {
-  RSKey key;
-  RSSortingTable *sortables;
+  const RLookupKey *srckey;
   struct HLL hll;
 } hllSumCtx;
 
-static int hllSum_Add(void *ctx, SearchResult *res) {
+static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
-  RSValue *val = SearchResult_GetValue(res, ctr->sortables, &ctr->key);
+  const RSValue *val = RLookup_GetItem(ctr->srckey, srcrow);
 
   if (val == NULL || !RSValue_IsString(val)) {
     // Not a string!
@@ -214,33 +214,35 @@ static int hllSum_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-static int hllSum_Finalize(void *ctx, const char *key, SearchResult *res) {
+static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
-  RSFieldMap_SetNumber(&res->fields, key, ctr->hll.bits ? (uint64_t)hll_count(&ctr->hll) : 0);
-  return 1;
+  return RS_NumVal(ctr->hll.bits ? (uint64_t)hll_count(&ctr->hll) : 0);
 }
 
-static void *hllSum_NewInstance(ReducerCtx *ctx) {
-  hllSumCtx *ctr = ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));
+static void *hllsumNewInstance(Reducer *r) {
+  hllSumCtx *ctr = BlkAlloc_Alloc(&r->alloc, sizeof(*ctr), 1024 * sizeof(*ctr));
   ctr->hll.bits = 0;
   ctr->hll.registers = NULL;
-  ctr->key = RS_KEY(RSKEY((char *)ctx->privdata));
-  ctr->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
+  ctr->srckey = r->srckey;
   return ctr;
 }
 
-static void hllSum_FreeInstance(void *p) {
+static void hllsumFreeInstance(Reducer *r, void *p) {
   hllSumCtx *ctr = p;
   hll_destroy(&ctr->hll);
 }
 
-Reducer *NewHLLSum(RedisSearchCtx *ctx, const char *alias, const char *key) {
-  Reducer *r = NewReducer(ctx, (void *)key);
-  r->Add = hllSum_Add;
-  r->Finalize = hllSum_Finalize;
-  r->NewInstance = hllSum_NewInstance;
-  r->FreeInstance = hllSum_FreeInstance;
-  r->Free = Reducer_GenericFreeWithStaticPrivdata;
-  r->alias = FormatAggAlias(alias, "hll_sum", key);
+Reducer *RDCRHLLSum_New(const ReducerOptions *options) {
+  Reducer *r = calloc(1, sizeof(*r));
+  if (!ReducerOpts_GetKey(options, &r->srckey)) {
+    free(r);
+    return NULL;
+  }
+  r->reducerId = REDUCER_T_HLLSUM;
+  r->Add = hllsumAdd;
+  r->Finalize = hllsumFinalize;
+  r->NewInstance = hllsumNewInstance;
+  r->FreeInstance = hllsumFreeInstance;
+  r->Free = Reducer_GenericFree;
   return r;
 }

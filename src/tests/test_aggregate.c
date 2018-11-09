@@ -7,44 +7,45 @@
 #include <util/arr.h>
 #include <rmutil/alloc.h>
 
-struct mockProcessorCtx {
-  int counter;
+typedef struct {
+  ResultProcessor base;
+  size_t counter;
   char **values;
-  int numvals;
+  size_t numvals;
   SearchResult *res;
-};
+  RLookupKey *rkscore;
+  RLookupKey *rkvalue;
+} RPMock;
 
 #define NUM_RESULTS 300000
 
-int mock_Next(ResultProcessorCtx *ctx, SearchResult *res) {
-
-  struct mockProcessorCtx *p = ctx->privdata;
+static int mockNext(ResultProcessor *rp, SearchResult *res) {
+  RPMock *p = (RPMock *)rp;
   if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
 
   res->docId = ++p->counter;
 
-  // printf("%s\n", p->values[p->counter % p->numvals]);
-  RSFieldMap_Set(&res->fields, "value", RS_ConstStringValC(p->values[p->counter % p->numvals]));
-  RSFieldMap_Set(&res->fields, "score", RS_NumVal((double)p->counter));
+  RSValue *sval = RS_ConstStringValC(p->values[p->counter % p->numvals]);
+  RSValue *scoreval = RS_NumVal(p->counter);
+  RLookup_WriteKey(p->rkvalue, &res->rowdata, sval);
+  RLookup_WriteKey(p->rkscore, &res->rowdata, scoreval);
   //* res = * p->res;
   return RS_RESULT_OK;
 }
 
 int testGroupBy() {
+  RPMock ctx = {0};
+  RLookup rk = {0};
   char *values[] = {"foo", "bar", "baz"};
-  struct mockProcessorCtx ctx = {
-      0,
-      values,
-      3,
-      NewSearchResult(),
-  };
+  ctx.values = values;
+  ctx.numvals = sizeof(values) / sizeof(values[0]);
+  ctx.rkscore = RLookup_GetKey(&rk, "score", RLOOKUP_F_OCREAT);
+  ctx.rkvalue = RLookup_GetKey(&rk, "value", RLOOKUP_F_OCREAT);
+  ctx.base.Next = mockNext;
 
-  ResultProcessor *mp = NewResultProcessor(NULL, &ctx);
-  mp->Next = mock_Next;
-  mp->Free = NULL;
-  RSMultiKey *keys = RS_NewMultiKeyVariadic(2, "value", "val");
+  Grouper_New()
 
-  Grouper *gr = NewGrouper(keys, NULL);
+      Grouper *gr = NewGrouper(keys, NULL);
   Grouper_AddReducer(gr, NewCount(NULL, "countie"));
   Grouper_AddReducer(gr, NewSum(NULL, "score", NULL));
 

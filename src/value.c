@@ -28,17 +28,6 @@ static void _valueFree(void *p) {
   free(p);
 }
 
-/* The byte size of the field map */
-static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
-  return sizeof(RSFieldMap) + cap * sizeof(RSField);
-}
-
-void *_fieldMapAlloc() {
-  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
-  ret->cap = 8;
-  return ret;
-}
-
 static void __attribute__((constructor)) initKey() {
   pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
 }
@@ -48,7 +37,6 @@ static inline mempoolThreadPool *getPoolInfo() {
   if (tp == NULL) {
     tp = calloc(1, sizeof(*tp));
     tp->values = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
-    tp->fieldmaps = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
     pthread_setspecific(mempoolKey_g, tp);
   }
   return tp;
@@ -57,58 +45,62 @@ static inline mempoolThreadPool *getPoolInfo() {
 RSValue *RS_NewValue(RSValueType t) {
   RSValue *v = mempool_get(getPoolInfo()->values);
   v->t = t;
-  v->refcount = 0;
+  v->refcount = 1;
   v->allocated = 1;
   return v;
 }
+
+void RSValue_Clear(RSValue *v) {
+  switch (v->t) {
+    case RSValue_String:
+      // free strings by allocation strategy
+      switch (v->strval.stype) {
+        case RSString_Malloc:
+          free(v->strval.str);
+          break;
+        case RSString_RMAlloc:
+          RedisModule_Free(v->strval.str);
+          break;
+        case RSString_SDS:
+          sdsfree(v->strval.str);
+          break;
+        case RSString_Const:
+        case RSString_Volatile:
+          break;
+      }
+      break;
+    case RSValue_Array:
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        RSValue_Decref(v->arrval.vals[i]);
+      }
+      if (!v->arrval.staticarray) {
+        free(v->arrval.vals);
+      }
+      break;
+    case RSValue_Reference:
+      RSValue_Decref(v->ref);
+      break;
+    default:  // no free
+      break;
+  }
+
+  v->t = RSValue_Undef;
+}
+
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
-inline void RSValue_Free(RSValue *v) {
-  if (!v) return;
-  --v->refcount;
-  // RSValue_Print(v);
-  if (v->refcount <= 0) {
-
-    switch (v->t) {
-      case RSValue_String:
-        // free strings by allocation strategy
-        switch (v->strval.stype) {
-          case RSString_Malloc:
-            free(v->strval.str);
-            break;
-          case RSString_RMAlloc:
-            RedisModule_Free(v->strval.str);
-            break;
-          case RSString_SDS:
-            sdsfree(v->strval.str);
-            break;
-          case RSString_Const:
-          case RSString_Volatile:
-            break;
-        }
-        break;
-      case RSValue_Array:
-        for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_Free(v->arrval.vals[i]);
-        }
-        if (v->allocated) free(v->arrval.vals);
-        break;
-      case RSValue_Reference:
-        RSValue_Free(v->ref);
-        break;
-      default:  // no free
-        break;
-    }
-
-    if (v->allocated) {
-      mempool_release(getPoolInfo()->values, v);
-    }
+void RSValue_Free(RSValue *v) {
+  RSValue_Clear(v);
+  if (v->allocated) {
+    mempool_release(getPoolInfo()->values, v);
   }
 }
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
-      .t = t, .refcount = 1, .allocated = 0,
+      .t = t,
+      .refcount = 1,
+      .allocated = 0,
   };
   return v;
 }
@@ -241,7 +233,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */
-inline int RSValue_ToNumber(RSValue *v, double *d) {
+int RSValue_ToNumber(const RSValue *v, double *d) {
   if (RSValue_IsNull(v)) return 0;
   v = RSValue_Dereference(v);
 
@@ -308,7 +300,7 @@ inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
 }
 
 // Gets the string pointer and length from the value
-inline const char *RSValue_StringPtrLen(RSValue *value, size_t *lenp) {
+const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
 
   switch (value->t) {
@@ -348,14 +340,46 @@ inline const char *RSValue_ConvertStringPtrLen(RSValue *value, size_t *lenp, cha
 }
 
 /* Wrap a number into a value object */
-inline RSValue *RS_NumVal(double n) {
+RSValue *RS_NumVal(double n) {
   RSValue *v = RS_NewValue(RSValue_Number);
   v->numval = n;
   return v;
 }
 
+RSValue *RS_Int64Val(int64_t dd) {
+  RSValue *v = RS_NewValue(RSValue_Number);
+  v->numval = dd;
+  return v;
+}
+
+RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
+  RSValue *arr = RS_NewValue(RSValue_Array);
+  RSValue **list;
+  if (options & RSVAL_ARRAY_ALLOC) {
+    list = vals;
+  } else {
+    list = malloc(sizeof(*list) * n);
+  }
+  for (size_t ii = 0; ii < n; ++ii) {
+    RSValue *v = vals[ii];
+    list[ii] = v;
+    if (!v) {
+      continue;
+    }
+    if (!(options & RSVAL_ARRAY_NOINCREF)) {
+      RSValue_IncrRef(v);
+    }
+  }
+  arr->arrval.vals = list;
+  arr->arrval.len = n;
+  if (options & RSVAL_ARRAY_STATIC) {
+    arr->arrval.staticarray = 1;
+  }
+  return arr;
+}
+
 /* Wrap an array of RSValue objects into an RSValue array object */
-inline RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
+RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
 
   RSValue *v = RS_NewValue(RSValue_Array);
   v->arrval.vals = vals;
@@ -396,6 +420,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   }
   return RS_ArrVal(arr, sz);
 }
+
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 /* Create a new NULL RSValue */
 inline RSValue *RS_NullVal() {
@@ -438,7 +463,7 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
-int RSValue_Cmp(RSValue *v1, RSValue *v2) {
+int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
   assert(v1);
   assert(v2);
   v1 = RSValue_Dereference(v1);
@@ -481,15 +506,12 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
-int RSValue_Equal(RSValue *v1, RSValue *v2) {
+int RSValue_Equal(const RSValue *v1, const RSValue *v2) {
   return RSValue_Cmp(v1, v2) == 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModuleCtx *ctx, RSValue *v) {
-  if (!v) {
-    return RedisModule_ReplyWithNull(ctx);
-  }
+int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
@@ -545,174 +567,6 @@ void RSValue_Print(RSValue *v) {
       RSValue_Print(v->ref);
       break;
   }
-}
-
-RSMultiKey *RS_NewMultiKey(uint16_t len) {
-  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
-  ret->len = len;
-  ret->keysAllocated = 0;
-  return ret;
-}
-
-RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
-  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
-  ret->len = len;
-  ret->keysAllocated = 0;
-  va_list ap;
-  va_start(ap, len);
-  for (int i = 0; i < len; i++) {
-    const char *arg = va_arg(ap, const char *);
-    ret->keys[i] = RS_KEY(RSKEY(arg));
-  }
-  va_end(ap);
-  return ret;
-}
-
-/* Create a multi-key from a string array */
-RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicateStrings) {
-  RSMultiKey *ret = RS_NewMultiKey(arr->len);
-  ret->keysAllocated = duplicateStrings;
-  for (size_t i = 0; i < arr->len; i++) {
-    assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
-    ret->keys[i] = RS_KEY(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i))));
-    if (duplicateStrings) {
-      ret->keys[i].key = strdup(ret->keys[i].key);
-    }
-  }
-  return ret;
-}
-
-RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys) {
-  RSMultiKey *ret = RS_NewMultiKey(k->len);
-  ret->keysAllocated = copyKeys;
-
-  for (size_t i = 0; i < k->len; i++) {
-    ret->keys[i] = RS_KEY(copyKeys ? strdup(k->keys[i].key) : k->keys[i].key);
-  }
-  return ret;
-}
-
-void RSMultiKey_Free(RSMultiKey *k) {
-  if (k->keysAllocated) {
-    for (size_t i = 0; i < k->len; i++) {
-      free((char *)k->keys[i].key);
-    }
-  }
-  free(k);
-}
-
-/* Create new KV field */
-inline RSField RS_NewField(const char *k, RSValue *val) {
-  RSField ret;
-  ret.key = (RSKEY(k));
-  ret.val = RSValue_IncrRef(val);
-  return ret;
-}
-
-/* Create a new field map with a given initial capacity */
-RSFieldMap *RS_NewFieldMap(uint16_t cap) {
-  if (!cap) cap = 1;
-  RSFieldMap *m = mempool_get(getPoolInfo()->fieldmaps);
-  m->len = 0;
-  return m;
-}
-
-/* Make sure the fieldmap has enough capacity to add elements */
-void RSFieldMap_EnsureCap(RSFieldMap **m) {
-  if (!*m) {
-    *m = RS_NewFieldMap(2);
-    return;
-  }
-  if ((*m)->len + 1 >= (*m)->cap) {
-    (*m)->cap = MIN((*m)->cap * 2, UINT16_MAX);
-    *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
-  }
-}
-
-#define FIELDMAP_FIELD(m, i) (m)->fields[i]
-
-RSValue *RSFieldMap_GetByKey(RSFieldMap *m, RSKey *k) {
-  if (RSKEY_ISVALIDIDX(k->fieldIdx)) {
-    return RSValue_Dereference(FIELDMAP_FIELD(m, k->fieldIdx).val);
-  }
-
-  for (uint16_t i = 0; i < m->len; i++) {
-    if (!strcmp(FIELDMAP_FIELD(m, i).key, (k->key))) {
-      if (k->fieldIdx != RSKEY_NOCACHE) {
-        k->fieldIdx = i;
-      }
-      return RSValue_Dereference(FIELDMAP_FIELD(m, i).val);
-    }
-  }
-  if (k->fieldIdx != RSKEY_NOCACHE) {
-    k->fieldIdx = RSKEY_NOTFOUND;
-  }
-
-  return RS_NullVal();
-}
-
-/* Add a filed to the map WITHOUT checking for duplications */
-void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue *val) {
-  RSFieldMap_EnsureCap(m);
-  // Creating the field will create a  reference and increase the ref count on val
-  FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
-}
-
-/* Set a value in the map for a given key, checking for duplicates and replacing the existing
- * value if needed, and appending a new one if needed */
-void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
-  key = RSKEY(key);
-  if (*m) {
-    for (uint16_t i = 0; i < (*m)->len; i++) {
-      if (!strcmp(FIELDMAP_FIELD(*m, i).key, (key))) {
-
-        // avoid memory leaks...
-        RSValue_Free(FIELDMAP_FIELD(*m, i).val);
-        // assign the new field
-        FIELDMAP_FIELD(*m, i).val = RSValue_IncrRef(val);
-        return;
-      }
-    }
-  }
-  RSFieldMap_EnsureCap(m);
-
-  // not found - append a new field
-  FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
-}
-
-void RSFieldMap_SetNumber(RSFieldMap **m, const char *key, double d) {
-  RSFieldMap_Set(m, key, RS_NumVal(d));
-}
-
-void RSFieldMap_Reset(RSFieldMap *m) {
-  if (m) {
-    for (size_t i = 0; i < m->len; i++) {
-      RSValue_Free(m->fields[i].val);
-      if (m->isKeyAlloc) {
-        free(m->fields[i].key);
-      }
-    }
-    m->isKeyAlloc = 0;
-    m->len = 0;
-  }
-}
-
-void RSFieldMap_Free(RSFieldMap *m) {
-  if (!m) {
-    return;
-  }
-  RSFieldMap_Reset(m);
-  mempool_release(getPoolInfo()->fieldmaps, m);
-  // free(m);
-}
-
-void RSFieldMap_Print(RSFieldMap *m) {
-  for (uint16_t i = 0; i < m->len; i++) {
-    printf("%s: ", m->fields[i].key);
-    RSValue_Print(m->fields[i].val);
-    printf(", ");
-  }
-  printf("\n");
 }
 
 /*

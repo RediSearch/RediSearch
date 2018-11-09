@@ -12,7 +12,7 @@ typedef struct DLLIST_node {
   struct DLLIST_node *prev;
 } DLLIST_node, DLLIST;
 
-void dllist_init(DLLIST *l) {
+static inline void dllist_init(DLLIST *l) {
   l->prev = l;
   l->next = l;
 }

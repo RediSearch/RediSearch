@@ -242,7 +242,9 @@ int Document_AddToIndexes(RSAddDocumentCtx *ctx);
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 /* Load a single document */
-int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
+int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc);
+int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc);
+#define Redis_LoadDocument Redis_LoadDocumentR
 
 /* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
  * properties from the sorting table or from the hash representation of the document.
@@ -252,7 +254,7 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Do
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, char **err);
+                            int *result, QueryError *err);
 
 /**
  * Load a single document fields is an array of fields to load from a document.

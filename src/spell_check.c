@@ -301,7 +301,7 @@ static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
   return true;
 }
 
-void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
+void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
 #define NODES_INITIAL_SIZE 5
   if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
     return;
@@ -324,7 +324,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
 
     switch (currNode->type) {
       case QN_PHRASE:
-        for (int i = currNode->pn.numChildren - 1 ; i >= 0 ; i--) {
+        for (int i = currNode->pn.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->pn.children[i]);
         }
         break;
@@ -344,14 +344,14 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
         break;
 
       case QN_UNION:
-        for (int i = currNode->un.numChildren - 1 ; i >= 0; i--) {
+        for (int i = currNode->un.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->un.children[i]);
         }
         break;
 
       case QN_TAG:
         // todo: do we need to do enything here?
-        for (int i = currNode->tag.numChildren - 1; i >= 0 ; i--) {
+        for (int i = currNode->tag.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->tag.children[i]);
         }
         break;

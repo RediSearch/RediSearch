@@ -111,7 +111,7 @@ RSOffsetIterator _emptyIterator() {
 }
 
 /* Create the appropriate iterator from a result based on its type */
-RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
+RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:

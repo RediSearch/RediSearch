@@ -1,7 +1,15 @@
 #include "index_result.h"
 #include "index_iterator.h"
 #include "rmalloc.h"
-#include "id_list.h"
+
+typedef struct {
+  t_docId *docIds;
+  t_docId lastDocId;
+  t_offset size;
+  t_offset offset;
+  int atEOF;
+  RSIndexResult *res;
+} IdListIterator;
 
 /* Read the next entry from the iterator, into hit *e.
  *  Returns INDEXREAD_EOF if at the end */

@@ -11,6 +11,19 @@
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 
+/**
+ * Simple wrapper over any kind of string
+ */
+typedef struct {
+  const char *s;
+  size_t n;
+} RString;
+
+/**
+ * This handy macro expands an RSTRING to 2 arguments, the buffer and the length.
+ */
+#define RSTRING_S_N(rs) (rs)->s, (rs)->n
+
 typedef struct Buffer {
   char *data;
   size_t cap;

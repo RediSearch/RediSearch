@@ -6,6 +6,7 @@
 
 #include "parser.h"
 #include "expression.h"
+#include "exprast.h"
 
 #include "token.h"
 

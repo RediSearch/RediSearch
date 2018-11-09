@@ -114,6 +114,8 @@ typedef struct RSQueryExpanderCtx {
   /* Opaque query object used internally by the engine, and should not be accessed */
   struct RSQuery *query;
 
+  struct RedisSearchCtx *handle;
+
   /* Opaque query node object used internally by the engine, and should not be accessed */
   struct RSQueryNode **currentNode;
 
@@ -282,11 +284,11 @@ typedef struct RSIndexResult {
 #pragma pack()
 
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
-RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);
+RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
 
-int RSIndexResult_HasOffsets(RSIndexResult *res);
+int RSIndexResult_HasOffsets(const RSIndexResult *res);
 
-int RSIndexResult_IsAggregate(RSIndexResult *r);
+int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 /* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
  * order to completely filter out results and disregard them in the totals count */

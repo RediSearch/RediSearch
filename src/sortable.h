@@ -74,7 +74,13 @@ int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSorting
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
 
-RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
+/* Returns the value for a given index. Does not increment the refcount */
+static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
+  if (v->len <= index) {
+    return NULL;
+  }
+  return v->values[index];
+}
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 

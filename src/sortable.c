@@ -82,13 +82,6 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
     }
   }
 }
-RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k) {
-  if (!v || !k) return NULL;
-  if (k->index >= 0 && k->index < v->len) {
-    return v->values[k->index];
-  }
-  return NULL;
-}
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {

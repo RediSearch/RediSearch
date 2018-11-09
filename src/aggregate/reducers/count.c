@@ -1,39 +1,33 @@
 #include <aggregate/reducer.h>
 #include <util/block_alloc.h>
 
-struct counter {
+typedef struct {
   size_t count;
-};
+} counterData;
 
-void *counter_NewInstance(ReducerCtx *ctx) {
-  BlkAlloc *ba = ctx->privdata;
-  struct counter *ctr =
-      ReducerCtx_Alloc(ctx, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
-  ctr->count = 0;
-  return ctr;
+#define COUNTER_BLOCK_SIZE 32 * sizeof(counterData)
+
+static void *counterNewInstance(Reducer *r) {
+  counterData *dd = BlkAlloc_Alloc(&r->alloc, sizeof(counterData), COUNTER_BLOCK_SIZE);
+  dd->count = 0;
+  return dd;
 }
 
-int counter_Add(void *ctx, SearchResult *res) {
-  struct counter *ctr = ctx;
-  ctr->count++;
+static int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  ((counterData *)ctx)->count++;
   return 1;
 }
 
-int counter_Finalize(void *ctx, const char *key, SearchResult *res) {
-  struct counter *ctr = ctx;
-  // printf("Counter finalize! count %zd\n", ctr->count);
-  RSFieldMap_SetNumber(&res->fields, key, ctr->count);
-  return 1;
+static RSValue *counterFinalize(Reducer *r, void *instance) {
+  counterData *dd = instance;
+  return RS_NumVal(dd->count);
 }
 
-Reducer *NewCount(RedisSearchCtx *ctx, const char *alias) {
-  Reducer *r = NewReducer(ctx, NULL);
-
-  r->Add = counter_Add;
-  r->Finalize = counter_Finalize;
+Reducer *RDCRCount_New(const ReducerOptions *unused) {
+  Reducer *r = calloc(1, sizeof(*r));
+  r->Add = counterAdd;
+  r->Finalize = counterFinalize;
   r->Free = Reducer_GenericFree;
-  r->FreeInstance = NULL;
-  r->NewInstance = counter_NewInstance;
-  r->alias = FormatAggAlias(alias, "count", "");
+  r->NewInstance = counterNewInstance;
   return r;
 }

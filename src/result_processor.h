@@ -8,6 +8,8 @@
 #include "search_ctx.h"
 #include "index_iterator.h"
 #include "search_options.h"
+#include "rlookup.h"
+
 /********************************************************************************
  * Result Processor Chain
  *
@@ -29,39 +31,47 @@
 
 /* Query processing state */
 typedef enum {
-  QPState_Running,
-  QPState_Aborted,
+  QITR_S_RUNNING,
+  QITR_S_ABORTED,
+
   // TimedOut state differs from aborted in that it lets the processors drain their accumulated
   // results instead of stopping in our tracks and returning nothing.
-  QPState_TimedOut,
-} QueryProcessingState;
+  QITR_S_TIMEDOUT
+} QITRState;
 
-/* Query processing context. It is shared by all result processors */
+struct ResultProcessor;
+struct RLookup;
+
 typedef struct {
+  // First processor
+  struct ResultProcessor *rootProc;
+
+  // Last processor
+  struct ResultProcessor *endProc;
+
   // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
+
   // Contains our spec
   RedisSearchCtx *sctx;
+
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
+
   // the total results found in the query, incremented by the root processors and decremented by
   // others who might disqualify results
   uint32_t totalResults;
-  // an optional error string if something went wrong - currently not used
-  char *errorString;
-  // the state - used for aborting queries
-  QueryProcessingState state;
 
-  IndexIterator *rootFilter;
+  // Object which contains the error
+  QueryError *err;
+
+  // the state - used for aborting queries
+  QITRState state;
 
   struct timespec startTime;
+} QueryIterator, QueryProcessingCtx;
 
-} QueryProcessingCtx;
-
-static inline RSSortingTable *QueryProcessingCtx_GetSortingTable(QueryProcessingCtx *c) {
-  if (c->sctx && c->sctx->spec) return c->sctx->spec->sortables;
-  return NULL;
-}
+IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 
 /*
  * SearchResult - the object all the processing chain is working on.
@@ -76,147 +86,68 @@ typedef struct {
   // not all results have score - TBD
   double score;
 
-  // The sorting vector of the result.
-  // should be use only on the sorter because of
-  // Concurrency issues
-  RSSortingVector *sorterPrivateData;
-
-  // The entire document metadata. Guaranteed not to be NULL
-  // should be use only on the scorer and not anywhere else because of
-  // Concurrency issues`
-  RSDocumentMetadata *scorerPrivateData;
+  RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
   // them thread safe
   RSIndexResult *indexResult;
 
-  // dynamic fields
-  RSFieldMap *fields;
+  // Row data. Use RLookup_* functions to access
+  RLookupRow rowdata;
 } SearchResult;
-
-#define SEARCH_RESULT_INIT                   \
-  ((SearchResult){.docId = 0,                \
-                  .score = 0,                \
-                  .scorerPrivateData = NULL, \
-                  .sorterPrivateData = NULL, \
-                  .indexResult = NULL,       \
-                  .fields = NULL})
-/* Get a value by name from the result, either from its sorting table or from its loaded values */
-static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *tbl, RSKey *k) {
-  if (!k->key) goto noret;
-
-  if (res->fields) {
-    RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
-    if (!RSValue_IsNull(ret)) {
-      return RSValue_Dereference(ret);
-    }
-  }
-  // First try to get the group value by sortables
-  if (tbl && res->scorerPrivateData && res->scorerPrivateData->sortVector) {
-    int idx = k->sortableIdx;
-    if (idx <= 0) {
-      idx = RSSortingTable_GetFieldIdx(tbl, RSKEY(k->key));
-      if (k->sortableIdx != RSKEY_NOCACHE) {
-        k->sortableIdx = idx;
-      }
-    }
-    if (RSKEY_ISVALIDIDX(idx)) {
-      if(idx >= res->scorerPrivateData->sortVector->len){
-        return RS_NullVal();
-      }
-      return (res->scorerPrivateData->sortVector->values[idx]);
-    }
-  }
-noret:
-  return RS_NullVal();
-}
 
 /* Result processor return codes */
 
-// OK - we have a valid result
-#define RS_RESULT_OK 0
-// Queued - nothing yet, this is a reducer in accumulation state
-#define RS_RESULT_QUEUED 1
-// EOF - no results from this processor
-#define RS_RESULT_EOF 2
+/** Possible return values from Next() */
+typedef enum {
+  // Result is filled with valid data
+  RS_RESULT_OK = 0,
+  // Result is empty, and the last result has already been returned.
+  RS_RESULT_EOF,
+  // Execution paused due to rate limiting (or manual pause from ext. thread??)
+  RS_RESULT_PAUSED,
+  // Execution halted because of timeout
+  RS_RESULT_TIMEDOUT,
+  // Aborted because of error. The QueryState (parent->status) should have
+  // more information.
+  RS_RESULT_ERROR,
 
-/* Context for a single result processor, including global shared state, upstream processor and
- * private data */
-typedef struct {
-  // The processor's own private data. It's the processor's responsibility to free it
-  void *privdata;
+  // Not a return code per se, but a marker signifying the end of the 'public'
+  // return codes. Implementations can use this for extensions.
+  RS_RESULT_MAX
+} RPStatus;
 
-  // The upstream processor from which we read results
-  struct resultProcessor *upstream;
+/**
+ * Result processor structure. This should be "Subclassed" by the actual
+ * implementations
+ */
+typedef struct ResultProcessor {
+  // Reference to the parent structure
+  QueryIterator *parent;
 
-  // The global state of the query processing chain
-  QueryProcessingCtx *qxc;
-} ResultProcessorCtx;
+  // Previous result processor in the chain
+  struct ResultProcessor *upstream;
 
-typedef struct resultProcessor {
-  // the context should contain a pointer to the upstream step
-  // like the index iterator does
-  ResultProcessorCtx ctx;
+  // For debugging purposes
+  const char *name;
 
-  // Next is called by the downstream processor, and should return either:
-  // * RS_RESULT_OK -> means we put something in the result pointer and it can be processed
-  // * RS_RESULT_QUEUED -> no result yet, we're waiting for more results upstream. Caller should
-  //   return QUEUED as well
-  // * RS_RESULT_EOF -> finished, nothing more from this processor
-  int (*Next)(ResultProcessorCtx *ctx, SearchResult *res);
+  /**
+   * Populates the result pointed to by `res`. The existing data of `res` is
+   * not read, so it is the responsibility of the caller to ensure that there
+   * are no refcount leaks in the structure.
+   *
+   * Users can use SearchResult_Clear() to reset the structure without freeing
+   * it.
+   *
+   * The populated structure (if RS_RESULT_OK is returned) does contain references
+   * to document data. Callers *MUST* ensure they are eventually freed.
+   */
+  int (*Next)(struct ResultProcessor *self, SearchResult *res);
 
-  // Free just frees up the processor. If left as NULL we simply use free()
-  void (*Free)(struct resultProcessor *p);
+  /** Frees the processor and any internal data related to it. */
+  void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
-
-/* Create a raw result processor object with no callbacks, just the upstream and privdata */
-ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata);
-
-/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
- * we check the concurrent context and perhaps switch if needed.
- *
- * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
- *
- * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
- * will be handled by this function
- * */
-/* Safely call Next on an upstream processor, putting the result into res. If allowSwitching is 1,
- * we check the concurrent context and perhaps switch if needed.
- *
- * Note 1: Do not call processors' Next() directly, ONLY USE THIS FUNCTION
- *
- * Note 2: this function will not return RS_RESULT_QUEUED, but only OK or EOF. Any queued events
- * will be handled by this function
- * */
-static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, int allowSwitching) {
-  int rc;
-  ConcurrentSearchCtx *cxc = rp->ctx.qxc ? rp->ctx.qxc->conc : NULL;
-
-  do {
-
-    // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching && cxc) {
-      CONCURRENT_CTX_TICK(cxc);
-      // need to abort - return EOF
-      if (rp->ctx.qxc->state == QPState_Aborted) {
-        return RS_RESULT_EOF;
-      }
-    }
-    rc = rp->Next(&rp->ctx, res);
-
-  } while (rc == RS_RESULT_QUEUED);
-  return rc;
-}
-
-/* Shortcut macro - call ResultProcessor_Next and return EOF if it returned EOF - otherwise it has
- * to return OK */
-#define RESULTPROCESSOR_MAYBE_RET_EOF(proc, res, allowSwitch)                     \
-  {                                                                               \
-    if (RS_RESULT_EOF == ResultProcessor_Next(ctx->upstream, res, allowSwitch)) { \
-      return RS_RESULT_EOF;                                                       \
-    }                                                                             \
-  }
 
 /* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
  * the
@@ -225,30 +156,43 @@ static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, i
  * */
 size_t ResultProcessor_Total(ResultProcessor *rp);
 
-/* Free a result processor - recursively freeing its upstream as well. If the processor does not
- * implement Free - we just call free() on the processor object itself.
- *
- * Do NOT call Free() callbacks on processors directly! */
-void ResultProcessor_Free(ResultProcessor *rp);
-
-/** Frees the processor and privdata with `free()` */
-void ResultProcessor_GenericFree(ResultProcessor *rp);
-
 // Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->qxc->sctx->spec)
+#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
-SearchResult *NewSearchResult();
+#define SEARCHRESULT_CLEAR_KEEPCACHE 0x01
+#define SEARCHRESULT_CLEAR_FREECACHE 0x02
 
-void SearchResult_Free(void *p);
-void SearchResult_FreeInternal(SearchResult *r);
-struct QueryPlan;
+/**
+ * This function resets the search result, so that it may be reused again.
+ * Internal caches are reset but not freed
+ */
+void SearchResult_Clear(SearchResult *r);
 
-ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
-                                   ResultProcessor *upstream);
+/**
+ * This function clears the search result, also freeing its internals. Internal
+ * caches are freed. Use this function if `r` will not be used again.
+ */
+void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields);
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 
-ResultProcessor *NewBaseProcessor(struct QueryPlan *q, QueryProcessingCtx *xc);
-ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit);
+ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *stats);
+
+ResultProcessor *RPSorter_New(size_t maxresults);
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
+                                      uint64_t ascendingMap);
+
+ResultProcessor *RPPager_New(size_t offset, size_t limit);
+
+/*******************************************************************************************************************
+ *  Loading Processor
+ *
+ * This processor simply takes the search results, and based on the request parameters, loads the
+ * relevant fields for the results that need to be displayed to the user, from redis.
+ *
+ * It fills the result objects' field map with values corresponding to the requested return fields
+ *
+ *******************************************************************************************************************/
+ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 #endif  // !RS_RESULT_PROCESSOR_H_

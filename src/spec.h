@@ -11,6 +11,7 @@
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
+#include "query_error.h"
 
 typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
@@ -193,17 +194,51 @@ typedef struct {
 
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
+  struct IndexSpecCache *spcache;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
+
+/**
+ * This lightweight object contains a COPY of the actual index spec.
+ * This makes it safe for other modules to use for information such as
+ * field names, WITHOUT worrying about the index schema changing.
+ * 
+ * If the index schema changes, this object is simply recreated rather
+ * than modified, making it immutable.
+ * 
+ * It is freed when its reference count hits 0
+ */
+typedef struct IndexSpecCache {
+  FieldSpec *fields;
+  size_t nfields;
+  size_t refcount;
+} IndexSpecCache;
+
+/**
+ * Retrieves the current spec cache from the index, incrementing its
+ * reference count by 1. Use IndexSpecCache_Decref to free
+ */
+IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
+
+/**
+ * Decrement the reference count of the spec cache. Should be matched
+ * with a previous call of GetSpecCache()
+ */
+void IndexSpecCache_Decref(IndexSpecCache *cache);
+
+/**
+ * Create a new copy of the spec cache from the current index spec
+ */
+IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
-char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
+const char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
@@ -223,7 +258,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
  * The format currently is <field> <weight>, <field> <weight> ...
  */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, char **err);
+                                    RedisModuleString **argv, int argc, QueryError *status);
 
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
@@ -231,17 +266,17 @@ int isRdbLoading(RedisModuleCtx *ctx);
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.
  * If an error occurred - we set an error string in err and return NULL.
  */
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char **err);
+IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);
+IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err);
-int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err);
+int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status);
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, QueryError *status);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
@@ -270,9 +305,7 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
 /* Return 1 if a term is a stopword for the specific index */
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
-/**
- * Returns a string suitable for indexes. This saves on string creation/destruction
- */
+/** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs);
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields);

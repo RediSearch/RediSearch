@@ -164,7 +164,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
 
   // If the ID is 0, then the document does not exist.
-  int exists = !!DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
+  int exists = !!DocTable_GetIdR(&sp->docs, argv[2]);
   if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
     RedisModule_ReplyWithError(ctx, "Document already in index");
     goto cleanup;
@@ -172,18 +172,15 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // handle update condition, only if the document exists
   if (exists && opts.evalExpr) {
-    char *err = NULL;
     int res = 0;
-    if (Document_EvalExpression(&sctx, argv[2], opts.evalExpr, &res, &err) == REDISMODULE_OK) {
+    if (Document_EvalExpression(&sctx, argv[2], opts.evalExpr, &res, &status) == REDISMODULE_OK) {
       if (res == 0) {
         RedisModule_ReplyWithSimpleString(ctx, "NOADD");
         goto cleanup;
       }
     } else {
-      char buf[1024];
-      snprintf(buf, sizeof(buf), "Could not evaluate IF expression: %s", err);
-      RedisModule_ReplyWithError(ctx, buf);
-      ERR_FREE(err);
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
       goto cleanup;
     }
   }

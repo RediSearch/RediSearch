@@ -2,7 +2,6 @@
 #include "geo_index.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
-#include "id_list.h"
 
 RedisModuleString *fmtGeoIndexKey(GeoIndex *gi) {
   return RedisModule_CreateStringPrintf(gi->ctx->redisCtx, GEOINDEX_KEY_FMT, gi->ctx->spec->name,
@@ -35,33 +34,37 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
  * is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
-  gf->property = NULL;
+int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   gf->lat = 0;
   gf->lon = 0;
   gf->unit = NULL;
   gf->radius = 0;
 
-  if (argc != 5) {
+  if (AC_NumRemaining(ac) < 4) {
+    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 4 arguments");
     return REDISMODULE_ERR;
   }
 
-  if (RMUtil_ParseArgs(argv, argc, 0, "cdddc", &gf->property, &gf->lon, &gf->lat, &gf->radius,
-                       &gf->unit) == REDISMODULE_ERR) {
-
-    // don't dup the strings since we are exiting now
-    if (gf->property) gf->property = NULL;
-    if (gf->unit) gf->unit = NULL;
-
+  int rv;
+  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
+    QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
   }
-  gf->property = gf->property ? strdup(gf->property) : NULL;
-  gf->unit = gf->unit ? strdup(gf->unit) : NULL;
-  // verify unit
-  if (!gf->unit || (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") &&
-                    strcasecmp(gf->unit, "ft") && strcasecmp(gf->unit, "mi"))) {
-    // printf("wrong unit %s\n", gf->unit);
+
+  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<lat>", rv);
     return REDISMODULE_ERR;
+  }
+
+  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<radius>", rv);
+    return REDISMODULE_ERR;
+  }
+
+  gf->unit = AC_GetStringNC(ac, NULL);
+  if (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") && strcasecmp(gf->unit, "ft") &&
+      strcasecmp(gf->unit, "mi")) {
+    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
   }
 
   return REDISMODULE_OK;
@@ -109,7 +112,7 @@ t_docId *__gr_load(GeoIndex *gi, GeoFilter *gf, size_t *num) {
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf, double weight) {
+IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
   size_t sz;
   t_docId *docIds = __gr_load(gi, gf, &sz);
   if (!docIds) {

@@ -18,7 +18,6 @@
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
-#include "search_request.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -28,6 +27,7 @@
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
+#include "numeric_index.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -56,7 +56,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Find the document by its key */
-  t_docId docId = DocTable_GetId(&sp->docs, MakeDocKeyR(argv[2]));
+  t_docId docId = DocTable_GetIdR(&sp->docs, argv[2]);
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
@@ -281,30 +281,20 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  QueryError status;
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
-  QueryParseCtx *q = NewQueryParseCtx(sctx, rawQuery, len, NULL);
-  if (!q) {
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, "Error parsing query");
+  RSSearchOptions opts = {0};
+  QueryAST qast = {0};
+  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+  if (rc != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
   }
+  return rc;
 
   const char **includeDict = array_new(const char *, DICT_INITIAL_SIZE);
   const char **excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
-
-  if (!Query_Parse(q, &err)) {
-
-    if (err) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", err);
-      RedisModule_ReplyWithError(ctx, err);
-      ERR_FREE(err);
-    } else {
-      /* Simulate an empty response - this means an empty query */
-      RedisModule_ReplyWithArray(ctx, 1);
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
-    goto end;
-  }
 
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
@@ -351,16 +341,17 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          .distance = distance,
                          .fullScoreInfo = fullScoreInfo};
 
-  SpellCheck_Reply(&scCtx, q);
+  SpellCheck_Reply(&scCtx, &qast);
 
 end:
   array_free(includeDict);
   array_free(excludeDict);
-  Query_Free(q);
+  Query_Free(&qast);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
 
+#if 0
 static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                               int newlinesAsElements) {
   // at least one field, and number of field/text args must be even
@@ -406,7 +397,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   if (!(req->opts.flags & Search_Verbatim)) {
-    Query_Expand(q, req->opts.expander);
+    Query_Expand(q, req->opts.expanderName);
   }
   if (req->geoFilter) {
     Query_SetGeoFilter(q, req->geoFilter);
@@ -460,6 +451,8 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   return queryExplainCommon(ctx, argv, argc, 1);
 }
 
+#endif
+
 #define GEN_CONCURRENT_WRAPPER(name, argcond, target, pooltype)                      \
   static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {         \
     if (!(argcond)) {                                                                \
@@ -500,7 +493,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {
     delDoc = 1;
   }
-  int rc = DocTable_Delete(&sp->docs, MakeDocKeyR(argv[2]));
+  int rc = DocTable_DeleteR(&sp->docs, argv[2]);
   if (rc == 1) {
     sp->stats.numDocuments--;
 
@@ -597,6 +590,7 @@ and
 then pairs of
     document id, and a nested array of field/value, unless NOCONTENT was given
 */
+#if 0
 void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                     struct ConcurrentCmdCtx *cmdCtx) {
   // at least one field, and number of field/text args must be even
@@ -655,6 +649,7 @@ end:
 }
 
 GEN_CONCURRENT_WRAPPER(SearchCommand, argc >= 3, _SearchCommand, CONCURRENT_POOL_SEARCH)
+#endif
 
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
@@ -670,9 +665,10 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
+
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
+  const FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
@@ -735,13 +731,12 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   RedisModule_AutoMemory(ctx);
   RedisModule_ReplicateVerbatim(ctx);
-  char *err;
+  QueryError status = {0};
 
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
+  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-
-    RedisModule_ReplyWithError(ctx, err ? err : "Could not create new index");
-    ERR_FREE(err);
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
 
@@ -973,16 +968,16 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const int schemaOffset = 4;
-  char *err = NULL;
+  QueryError status = {0};
 
   if (argc - schemaOffset == 0) {
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
-  int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &err);
+  int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &status);
   if (!rc) {
-    RedisModule_ReplyWithError(ctx, err);
-    ERR_FREE(err);
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -994,6 +989,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
   RedisModule_AutoMemory(ctx);
+  QueryError status;
 
   // CONFIG <GET|SET> <NAME> [value]
   if (argc < 3) {
@@ -1007,11 +1003,9 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 1);
   } else if (!strcasecmp(action, "SET")) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    char *err = NULL;
     if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
-                           &err) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithSimpleString(ctx, err ? err : "Failed to set value");
-      ERR_FREE(err);
+                           &status) == REDISMODULE_ERR) {
+      RedisModule_ReplyWithSimpleString(ctx, QueryError_GetError(&status));
       return REDISMODULE_OK;
     }
     if (offset != argc) {
@@ -1117,9 +1111,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   ConcurrentSearch_ThreadPoolStart();
 
-  // Init Schemata
-  Aggregate_BuildSchema();
-
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -1133,7 +1124,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad,
                       errMsg);
-      ERR_FREE(errMsg);
+      free(errMsg);
       return REDISMODULE_ERR;
     }
     RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
@@ -1173,7 +1164,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+  // RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, AggregateCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
@@ -1190,9 +1181,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1,
-         1, 1);
+  // RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1,
+  // 1); RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand,
+  // "readonly", 1,
+  //  1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
          1);

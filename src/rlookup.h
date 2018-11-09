@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include <spec.h>
+#include <search_ctx.h>
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
@@ -52,7 +53,13 @@ typedef enum {
  */
 typedef struct RLookupKey {
   /** The index into the array where the value resides */
-  uint16_t idx;
+  uint16_t dstidx;
+
+  /**
+   * If the source of this value points to a sort vector, then this is the
+   * index within the sort vector that the value is located
+   */
+  uint16_t svidx;
 
   /**
    * Can be F_SVSRC which means the target array is a sorting vector, or
@@ -60,14 +67,15 @@ typedef struct RLookupKey {
    */
   uint16_t flags;
 
-  /**
-   * Type this lookup should be coerced to.
-   */
+  /** Type this lookup should be coerced to */
   RLookupCoerceType fieldtype : 16;
 
   uint32_t refcnt;
 
+  /** Name of this field */
   const char *name;
+
+  /** Pointer to next field in the list */
   struct RLookupKey *next;
 } RLookupKey;
 
@@ -133,6 +141,17 @@ typedef struct {
 #define RLOOKUP_F_DOCSRC 0x40
 
 /**
+ * This field is hidden within the document and is only used as a transient
+ * field for another consumer. Don't output this field.
+ */
+#define RLOOKUP_F_HIDDEN 0x80
+
+/**
+ * This key is used as sorting key for the result
+ */
+#define RLOOKUP_F_SORTKEY 0x100
+
+/**
  * These flags do not persist to the key, they are just options to GetKey()
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
@@ -171,14 +190,18 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, 
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-  if (key->flags & RLOOKUP_F_SVSRC) {
-    if (row->sv && row->sv->len > key->idx) {
-      return (RSValue *)row->sv->values + key->idx;
-    }
-  } else if (array_len(row->dyn) > key->idx) {
-    return row->dyn[key->idx];
+  RSValue *ret = NULL;
+  if (array_len(row->dyn) > key->dstidx) {
+    ret = row->dyn[key->dstidx];
   }
-  return NULL;
+  if (!ret) {
+    if (key->flags & RLOOKUP_F_SVSRC) {
+      if (row->sv && row->sv->len > key->svidx) {
+        ret = (RSValue *)row->sv->values + key->svidx;
+      }
+    }
+  }
+  return ret;
 }
 
 /**
@@ -203,7 +226,7 @@ typedef struct {
   RedisModuleKey *keyobj;
   /** Needed for opening keys */
 
-  RedisModuleCtx *ctx;
+  struct RedisSearchCtx *sctx;
 
   /** Needed for the key name, and perhaps the sortable */
   const RSDocumentMetadata *dmd;
@@ -230,7 +253,7 @@ typedef struct {
  * @param dst row that should contain the data
  * @param options options controlling the load process
  */
-int RLookup_LoadDocument(const RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
+int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
 /** Use incref/decref instead! */
 void RLookupKey_FreeInternal(RLookupKey *k);
@@ -255,5 +278,14 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
  * valid after this call!
  */
 void RLookup_Cleanup(RLookup *l);
+
+static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
+  for (const RLookupKey *k = l->head; k; k = k->next) {
+    if (k->flags & f) {
+      return k;
+    }
+  }
+  return NULL;
+}
 
 #endif

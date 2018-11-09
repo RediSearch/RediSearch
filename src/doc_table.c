@@ -130,7 +130,7 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
   if (dmd->payload) {
     /* Free the old payload */
     if (dmd->payload->data) {
-      rm_free(dmd->payload->data);
+      rm_free((void *)dmd->payload->data);
     }
     t->memsize -= dmd->payload->len;
   } else {

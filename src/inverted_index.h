@@ -134,7 +134,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
+IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -182,8 +182,7 @@ void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId);
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
 
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
-                      IndexRepairParams *params);
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));

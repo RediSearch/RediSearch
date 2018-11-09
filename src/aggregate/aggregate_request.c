@@ -1,350 +1,904 @@
 #include "aggregate.h"
 #include "reducer.h"
-#include "project.h"
 
 #include <query.h>
+#include <extension.h>
 #include <result_processor.h>
-#include <rmutil/cmdparse.h>
 #include <util/arr.h>
-#include <search_request.h>
-#include "functions/function.h"
-#include <err.h>
+#include <rmutil/util.h>
 
-static CmdSchemaNode *requestSchema = NULL;
+static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status,
+                           int allowLegacy);
 
-CmdSchemaNode *GetAggregateRequestSchema() {
-  return requestSchema;
-}
-// validator for property names
-int validatePropertyName(CmdArg *arg, void *p) {
-  return (CMDARG_TYPE(arg) == CmdArg_String && CMDARG_STRLEN(arg) > 1 &&
-          CMDARG_STRPTR(arg)[0] == '@');
+static void ReturnedField_Free(ReturnedField *field) {
+  free(field->highlightSettings.openTag);
+  free(field->highlightSettings.closeTag);
+  free(field->summarizeSettings.separator);
 }
 
-int validatePropertyVector(CmdArg *arg, void *p) {
-  if (CMDARG_TYPE(arg) != CmdArg_Array || CMDARG_ARRLEN(arg) == 0) {
-    return 0;
+void FieldList_Free(FieldList *fields) {
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    ReturnedField_Free(fields->fields + ii);
   }
-  for (size_t i = 0; i < CMDARG_ARRLEN(arg); i++) {
-    if (!validatePropertyName(CMDARG_ARRELEM(arg, i), NULL)) {
-      return 0;
-    }
-  }
-  return 1;
+  ReturnedField_Free(&fields->defaultField);
+  free(fields->fields);
 }
 
-void Aggregate_BuildSchema() {
-  if (requestSchema) return;
-  /*
-  FT.AGGREGATE {index}
-      FILTER {query}
-      SELECT {nargs} {@field} ...
-      [
-        GROUPBY {nargs} {property} ...
-        GROUPREDUCE {function} {nargs} {arg} ... [AS {alias}]
-        ...
-      ]
-      [SORTBY {nargs} {property} ... ]
-      [APPLY {expression} [AS {alias}]]
-      [LIMIT {count} {offset}]
-      ...
-      */
-
-  // Initialize projection functions registry
-  RegisterMathFunctions();
-  RegisterStringFunctions();
-  RegisterDateFunctions();
-
-  requestSchema = NewSchema("FT.AGGREGATE", NULL);
-  CmdSchema_AddPostional(requestSchema, "idx", CmdSchema_NewArgAnnotated('s', "index_name"),
-                         CmdSchema_Required);
-
-  CmdSchema_AddPostional(requestSchema, "query", CmdSchema_NewArgAnnotated('s', "query_string"),
-                         CmdSchema_Required);
-  CmdSchema_AddFlag(requestSchema, "WITHSCHEMA");
-  CmdSchema_AddFlag(requestSchema, "VERBATIM");
-
-  CmdSchema_AddNamedWithHelp(
-      requestSchema, "LOAD",
-      CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
-      CmdSchema_Optional,
-      "Optionally load non-sortable properties from the HASH object. Do not use unless as last "
-      "resort, this hurts performance badly.");
-
-  CmdSchemaNode *grp = CmdSchema_AddSubSchema(requestSchema, "GROUPBY",
-                                              CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(grp, "BY",
-                         CmdSchema_Validate(CmdSchema_NewVector('s'), validatePropertyVector, NULL),
-                         CmdSchema_Required);
-
-  CmdSchemaNode *red =
-      CmdSchema_AddSubSchema(grp, "REDUCE", CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(red, "FUNC", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddPostional(red, "ARGS", CmdSchema_NewVector('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(red, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Optional);
-
-  CmdSchemaNode *sort = CmdSchema_AddSubSchema(requestSchema, "SORTBY",
-                                               CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(sort, "by", CmdSchema_NewVector('s'), CmdSchema_Required);
-  // SORT can have its own MAX limitation that speeds up things
-  CmdSchema_AddNamed(sort, "MAX", CmdSchema_NewArgAnnotated('l', "num"),
-                     CmdSchema_Optional | CmdSchema_Repeating);
-
-  CmdSchemaNode *prj = CmdSchema_AddSubSchema(requestSchema, "APPLY",
-                                              CmdSchema_Optional | CmdSchema_Repeating, NULL);
-  CmdSchema_AddPostional(prj, "EXPR", CmdSchema_NewArg('s'), CmdSchema_Required);
-  CmdSchema_AddNamed(prj, "AS", CmdSchema_NewArgAnnotated('s', "name"), CmdSchema_Required);
-
-  CmdSchema_AddNamed(requestSchema, "LIMIT",
-                     CmdSchema_NewTuple("ll", (const char *[]){"offset", "num"}),
-                     CmdSchema_Optional | CmdSchema_Repeating);
-
-  // FILTER expr -> return only results matching post filter
-  CmdSchema_AddNamed(requestSchema, "FILTER", CmdSchema_NewArg('s'),
-                     CmdSchema_Optional | CmdSchema_Repeating);
-
-  CmdSchemaNode *cursorSchema =
-      CmdSchema_AddSubSchema(requestSchema, "WITHCURSOR", CmdSchema_Optional, "Use cursor");
-
-  CmdSchema_AddNamed(cursorSchema, "COUNT", CmdSchema_NewArgAnnotated('l', "row_count"),
-                     CmdSchema_Optional);
-
-  CmdSchema_AddNamed(cursorSchema, "MAXIDLE", CmdSchema_NewArgAnnotated('l', "idle_timeout"),
-                     CmdSchema_Optional);
-}
-
-CmdArg *Aggregate_ParseRequest(RedisModuleString **argv, int argc, QueryError *status) {
-
-  CmdArg *ret = NULL;
-
-  if (CMDPARSE_ERR !=
-      CmdParser_ParseRedisModuleCmd(requestSchema, &ret, argv, argc, &status->detail, 0)) {
-    QueryError_MaybeSetCode(status, QUERY_EKEYWORD);
-    return ret;
-  }
-  return NULL;
-}
-
-ResultProcessor *buildGroupBy(AggregateGroupStep *grp, RedisSearchCtx *sctx,
-                              ResultProcessor *upstream, QueryError *status) {
-
-  Grouper *g = NewGrouper(RSMultiKey_Copy(grp->properties, 0),
-                          sctx && sctx->spec ? sctx->spec->sortables : NULL);
-
-  array_foreach(grp->reducers, red, {
-    Reducer *r = GetReducer(sctx, red.reducer, red.alias, red.args, array_len(red.args), status);
-    if (!r) {
-      goto fail;
-    }
-    Grouper_AddReducer(g, r);
-  });
-
-  return NewGrouperProcessor(g, upstream);
-
-fail:
-  if (sctx && sctx->redisCtx)
-    RedisModule_Log(sctx->redisCtx, "warning", "Error parsing GROUPBY: %s",
-                    QueryError_GetError(status));
-
-  Grouper_Free(g);
-  return NULL;
-}
-
-ResultProcessor *buildSortBY(AggregateSortStep *srt, ResultProcessor *upstream,
-                             QueryError *status) {
-  return NewSorterByFields(RSMultiKey_Copy(srt->keys, 0), srt->ascMap, srt->max, upstream);
-}
-
-ResultProcessor *buildProjection(AggregateApplyStep *a, ResultProcessor *upstream,
-                                 RedisSearchCtx *sctx, QueryError *status) {
-  return NewProjector(sctx, upstream, a->alias, a->rawExpr, strlen(a->rawExpr), status);
-}
-
-ResultProcessor *buildFilter(AggregateFilterStep *f, ResultProcessor *upstream,
-                             RedisSearchCtx *sctx, QueryError *status) {
-  return NewFilter(sctx, upstream, f->rawExpr, strlen(f->rawExpr), status);
-}
-ResultProcessor *addLimit(AggregateLimitStep *l, ResultProcessor *upstream, QueryError *status) {
-
-  if (l->offset < 0 || l->num <= 0) {
-    QueryError_SetError(status, QUERY_EKEYWORD, "Invalid offset/num for LIMIT");
-  }
-  return NewPager(upstream, (uint32_t)l->offset, (uint32_t)l->num);
-}
-
-ResultProcessor *buildLoader(ResultProcessor *upstream, RedisSearchCtx *ctx,
-                             AggregateLoadStep *ls) {
-  ls->fl = (FieldList){.explicitReturn = 1};
-  for (int i = 0; i < ls->keys->len; i++) {
-    const char *k = RSKEY(ls->keys->keys[i].key);
-    ReturnedField *rf = FieldList_GetCreateField(&ls->fl, k);
-
-    rf->explicitReturn = 1;
-  }
-
-  return NewLoader(upstream, ctx, &ls->fl);
-}
-
-ResultProcessor *AggregatePlan_BuildProcessorChain(AggregatePlan *plan, RedisSearchCtx *sctx,
-                                                   ResultProcessor *root, QueryError *status) {
-  ResultProcessor *prev = NULL;
-  ResultProcessor *next = root;
-  // Load LOAD based stuff from hash vals
-
-  // if (getAggregateFields(&plan->opts.fields, plan->ctx->redisCtx, cmd)) {
-  //   next = NewLoader(next, plan->ctx, &plan->opts.fields);
-  // }
-
-  // Walk the children and evaluate them
-  AggregateStep *current = plan->head;
-  const char *key;
-  while (current) {
-    prev = next;
-    switch (current->type) {
-
-      case AggregateStep_Group:
-
-        next = buildGroupBy(&current->group, sctx, next, status);
-        break;
-      case AggregateStep_Sort:
-        next = buildSortBY(&current->sort, next, status);
-        break;
-      case AggregateStep_Apply:
-        next = buildProjection(&current->apply, next, sctx, status);
-        break;
-      case AggregateStep_Limit:
-
-        next = addLimit(&current->limit, next, status);
-        break;
-
-      case AggregateStep_Filter:
-        next = buildFilter(&current->filter, next, sctx, status);
-        break;
-      case AggregateStep_Load:
-        if (current->load.keys->len > 0 && sctx != NULL) {
-          next = buildLoader(next, sctx, &current->load);
-        }
-        break;
-      case AggregateStep_Distribute:
-      case AggregateStep_Dummy:
-      case AggregateStep_Query:
-
-        break;
-    }
-    current = current->next;
-
-    if (!next) {
-      goto fail;
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
+  size_t foundIndex = -1;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (!strcasecmp(fields->fields[ii].name, name)) {
+      return fields->fields + ii;
     }
   }
 
-  return next;
+  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  ReturnedField *ret = fields->fields + (fields->numFields - 1);
+  memset(ret, 0, sizeof *ret);
+  ret->name = strdup(name);
+  return ret;
+}
 
-fail:
-  if (prev) {
-    ResultProcessor_Free(prev);
+static void FieldList_RestrictReturn(FieldList *fields) {
+  if (!fields->explicitReturn) {
+    return;
   }
-  if (sctx && sctx->redisCtx)
-    RedisModule_Log(sctx->redisCtx, "warning", "Could not parse aggregate request: %s",
-                    QueryError_GetError(status));
-  return NULL;
+
+  size_t oix = 0;
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    if (fields->fields[ii].explicitReturn == 0) {
+      ReturnedField_Free(fields->fields + ii);
+    } else if (ii != oix) {
+      fields->fields[oix++] = fields->fields[ii];
+    } else {
+      ++oix;
+    }
+  }
+  fields->numFields = oix;
 }
 
-ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, QueryError *status) {
+static int parseCursorSettings(AggregateRequest *req, ArgsCursor *ac, QueryError *status) {
+  ACArgSpec specs[] = {{.name = "MAXIDLE",
+                        .type = AC_ARGTYPE_UINT,
+                        .target = &req->cursorChunkSize,
+                        .intflags = AC_F_GE1},
+                       {.name = "COUNT",
+                        .type = AC_ARGTYPE_UINT,
+                        .target = &req->cursorMaxIdle,
+                        .intflags = AC_F_GE1},
+                       {NULL}};
 
-  AggregatePlan *ap = ctx;
-  // The base processor translates index results into search results
-  ResultProcessor *root = NewBaseProcessor(plan, &plan->execCtx);
-
-  if (!root) return NULL;
-
-  return AggregatePlan_BuildProcessorChain(ap, plan->ctx, root, status);
-}
-
-int AggregateRequest_Start(AggregateRequest *req, RedisSearchCtx *sctx,
-                           const AggregateRequestSettings *settings, RedisModuleString **argv,
-                           int argc, QueryError *status) {
-
-  req->args = Aggregate_ParseRequest(argv, argc, status);
-  if (!req->args) {
-    QueryError_MaybeSetCode(status, QUERY_EPARSEARGS);
+  int rv;
+  ACArgSpec *errArg = NULL;
+  if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, errArg->name, rv);
     return REDISMODULE_ERR;
   }
 
-  req->ap = (AggregatePlan){};
-  if (!AggregatePlan_Build(&req->ap, req->args, &status->detail)) {
-    QueryError_MaybeSetCode(status, QUERY_EAGGPLAN);
-    return REDISMODULE_ERR;
+  if (req->cursorMaxIdle == 0 || req->cursorMaxIdle > RSGlobalConfig.cursorMaxIdle) {
+    req->cursorMaxIdle = RSGlobalConfig.cursorMaxIdle;
   }
+  req->reqflags |= QEXEC_F_IS_CURSOR;
+  return REDISMODULE_OK;
+}
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
+#define ARG_HANDLED 1
+#define ARG_ERROR -1
+#define ARG_UNKNOWN 0
 
-  CmdString *str = &CMDARG_STR(CmdArg_FirstOf(req->args, "query"));
-
-  RSSearchOptions opts = RS_DEFAULT_SEARCHOPTS;
-  // mark the query as an aggregation query
-  opts.flags |= Search_AggregationQuery;
-  // pass VERBATIM to the aggregate query
-  if (req->ap.verbatim) {
-    opts.flags |= Search_Verbatim;
-  }
-  if (settings->flags & AGGREGATE_REQUEST_NO_CONCURRENT) {
-    opts.concurrentMode = 0;
-  }
-  if (settings->flags & AGGREGATE_REQUEST_NO_PARSE_QUERY) {
-    req->parseCtx = NULL;
+static int handleCommonArgs(AggregateRequest *req, ArgsCursor *ac, QueryError *status,
+                            int allowLegacy) {
+  int rv;
+  // This handles the common arguments that are not stateful
+  if (AC_AdvanceIfMatch(ac, "LIMIT")) {
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    // Parse offset, length
+    if (AC_NumRemaining(ac) < 2) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires two arguments");
+      return ARG_ERROR;
+    }
+    if ((rv = AC_GetU64(ac, &arng->offset, 0)) != AC_OK ||
+        (rv = AC_GetU64(ac, &arng->limit, 0)) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT needs two numeric arguments");
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    if ((parseSortbyArgs(arng, ac, status, allowLegacy)) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "WITHSCHEMA")) {
+    req->reqflags |= QEXEC_F_SEND_SCHEMA;
+  } else if (AC_AdvanceIfMatch(ac, "ON_TIMEOUT")) {
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");
+      return ARG_ERROR;
+    }
+    const char *policystr = AC_GetStringNC(ac, NULL);
+    req->tmoPolicy = TimeoutPolicy_Parse(policystr, strlen(policystr));
+    if (req->tmoPolicy == TimeoutPolicy_Invalid) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'%s' is not a valid timeout policy",
+                             policystr);
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else {
-    req->parseCtx = NewQueryParseCtx(sctx, str->str, str->len, &opts);
+    return ARG_UNKNOWN;
+  }
 
-    if (!Query_Parse(req->parseCtx, (char **)status->detail)) {
-      QueryError_MaybeSetCode(status, QUERY_ESYNTAX);
+  return ARG_HANDLED;
+}
+
+static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status,
+                           int allowLegacy) {
+  // Assume argument is at 'SORTBY'
+  ArgsCursor subArgs = {0};
+  int rv = AC_GetVarArgs(ac, &subArgs);
+  int isLegacy = 0, legacyDesc = 0;
+
+  if (rv != AC_OK) {
+    if (allowLegacy && AC_NumRemaining(ac) > 0) {
+      // Mimic subArgs to contain the single field we already have
+      isLegacy = 1;
+      AC_GetSlice(ac, &subArgs, 1);
+      if (AC_AdvanceIfMatch(ac, "DESC")) {
+        legacyDesc = 1;
+      } else if (AC_AdvanceIfMatch(ac, "ASC")) {
+        legacyDesc = 0;
+      }
+    } else {
+      QERR_MKBADARGS_AC(status, "SORTBY", rv);
+    }
+  }
+
+  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
+  // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
+  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
+  size_t n = 0;
+  const char **keys = array_new(char *, 8);
+
+  if (isLegacy) {
+    // Legacy demands one field and an optional ASC/DESC parameter. Both
+    // of these are handled above, so no need for argument parsing
+    const char *s = AC_GetStringNC(&subArgs, NULL);
+    keys = array_append(keys, s);
+
+    if (legacyDesc) {
+      ascMap &= ~(1 << (n - 1));
+    }
+  } else {
+    // since ASC/DESC are optional, we need a stateful parser
+    // state 0 means we are open only to property names
+    // state 1 means we are open to either a new property or ASC/DESC
+    int state = 0;
+    while (!AC_IsAtEnd(&subArgs) && n < sizeof(ascMap) * 8) {
+      // New properties are accepted in either state
+      const char *s = AC_GetStringNC(ac, NULL);
+      if (*s == '@') {
+        s++;
+        keys = array_append(keys, s);
+      } else if (state == 0) {
+        goto err;
+      } else if (!strcasecmp(s, "asc")) {
+        // For as - we put a 1 in the map. We don't actually need to, this is just for readability
+        ascMap |= 1 << (n - 1);
+        // switch back to state 0, ASC/DESC cannot follow ASC
+        state = 0;
+      } else if (!strcasecmp(s, "desc")) {
+        // We turn the current bit to 0 meaning desc for the Nth property
+        ascMap &= ~(1 << (n - 1));
+        // switch back to state 0, ASC/DESC cannot follow ASC
+        state = 0;
+      } else {
+        // Unknown token - neither a property nor ASC/DESC
+        goto err;
+      }
+    }
+  }
+
+  // Parse optional MAX
+
+  if (AC_AdvanceIfMatch(&subArgs, "MAX")) {
+    unsigned mx = 0;
+    if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
+      QERR_MKBADARGS_AC(status, "MAX", rv);
+    }
+    arng->limit = mx;
+  }
+
+  arng->sortAscMap = ascMap;
+  arng->sortKeys = keys;
+  return REDISMODULE_OK;
+err:
+  QERR_MKBADARGS_FMT(status, "Bad SORTBY arguments");
+  if (keys) {
+    array_free(keys);
+  }
+  return REDISMODULE_ERR;
+}
+
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
+  if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    // Numeric filter
+    NumericFilter *cur = array_ensure_tail(&options->legacy.filters, NumericFilter);
+    if (AC_NumRemaining(ac) < 3) {
+      QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
+    }
+    cur->fieldName = AC_GetStringNC(ac, NULL);
+    if (NumericFilter_Parse(cur, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+    options->legacy.gf = calloc(1, sizeof(*options->legacy.gf));
+    if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else {
+    return ARG_UNKNOWN;
+  }
+  return ARG_HANDLED;
+}
+
+static int parseQueryArgs(ArgsCursor *ac, AggregateRequest *req, RSSearchOptions *searchOpts,
+                          AggregatePlan *plan, QueryError *status) {
+  // Parse query-specific arguments..
+  ArgsCursor returnFields = {0};
+  ArgsCursor inKeys = {0};
+  ACArgSpec querySpecs[] = {
+      {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = searchOpts},  // Comment
+      {.name = "SLOP",
+       .type = AC_ARGTYPE_INT,
+       .target = &searchOpts->slop,
+       .intflags = AC_F_COALESCE},
+      {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &searchOpts->language},
+      {.name = "EXPANDER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->expanderName},
+      {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
+      {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
+      {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
+      {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
+      {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+      {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
+      {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
+      {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
+      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
+      {.name = "PAYLOAD",
+       .type = AC_ARGTYPE_STRING,
+       .target = &searchOpts->payload,
+       .len = &searchOpts->npayload},
+      {NULL}};
+
+  while (!AC_IsAtEnd(ac)) {
+    ACArgSpec *errSpec = NULL;
+    int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
+    if (rv == AC_OK) {
+      continue;
+    }
+
+    if (rv != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errSpec->name, rv);
       return REDISMODULE_ERR;
     }
 
-    if (!req->ap.verbatim) {
-      Query_Expand(req->parseCtx, opts.expander);
+    // See if this is one of our arguments which requires special handling
+    if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
+      ParseSummarize(ac, &req->outFields);
+    } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
+      ParseHighlight(ac, &req->outFields);
+    } else if ((rv = parseQueryLegacyArgs(ac, searchOpts, status) != ARG_UNKNOWN)) {
+      if (rv == ARG_ERROR) {
+        return REDISMODULE_ERR;
+      }
+    } else {
+      int rv = handleCommonArgs(req, ac, status, 1);
+      if (rv == ARG_HANDLED) {
+        // nothing
+      } else if (rv == ARG_ERROR) {
+        return REDISMODULE_ERR;
+      } else {
+        break;
+      }
     }
   }
-  req->plan = Query_BuildPlan(sctx, req->parseCtx, &opts, settings->pcb, &req->ap, status);
-  if (!req->plan) {
-    QueryError_MaybeSetCode(status, QUERY_EBUILDPLAN);
+
+  searchOpts->inkeys = (const char **)inKeys.objs;
+  searchOpts->ninkeys = inKeys.argc;
+  FieldList_RestrictReturn(&req->outFields);
+
+  return REDISMODULE_OK;
+}
+
+static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
+
+  sds out = sdsnew("__generated_alias");
+  out = sdscat(out, func);
+  // only put parentheses if we actually have args
+  char buf[255];
+  ArgsCursor tmp = *args;
+  while (!AC_IsAtEnd(&tmp)) {
+    size_t l;
+    const char *s = AC_GetStringNC(&tmp, &l);
+    while (*s == '@') {
+      // Don't allow the leading '@' to be included as an alias!
+      ++s;
+      --l;
+    }
+    out = sdscatlen(out, s, l);
+    if (!AC_IsAtEnd(&tmp)) {
+      out = sdscat(out, ",");
+    }
+  }
+
+  // only put parentheses if we actually have args
+  sdstolower(out);
+
+  // duplicate everything. yeah this is lame but this function is not in a tight loop
+  char *dup = strndup(out, sdslen(out));
+  sdsfree(out);
+  return dup;
+}
+
+static void groupStepFree(PLN_BaseStep *base) {
+  // FIXME!
+  PLN_GroupStep *g = (PLN_GroupStep *)base;
+  PLN_Reducer *gr = g->reducers;
+  // the reducer func itself is const char and should not be freed
+  free(gr->alias);
+  free(base);
+}
+
+static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const char *name,
+                        QueryError *status) {
+  // Just a list of functions..
+  gr->name = name;
+  int rv = AC_GetVarArgs(ac, &gr->args);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, name, rv);
     return REDISMODULE_ERR;
   }
 
-  if (req->ap.withSchema) {
-    AggregateSchema sc = AggregatePlan_GetSchema(&req->ap, SEARCH_CTX_SORTABLES(req->plan->ctx));
-    QueryPlan_SetHook(req->plan, QueryPlanHook_Pre, AggregatePlan_DumpSchema, sc, array_free);
+  const char *alias = NULL;
+  // See if there is an alias
+  if (AC_AdvanceIfMatch(ac, "AS")) {
+    rv = AC_GetString(ac, &alias, NULL, 0);
+    if (rv != AC_OK) {
+      QERR_MKBADARGS_AC(status, "AS", rv);
+      return REDISMODULE_ERR;
+    }
+  }
+  if (alias == NULL) {
+    gr->alias = getReducerAlias(g, name, &gr->args);
+  } else {
+    gr->alias = strdup(alias);
   }
   return REDISMODULE_OK;
 }
 
-void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx) {
-  QueryPlan_Run(req->plan, outCtx);
+static void genericStepFree(PLN_BaseStep *p) {
+  free(p);
 }
 
-void AggregateRequest_Free(AggregateRequest *req) {
-  if (req->plan) {
-    if (req->plan->opts.fields.numFields) {
-      FieldList_Free(&req->plan->opts.fields);
+static PLN_BaseStep *parseGroupbyArgs(ArgsCursor *ac, AggregateRequest *req, QueryError *status) {
+  ArgsCursor groupArgs = {0};
+  int rv = AC_GetVarArgs(ac, &groupArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "GROUPBY", rv);
+    return NULL;
+  }
+
+  // Number of fields.. now let's see the reducers
+
+  PLN_GroupStep *ret = calloc(1, sizeof(*ret));
+  ret->properties = (const char **)groupArgs.objs;
+  ret->nproperties = groupArgs.argc;
+  ret->base.dtor = groupStepFree;
+
+  while (AC_AdvanceIfMatch(ac, "REDUCE")) {
+    PLN_Reducer *cur;
+    const char *name;
+    if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
+      QERR_MKBADARGS_AC(status, "REDUCE", rv);
+      return NULL;
     }
-    QueryPlan_Free(req->plan);
+    cur = array_ensure_tail(&ret->reducers, PLN_Reducer);
+
+    // Get the name
+    int rv = buildReducer(ret, cur, ac, name, status);
   }
-  if (req->parseCtx) {
-    Query_Free(req->parseCtx);
-  }
-  AggregatePlan_Free(&req->ap);
-  if (req->args) {
-    CmdArg_Free(req->args);
+  ret->idx = req->serial++;
+  return &ret->base;
+}
+
+static int handleApplyOrFilter(AggregateRequest *req, ArgsCursor *ac, QueryError *status,
+                               int isApply) {
+  // Parse filters!
+  const char *expr = NULL;
+  int rv = AC_GetString(ac, &expr, NULL, 0);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
+    return REDISMODULE_ERR;
   }
 
-  if (req->isHeapAlloc) {
-    rm_free(req);
+  PLN_MapFilterStep *stp = calloc(1, sizeof(*stp));
+  stp->base.dtor = genericStepFree;
+  stp->base.type = isApply ? PLN_T_APPLY : PLN_T_FILTER;
+  AGPLN_AddStep(&req->ap, &stp->base);
+
+  if (isApply && AC_AdvanceIfMatch(ac, "AS")) {
+    const char *alias = NULL;
+    if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
+      QERR_MKBADARGS_FMT(status, "AS needs argument");
+      goto error;
+    }
+  }
+  return REDISMODULE_OK;
+
+error:
+  if (stp) {
+    stp->base.dtor(&stp->base);
+  }
+  return REDISMODULE_ERR;
+}
+
+int AggregateRequest_Compile(AggregateRequest *req, RedisModuleString **argv, int argc,
+                             QueryError *status) {
+  req->args = malloc(sizeof(*req->args) * argc);
+  for (size_t ii = 0; ii < argc; ++ii) {
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
+    req->args[ii] = sdsnewlen(s, n);
+  }
+
+  // Parse the query and basic keywords first..
+  ArgsCursor ac = {0};
+  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+
+  if (AC_IsAtEnd(&ac)) {
+    return REDISMODULE_ERR;
+  }
+
+  const char *query = AC_GetStringNC(&ac, NULL);
+  RSSearchOptions searchOpts_s = {0}, *searchOpts = &searchOpts_s;
+  if (parseQueryArgs(&ac, req, &searchOpts_s, &req->ap, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  int hasLoad = 0;
+
+  // Now we have a 'compiled' plan. Let's get some more options..
+
+  while (!AC_IsAtEnd(&ac)) {
+    int rv = handleCommonArgs(req, &ac, status, 0);
+    if (rv == ARG_ERROR) {
+      goto error;
+    } else if (rv == ARG_UNKNOWN) {
+      const char *s = AC_GetStringNC(&ac, NULL);
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unknown argument `%s`", s);
+      goto error;
+    } else {
+      continue;
+    }
+
+    if (AC_AdvanceIfMatch(&ac, "GROUPBY")) {
+      PLN_BaseStep *groupStep = parseGroupbyArgs(&ac, req, status);
+      if (groupStep) {
+        AGPLN_AddStep(&req->ap, groupStep);
+      } else {
+        goto error;
+      }
+    } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
+      int rv = handleApplyOrFilter(req, &ac, status, 1);
+      if (rv != REDISMODULE_OK) {
+        goto error;
+      }
+    } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
+      /* IGNORE LOAD!! */
+
+      // if (hasLoad) {
+      //   QueryError_SetError(status, QUERY_EPARSEARGS, "LOAD fields already specified!");
+      //   goto error;
+      // }
+      // hasLoad = 1;
+      // ArgsCursor loadFields = {0};
+      // if ((rv = AC_GetVarArgs(&ac, &loadFields) != AC_OK)) {
+      //   QERR_MKBADARGS_AC(status, "LOAD", rv);
+      //   goto error;
+      // }
+      // AggregateStep *loadStep = PLN_AllocStep(AggregateStep_Load);
+      // loadStep->load.fl = (FieldList){0};
+      // loadStep->load.keys = RS_NewMultiKeyFromAC(&loadFields, 1, 1);
+    } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
+      int rv = handleApplyOrFilter(req, &ac, status, 0);
+      if (rv != REDISMODULE_OK) {
+        goto error;
+      }
+    } else {
+      rv = handleCommonArgs(req, &ac, status, 0);
+      if (rv == ARG_ERROR) {
+        goto error;
+      } else if (rv == ARG_UNKNOWN) {
+        const char *s = AC_GetStringNC(&ac, NULL);
+        QERR_MKBADARGS_FMT(status, "Unknown argument: %s", s);
+        goto error;
+      }
+    }
+  }
+  return REDISMODULE_OK;
+
+error:
+  return REDISMODULE_ERR;
+}
+
+static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
+  /**
+   * The following blocks will set filter options on the entire query
+   */
+  if (opts->legacy.filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts->legacy.filters + ii};
+      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+    }
+  }
+  if (opts->legacy.gf) {
+    QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
+    QAST_SetGlobalFilters(ast, &legacyOpts);
+  }
+
+  if (opts->inkeys) {
+    opts->inids = malloc(sizeof(*opts->inids) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      t_docId did = DocTable_GetId(&sctx->spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
+      if (did) {
+        opts->inids[opts->nids++] = did;
+      }
+    }
+    QAST_GlobalFilterOptions filterOpts = {.ids = opts->inids, .nids = opts->nids};
+    QAST_SetGlobalFilters(ast, &filterOpts);
   }
 }
 
-AggregateRequest *AggregateRequest_Persist(AggregateRequest *req) {
-  AggregateRequest *ret = rm_malloc(sizeof(*ret));
-  *ret = *req;
-  ret->isHeapAlloc = 1;
-  return ret;
+/* A callback called when we regain concurrent execution context, and the index spec key is
+ * reopened. We protect against the case that the spec has been deleted during query execution
+ */
+static void onReopen(RedisModuleKey *k, void *privdata) {
+  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
+  AggregateRequest *req = privdata;
+
+  // If we don't have a spec or key - we abort the query
+  if (k == NULL || sp == NULL) {
+    req->qiter.state = QITR_S_ABORTED;
+    req->sctx->spec = NULL;
+    return;
+  }
+
+  // The spec might have changed while we were sleeping - for example a realloc of the doc table
+  req->sctx->spec = sp;
+
+  // FIXME: Per-query!!
+  if (req->tmoMS > 0) {
+    // Check the elapsed processing time
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+    long long durationNS = (long long)1000000000 * (now.tv_sec - req->qiter.startTime.tv_sec) +
+                           (now.tv_nsec - req->qiter.startTime.tv_nsec);
+    // printf("Elapsed: %zdms\n", durationNS / 1000000);
+    // Abort on timeout
+    if (durationNS > req->tmoMS * 1000000) {
+      if (req->reqflags & QEXEC_F_IS_CURSOR) {
+        req->pause = 1;
+      } else {
+        req->qiter.state = QITR_S_TIMEDOUT;
+      }
+    }
+  }
+  // q->docTable = &sp->docs;
+}
+
+/**
+ * This stage will apply the context to the request. During this phase, the
+ * query will be parsed (and matched according to the schema), and the reducers
+ * will be loaded and analyzed.
+ */
+int AggregateRequest_PrepareQuery(AggregateRequest *req, RedisSearchCtx *sctx, QueryError *status) {
+  // Sort through the applicable options:
+  req->sctx = sctx;
+  IndexSpec *index = sctx->spec;
+  RSSearchOptions *opts = &req->searchopts;
+  // Go through the query options and see what else needs to be filled in!
+  // 1) INFIELDS
+  for (size_t ii = 0; ii < opts->legacy.ninfields; ++ii) {
+    const char *s = opts->legacy.infields[ii];
+    t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+    opts->fieldmask |= bit;
+  }
+
+  if (opts->language && !IsSupportedLanguage(opts->language, strlen(opts->language))) {
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such language %s", opts->language);
+    return REDISMODULE_ERR;
+  }
+  if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+    return REDISMODULE_ERR;
+  }
+
+  QueryAST *ast = &req->ast;
+
+  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
+  if (rv != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
+  applyGlobalFilters(opts, ast, sctx);
+
+  if (!(opts->flags & Search_Verbatim)) {
+    QAST_Expand(ast, opts->expanderName, opts, sctx);
+  }
+
+  /** Handle concurrent context */
+  if (!(req->reqflags & QEXEC_F_SAFEMODE)) {
+    ConcurrentSearchCtx *conc = &req->conc;
+    ConcurrentSearch_AddKey(conc, sctx->key, REDISMODULE_READ, sctx->keyName, onReopen, req, NULL,
+                            ConcurrentKey_SharedKeyString);
+    sctx->conc = conc;
+  }
+
+  req->rootiter = QAST_Iterate(ast, opts, sctx, status);
+  if (!req->rootiter) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
+  const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
+  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+    srckeys[ii] =
+        RLookup_GetKey(srclookup, gstp->properties[ii], RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    dstkeys[ii] =
+        RLookup_GetKey(&gstp->lookup, gstp->properties[ii], RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+  }
+
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    // Build the actual reducer
+    PLN_Reducer *pr = gstp->reducers + ii;
+    ReducerOptions options = {.name = pr->name, .args = &pr->args, .status = err};
+    ReducerFactory ff = RDCR_GetFactory(pr->name);
+    if (!ff) {
+      // No such reducer!
+      QueryError_SetErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      return NULL;
+    }
+    Reducer *rr = ff(&options);
+    if (!ff(&options)) {
+      return NULL;
+    }
+
+    // Set the destination key for the grouper!
+    rr->dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    Grouper_AddReducer(grp, rr);
+  }
+
+  return Grouper_GetRP(grp);
+
+error:
+  return NULL;
+}
+
+int AREQ_BuildPipeline(AggregateRequest *req, QueryError *status) {
+  // Create the root processor!
+  RedisSearchCtx *sctx = req->sctx;
+  req->qiter.conc = sctx->conc;
+  req->qiter.sctx = sctx;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &req->qiter.startTime);
+
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+  ResultProcessor *rpUpstream = rp;
+
+#define PUSH_RP()            \
+  rp->upstream = rpUpstream; \
+  rpUpstream = rp;
+
+  // Add scorer
+  RSIndexStats stats = {0};
+  IndexSpec_GetStats(sctx->spec, &stats);
+
+  rp = RPScorer_New(&req->searchopts, &stats);
+  PUSH_RP();
+
+  for (const DLLIST_node *nn = req->ap.steps.prev; nn; nn = nn->next) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    RLookup *curLookup = AGPLN_GetCurrentLookup(&req->ap);
+
+    switch (stp->type) {
+      case PLN_T_GROUP: {
+        PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+        rp = buildGroupRP(gstp, curLookup, status);
+        PUSH_RP();
+        break;
+      }
+      case PLN_T_ARRANGE: {
+        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+        if (astp->sortKeys) {
+          size_t nkeys = array_len(astp->sortKeys);
+          const RLookupKey *sortkeys[nkeys];
+
+          for (size_t ii = 0; ii < nkeys; ++ii) {
+            sortkeys[ii] = RLookup_GetKey(curLookup, astp->sortKeys[ii],
+                                          RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+          }
+          rp = RPSorter_NewByFields(astp->offset + astp->limit, sortkeys, nkeys, astp->sortAscMap);
+          PUSH_RP();
+        }
+        if (astp->offset) {
+          rp = RPPager_New(astp->offset, astp->limit);
+          PUSH_RP();
+        }
+        break;
+      }
+
+      case PLN_T_APPLY:
+      case PLN_T_FILTER: {
+        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
+        // Ensure the lookups can actually find what they need
+        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
+          goto error;
+        }
+
+        if (stp->type == PLN_T_APPLY) {
+          RLookupKey *dstkey =
+              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+          rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
+        } else {
+          rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
+        }
+        PUSH_RP();
+        break;
+      }
+    }
+  error:
+    return REDISMODULE_ERR;
+  }
+}
+
+/**
+ * Get the sorting key of the result. This will be the sorting key of the last
+ * RLookup registry. Returns NULL if there is no sorting key
+ */
+static const RSValue *getSortKey(AggregateRequest *req, const SearchResult *r) {
+  const RLookup *last = AGPLN_GetLastLookup(&req->ap);
+
+  // Scan through the keys
+  const RLookupKey *k = RLookup_FindKeyWith(last, RLOOKUP_F_SORTKEY);
+  if (!k) {
+    return NULL;
+  }
+
+  // Get the value
+  return RLookup_GetItem(k, &r->rowdata);
+}
+
+static size_t serializeResult(AggregateRequest *req, RedisModuleCtx *outctx,
+                              const SearchResult *r) {
+  const uint32_t options = req->reqflags;
+  const RSDocumentMetadata *dmd = r->dmd;
+  size_t count = 0;
+
+  if (dmd) {
+    size_t n;
+    const char *s = DMD_KeyPtrLen(dmd, &n);
+    RedisModule_ReplyWithStringBuffer(outctx, s, n);
+    count++;
+  }
+
+  if (options & QEXEC_F_SEND_SCORES) {
+    RedisModule_ReplyWithDouble(outctx, r->score);
+    count++;
+  }
+  if (options & QEXEC_F_SEND_PAYLOADS) {
+    count++;
+    if (dmd && dmd->payload) {
+      RedisModule_ReplyWithStringBuffer(outctx, dmd->payload->data, dmd->payload->len);
+    } else {
+      RedisModule_ReplyWithNull(outctx);
+    }
+  }
+
+  if ((options & QEXEC_F_SEND_SORTKEYS)) {
+    count++;
+    const RSValue *sortkey = getSortKey(req, r);
+    if (sortkey) {
+      switch (sortkey->t) {
+        case RSValue_Number:
+          /* Serialize double - by prepending "%" to the number, so the coordinator/client can tell
+           * it's a double and not just a numeric string value */
+          RedisModule_ReplyWithString(
+              outctx, RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval));
+          break;
+        case RSValue_String:
+          /* Serialize string - by prepending "$" to it */
+
+          RedisModule_ReplyWithString(
+              outctx, RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval));
+          break;
+        case RSValue_RedisString:
+          RedisModule_ReplyWithString(
+              outctx, RedisModule_CreateStringPrintf(
+                          outctx, "$%s", RedisModule_StringPtrLen(sortkey->rstrval, NULL)));
+          break;
+        default:
+          // NIL, or any other type:
+          RedisModule_ReplyWithNull(outctx);
+      }
+    } else {
+      RedisModule_ReplyWithNull(outctx);
+    }
+  }
+
+  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+    count++;
+    size_t nfields = 0;
+    REDISMODULE_BEGIN_ARRAY(outctx);
+    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RLookup *lk = AGPLN_GetLastLookup(&req->ap);
+
+    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      if (kk->flags & RLOOKUP_F_HIDDEN) {
+        continue;
+      }
+      nfields++;
+      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+      if (!v) {
+        RedisModule_ReplyWithNull(outctx);
+      } else {
+        RSValue_SendReply(outctx, v);
+      }
+    }
+    REDISMODULE_END_ARRAY(outctx, nfields * 2);
+  }
+  return count;
+}
+
+void AREQ_Execute(AggregateRequest *req, RedisModuleCtx *outctx) {
+  SearchResult r = {0};
+  size_t nelem = 0, nrows = 0;
+  size_t limit = 0;
+  int rc;
+
+  const int isCursor = req->reqflags & QEXEC_F_IS_CURSOR;
+  const int firstCursor = !(req->reqflags & QEXEC_S_SENTONE);
+
+  if (isCursor) {
+    if ((limit = req->cursorChunkSize) == 0) {
+      limit = -1;
+    }
+  }
+
+  ResultProcessor *rp = req->qiter.endProc;
+
+  RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while ((rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    // Serialize it as a search result
+    nelem += serializeResult(req, outctx, &r);
+    SearchResult_Clear(&r);
+    if (++nrows >= limit) {
+      break;
+    }
+  }
+
+  req->stateflags |= QEXEC_S_SENTONE;
+  // TODO: Check for errors in `rc`
+
+  SearchResult_Destroy(&r);
+  RedisModule_ReplySetArrayLength(outctx, nelem);
+}
+
+void AREQ_Free(AggregateRequest *areq) {
 }

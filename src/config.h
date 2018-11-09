@@ -3,6 +3,7 @@
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
+#include "query_error.h"
 
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config
@@ -14,7 +15,7 @@ typedef enum {
 typedef enum {
   GCPolicy_Default = 0,
   GCPolicy_Fork,
-}GCPolicy;
+} GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -132,7 +133,7 @@ void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, con
  * can be == argc)
  */
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, char **err);
+                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status);
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 

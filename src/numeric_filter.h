@@ -2,7 +2,8 @@
 #define __NUMERIC_FILTER_H__
 #include "redisearch.h"
 #include "search_ctx.h"
-#include "rmutil/vector.h"
+#include "rmutil/args.h"
+#include "query_error.h"
 
 #define NF_INFINITY (1.0 / 0.0)
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
@@ -13,19 +14,17 @@ typedef struct numericFilter {
   double max;
   int inclusiveMin;
   int inclusiveMax;
-
 } NumericFilter;
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
+int NumericFilter_Parse(NumericFilter *nf, ArgsCursor *ac, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
-NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
-Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int argc);
 
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
 of them with fulltext indexes.
 */
-static inline int NumericFilter_Match(NumericFilter *f, double score) {
+static inline int NumericFilter_Match(const NumericFilter *f, double score) {
 
   int rc = 0;
   // match min - -inf or x >/>= score

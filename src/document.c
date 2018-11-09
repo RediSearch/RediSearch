@@ -11,7 +11,6 @@
 #include "spec.h"
 #include "tokenize.h"
 #include "util/logging.h"
-#include "search_request.h"
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
@@ -60,7 +59,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
-    FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs && f->text) {
 
       aCtx->fspecs[i] = *fs;
@@ -536,82 +535,54 @@ cleanup:
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, char **err) {
+                            int *result, QueryError *status) {
+
+  int rc = REDISMODULE_ERR;
+  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
+  if (!dmd) {
+    // We don't know the document...
+    QueryError_SetError(status, QUERY_ENODOC, "");
+    return REDISMODULE_ERR;
+  }
 
   // Try to parser the expression first, fail if we can't
-  RSExpr *e = RSExpr_Parse(expr, strlen(expr), err);
+  RSExpr *e = ExprAST_Parse(expr, strlen(expr), status);
   if (!e) {
     return REDISMODULE_ERR;
   }
 
-  // Get the fields needed to evaluate the expression, so we'll know what to load (if any)
-  const char **fields = Expr_GetRequiredFields(e);
-
-  Document doc = {.docKey = key};
-  // Get the metadata, which should include sortables
-  RSDocumentMetadata *md = DocTable_GetByKeyR(&sctx->spec->docs, doc.docKey);
-
-  // Make sure the field list only includes fields which are not already in the sorting vector
-  size_t loadFields = 0;
-  if (md && md->sortVector) {
-    // If a field is in the sorting vector, we simply skip it. n is the total fields not in the
-    // sorting vector
-    for (size_t i = 0; i < array_len(fields); i++) {
-      if (RSSortingTable_GetFieldIdx(sctx->spec->sortables, fields[i]) == -1) {
-        fields[loadFields++] = fields[i];
-      }
-    }
-  } else {
-    // If we don't have a sorting vector - we need to load all the fields.
-    loadFields = array_len(fields);
+  RLookup lookup_s;
+  RLookupRow row = {0};
+  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+  RLookup_Init(&lookup_s, spcache);
+  if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
+    goto done;
   }
 
-  // loadFields > 0 means that some fields needed are not sortable and should be loaded from hash
-  if (loadFields > 0) {
-    if (Redis_LoadDocumentEx(sctx, key, fields, loadFields, &doc, NULL) == REDISMODULE_ERR) {
-      SET_ERR(err, "Could not load document");
-      array_free(fields);
-      return REDISMODULE_ERR;
-    }
+  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+    goto done;
   }
 
-  // Create a field map from the document fields
-  RSFieldMap *fm = RS_NewFieldMap(doc.numFields);
-  for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Add(&fm, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
+  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  RSValue rv = RSVALUE_STATIC;
+  if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+    goto done;
   }
 
-  // create a mock search result
-  SearchResult res = (SearchResult){
-      .docId = doc.docId,
-      .fields = fm,
-      .scorerPrivateData = md,
-  };
-  // All this is needed to eval the expression
-  RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();
-  fctx->res = &res;
-  RSExprEvalCtx evctx = (RSExprEvalCtx){
-      .r = &res,
-      .sortables = sctx ? (sctx->spec ? sctx->spec->sortables : NULL) : NULL,
-      .fctx = fctx,
-  };
-  RSValue out = RSVALUE_STATIC;
-  int rc = REDISMODULE_OK;
-
-  // Now actually eval the expression
-  if (EXPR_EVAL_ERR == RSExpr_Eval(&evctx, e, &out, err)) {
-    rc = REDISMODULE_ERR;
-  } else {
-    // The result is the boolean value of the expression's output
-    *result = RSValue_BoolTest(&out);
+  *result = RSValue_BoolTest(&rv);
+  if (rv.t == RSValue_Reference) {
+    RSValue_Decref(RSValue_Dereference(&rv));
   }
+  rc = REDISMODULE_OK;
 
-  // Cleanup
-  array_free(fields);
-  RSFunctionEvalCtx_Free(fctx);
-  RSFieldMap_Free(fm);
-  RSExpr_Free(e);
-  Document_Free(&doc);
+// Clean up:
+done:
+  if (e) {
+    ExprAST_Free(e);
+  }
+  RLookupRow_Cleanup(&row);
+  RLookup_Cleanup(&lookup_s);
   return rc;
 }
 
@@ -623,7 +594,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   } while (0);
 
   Document *doc = &aCtx->doc;
-  t_docId docId = DocTable_GetId(&sctx->spec->docs, MakeDocKeyR(doc->docKey));
+  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
@@ -644,7 +615,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }

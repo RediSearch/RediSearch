@@ -331,7 +331,7 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   RedisModule_Free(t);
 }
 
-IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
+IndexIterator *NewNumericRangeIterator(NumericRange *nr, const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
   if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
@@ -345,7 +345,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
+static IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -393,7 +393,7 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx) {
   RedisModuleString *s = fmtRedisNumericIndexKey(ctx, flt->fieldName);
   RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);

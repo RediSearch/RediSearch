@@ -310,7 +310,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
   return ret;
 }
 
-int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
   doc->numFields = 0;
   doc->fields = NULL;
   RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
@@ -337,6 +337,13 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *do
   return REDISMODULE_OK;
 }
 
+int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc) {
+  RedisModuleString *r = RedisModule_CreateString(ctx->redisCtx, s, n);
+  int ret = Redis_LoadDocumentR(ctx, r, doc);
+  RedisModule_FreeString(ctx->redisCtx, r);
+  return ret;
+}
+
 int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
                          size_t nfields, Document *doc, RedisModuleKey **rkeyp) {
   RedisModuleKey *rkeyp_s = NULL;
@@ -346,7 +353,7 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
 
   *rkeyp = NULL;
   if (!fields) {
-    return Redis_LoadDocument(ctx, key, doc);
+    return Redis_LoadDocumentR(ctx, key, doc);
   }
 
   // Get the key itself

@@ -1,28 +1,6 @@
 #define RS_FUNCTION_C_
 #include "function.h"
 
-/* Allocate some memory for a function that can be freed automatically when the execution is done */
-inline void *RSFunction_Alloc(RSFunctionEvalCtx *ctx, size_t sz) {
-  return BlkAlloc_Alloc(&ctx->alloc, sz, MAX(sz, 1024));
-}
-
-char *RSFunction_Strndup(RSFunctionEvalCtx *ctx, const char *str, size_t len) {
-  char *ret = RSFunction_Alloc(ctx, len + 1);
-  memcpy(ret, str, len);
-  ret[len] = '\0';
-  return ret;
-}
-
-void RSFunctionEvalCtx_Free(RSFunctionEvalCtx *ctx) {
-  BlkAlloc_FreeAll(&ctx->alloc, NULL, NULL, 0);
-  free(ctx);
-}
-RSFunctionEvalCtx *RS_NewFunctionEvalCtx() {
-  RSFunctionEvalCtx *ret = malloc(sizeof(*ret));
-  BlkAlloc_Init(&ret->alloc);
-  return ret;
-}
-
 static RSFunctionRegistry functions_g = {0};
 
 RSFunction RSFunctionRegistry_Get(const char *name, size_t len) {

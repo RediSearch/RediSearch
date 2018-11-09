@@ -1,9 +1,8 @@
-#include "summarize_spec.h"
-#include "search_request.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmutil/args.h"
 #include "util/array.h"
+#include "search_options.h"
 
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]
@@ -118,7 +117,6 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
   } else {
     setFieldSettings(&fields->defaultField, &defOpts, isHighlight);
   }
-  fields->wantSummaries = 1;
 
 done:
   Array_Free(&fieldPtrs);

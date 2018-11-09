@@ -93,15 +93,16 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  struct numericFilter *nf;
+  const struct numericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
-  struct geoFilter *gf;
+  const struct geoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {
-  struct idFilter *f;
+  const t_docId *ids;
+  size_t len;
 } QueryIdFilterNode;
 
 typedef enum {

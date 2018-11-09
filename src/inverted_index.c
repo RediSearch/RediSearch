@@ -51,7 +51,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 }
 
 void indexBlock_Free(IndexBlock *blk) {
-  if(blk->data){
+  if (blk->data) {
     Buffer_Free(blk->data);
     free(blk->data);
   }
@@ -667,7 +667,7 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
+IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -699,11 +699,11 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&ir->record->docId;
-    if(pos == 0 && delta != 0){
+    if (pos == 0 && delta != 0) {
       // this is an old version rdb, the first entry is the docid itself and
       // not the delta
       ir->record->docId = delta;
-    }else{
+    } else {
       ir->record->docId = delta + ir->lastId;
     }
     ir->lastId = ir->record->docId;
@@ -914,8 +914,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
-                             IndexRepairParams *params) {
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
 
@@ -942,7 +941,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
-    if(!(isFirstRes && res->docId != 0)){
+    if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
       // then its not the first entry or its
       // not an old rdb version

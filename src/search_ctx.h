@@ -5,15 +5,16 @@
 
 #include "redismodule.h"
 #include "spec.h"
+#include "concurrent_ctx.h"
 #include "trie/trie_type.h"
 #include <time.h>
 
-/** Context passed to all redis related search handling functions. */
-typedef struct {
+typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key;
   RedisModuleString *keyName;
   IndexSpec *spec;
+  ConcurrentSearchCtx *conc;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \

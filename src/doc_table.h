@@ -139,12 +139,29 @@ RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
+#define STRVARS_FROM_RSTRING(r) \
+  size_t n;                     \
+  const char *s = RedisModule_StringPtrLen(r, &n);
+
+static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_GetId(dt, s, n);
+}
+
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, const char *key, size_t n);
+static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_Delete(t, s, n);
+}
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
+static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_Pop(t, s, n);
+}
 
 static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, key, strlen(key));

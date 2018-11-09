@@ -1,51 +1,101 @@
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
 #include <value.h>
+#include <rlookup.h>
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
+#include <util/dllist.h>
 
-/* A structure representing an aggregation execution plan and all its various steps.
- * This is used to safely manipulate and validate plans */
+typedef struct AGGPlan AGGPlan, AggregatePlan;
+
 struct AggregatePlan;
 
-/* Load step - load properties */
-typedef struct {
-  RSMultiKey *keys;
-  FieldList fl;
-} AggregateLoadStep;
+typedef enum {
+  PLN_T_ROOT = 0,
+  PLN_T_GROUP,
+  PLN_T_DISTRIBUTE,
+  PLN_T_FILTER,
+  PLN_T_APPLY,
+  PLN_T_ARRANGE
+} PLN_StepType;
 
-/* query step - search for query text */
-typedef struct {
-  char *str;
+typedef enum {
+  PLN_F_ALIAS = 0x01,  // Plan step has an alias
 
-} AggregateQueryStep;
+  // Plan step is a reducer. This does not mean it uses a reduce function, but
+  // rather that it fundamentally modifies the rows.
+  PLN_F_REDUCER = 0x02
+} PlanFlags;
 
-/* Group step single reducer, a function and its args */
+typedef struct PLN_BaseStep {
+  DLLIST_node llnodePln;  // Linked list node for previous/next
+
+  PLN_StepType type : 32;
+  uint32_t flags;  // PLN_F_XXX
+
+  const char *alias;
+  void (*dtor)(struct PLN_BaseStep *);  // Called to destroy step-specific data
+
+  // Type specific stuff goes here..
+} PLN_BaseStep;
+
+/**
+ * JUNCTION/REDUCTION POINTS
+ *
+ * While generally the plan steps are serial, in which they transform rows, some
+ * steps may reduce rows and modify them, so that the rows do not really match
+ * one another.
+ */
+
+/**
+ * Returns the last lookup table. This is the table that all prior steps use
+ * for their output, and all future steps should use for their input.
+ */
+RLookup *AGPLN_GetLastLookup(const AGGPlan *plan);
+
+/**
+ * First step. This contains the lookup used for the initial document keys.
+ */
 typedef struct {
-  const char *reducer;
-  RSValue **args;
-  char *alias;
-} AggregateGroupReduce;
+  PLN_BaseStep base;
+  RLookup lookup;
+} PLN_FirstStep;
+
+typedef struct {
+  PLN_BaseStep base;
+  const char *rawExpr;
+  RSExpr *parsedExpr;
+} PLN_MapFilterStep;
+
+/** ARRANGE covers sort, limit, and so on */
+typedef struct {
+  PLN_BaseStep base;
+
+  const char **sortKeys;  // array_*
+  uint64_t sortAscMap;    // Mapping of ascending/descending. Bitwise
+
+  uint64_t offset;  // Seek results. If 0, then no paging is applied
+  uint64_t limit;   // Number of rows to output
+} PLN_ArrangeStep;
 
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
-  RSMultiKey *properties;
-  AggregateGroupReduce *reducers;
+  PLN_BaseStep base;
+  RLookup lookup;
+
+  const char **properties;
+  size_t nproperties;
+
+  /* Group step single reducer, a function and its args */
+  struct PLN_Reducer {
+    const char *name;  // Name of function
+    char *alias;       // Output key
+    ArgsCursor args;
+  } * reducers;
   int idx;
-} AggregateGroupStep;
+} PLN_GroupStep;
 
-/* Apply step - evaluate an expression per record */
-typedef struct {
-  char *rawExpr;
-  RSExpr *parsedExpr;
-  char *alias;
-} AggregateApplyStep;
-
-/* Filter step - evaluate a post filter */
-typedef struct {
-  char *rawExpr;
-  RSExpr *parsedExpr;
-} AggregateFilterStep;
+typedef struct PLN_Reducer PLN_Reducer;
 
 /* Schema property kind (not type!) is this a field from the result, a projection or an aggregation?
  */
@@ -55,102 +105,58 @@ typedef enum {
   Property_Projection = 3,
 } AggregatePropertyKind;
 
-/* Aggregation property for the schema */
-typedef struct {
-  const char *property;
-  RSValueType type;
-  AggregatePropertyKind kind;
-} AggregateProperty;
-
-/* A schema is just an array of properties */
-typedef AggregateProperty *AggregateSchema;
-
-/* Sortby step - by one or more properties */
-typedef struct {
-  RSMultiKey *keys;
-  uint64_t ascMap;
-  long long max;
-} AggregateSortStep;
-
-/* limit paging */
-typedef struct {
-  long long offset;
-  long long num;
-} AggregateLimitStep;
-
-typedef enum {
-  AggregateStep_Query,
-  AggregateStep_Group,
-  AggregateStep_Sort,
-  AggregateStep_Apply,
-  AggregateStep_Limit,
-  AggregateStep_Load,
-  AggregateStep_Distribute,
-  AggregateStep_Filter,
-  AggregateStep_Dummy,  // dummy step representing an empty plan's head
-} AggregateStepType;
-
 /* Distribute step - send a sub-plan to all shards and collect the results */
 typedef struct {
   struct AggregatePlan *plan;
 } AggregateDistributeStep;
 
-/* unifying all steps */
-typedef struct AggregateStep {
-  union {
-    AggregateApplyStep apply;
-    AggregateGroupStep group;
-    AggregateLoadStep load;
-    AggregateLimitStep limit;
-    AggregateSortStep sort;
-    AggregateDistributeStep dist;
-    AggregateQueryStep query;
-    AggregateFilterStep filter;
-  };
-  AggregateStepType type;
-  struct AggregateStep *next;
-  struct AggregateStep *prev;
-
-} AggregateStep;
-
 /* A plan is a linked list of all steps */
-typedef struct AggregatePlan {
-  const char *index;
-  AggregateStep *head;
-  AggregateStep *tail;
-  int hasCursor;
-  int withSchema;
-  int verbatim;
-  // cursor configuraion
-  struct {
-    size_t count;
-    int maxIdle;
-  } cursor;
-} AggregatePlan;
+struct AGGPlan {
+  DLLIST steps;
+  PLN_ArrangeStep *arrangement;
+  PLN_FirstStep firstStep_s;  // Storage for initial plan
+};
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free(). The
  * length can be extracted with array_len */
-char **AggregatePlan_Serialize(AggregatePlan *plan);
-
-/* Build the plan from the parsed command args. Sets the error and return 0 if there's a failure */
-int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err);
-
-/* Get the estimated schema from the plan, with best effort to guess the types of values based on
- * function types. The schema can be freed with array_free */
-AggregateSchema AggregatePlan_GetSchema(AggregatePlan *plan, RSSortingTable *tbl);
-
-AggregateProperty *AggregateSchema_Get(AggregateSchema sc, const char *prop);
-
-/* return 1 if a schema contains a property */
-int AggregateSchema_Contains(AggregateSchema schema, const char *property);
+char **AGPLN_Serialize(AggregatePlan *plan);
 
 /* Free the plan resources, not the plan itself */
-void AggregatePlan_Free(AggregatePlan *plan);
+void AGPLN_Free(AggregatePlan *plan);
 
 /* Print the plan */
-void AggregatePlan_Print(AggregatePlan *plan);
+void AGPLN_Print(AggregatePlan *plan);
 
-/* Callback to dump the schema to redis */
-int AggregatePlan_DumpSchema(RedisModuleCtx *sctx, QueryProcessingCtx *qpc, void *privdata);
+void AGPLN_AddStep(AggregatePlan *plan, PLN_BaseStep *step);
+void AGPLN_AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
+
+/**
+ * Gets the last arrange step for the current pipeline stage. If no arrange
+ * step exists, one is created.
+ *
+ * This function should be used to limit/page through the current step
+ */
+PLN_ArrangeStep *AGPLN_GetArrangeStep(AggregatePlan *pln);
+
+/**
+ * Gets the lookup table for the current pipeline stage. This can be used to
+ * add new inputs and outputs to the current stage.
+ */
+RLookup *AGPLN_GetCurrentLookup(AggregatePlan *pln);
+
+/**
+ * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
+ * consumes (in entirety) all of its inputs and produces a new output (and thus
+ * a new 'Lookup' table)
+ */
+static inline int PLN_IsReduce(const PLN_BaseStep *pln) {
+  switch (pln->type) {
+    case PLN_T_ROOT:
+    case PLN_T_GROUP:
+      return 1;
+    default:
+      return 0;
+  }
+}
 #endif

@@ -4,11 +4,14 @@
 #include "aggregate.h"
 #include "cursor.h"
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
-
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                     struct ConcurrentCmdCtx *cmdCtx) {
-  AggregateRequestSettings settings = {.pcb = Aggregate_DefaultChainBuilder};
+}
+
+#if 0
+static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
+
+  AggregateRequestSettings settings = {};
   if (!cmdCtx) {
     settings.flags |= AGGREGATE_REQUEST_NO_CONCURRENT;
   }
@@ -101,32 +104,34 @@ done:
   SearchCtx_Free(sctx);
 }
 
+#endif
+
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AggregateRequest *req = cursor->execState;
   if (!num) {
-    num = req->ap.cursor.count;
+    num = req->cursorChunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
-  req->plan->opts.chunksize = num;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
 
+  req->cursorChunkSize = num;
   RedisModule_ReplyWithArray(outputCtx, 2);
-  AggregateRequest_Run(req, outputCtx);
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
+  AREQ_Execute(req, outputCtx);
+
+  if (req->stateflags & QEXEC_S_ERROR) {
     RedisModule_ReplyWithLongLong(outputCtx, 0);
     goto delcursor;
   }
 
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+  if (req->stateflags & QEXEC_S_OUTPOUTDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
   }
 
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+  if (req->stateflags & QEXEC_S_OUTPOUTDONE) {
     goto delcursor;
   } else {
     // Update the idle timeout
@@ -135,7 +140,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
 
 delcursor:
-  AggregateRequest_Free(req);
+  AREQ_Free(req);
   Cursor_Free(cursor);
 }
 
@@ -151,9 +156,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     return;
   }
   AggregateRequest *req = cursor->execState;
-  if (req->plan->conc) {
-    ConcurrentSearchCtx_ReopenKeys(req->plan->conc);
-  }
+  ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
 

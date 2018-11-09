@@ -43,7 +43,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
   if (!fieldSpec) {
     return NULL;
   }
@@ -289,8 +289,9 @@ DEBUG_COMMAND(DocIdToId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RSDocumentKey docId = MakeDocKeyR(argv[1]);
-  t_docId id = DocTable_GetId(&sctx->spec->docs, docId);
+  size_t n;
+  const char *key = RedisModule_StringPtrLen(argv[1], &n);
+  t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
   RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
