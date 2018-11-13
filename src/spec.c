@@ -133,6 +133,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
+  if (sp->timeout != -1) {
+    RedisModule_SetExpire(k, sp->timeout * 1000);
+  }
 
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
@@ -439,6 +442,20 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->flags |= Index_WideSchema;
   }
 
+  int expireOffset = findOffset(SPEC_TEMPORARY_STR, argv, argc);
+  if (expireOffset != -1) {
+    if (expireOffset >= argc || expireOffset >= schemaOffset) {
+      SET_ERR(err, "Invalid expire arg");
+      goto failure;
+    }
+    if (sscanf(argv[expireOffset + 1], "%lld", &spec->timeout) != 1) {
+      SET_ERR(err, "Invalid expire arg");
+      goto failure;
+    }
+  } else {
+    spec->timeout = -1;
+  }
+
   int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
@@ -537,6 +554,13 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
+  if (spec->timeout != -1) {
+    RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+    Redis_DropIndex(&sctx, true, false);
+    RedisModule_FreeThreadSafeContext(threadCtx);
+  }
+
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -597,6 +621,11 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
   }
 
   IndexSpec *ret = RedisModule_ModuleTypeGetValue(*keyp);
+  if (ret->timeout != -1) {
+    RedisModuleKey *temp = RedisModule_OpenKey(ctx, formattedKey, REDISMODULE_WRITE);
+    RedisModule_SetExpire(temp, ret->timeout * 1000);
+    RedisModule_CloseKey(temp);
+  }
   return ret;
 }
 
@@ -865,6 +894,11 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
+  if (encver < INDEX_MIN_EXPIRE_VERSION) {
+    sp->timeout = -1;
+  } else {
+    sp->timeout = RedisModule_LoadUnsigned(rdb);
+  }
   return sp;
 }
 
@@ -893,6 +927,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   if (sp->flags & Index_HasSmap) {
     SynonymMap_RdbSave(rdb, sp->smap);
   }
+  RedisModule_SaveUnsigned(rdb, sp->timeout);
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
