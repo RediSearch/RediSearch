@@ -139,7 +139,10 @@ def testOverflow1(env):
         "Parents strongly cautioned. May be unsuitable for children ages 14 and under.",
         "description", "90", "year", "2017", "uscore", "91", "usize", "80")
     res = env.cmd('ft.search', 'netflix', 'vampire', 'highlight')
-    env.assertEqual([1L, '15ad80086ccc7f', ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level', 'Parents strongly cautioned. May be unsuitable for children ages 14 and under.', 'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']], res)
+    env.assertEqual(1L, res[0])
+    env.assertEqual('15ad80086ccc7f', res[1])
+    for term in ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level', 'Parents strongly cautioned. May be unsuitable for children ages 14 and under.', 'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']:
+        env.assertIn(term, res[2])
     
 def testIssue364(env):
     # FT.CREATE testset "SCHEMA" "permit_timestamp" "NUMERIC" "SORTABLE" "job_category" "TEXT" "NOSTEM" "address" "TEXT" "NOSTEM"  "neighbourhood" "TAG" "SORTABLE" "description" "TEXT"  "building_type" "TEXT" "WEIGHT" "20" "NOSTEM" "SORTABLE"     "work_type" "TEXT" "NOSTEM" "SORTABLE"     "floor_area" "NUMERIC" "SORTABLE"     "construction_value" "NUMERIC" "SORTABLE"     "zoning" "TAG"     "units_added" "NUMERIC" "SORTABLE"     "location" "GEO"

@@ -27,7 +27,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
                                           double weight);
 
 /* Add a new block to the index with a given document id as the initial id */
-static IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -51,7 +51,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 }
 
 void indexBlock_Free(IndexBlock *blk) {
-  if(blk->data){
+  if (blk->data) {
     Buffer_Free(blk->data);
     free(blk->data);
   }
@@ -699,11 +699,11 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&ir->record->docId;
-    if(pos == 0 && delta != 0){
+    if (pos == 0 && delta != 0) {
       // this is an old version rdb, the first entry is the docid itself and
       // not the delta
       ir->record->docId = delta;
-    }else{
+    } else {
       ir->record->docId = delta + ir->lastId;
     }
     ir->lastId = ir->record->docId;
@@ -914,11 +914,11 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
-                             IndexRepairParams *params) {
+int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
 
+  t_docId oldFirstBlock = blk->lastId;
   blk->lastId = blk->firstId = 0;
   Buffer repair = *blk->data;
   repair.offset = 0;
@@ -942,7 +942,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
-    if(!(isFirstRes && res->docId != 0)){
+    if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
       // then its not the first entry or its
       // not an old rdb version
@@ -994,6 +994,15 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags,
     blk->numDocs -= frags;
     *blk->data = repair;
     Buffer_Truncate(blk->data, 0);
+  }
+  if (blk->numDocs == 0) {
+    // if we left with no elements we do need to keep the
+    // first id so the binary search on the block will still working.
+    // The last_id will turn zero indicating there is no records in
+    // this block. We will not save empty blocks in rdb and also we
+    // will not read empty block from rdb (in case we read a corrunpted
+    // rdb from older versions).
+    blk->firstId = oldFirstBlock;
   }
   IndexResult_Free(res);
   return frags;

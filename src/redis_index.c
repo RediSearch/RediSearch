@@ -28,11 +28,15 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   idx->size = RedisModule_LoadUnsigned(rdb);
   idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
 
+  size_t actualSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
+    IndexBlock *blk = &idx->blocks[actualSize];
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
     blk->numDocs = RedisModule_LoadUnsigned(rdb);
+    if (blk->numDocs > 0) {
+      ++actualSize;
+    }
 
     size_t cap;
     char *data = RedisModule_LoadStringBuffer(rdb, &cap);
@@ -40,7 +44,16 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     blk->data = Buffer_Wrap(cap > 0 ? data : NULL, cap);
     blk->data->offset = cap;
     // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
-    if (!cap && data) RedisModule_Free(data);
+    if (!cap && data) {
+      RedisModule_Free(data);
+      Buffer_Free(blk->data);
+    }
+  }
+  idx->size = actualSize;
+  if (idx->size == 0) {
+    InvertedIndex_AddBlock(idx, 0);
+  } else {
+    idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
   return idx;
 }
@@ -50,10 +63,21 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, idx->flags);
   RedisModule_SaveUnsigned(rdb, idx->lastId);
   RedisModule_SaveUnsigned(rdb, idx->numDocs);
-  RedisModule_SaveUnsigned(rdb, idx->size);
+  uint32_t readSize = 0;
+  for (uint32_t i = 0; i < idx->size; i++) {
+    IndexBlock *blk = &idx->blocks[i];
+    if (blk->numDocs == 0) {
+      continue;
+    }
+    ++readSize;
+  }
+  RedisModule_SaveUnsigned(rdb, readSize);
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
+    if (blk->numDocs == 0) {
+      continue;
+    }
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
     RedisModule_SaveUnsigned(rdb, blk->numDocs);
