@@ -27,6 +27,10 @@
 #include <stdint.h>
 #include <assert.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Definition of malloc & friedns that can be overridden before including arr.h.
  * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
  * to those of the RM_ family
@@ -71,7 +75,7 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
  *
  * This allows direct access to elements
  *  */
-#define array_new(T, cap) (array_new_sz(sizeof(T), cap, 0))
+#define array_new(T, cap) (T *)(array_new_sz(sizeof(T), cap, 0))
 
 /* Initialize an array for a given type T with a given length. The capacity allocated is identical
  * to the length
@@ -134,11 +138,11 @@ static inline array_t array_grow(array_t arr) {
 #define array_tail(arr) (arr[array_hdr(arr)->len - 1])
 
 /* Append an element to the array, returning the array which may have been reallocated */
-#define array_append(arr, x)   \
-  ({                           \
-    (arr) = array_grow((arr)); \
-    array_tail((arr)) = (x);   \
-    (arr);                     \
+#define array_append(arr, x)                \
+  ({                                        \
+    (arr) = (typeof(arr))array_grow((arr)); \
+    array_tail((arr)) = (x);                \
+    (arr);                                  \
   })
 
 /* Get the length of the array */
@@ -160,8 +164,8 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   return arr_hdr->buf;
 }
 
-#define array_trimm_len(arr, len) array_trimm(arr, len, -1)
-#define array_trimm_cap(arr, len) array_trimm(arr, len, len)
+#define array_trimm_len(arr, len) (typeof(arr)) array_trimm(arr, len, -1)
+#define array_trimm_cap(arr, len) (typeof(arr)) array_trimm(arr, len, len)
 
 /* Free the array, without dealing with individual elements */
 static void array_free(array_t arr) {
@@ -201,4 +205,7 @@ static void array_free(array_t arr) {
     arr[--(array_hdr(arr)->len)];    \
   })
 
+#ifdef __cplusplus
+}
+#endif
 #endif
