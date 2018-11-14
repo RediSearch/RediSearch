@@ -1,0 +1,5 @@
+INCLUDE_DIRECTORIES("${gtest_SOURCE_DIR}/include")
+
+FILE(GLOB TEST_SOURCES "t_*.cpp")
+ADD_EXECUTABLE(rstest ${TEST_SOURCES})
+TARGET_LINK_LIBRARIES(rstest gtest_main redisearchS)

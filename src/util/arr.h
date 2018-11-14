@@ -97,14 +97,14 @@ static inline array_t array_grow(array_t arr) {
 }
 
 /* Ensures that array_tail will always point to a valid element. */
-#define array_ensure_tail(arrpp, T)    \
-  ({                                   \
-    if (!*(arrpp)) {                   \
-      *(arrpp) = array_new(T, 1);      \
-    } else {                           \
-      *(arrpp) = array_grow(*(arrpp)); \
-    }                                  \
-    &array_tail(*(arrpp));             \
+#define array_ensure_tail(arrpp, T)                      \
+  ({                                                     \
+    if (!*(arrpp)) {                                     \
+      *(arrpp) = array_new(T, 1);                        \
+    } else {                                             \
+      *(arrpp) = (typeof(*(arrpp)))array_grow(*(arrpp)); \
+    }                                                    \
+    &array_tail(*(arrpp));                               \
   })
 
 /*
@@ -120,18 +120,20 @@ static inline array_t array_grow(array_t arr) {
  * @param T the type of the array (in case it must be created)
  * @return A pointer of T at the requested index
  */
-#define array_ensure_at(arrpp, pos, T)                                   \
-  ({                                                                     \
-    if (!(*arrpp)) {                                                     \
-      *(arrpp) = array_new(T, 1);                                        \
-    } else if (array_len(*arrpp) > pos) {                                \
-    } else {                                                             \
-      size_t curlen = array_len(*arrpp);                                 \
-      array_hdr(*arrpp)->len = pos + 1;                                  \
-      *arrpp = array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len);     \
-      memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen)); \
-    }                                                                    \
-    (T *)(*arrpp) + pos;                                                 \
+#define array_ensure_at(arrpp, pos, T)                                    \
+  ({                                                                      \
+    if (!(*arrpp)) {                                                      \
+      *(arrpp) = array_new(T, 1);                                         \
+      *(arrpp) = (T *)array_grow(*(arrpp));                               \
+      memset(*(arrpp), 0, sizeof(**arrpp));                               \
+    } else if (array_len(*arrpp) > pos) {                                 \
+    } else {                                                              \
+      size_t curlen = array_len(*arrpp);                                  \
+      array_hdr(*arrpp)->len = pos + 1;                                   \
+      *arrpp = (T *)array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len); \
+      memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen));  \
+    }                                                                     \
+    (T *)(*arrpp) + pos;                                                  \
   })
 
 /* get the last element in the array */

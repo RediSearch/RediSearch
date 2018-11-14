@@ -70,3 +70,21 @@ TEST_F(ArrTest, testTrimm) {
   array_trimm_len(a, 1);
   ASSERT_EQ(array_len(a), 1);
 }
+
+TEST_F(ArrTest, testEnsure) {
+  Foo *f = array_new(Foo, 1);
+  array_hdr_t *hdr = array_hdr(f);
+  Foo *tail = array_ensure_tail(&f, Foo);
+  // Make sure Valgrind does not complain!
+  tail->x = 0;
+  tail->y = 0;
+
+  Foo *middle = array_ensure_at(&f, 5, Foo);
+  ASSERT_EQ(0, middle->x);
+  ASSERT_EQ(0, middle->y);
+
+  for (size_t ii = 0; ii < array_len(f); ++ii) {
+    ASSERT_EQ(0, f[ii].x);
+    ASSERT_EQ(0, f[ii].y);
+  }
+}
