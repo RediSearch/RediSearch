@@ -27,6 +27,11 @@ mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
   p->cap = cap;
   p->max = max;
   p->top = 0;
+  if (getenv("REDISEARCH_NO_MEMPOOL")) {
+    fprintf(stderr, "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling\n");
+    p->cap = 0;
+    p->max = 0;
+  }
   return p;
 }
 
