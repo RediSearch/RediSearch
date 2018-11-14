@@ -108,6 +108,9 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
 
   if (res->fields) {
     RSValue *ret = RSFieldMap_GetByKey(res->fields, k);
+    if (ret->t == RSValue_Array && ret->arrval.len == 0) {
+      return RS_NullVal();
+    }
     if (!RSValue_IsNull(ret)) {
       return RSValue_Dereference(ret);
     }
@@ -122,7 +125,7 @@ static inline RSValue *SearchResult_GetValue(SearchResult *res, RSSortingTable *
       }
     }
     if (RSKEY_ISVALIDIDX(idx)) {
-      if(idx >= res->scorerPrivateData->sortVector->len){
+      if (idx >= res->scorerPrivateData->sortVector->len) {
         return RS_NullVal();
       }
       return (res->scorerPrivateData->sortVector->values[idx]);
