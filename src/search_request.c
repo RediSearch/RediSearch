@@ -422,9 +422,9 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   }
 
   if (req->numericFilters) {
-    for (int i = 0; i < Vector_Size(req->numericFilters); i++) {
-      NumericFilter *nf;
-      Vector_Get(req->numericFilters, 0, &nf);
+    for (size_t ii = 0; ii < Vector_Size(req->numericFilters); ++ii) {
+      NumericFilter *nf = NULL;
+      Vector_Get(req->numericFilters, ii, &nf);
       if (nf) {
         NumericFilter_Free(nf);
       }
