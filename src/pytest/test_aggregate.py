@@ -393,3 +393,13 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
         self.env.assertTrue(res[1] != 0)
+
+
+def TestAggregateGroupByOnEmptyField(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
+    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
+    res = env.cmd('ft.aggregate', 'idx', 'field', 'APPLY', 'split(@test)', 'as', 'check',
+                  'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
+    env.assertEqual(res, [4L, ['check', 'test3', 'count', '1'],
+                              ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']])
