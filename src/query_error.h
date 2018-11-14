@@ -50,54 +50,38 @@ typedef struct QueryError {
   char *detail;
 } QueryError;
 
-static inline const char *QueryError_Strerror(QueryErrorCode code) {
-  if (code == QUERY_OK) {
-    return "Success (not an error)";
-  }
-#define X(N, M)    \
-  if (code == N) { \
-    return M;      \
-  }
-  QUERY_XERRS(X)
-#undef X
-  return "Unknown status code";
-}
+/** Return the constant string of an error code */
+const char *QueryError_Strerror(QueryErrorCode code);
 
-static inline void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err) {
-  if (status->code != QUERY_OK) {
-    return;
-  }
-  status->code = code;
-  if (err) {
-    status->detail = strdup(err);
-  } else {
-    status->detail = strdup(QueryError_Strerror(code));
-  }
-}
+/**
+ * Set the error code of the query. If `err` is present, then the error
+ * object must eventually be released using QueryError_Clear().
+ *
+ * Only has an effect if no error is already present
+ */
+void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err);
 
-static inline void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
-  if (status->code == QUERY_OK) {
-    status->code = code;
-  }
-}
+/** Set the error code of the query without setting an error string. */
+void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
-static inline void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt,
-                                          ...) {
-  if (status->code != QUERY_OK) {
-    return;
-  }
-  va_list ap;
-  va_start(ap, fmt);
-  vasprintf(&status->detail, fmt, ap);
-  va_end(ap);
-}
+/** Set the error code using a custom-formatted string */
+void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
+/** Convenience macro to set an error of a 'bad argument' with the name of the argument */
 #define QERR_MKBADARGS_FMT(status, fmt, ...) \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
+/** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
                          AC_Strerror(rv))
+
+/** Convenience macro to reply the error string to redis and clear the error code */
+#define QERR_REPLY_AND_CLEAR(rctx, qerr)                         \
+  {                                                              \
+    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr)); \
+    QueryError_ClearError(qerr);                                 \
+  }
 
 /**
  * Sets the current error from the current argument within the args cursor
@@ -115,36 +99,26 @@ static inline void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode cod
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
 
-static inline const char *QueryError_GetError(const QueryError *status) {
-  return status->detail ? status->detail : QueryError_Strerror(status->code);
-}
+/**
+ * Retrieve the error string of the error itself. This will use either the
+ * built-in error string for the given code, or the custom string within the
+ * object.
+ */
+const char *QueryError_GetError(const QueryError *status);
 
-static inline void QueryError_ClearError(QueryError *err) {
-  if (err->detail) {
-    free(err->detail);
-  }
-  err->code = QUERY_OK;
-}
+/**
+ * Clear the error state, potentially releasing the embedded string
+ */
+void QueryError_ClearError(QueryError *err);
 
+/**
+ * Return true if the object has an error set
+ */
 static inline int QueryError_HasError(const QueryError *status) {
   return status->code;
 }
 
-static inline void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
-  // Set the code if not previously set. This should be used by code which makes
-  // use of the ::detail field, and is a placeholder for something like:
-  // functionWithCharPtr(&status->detail);
-  // if (status->detail && status->code == QUERY_OK) {
-  //    status->code = MYCODE;
-  // }
-  if (status->detail == NULL) {
-    return;
-  }
-  if (status->code != QUERY_OK) {
-    return;
-  }
-  status->code = code;
-}
+void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
 #ifdef __cplusplus
 }
