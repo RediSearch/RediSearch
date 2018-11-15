@@ -70,6 +70,7 @@ static inline void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode cod
   if (status->code != QUERY_OK) {
     return;
   }
+  status->code = code;
   va_list ap;
   va_start(ap, fmt);
   vasprintf(&status->detail, fmt, ap);
