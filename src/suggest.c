@@ -205,7 +205,8 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
       },
       {.name = "OPTIMIZE", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->optimize},
       {.name = "TRIM", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->trim},
-      {.name = "WITHPAYLOADS", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->withPayloads}};
+      {.name = "WITHPAYLOADS", .type = AC_ARGTYPE_BOOLFLAG, .target = &options->withPayloads},
+      {NULL}};
 
   ACArgSpec *errArg = NULL;
   ArgsCursor ac = {0};
@@ -243,7 +244,6 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   SuggestOptions options = {.numResults = 5};
   QueryError status = {0};
   if (parseSuggestOptions(argv + 3, argc - 3, &options, &status) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     goto parse_error;
   }
 
