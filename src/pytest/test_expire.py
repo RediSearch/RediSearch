@@ -1,9 +1,10 @@
 import time
-from RLTest import Env
+import unittest
 
 
-def testExpire():
-    env = Env()
+def testExpire(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ttl', 'idx:idx')
     env.assertTrue(ttl > 2)

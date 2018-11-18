@@ -76,6 +76,8 @@ def testTagGC(env):
 
 
 def testDeleteEntireBlock(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
     # creating 5 blocks on 'checking' inverted index
     for i in range(700):
