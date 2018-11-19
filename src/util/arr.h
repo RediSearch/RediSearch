@@ -97,14 +97,14 @@ static inline array_t array_grow(array_t arr) {
 }
 
 /* Ensures that array_tail will always point to a valid element. */
-#define array_ensure_tail(arrpp, T)                      \
-  ({                                                     \
-    if (!*(arrpp)) {                                     \
-      *(arrpp) = array_new(T, 1);                        \
-    } else {                                             \
-      *(arrpp) = (typeof(*(arrpp)))array_grow(*(arrpp)); \
-    }                                                    \
-    &array_tail(*(arrpp));                               \
+#define array_ensure_tail(arrpp, T)                          \
+  ({                                                         \
+    if (!*(arrpp)) {                                         \
+      *(arrpp) = array_new(T, 1);                            \
+    } else {                                                 \
+      *(arrpp) = (__typeof__(*(arrpp)))array_grow(*(arrpp)); \
+    }                                                        \
+    &array_tail(*(arrpp));                                   \
   })
 
 /*
@@ -140,11 +140,11 @@ static inline array_t array_grow(array_t arr) {
 #define array_tail(arr) (arr[array_hdr(arr)->len - 1])
 
 /* Append an element to the array, returning the array which may have been reallocated */
-#define array_append(arr, x)                \
-  ({                                        \
-    (arr) = (typeof(arr))array_grow((arr)); \
-    array_tail((arr)) = (x);                \
-    (arr);                                  \
+#define array_append(arr, x)                    \
+  ({                                            \
+    (arr) = (__typeof__(arr))array_grow((arr)); \
+    array_tail((arr)) = (x);                    \
+    (arr);                                      \
   })
 
 /* Get the length of the array */
@@ -166,8 +166,8 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   return arr_hdr->buf;
 }
 
-#define array_trimm_len(arr, len) (typeof(arr)) array_trimm(arr, len, -1)
-#define array_trimm_cap(arr, len) (typeof(arr)) array_trimm(arr, len, len)
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, len, -1)
+#define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
 
 /* Free the array, without dealing with individual elements */
 static void array_free(array_t arr) {
@@ -183,7 +183,7 @@ static void array_free(array_t arr) {
 #define array_foreach(arr, as, blk)                 \
   ({                                                \
     for (uint32_t i = 0; i < array_len(arr); i++) { \
-      typeof(*arr) as = arr[i];                     \
+      __typeof__(*arr) as = arr[i];                 \
       blk;                                          \
     }                                               \
   })

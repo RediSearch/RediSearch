@@ -58,10 +58,10 @@ TEST_F(ArrTest, testStrings) {
 
 TEST_F(ArrTest, testTrimm) {
   const char *strs[] = {"foo", "bar", "baz", NULL};
-  char **a = array_new(char *, 16);
+  const char **a = array_new(const char *, 16);
   int i = 0;
   for (i = 0; strs[i] != NULL; i++) {
-    a = array_append(a, strdup(strs[i]));
+    a = array_append(a, strs[i]);
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
@@ -69,6 +69,7 @@ TEST_F(ArrTest, testTrimm) {
   ASSERT_EQ(array_len(a), 2);
   array_trimm_len(a, 1);
   ASSERT_EQ(array_len(a), 1);
+  array_free(a);
 }
 
 TEST_F(ArrTest, testEnsure) {
@@ -87,4 +88,5 @@ TEST_F(ArrTest, testEnsure) {
     ASSERT_EQ(0, f[ii].x);
     ASSERT_EQ(0, f[ii].y);
   }
+  array_free(f);
 }
