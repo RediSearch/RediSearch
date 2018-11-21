@@ -326,7 +326,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
 void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
+  //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
   int count = 0;
   if (tree->root) {
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
