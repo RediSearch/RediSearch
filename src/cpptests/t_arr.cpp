@@ -88,5 +88,14 @@ TEST_F(ArrTest, testEnsure) {
     ASSERT_EQ(0, f[ii].x);
     ASSERT_EQ(0, f[ii].y);
   }
+
+  // Try again with ensure_tail
+  tail = array_ensure_tail(&f, Foo);
+  printf("Assigning to f[0]\n");
+  f->x = 99;
+  f->y = 990;
+  printf("assigning to tail...\n");
+  tail->x = 100;
+  tail->y = 200;
   array_free(f);
 }

@@ -26,6 +26,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +69,9 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
   return (array_t)(hdr->buf);
 }
 
+/* Functions declared as symbols for use in debugger */
+void array_debug(void *pp);
+
 /* Initialize an array for a given type T with a given capacity and zero length. The array should be
  * case to a pointer to that type. e.g.
  *
@@ -80,7 +84,7 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
 /* Initialize an array for a given type T with a given length. The capacity allocated is identical
  * to the length
  *  */
-#define array_newlen(T, len) (array_new_sz(sizeof(T), len, len))
+#define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), len, len))
 
 static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
@@ -97,14 +101,14 @@ static inline array_t array_grow(array_t arr) {
 }
 
 /* Ensures that array_tail will always point to a valid element. */
-#define array_ensure_tail(arrpp, T)                          \
-  ({                                                         \
-    if (!*(arrpp)) {                                         \
-      *(arrpp) = array_new(T, 1);                            \
-    } else {                                                 \
-      *(arrpp) = (__typeof__(*(arrpp)))array_grow(*(arrpp)); \
-    }                                                        \
-    &array_tail(*(arrpp));                                   \
+#define array_ensure_tail(arrpp, T)         \
+  ({                                        \
+    if (!*(arrpp)) {                        \
+      *(arrpp) = array_newlen(T, 1);        \
+    } else {                                \
+      *(arrpp) = (T *)array_grow(*(arrpp)); \
+    }                                       \
+    &(array_tail(*(arrpp)));                \
   })
 
 /*
@@ -124,10 +128,8 @@ static inline array_t array_grow(array_t arr) {
   ({                                                                      \
     if (!(*arrpp)) {                                                      \
       *(arrpp) = array_new(T, 1);                                         \
-      *(arrpp) = (T *)array_grow(*(arrpp));                               \
-      memset(*(arrpp), 0, sizeof(**arrpp));                               \
-    } else if (array_len(*arrpp) > pos) {                                 \
-    } else {                                                              \
+    }                                                                     \
+    if (array_len(*arrpp) <= pos) {                                       \
       size_t curlen = array_len(*arrpp);                                  \
       array_hdr(*arrpp)->len = pos + 1;                                   \
       *arrpp = (T *)array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len); \
@@ -137,7 +139,7 @@ static inline array_t array_grow(array_t arr) {
   })
 
 /* get the last element in the array */
-#define array_tail(arr) (arr[array_hdr(arr)->len - 1])
+#define array_tail(arr) ((arr)[array_hdr(arr)->len - 1])
 
 /* Append an element to the array, returning the array which may have been reallocated */
 #define array_append(arr, x)                    \
