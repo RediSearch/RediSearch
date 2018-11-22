@@ -48,12 +48,6 @@ typedef struct PLN_BaseStep {
  */
 
 /**
- * Returns the last lookup table. This is the table that all prior steps use
- * for their output, and all future steps should use for their input.
- */
-RLookup *AGPLN_GetLastLookup(const AGGPlan *plan);
-
-/**
  * First step. This contains the lookup used for the initial document keys.
  */
 typedef struct {
@@ -120,16 +114,18 @@ struct AGGPlan {
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free(). The
  * length can be extracted with array_len */
-char **AGPLN_Serialize(AggregatePlan *plan);
+char **AGPLN_Serialize(AGGPlan *plan);
 
 /* Free the plan resources, not the plan itself */
-void AGPLN_Free(AggregatePlan *plan);
+void AGPLN_Free(AGGPlan *plan);
 
 /* Print the plan */
-void AGPLN_Print(AggregatePlan *plan);
+void AGPLN_Print(AGGPlan *plan);
 
-void AGPLN_AddStep(AggregatePlan *plan, PLN_BaseStep *step);
-void AGPLN_AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
+void AGPLN_Init(AGGPlan *plan);
+
+void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
+void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange
@@ -139,11 +135,29 @@ void AGPLN_AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AggregatePlan *pln);
 
+typedef enum {
+  // Get the root lookup, stopping at stp if provided
+  AGPLN_GETLOOKUP_FIRST,
+
+  // Gets the previous lookup in respect to stp
+  AGPLN_GETLOOKUP_PREV,
+
+  // Get the last lookup, stopping at bstp
+  AGPLN_GETLOOKUP_LAST,
+
+  // Get the next lookup, starting from bstp
+  AGPLN_GETLOOKUP_NEXT
+} AGPLNGetLookupMode;
+
 /**
- * Gets the lookup table for the current pipeline stage. This can be used to
- * add new inputs and outputs to the current stage.
+ * Get the lookup provided the given mode
+ * @param pln the plan containing the steps
+ * @param bstp - acts as a placeholder for iteration. If mode is FIRST, then
+ *  this acts as a barrier and no lookups after this step are returned. If mode
+ *  is LAST, then this acts as an initializer, and steps before this (inclusive)
+ *  are ignored (NYI).
  */
-RLookup *AGPLN_GetCurrentLookup(AggregatePlan *pln);
+RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
 
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which

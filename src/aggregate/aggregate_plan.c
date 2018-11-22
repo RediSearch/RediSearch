@@ -16,20 +16,15 @@ void AGPLN_Init(AggregatePlan *plan) {
   dllist_append(&plan->steps, &plan->firstStep_s.base.llnodePln);
 }
 
-RLookup *AGPLN_GetLastLookup(const AGGPlan *plan) {
-  for (const DLLIST_node *nn = plan->steps.prev; nn != &plan->steps; nn = nn->prev) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    if (stp->type == PLN_T_ROOT) {
-      return &((PLN_FirstStep *)stp)->lookup;
-    } else if (stp->type == PLN_T_GROUP) {
-      return &((PLN_GroupStep *)stp)->lookup;
-    }
+static RLookup *lookupFromNode(const DLLIST_node *nn) {
+  const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+  if (stp->type == PLN_T_ROOT) {
+    return &((PLN_FirstStep *)stp)->lookup;
+  } else if (stp->type == PLN_T_GROUP) {
+    return &((PLN_GroupStep *)stp)->lookup;
+  } else {
+    return NULL;
   }
-  return NULL;
-}
-
-RLookup *AGPLN_GetCurrentLookup(AGGPlan *pln) {
-  return AGPLN_GetLastLookup(pln);
 }
 
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
@@ -46,6 +41,52 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = calloc(1, sizeof(*ret));
   AGPLN_AddStep(pln, &ret->base);
   return ret;
+}
+
+void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
+  dllist_insert(posstp->llnodePln.prev, posstp->llnodePln.next, &newstp->llnodePln);
+}
+
+RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
+  const DLLIST_node *first = NULL, *last = NULL;
+  int isReverse = 0;
+
+  switch (mode) {
+    case AGPLN_GETLOOKUP_FIRST:
+      first = pln->steps.next;
+      last = bstp ? &bstp->llnodePln : &pln->steps;
+      break;
+    case AGPLN_GETLOOKUP_PREV:
+      first = &pln->steps;
+      last = bstp->llnodePln.prev;
+      isReverse = 1;
+      break;
+    case AGPLN_GETLOOKUP_NEXT:
+      first = bstp->llnodePln.next;
+      last = &pln->steps;
+      break;
+    case AGPLN_GETLOOKUP_LAST:
+      first = bstp ? &bstp->llnodePln : &pln->steps;
+      last = pln->steps.prev;
+      isReverse = 1;
+  }
+
+  if (isReverse) {
+    for (const DLLIST_node *nn = last; nn && nn != first; nn = nn->prev) {
+      RLookup *lk = lookupFromNode(nn);
+      if (lk) {
+        return lk;
+      }
+    }
+  } else {
+    for (const DLLIST_node *nn = first; nn && nn != last; nn = nn->next) {
+      RLookup *lk = lookupFromNode(nn);
+      if (lk) {
+        return lk;
+      }
+    }
+    return NULL;
+  }
 }
 
 #if 0
