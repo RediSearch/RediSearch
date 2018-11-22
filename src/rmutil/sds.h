@@ -33,18 +33,17 @@
 #ifndef __SDS_H
 #define __SDS_H
 
-#define SDS_MAX_PREALLOC (1024 * 1024)
-const char *SDS_NOINIT;
-
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
 
-typedef char *sds;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef char *sds;
+#define SDS_MAX_PREALLOC (1024 * 1024)
+extern const char *SDS_NOINIT;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
