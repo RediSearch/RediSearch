@@ -43,7 +43,7 @@ static inline void ArgsCursor_InitSDS(ArgsCursor *cursor, const sds *argv, int a
   cursor->objs = (void **)argv;
   cursor->type = AC_TYPE_SDS;
   cursor->offset = 0;
-  cursor->argc = 0;
+  cursor->argc = argc;
 }
 
 static inline void ArgsCursor_InitRString(ArgsCursor *cursor, RedisModuleString **argv, int argc) {

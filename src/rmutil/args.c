@@ -20,17 +20,17 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by) {
 
 int AC_AdvanceIfMatch(ArgsCursor *ac, const char *s) {
   const char *cur;
-  int rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
-  if (rv == AC_OK) {
-    if (!strcasecmp(s, cur)) {
-      AC_Advance(ac);
-      return AC_OK;
-    } else {
-      return AC_ERR_ENOENT;
-    }
-  } else {
-    return rv;
+  if (AC_IsAtEnd(ac)) {
+    return 0;
   }
+
+  int rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+  assert(rv == AC_OK);
+  rv = !strcasecmp(s, cur);
+  if (rv) {
+    AC_Advance(ac);
+  }
+  return rv;
 }
 
 #define MAYBE_ADVANCE()            \
@@ -179,7 +179,8 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   unsigned nargs;
   int rv = AC_GetUnsigned(ac, &nargs, 0);
-  if (rv) {
+  if (rv != AC_OK) {
+    printf("Couldn't get varargs..\n");
     return rv;
   }
   return AC_GetSlice(ac, dst, nargs);
