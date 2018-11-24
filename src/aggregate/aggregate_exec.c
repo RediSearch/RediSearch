@@ -4,43 +4,56 @@
 #include "aggregate.h"
 #include "cursor.h"
 
-void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                    struct ConcurrentCmdCtx *cmdCtx) {
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Index name is argv[1]
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  AREQ *r = calloc(1, sizeof(*r));
+  RedisSearchCtx *sctx = NULL;
+
+  QueryError status = {0};
+  if (AREQ_Compile(r, argv + 2, argc - 2, &status) != REDISMODULE_OK) {
+    assert(QueryError_HasError(&status));
+    goto error;
+  }
+
+  // Prepare the query.. this is where the context is applied.
+  sctx = NewSearchCtxC(ctx, indexname);
+  if (!sctx) {
+    QueryError_SetErrorFmt(&status, QUERY_ENOINDEX, "%s: no such index", indexname);
+    goto error;
+  }
+  int rc = AREQ_ApplyContext(r, sctx, &status);
+  SearchCtx_Decref(sctx);
+  if (AREQ_ApplyContext(r, sctx, &status) != REDISMODULE_OK) {
+    assert(QueryError_HasError(&status));
+    goto error;
+  }
+
+  rc = AREQ_BuildPipeline(r, &status);
+  if (rc != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // Now, actually issue the query..
+  AREQ_Execute(r, ctx);
+  return REDISMODULE_OK;
+
+error:
+  if (r) {
+    AREQ_Free(r);
+  }
+
+  return QueryError_ReplyAndClear(ctx, &status);
+}
+
+void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 #if 0
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
-
-  AggregateRequestSettings settings = {};
-  if (!cmdCtx) {
-    settings.flags |= AGGREGATE_REQUEST_NO_CONCURRENT;
-  }
-  AggregateCommand_ExecAggregateEx(ctx, argv, argc, cmdCtx, &settings);
-}
-
-/**
- * File containing top-level execution routines for aggregations
- */
-/*
-  FT.AGGREGATE
-  {idx:string}
-  {FILTER:string}
-  SELECT {nargs:integer} {string} ...
-  GROUPBY
-    {nargs:integer} {string} ...
-    [AS {AS:string}]
-    REDUCE
-      {FUNC:string}
-      {nargs:integer} {string} ...
-      [AS {AS:string}]
-
-
-  [SORTBY {nargs:integer} {string} ...]
-  [PROJECT
-    {FUNC:string}
-    {nargs:integer} {string} ...
-    [AS {AS:string}]
-  ] */
 void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                       struct ConcurrentCmdCtx *cmdCtx,
                                       const AggregateRequestSettings *settings) {

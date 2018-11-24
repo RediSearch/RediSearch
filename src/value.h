@@ -13,6 +13,10 @@
 #include "rmutil/cmdparse.h"
 #include "rmutil/args.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
@@ -48,7 +52,7 @@ typedef enum {
 
 #pragma pack(4)
 // Variant value union
-typedef struct rsvalue {
+typedef struct RSValue {
 
   union {
     // numeric value
@@ -66,7 +70,7 @@ typedef struct rsvalue {
 
     // array value
     struct {
-      struct rsvalue **vals;
+      struct RSValue **vals;
       uint32_t len : 31;
 
       /**
@@ -80,11 +84,19 @@ typedef struct rsvalue {
     struct RedisModuleString *rstrval;
 
     // reference to another value
-    struct rsvalue *ref;
+    struct RSValue *ref;
   };
   RSValueType t : 8;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
+
+#ifdef __cplusplus
+  RSValue() {
+  }
+  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {
+  }
+
+#endif
 } RSValue;
 #pragma pack()
 
@@ -110,6 +122,7 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 
 RSValue *RS_NewValue(RSValueType t);
 
+#ifndef __cplusplus
 static RSValue RS_StaticValue(RSValueType t) {
   RSValue v = (RSValue){
       .t = t,
@@ -118,12 +131,14 @@ static RSValue RS_StaticValue(RSValueType t) {
   };
   return v;
 }
+#endif
 
 void RSValue_SetNumber(RSValue *v, double n);
 void RSValue_SetString(RSValue *v, char *str, size_t len);
 void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
+#ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 
   *dst = (RSValue){
@@ -133,6 +148,8 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
       .ref = RSValue_IncrRef(src),
   };
 }
+#endif
+
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(const RSValue *v) {
   return (RSValue *)(v && v->t == RSValue_Reference ? v->ref : v);
@@ -319,12 +336,16 @@ static inline uint32_t RSValue_ArrayLen(RSValue *arr) {
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v);
 
-void RSValue_Print(RSValue *v);
+void RSValue_Print(const RSValue *v);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
+#ifdef __cplusplus
+#define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
+#else
 #define RSVALUE_STATICALLOC_INIT(T) \
   { .t = T }
+#endif
 
 /** Static value pointers. These don't ever get decremented */
 static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
@@ -358,4 +379,8 @@ static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT
   if (v) {                  \
     RSValue_Decref(v);      \
   }
+
+#ifdef __cplusplus
+}
+#endif
 #endif

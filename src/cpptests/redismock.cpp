@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <climits>
 
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -154,7 +155,7 @@ int RMCK_StringToDouble(RedisModuleString *s, double *outval) {
     return REDISMODULE_ERR;
   }
   if ((errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
-      isnan(value)) {
+      std::isnan(value)) {
     return REDISMODULE_ERR;
   }
   *outval = value;

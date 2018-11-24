@@ -73,11 +73,14 @@ RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
 
 RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   RSExpr *e = newExpr(RSExpr_Predicate);
-  e->pred = (RSPredicate){
-      .cond = cond,
-      .left = left,
-      .right = right,
-  };
+  e->pred.cond = cond;
+  e->pred.left = left;
+  e->pred.right = right;
+  // e->pred = (RSPredicate){
+  //     .cond = cond,
+  //     .left = left,
+  //     .right = right,
+  // };
   return e;
 }
 
@@ -92,8 +95,16 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = strndup(str, len);
+  e->property.lookupObj = NULL;
   return e;
 }
+
+RSExpr *RS_NewInverted(RSExpr *child) {
+  RSExpr *e = newExpr(RSExpr_Inverted);
+  e->inverted.child = child;
+  return e;
+}
+
 void RSArgList_Free(RSArgList *l) {
   if (!l) return;
   for (size_t i = 0; i < l->len; i++) {
@@ -122,11 +133,13 @@ void RSExpr_Free(RSExpr *e) {
     case RSExpr_Property:
       free((char *)e->property.key);
       break;
+    case RSExpr_Inverted:
+      RSExpr_Free(e->inverted.child);
   }
   free(e);
 }
 
-void RSExpr_Print(RSExpr *e) {
+void RSExpr_Print(const RSExpr *e) {
   if (!e) {
     printf("NULL");
     return;
@@ -152,12 +165,6 @@ void RSExpr_Print(RSExpr *e) {
       break;
 
     case RSExpr_Predicate:
-      // NOT of a single predicate
-      if (e->pred.cond == RSCondition_Not) {
-        printf("!");
-        RSExpr_Print(e->pred.left);
-        return;
-      }
       printf("(");
       RSExpr_Print(e->pred.left);
       printf(" %s ", RSConditionStrings[e->pred.cond]);
@@ -167,6 +174,11 @@ void RSExpr_Print(RSExpr *e) {
       break;
     case RSExpr_Property:
       printf("@%s", e->property.key);
+      break;
+    case RSExpr_Inverted:
+      printf("!");
+      RSExpr_Print(e->inverted.child);
+      break;
   }
 }
 
@@ -174,8 +186,14 @@ void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
 }
 
+void ExprAST_Print(const RSExpr *e) {
+  RSExpr_Print(e);
+}
+
 RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
   char *errtmp = NULL;
+  assert(!QueryError_HasError(status));
+
   RSExpr *ret = RSExpr_Parse(e, n, &errtmp);
   if (!ret) {
     QueryError_SetError(status, QUERY_EEXPR, NULL);

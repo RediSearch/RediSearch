@@ -35,3 +35,9 @@ int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueT
   functions_g.len++;
   return 1;
 }
+
+void RegisterAllFunctions() {
+  RegisterMathFunctions();
+  RegisterDateFunctions();
+  RegisterStringFunctions();
+}

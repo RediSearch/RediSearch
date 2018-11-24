@@ -85,6 +85,7 @@ void RSValue_Clear(RSValue *v) {
   }
 
   v->t = RSValue_Undef;
+  v->ref = NULL;
 }
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
@@ -538,7 +539,7 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v) {
   return REDISMODULE_OK;
 }
 
-void RSValue_Print(RSValue *v) {
+void RSValue_Print(const RSValue *v) {
   if (!v) {
     printf("nil");
   }

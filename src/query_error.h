@@ -35,7 +35,8 @@ extern "C" {
   X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                             \
   X(QUERY_EINDEXEXISTS, "Index already exists")                           \
   X(QUERY_EBADOPTION, "Option not supported for current mode")            \
-  X(QUERY_ELIMIT, "Limit exceeded")
+  X(QUERY_ELIMIT, "Limit exceeded")                                       \
+  X(QUERY_ENOINDEX, "Index not found")
 
 typedef enum {
   QUERY_OK = 0,
@@ -76,11 +77,22 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
                          AC_Strerror(rv))
 
-/** Convenience macro to reply the error string to redis and clear the error code */
-#define QERR_REPLY_AND_CLEAR(rctx, qerr)                         \
-  {                                                              \
+/**
+ * Convenience macro to reply the error string to redis and clear the error code.
+ * I'm making this into a macro so I don't need to include redismodule.h
+ */
+#define QueryError_ReplyAndClear(rctx, qerr)                     \
+  ({                                                             \
     RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr)); \
     QueryError_ClearError(qerr);                                 \
+    REDISMODULE_OK;                                              \
+  })
+
+#define QueryError_ReplyNoIndex(rctx, ixname)                                        \
+  {                                                                                  \
+    QueryError qidx__tmp = {0};                                                      \
+    QueryError_SetErrorFmt(&qidx__tmp, QUERY_ENOINDEX, "%s: No such index", ixname); \
+    QueryError_ReplyAndClear(rctx, &qidx__tmp);                                      \
   }
 
 /**

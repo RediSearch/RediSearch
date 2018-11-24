@@ -5,6 +5,9 @@
 #include <util/block_alloc.h>
 #include <result_processor.h>
 #include <query_error.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
   if (argc < minargs || argc > maxargs) {                                                     \
@@ -73,5 +76,9 @@ int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueT
 void RegisterMathFunctions();
 void RegisterStringFunctions();
 void RegisterDateFunctions();
+void RegisterAllFunctions();
 
+#ifdef __cplusplus
+}
+#endif
 #endif

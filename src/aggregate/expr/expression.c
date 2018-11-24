@@ -121,13 +121,23 @@ static int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition o
     case RSCondition_Or:
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
-    case RSCondition_Not:
-      return (RSValue_BoolTest(l) && RSValue_BoolTest(r)) == 0;
-
     default:
       assert("Unknown predicate received" && 0);
       return 0;
   }
+}
+
+static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
+  RSValue tmpval = RSVALUE_STATIC;
+  if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
+    return EXPR_EVAL_ERR;
+  }
+
+  result->numval = !RSValue_BoolTest(&tmpval);
+  result->t = RSValue_Number;
+
+  RSValue_Clear(&tmpval);
+  return EXPR_EVAL_OK;
 }
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
@@ -192,6 +202,8 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
       return evalOp(eval, &e->op, res);
     case RSExpr_Predicate:
       return evalPredicate(eval, &e->pred, res);
+    case RSExpr_Inverted:
+      return evalInverted(eval, &e->inverted, res);
   }
   return EXPR_EVAL_ERR;
 }
@@ -225,8 +237,11 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
       RECURSE(expr->op.right);
       break;
     case RSExpr_Predicate:
-      RECURSE(expr->op.left);
-      RECURSE(expr->op.right);
+      RECURSE(expr->pred.left);
+      RECURSE(expr->pred.right);
+      break;
+    case RSExpr_Inverted:
+      RECURSE(expr->inverted.child);
       break;
     default:
       break;
@@ -331,6 +346,7 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   RPEvaluator *rp = calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
+  rp->base.name = isFilter ? "Filter" : "Projector";
   rp->eval.lookup = lookup;
   rp->eval.root = ast;
   rp->outkey = dstkey;

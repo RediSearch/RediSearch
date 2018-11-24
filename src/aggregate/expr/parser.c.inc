@@ -1065,7 +1065,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 16: /* expr ::= NOT expr */
 #line 64 "parser.y"
-{ yymsp[-1].minor.yy19 = RS_NewPredicate(RSCondition_Not, yymsp[0].minor.yy19, NULL); }
+{ yymsp[-1].minor.yy19 = RS_NewInverted(yymsp[0].minor.yy19); }
 #line 1070 "parser.c"
         break;
       case 17: /* expr ::= STRING */

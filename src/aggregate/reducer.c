@@ -9,10 +9,17 @@ static FuncEntry *globalRegistry = NULL;
 
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
   FuncEntry ent = {.name = name, .fn = factory};
-  *array_ensure_tail(&globalRegistry, FuncEntry) = ent;
+  FuncEntry *tail = array_ensure_tail(&globalRegistry, FuncEntry);
+  *tail = ent;
 }
 
+static int isBuiltinsRegistered = 0;
+
 ReducerFactory RDCR_GetFactory(const char *name) {
+  if (!isBuiltinsRegistered) {
+    isBuiltinsRegistered = 1;
+    RDCR_RegisterBuiltins();
+  }
   size_t n = array_len(globalRegistry);
   for (size_t ii = 0; ii < n; ++ii) {
     if (!strcasecmp(globalRegistry[ii].name, name)) {

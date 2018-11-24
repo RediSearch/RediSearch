@@ -48,10 +48,10 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
   RLookupKey *ret = createNewKey(lookup, name, flags, idx);
   if (FieldSpec_IsSortable(fs)) {
-    flags |= RLOOKUP_F_SVSRC;
+    ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
   } else {
-    flags |= RLOOKUP_F_DOCSRC;
+    ret->flags |= RLOOKUP_F_DOCSRC;
   }
   return ret;
 }
@@ -63,6 +63,9 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     if (!strcmp(kk->name, name)) {
       ret = kk;
+      if (flags & RLOOKUP_F_OEXCL) {
+        return NULL;
+      }
       break;
     }
   }
@@ -123,11 +126,37 @@ void RLookupRow_Wipe(RLookupRow *r) {
       r->ndyn--;
     }
   }
+  r->sv = NULL;
 }
 
 void RLookupRow_Cleanup(RLookupRow *r) {
   RLookupRow_Wipe(r);
-  array_free(r->dyn);
+  if (r->dyn) {
+    array_free(r->dyn);
+  }
+}
+
+void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
+  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+    RSValue *vv = RLookup_GetItem(kk, src);
+    if (vv) {
+      RLookup_WriteKey(kk, dst, vv);
+    }
+  }
+  RLookupRow_Wipe(src);
+}
+
+void RLookupRow_Dump(const RLookupRow *rr) {
+  printf("Row @%p\n", rr);
+  if (rr->dyn) {
+    printf("  DYN @%p\n", rr->dyn);
+    for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
+      printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
+    }
+  }
+  if (rr->sv) {
+    printf("  SV @%p\n", rr->sv);
+  }
 }
 
 void RLookupKey_FreeInternal(RLookupKey *k) {
@@ -138,7 +167,7 @@ void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->head;
   while (cur) {
     next = cur->next;
-    RLKEY_DECREF(cur);
+    RLookupKey_FreeInternal(cur);
     cur = next;
   }
   if (lk->spcache) {
@@ -261,9 +290,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   if (options->loadAllFields) {
     return RLookup_HGETALL(it, dst, options);
-  }
-
-  if (options->loadNonCached) {
+  } else {
     return RLookup_LoadFromSchema(it, dst, options);
   }
 }

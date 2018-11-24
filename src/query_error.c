@@ -56,6 +56,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
   va_start(ap, fmt);
   vasprintf(&status->detail, fmt, ap);
   va_end(ap);
+  status->code = code;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {

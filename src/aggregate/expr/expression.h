@@ -5,6 +5,10 @@
 #include <value.h>
 #include <aggregate/functions/function.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Expression type enum */
 typedef enum {
   /* Literal constant expression */
@@ -17,6 +21,9 @@ typedef enum {
   RSExpr_Function,
   /* Predicate expression, e.g. @foo == 3 */
   RSExpr_Predicate,
+
+  /* NOT expression, i.e. !(....) */
+  RSExpr_Inverted
 } RSExprType;
 
 struct RSExpr;
@@ -42,16 +49,13 @@ typedef enum {
   /* Logical AND of 2 expressions, && */
   RSCondition_And,
   /* Logical OR of 2 expressions, || */
-  RSCondition_Or,
-
-  /* Logical NOT of the left expression only */
-  RSCondition_Not,
+  RSCondition_Or
 } RSCondition;
 
 static const char *RSConditionStrings[] = {
     [RSCondition_Eq] = "==",  [RSCondition_Lt] = "<",  [RSCondition_Le] = "<=",
     [RSCondition_Gt] = ">",   [RSCondition_Ge] = ">=", [RSCondition_Ne] = "!=",
-    [RSCondition_And] = "&&", [RSCondition_Or] = "||", [RSCondition_Not] = "!",
+    [RSCondition_And] = "&&", [RSCondition_Or] = "||",
 };
 
 typedef struct {
@@ -59,6 +63,10 @@ typedef struct {
   struct RSExpr *right;
   RSCondition cond;
 } RSPredicate;
+
+typedef struct {
+  struct RSExpr *child;
+} RSInverted;
 
 typedef struct {
   size_t len;
@@ -73,7 +81,7 @@ typedef struct {
 
 typedef struct {
   const char *key;
-  RLookupKey *lookupObj;
+  const RLookupKey *lookupObj;
 } RSLookupExpr;
 
 typedef struct RSExpr {
@@ -84,6 +92,7 @@ typedef struct RSExpr {
     RSFunctionExpr func;
     RSPredicate pred;
     RSLookupExpr property;
+    RSInverted inverted;
   };
 } RSExpr;
 
@@ -114,7 +123,7 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(RSExpr *expr);
+void ExprAST_Print(const RSExpr *expr);
 RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax
@@ -157,4 +166,7 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  */
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

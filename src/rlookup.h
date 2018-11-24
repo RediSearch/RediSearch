@@ -9,6 +9,10 @@
 #include "sortable.h"
 #include "util/arr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   RLOOKUP_C_STR = 0,
   RLOOKUP_C_INT = 1,
@@ -163,12 +167,26 @@ typedef struct {
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 
 /**
+ * Get a value from the lookup.
+ */
+
+/**
  * Write a value to a lookup table. Key must already be registered, and not
  * refer to a read-only (SVSRC) key.
  *
  * The value written will have its refcount incremented
  */
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
+
+/**
+ * Move data from the source row to the destination row. The source row is cleared.
+ * The destination row should be pre-cleared (though its cache may still
+ * exist).
+ * @param lk lookup common to both rows
+ * @param src the source row
+ * @param dst the destination row
+ */
+void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -191,13 +209,13 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, 
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
   RSValue *ret = NULL;
-  if (array_len(row->dyn) > key->dstidx) {
+  if (row->dyn && array_len(row->dyn) > key->dstidx) {
     ret = row->dyn[key->dstidx];
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
       if (row->sv && row->sv->len > key->svidx) {
-        ret = (RSValue *)row->sv->values + key->svidx;
+        ret = row->sv->values[key->svidx];
       }
     }
   }
@@ -216,6 +234,8 @@ void RLookupRow_Wipe(RLookupRow *row);
  * when the row object will no longer be used.
  */
 void RLookupRow_Cleanup(RLookupRow *row);
+
+void RLookupRow_Dump(const RLookupRow *row);
 
 typedef struct {
   /**
@@ -287,5 +307,9 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
   }
   return NULL;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

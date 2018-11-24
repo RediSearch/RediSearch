@@ -29,6 +29,12 @@ typedef enum {
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
 
+  /* The inverse of IS_EXTENDED. The two cannot coexist together */
+  QEXEC_F_IS_SEARCH = 0x200,
+
+  /* Highlight/summarize options are active */
+  QEXEC_F_SEND_HIGHLIGHT = 0x400
+
 } QEFlags;
 
 typedef enum {
@@ -93,7 +99,29 @@ typedef struct {
 
   /** Set if the query has "timed out". Unset during each iteration */
   int pause;
-} AggregateRequest;
+} AggregateRequest, AREQ;
+
+/**
+ * Compile the request given the arguments. This does not rely on
+ * Redis-specific states and may be unit-tested. This largely just
+ * compiles the options and parses the commands..
+ */
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
+
+/**
+ * This stage will apply the context to the request. During this phase, the
+ * query will be parsed (and matched according to the schema), and the reducers
+ * will be loaded and analyzed.
+ *
+ * This consumes a refcount of the context used.
+ */
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
+
+/**
+ * Constructs the pipeline objects needed to actually start processing
+ * the requests. This does not yet start iterating over the objects
+ */
+int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 // Don't enable concurrent mode.
 #define AGGREGATE_REQUEST_NO_CONCURRENT 0x01
