@@ -1,6 +1,8 @@
 #include "vector.h"
 #include <stdio.h>
 #include "test.h"
+#include "redismodule.h"
+REDISMODULE_INIT_SYMBOLS();
 
 int testVector() {
 

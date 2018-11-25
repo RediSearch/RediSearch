@@ -232,7 +232,7 @@ typedef struct {
   struct RSIndexResult **children;
 
   // A map of the aggregate type of the underlying results
-  RSResultType typeMask;
+  uint32_t typeMask;
 } RSAggregateResult;
 
 #pragma pack(16)
