@@ -174,6 +174,12 @@ static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *st
   int rv = AC_GetVarArgs(ac, &subArgs);
   int isLegacy = 0, legacyDesc = 0;
 
+  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
+  // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
+  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
+  size_t n = 0;
+  const char **keys = NULL;
+
   if (rv != AC_OK) {
     if (allowLegacy && AC_NumRemaining(ac) > 0) {
       // Mimic subArgs to contain the single field we already have
@@ -186,14 +192,11 @@ static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *st
       }
     } else {
       QERR_MKBADARGS_AC(status, "SORTBY", rv);
+      goto err;
     }
   }
 
-  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
-  // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
-  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
-  size_t n = 0;
-  const char **keys = array_new(const char *, 8);
+  keys = array_new(const char *, 8);
 
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
@@ -211,7 +214,7 @@ static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *st
     int state = 0;
     while (!AC_IsAtEnd(&subArgs) && n < sizeof(ascMap) * 8) {
       // New properties are accepted in either state
-      const char *s = AC_GetStringNC(ac, NULL);
+      const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         s++;
         keys = array_append(keys, s);
@@ -238,7 +241,7 @@ static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *st
 
   if (AC_AdvanceIfMatch(&subArgs, "MAX")) {
     unsigned mx = 0;
-    if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
+    if ((rv = AC_GetUnsigned(&subArgs, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
     }
     arng->limit = mx;
