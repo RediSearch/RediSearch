@@ -8,6 +8,10 @@
 #include "trie/trie_type.h"
 #include <time.h>
 
+#if defined(__FreeBSD__)
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
 /** Context passed to all redis related search handling functions. */
 typedef struct {
   RedisModuleCtx *redisCtx;

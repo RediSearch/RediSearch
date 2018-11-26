@@ -7,6 +7,10 @@
 #include <time.h>
 #include <dep/thpool/thpool.h>
 
+#if defined(__FreeBSD__)
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
 /** Concurrent Search Exection Context.
  *
  * We allow queries to run concurrently, each running on its own thread, locking the redis GIL
