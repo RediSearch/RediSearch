@@ -36,7 +36,7 @@
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */
 
-#if defined(__MACH__)
+#if defined(__MACH__) || defined(__FreeBSD__)
 #include <stdlib.h>
 #else
 #include <malloc.h>
