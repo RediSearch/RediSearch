@@ -10,7 +10,7 @@ RUN set -ex;\
     cd docker-build; \
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ -DGIT_DESCRIBE_VERSION="$GIT_DESCRIBE_VERSION"; \
     make -j4; \
-    pip install git+https://github.com/RedisLabs/rmtest@2.0; \
+    pip install git+https://github.com/RedisLabsModules/RLTest; \
     make test;
 
 # Package the runner
