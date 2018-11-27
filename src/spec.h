@@ -130,6 +130,7 @@ typedef enum {
   Index_StoreByteOffsets = 0x40,
   Index_WideSchema = 0x080,
   Index_HasSmap = 0x100,
+  Index_Temporary = 0x200,
   Index_DocIdsOnly = 0x00,
 } IndexFlags;
 

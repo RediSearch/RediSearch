@@ -129,7 +129,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->indexer = GetDocumentIndexer(sp->name);
+  int indexerOptions = 0;
+  if (sp->flags & Index_Temporary) {
+    indexerOptions = INDEXER_THREADLESS;
+  }
+  aCtx->indexer = GetDocumentIndexer(sp->name, indexerOptions);
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {

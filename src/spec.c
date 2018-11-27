@@ -133,7 +133,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
-  if (sp->timeout != -1) {
+  if (sp->flags & Index_Temporary) {
     RedisModule_SetExpire(k, sp->timeout * 1000);
   }
 
@@ -452,6 +452,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       SET_ERR(err, "Invalid expire arg");
       goto failure;
     }
+    spec->flags |= Index_Temporary;
   } else {
     spec->timeout = -1;
   }
@@ -551,16 +552,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   return samples[selection];
 }
 
-void IndexSpec_Free(void *ctx) {
-  IndexSpec *spec = ctx;
-
-  if (spec->timeout != -1) {
-    RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
-    Redis_DropIndex(&sctx, true, false);
-    RedisModule_FreeThreadSafeContext(threadCtx);
-  }
-
+static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -604,6 +596,34 @@ void IndexSpec_Free(void *ctx) {
   rm_free(spec);
 }
 
+static void *IndexSpec_FreeAsync(void *data) {
+  IndexSpec *spec = data;
+  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisModule_AutoMemory(threadCtx);
+  RedisModule_ThreadSafeContextLock(threadCtx);
+
+  Redis_DropIndex(&sctx, true, false);
+  IndexSpec_FreeInternals(spec);
+
+  RedisModule_ThreadSafeContextUnlock(threadCtx);
+  RedisModule_FreeThreadSafeContext(threadCtx);
+  return NULL;
+}
+
+void IndexSpec_Free(void *ctx) {
+
+  IndexSpec *spec = ctx;
+
+  if (spec->flags & Index_Temporary) {
+    static pthread_t dummyThr;
+    pthread_create(&dummyThr, NULL, IndexSpec_FreeAsync, ctx);
+    return;
+  }
+
+  IndexSpec_FreeInternals(spec);
+}
+
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                             RedisModuleKey **keyp) {
   RedisModuleKey *key_s = NULL;
@@ -621,7 +641,7 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
   }
 
   IndexSpec *ret = RedisModule_ModuleTypeGetValue(*keyp);
-  if (ret->timeout != -1) {
+  if (ret->flags & Index_Temporary) {
     RedisModuleKey *temp = RedisModule_OpenKey(ctx, formattedKey, REDISMODULE_WRITE);
     RedisModule_SetExpire(temp, ret->timeout * 1000);
     RedisModule_CloseKey(temp);
@@ -722,7 +742,8 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(!sp->gc);
-  if (RSGlobalConfig.enableGC) {
+  // we will not create a gc thread on temporary index
+  if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);

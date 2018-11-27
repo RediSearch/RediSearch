@@ -152,15 +152,16 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (canBlock) {
-    canBlock = CheckConcurrentSupport(ctx);
-  }
   RedisModule_AutoMemory(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
+  if (canBlock) {
+    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
+  }
+
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
 
   // If the ID is 0, then the document does not exist.

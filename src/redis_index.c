@@ -164,7 +164,7 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   }
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
-  if (sp->timeout != -1 && resetTTL) {
+  if ((sp->flags & Index_Temporary) && resetTTL) {
     RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
     RedisModule_SetExpire(temp, sp->timeout * 1000);
     RedisModule_CloseKey(temp);
@@ -172,7 +172,10 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
+      .spec = sp,
+      .redisCtx = ctx,
+      .key = k,
+      .keyName = keyName,
   };
   return sctx;
 }
@@ -490,23 +493,34 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     DocTable_ForEach(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
 
-  // Delete any dangling term keys
-  RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
-  const char *prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
 
-  // Do the same with geo keys
-  pf = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, "*");
-  prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  TrieIterator *it = Trie_Iterate(ctx->spec->terms, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    RedisModuleString *keyName = fmtRedisTermKey(ctx, res, strlen(res));
+    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
+    RedisModule_FreeString(ctx->redisCtx, keyName);
+    free(res);
+  }
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
+  TrieIterator_Free(it);
 
-  // Delete the numeric and tag indexes which reside on separate keys
+  // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *spec = ctx->spec->fields + i;
     if (spec->type == FIELD_NUMERIC) {
       Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
     } else if (spec->type == FIELD_TAG) {
       Redis_DeleteKey(ctx->redisCtx, TagIndex_FormatName(ctx, spec->name));
+    } else if (spec->type == FIELD_GEO) {
+      Redis_DeleteKey(ctx->redisCtx, RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT,
+                                                                    ctx->spec->name, spec->name));
     }
   }
 
