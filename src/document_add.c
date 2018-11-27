@@ -152,9 +152,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (canBlock) {
-    canBlock = CheckConcurrentSupport(ctx);
-  }
   RedisModule_AutoMemory(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -162,7 +159,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
   if (canBlock) {
-    canBlock = sp->timeout == -1;
+    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
   }
 
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};

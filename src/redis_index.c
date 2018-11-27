@@ -164,7 +164,7 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   }
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
-  if (sp->timeout != -1 && resetTTL) {
+  if ((sp->flags & Index_Temporary) && resetTTL) {
     RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
     RedisModule_SetExpire(temp, sp->timeout * 1000);
     RedisModule_CloseKey(temp);

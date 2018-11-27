@@ -133,7 +133,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
-  if (sp->timeout != -1) {
+  if (sp->flags & Index_Temporary) {
     RedisModule_SetExpire(k, sp->timeout * 1000);
   }
 
@@ -452,6 +452,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
       SET_ERR(err, "Invalid expire arg");
       goto failure;
     }
+    spec->flags |= Index_Temporary;
   } else {
     spec->timeout = -1;
   }
@@ -614,7 +615,7 @@ void IndexSpec_Free(void *ctx) {
 
   IndexSpec *spec = ctx;
 
-  if (spec->timeout != -1) {
+  if (spec->flags & Index_Temporary) {
     static pthread_t dummyThr;
     pthread_create(&dummyThr, NULL, IndexSpec_FreeAsync, ctx);
     return;
@@ -640,7 +641,7 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
   }
 
   IndexSpec *ret = RedisModule_ModuleTypeGetValue(*keyp);
-  if (ret->timeout != -1) {
+  if (ret->flags & Index_Temporary) {
     RedisModuleKey *temp = RedisModule_OpenKey(ctx, formattedKey, REDISMODULE_WRITE);
     RedisModule_SetExpire(temp, ret->timeout * 1000);
     RedisModule_CloseKey(temp);
@@ -742,7 +743,7 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(!sp->gc);
   // we will not create a gc thread on temporary index
-  if (RSGlobalConfig.enableGC && sp->timeout == -1) {
+  if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);

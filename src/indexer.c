@@ -546,7 +546,7 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 // Creates a new DocumentIndexer. This initializes the structure and starts the
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
-static DocumentIndexer *NewDocumentIndexer(const char *name, bool withIndexThread) {
+static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
   indexer->head = indexer->tail = NULL;
 
@@ -555,7 +555,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, bool withIndexThrea
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  if (withIndexThread) {
+  if (!(options & INDEXER_THREADLESS)) {
     pthread_cond_init(&indexer->cond, NULL);
     pthread_mutex_init(&indexer->lock, NULL);
     static pthread_t dummyThr;
@@ -574,7 +574,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, bool withIndexThrea
 
 // Get the document indexer for the given index name. If the indexer does not
 // exist, it is created and placed into the list of indexes
-DocumentIndexer *GetDocumentIndexer(const char *specname, bool withIndexThread) {
+DocumentIndexer *GetDocumentIndexer(const char *specname, int options) {
   DocumentIndexer *match = findDocumentIndexer(specname);
   if (match) {
     return match;
@@ -593,7 +593,7 @@ DocumentIndexer *GetDocumentIndexer(const char *specname, bool withIndexThread) 
     return match;
   }
 
-  DocumentIndexer *newIndexer = NewDocumentIndexer(specname, withIndexThread);
+  DocumentIndexer *newIndexer = NewDocumentIndexer(specname, options);
   newIndexer->next = indexers_g.first;
   indexers_g.first = newIndexer;
   indexers_g.lockMod = 0;

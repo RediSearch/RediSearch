@@ -33,11 +33,13 @@ typedef struct DocumentIndexer {
   BlkAlloc alloc;
 } DocumentIndexer;
 
+#define INDEXER_THREADLESS 0x01
+
 /**
  * Get the indexing thread for the given spec `specname`. If no such thread is
  * running, a new one will be instantiated.
  */
-DocumentIndexer *GetDocumentIndexer(const char *specname, bool withIndexThread);
+DocumentIndexer *GetDocumentIndexer(const char *specname, int options);
 
 /**
  * Add a document to the indexing queue. If successful, the indexer now takes
