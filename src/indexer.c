@@ -153,7 +153,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       ForwardIndexEntry *fwent = merged->head;
 
       // Add the term to the prefix trie. This only needs to be done once per term
-      if(fwent->addToTermsTrie){
+      if (fwent->addToTermsTrie) {
         IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
       }
 
@@ -215,7 +215,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
 
-    if(entry->addToTermsTrie){
+    if (entry->addToTermsTrie) {
       IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
     }
 
@@ -545,7 +545,8 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 
 // Creates a new DocumentIndexer. This initializes the structure and starts the
 // thread. This does not insert it into the list of threads, though
-static DocumentIndexer *NewDocumentIndexer(const char *name) {
+// todo: remove the withIndexThread var once we switch to threadpool
+static DocumentIndexer *NewDocumentIndexer(const char *name, bool withIndexThread) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
   indexer->head = indexer->tail = NULL;
 
@@ -554,10 +555,12 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  pthread_cond_init(&indexer->cond, NULL);
-  pthread_mutex_init(&indexer->lock, NULL);
-  static pthread_t dummyThr;
-  pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+  if (withIndexThread) {
+    pthread_cond_init(&indexer->cond, NULL);
+    pthread_mutex_init(&indexer->lock, NULL);
+    static pthread_t dummyThr;
+    pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+  }
   indexer->name = strdup(name);
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
@@ -571,7 +574,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
 
 // Get the document indexer for the given index name. If the indexer does not
 // exist, it is created and placed into the list of indexes
-DocumentIndexer *GetDocumentIndexer(const char *specname) {
+DocumentIndexer *GetDocumentIndexer(const char *specname, bool withIndexThread) {
   DocumentIndexer *match = findDocumentIndexer(specname);
   if (match) {
     return match;
@@ -590,7 +593,7 @@ DocumentIndexer *GetDocumentIndexer(const char *specname) {
     return match;
   }
 
-  DocumentIndexer *newIndexer = NewDocumentIndexer(specname);
+  DocumentIndexer *newIndexer = NewDocumentIndexer(specname, withIndexThread);
   newIndexer->next = indexers_g.first;
   indexers_g.first = newIndexer;
   indexers_g.lockMod = 0;

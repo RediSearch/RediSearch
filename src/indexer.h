@@ -37,7 +37,7 @@ typedef struct DocumentIndexer {
  * Get the indexing thread for the given spec `specname`. If no such thread is
  * running, a new one will be instantiated.
  */
-DocumentIndexer *GetDocumentIndexer(const char *specname);
+DocumentIndexer *GetDocumentIndexer(const char *specname, bool withIndexThread);
 
 /**
  * Add a document to the indexing queue. If successful, the indexer now takes

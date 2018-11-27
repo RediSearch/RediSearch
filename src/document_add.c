@@ -161,6 +161,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
+  if (canBlock) {
+    canBlock = sp->timeout == -1;
+  }
+
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
 
   // If the ID is 0, then the document does not exist.

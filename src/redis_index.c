@@ -172,7 +172,10 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
-      .spec = sp, .redisCtx = ctx, .key = k, .keyName = keyName,
+      .spec = sp,
+      .redisCtx = ctx,
+      .key = k,
+      .keyName = keyName,
   };
   return sctx;
 }
@@ -490,15 +493,36 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     DocTable_ForEach(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
 
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
+
+  TrieIterator *it = Trie_Iterate(ctx->spec->terms, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    RedisModuleString *keyName = fmtRedisTermKey(ctx, res, strlen(res));
+    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
+    RedisModule_FreeString(ctx->redisCtx, keyName);
+    keyName = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, res);
+    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
+    RedisModule_FreeString(ctx->redisCtx, keyName);
+    free(res);
+  }
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
+  TrieIterator_Free(it);
+
   // Delete any dangling term keys
-  RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
-  const char *prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  //  RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
+  //  const char *prefix = RedisModule_StringPtrLen(pf, NULL);
+  //  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
   // Do the same with geo keys
-  pf = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, "*");
-  prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  //  pf = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, "*");
+  //  prefix = RedisModule_StringPtrLen(pf, NULL);
+  //  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
 
   // Delete the numeric and tag indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {

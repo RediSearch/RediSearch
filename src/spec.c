@@ -551,16 +551,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   return samples[selection];
 }
 
-void IndexSpec_Free(void *ctx) {
-  IndexSpec *spec = ctx;
-
-  if (spec->timeout != -1) {
-    RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
-    Redis_DropIndex(&sctx, true, false);
-    RedisModule_FreeThreadSafeContext(threadCtx);
-  }
-
+static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -602,6 +593,34 @@ void IndexSpec_Free(void *ctx) {
     RedisModule_FreeThreadSafeContext(spec->strCtx);
   }
   rm_free(spec);
+}
+
+static void *IndexSpec_FreeAsync(void *data) {
+  IndexSpec *spec = data;
+  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisModule_AutoMemory(threadCtx);
+  RedisModule_ThreadSafeContextLock(threadCtx);
+
+  Redis_DropIndex(&sctx, true, false);
+  IndexSpec_FreeInternals(spec);
+
+  RedisModule_ThreadSafeContextUnlock(threadCtx);
+  RedisModule_FreeThreadSafeContext(threadCtx);
+  return NULL;
+}
+
+void IndexSpec_Free(void *ctx) {
+
+  IndexSpec *spec = ctx;
+
+  if (spec->timeout != -1) {
+    static pthread_t dummyThr;
+    pthread_create(&dummyThr, NULL, IndexSpec_FreeAsync, ctx);
+    return;
+  }
+
+  IndexSpec_FreeInternals(spec);
 }
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
@@ -722,7 +741,8 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(!sp->gc);
-  if (RSGlobalConfig.enableGC) {
+  // we will not create a gc thread on temporary index
+  if (RSGlobalConfig.enableGC && sp->timeout == -1) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
