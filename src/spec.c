@@ -495,6 +495,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = calloc(1, sizeof(*ret));
   ret->nfields = spec->numFields;
+  ret->fields = malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];

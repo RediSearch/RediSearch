@@ -104,6 +104,9 @@ typedef struct {
   /** Sorting vector attached to document */
   const RSSortingVector *sv;
 
+  /** Module key for data that derives directly from a Redis data type */
+  RedisModuleKey *rmkey;
+
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
 
@@ -251,6 +254,11 @@ typedef struct {
   /** Needed for the key name, and perhaps the sortable */
   const RSDocumentMetadata *dmd;
 
+  /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
+  const RLookupKey **keys;
+  /** Number of keys in keys array */
+  size_t nkeys;
+
   /**
    * The following options control the loading of fields, in case non-SORTABLE
    * fields are desired.
@@ -261,6 +269,15 @@ typedef struct {
 
   /** If set, loads all fields -- even those not SORTABLE in the document */
   int loadNonCached;
+
+  /**
+   * If set, the strings from documents are copied from the key, rather than
+   * pointing to the underlying RMString.
+   *
+   * If this option is set to false (default), then keyobj will always be NULL
+   * and be automatically closed.
+   */
+  int copyStrings;
 
   struct QueryError *status;
 } RLookupLoadOptions;

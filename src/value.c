@@ -258,10 +258,12 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
     case RSValue_Null:
     case RSValue_Array:
+    case RSValue_Undef:
     default:
       return 0;
   }
   // If we have a string - try to parse it
+  printf("Will try to parse %s as strign\n", p);
   if (p) {
     char *e;
     errno = 0;
@@ -319,8 +321,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
-inline const char *RSValue_ConvertStringPtrLen(RSValue *value, size_t *lenp, char *buf,
-                                               size_t buflen) {
+const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
+                                        size_t buflen) {
   value = RSValue_Dereference(value);
 
   if (RSValue_IsString(value)) {
@@ -361,21 +363,31 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   } else {
     list = malloc(sizeof(*list) * n);
   }
-  for (size_t ii = 0; ii < n; ++ii) {
-    RSValue *v = vals[ii];
-    list[ii] = v;
-    if (!v) {
-      continue;
-    }
-    if (!(options & RSVAL_ARRAY_NOINCREF)) {
-      RSValue_IncrRef(v);
-    }
-  }
+
   arr->arrval.vals = list;
-  arr->arrval.len = n;
+
   if (options & RSVAL_ARRAY_STATIC) {
     arr->arrval.staticarray = 1;
+  } else {
+    arr->arrval.staticarray = 0;
   }
+
+  if (!vals) {
+    arr->arrval.len = 0;
+  } else {
+    arr->arrval.len = n;
+    for (size_t ii = 0; ii < n; ++ii) {
+      RSValue *v = vals[ii];
+      list[ii] = v;
+      if (!v) {
+        continue;
+      }
+      if (!(options & RSVAL_ARRAY_NOINCREF)) {
+        RSValue_IncrRef(v);
+      }
+    }
+  }
+
   return arr;
 }
 
@@ -556,6 +568,8 @@ void RSValue_Print(const RSValue *v) {
     case RSValue_Null:
       printf("NULL");
       break;
+    case RSValue_Undef:
+      printf("<Undefined>");
     case RSValue_Array:
       printf("[");
       for (uint32_t i = 0; i < v->arrval.len; i++) {

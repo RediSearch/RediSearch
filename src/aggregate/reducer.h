@@ -113,6 +113,12 @@ typedef struct {
 } ReducerOptions;
 
 /**
+ * Macro to ensure that we don't skip important initialization steps
+ */
+#define REDUCEROPTS_INIT(name_, args_, lk_, statusp_) \
+  { name_, args_, lk_, statusp_ }
+
+/**
  * Utility function to read the next argument as a lookup key.
  * This advances the args variable (ReducerOptions::options) by one.
  *
@@ -123,6 +129,12 @@ typedef struct {
  */
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
+
+/**
+ * This helper function ensures that all of a reducer's arguments are consumed.
+ * Otherwise, an error is raised to the user.
+ */
+int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
 

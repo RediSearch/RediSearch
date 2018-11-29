@@ -145,9 +145,9 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
       v = RS_NullVal();
     }
     hval = RSValue_Hash(v, hval);
-    printf("Hash is %llu. Value is", hval);
-    RSValue_Print(v);
-    printf("\n");
+    // printf("Hash is %llu. Value is", hval);
+    // RSValue_Print(v);
+    // printf("\n");
     groupvals[ii] = v;
   }
 
@@ -180,6 +180,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   }
   if (rc == RS_RESULT_EOF) {
     base->Next = Grouper_rpYield;
+    base->parent->totalResults = kh_size(g->groups);
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
   } else {

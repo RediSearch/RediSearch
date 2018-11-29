@@ -26,14 +26,14 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     QueryError_SetErrorFmt(&status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto error;
   }
-  int rc = AREQ_ApplyContext(r, sctx, &status);
+
   SearchCtx_Decref(sctx);
   if (AREQ_ApplyContext(r, sctx, &status) != REDISMODULE_OK) {
     assert(QueryError_HasError(&status));
     goto error;
   }
 
-  rc = AREQ_BuildPipeline(r, &status);
+  int rc = AREQ_BuildPipeline(r, &status);
   if (rc != REDISMODULE_OK) {
     goto error;
   }

@@ -50,6 +50,8 @@ static void quantileFreeInstance(Reducer *unused, void *p) {
 Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   QTLReducer *r = calloc(1, sizeof(*r));
   r->resolution = 500;  // Fixed, i guess?
+  printf("Hi!\n");
+
   if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
     goto error;
   }
@@ -62,8 +64,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
-  if (!AC_IsAtEnd(options->args)) {
-    QueryError_FmtUnknownArg(options->status, options->args, options->name);
+  if (!ReducerOpts_EnsureArgsConsumed(options)) {
     goto error;
   }
 

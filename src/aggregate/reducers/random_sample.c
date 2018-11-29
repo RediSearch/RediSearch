@@ -7,13 +7,14 @@ typedef struct {
 
 typedef struct {
   size_t seen;  // how many items we've seen
-  RSValue *samples[];
+  RSValue *samplesArray;
 } rsmplCtx;
 
 static void *sampleNewInstance(Reducer *base) {
   RSMPLReducer *r = (RSMPLReducer *)base;
   rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), 10000);
   ctx->seen = 0;
+  ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
   return ctx;
 }
 
@@ -26,13 +27,16 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   if (sc->seen < r->len) {
-    sc->samples[sc->seen++] = RSValue_IncrRef(v);
+    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
+    RSVALUE_ARRLEN(sc->samplesArray)++;
+    assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
   } else {
-    int i = rand() % sc->seen++;
+    size_t i = rand() % sc->seen + 1;
     if (i < r->len) {
-      RSVALUE_REPLACE(sc->samples + i, v);
+      RSVALUE_REPLACE(&RSVALUE_ARRELEM(sc->samplesArray, i), v);
     }
   }
+  sc->seen++;
   return 1;
 }
 
@@ -40,16 +44,16 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
   RSMPLReducer *r = (RSMPLReducer *)rbase;
   size_t len = MIN(r->len, sc->seen);
-  RSValue *ret = RSValue_NewArrayEx(sc->samples, len, RSVAL_ARRAY_ALLOC);
+  RSValue *ret = sc->samplesArray;
+  sc->samplesArray = NULL;
   return ret;
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
   RSMPLReducer *r = (RSMPLReducer *)rbase;
-  size_t len = MIN(r->len, sc->seen);
-  for (size_t ii = 0; ii < len; ++ii) {
-    RSValue_Decref(sc->samples[ii]);
+  if (sc->samplesArray) {
+    RSValue_Decref(sc->samplesArray);
   }
 }
 

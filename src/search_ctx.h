@@ -15,11 +15,13 @@ typedef struct RedisSearchCtx {
   RedisModuleString *keyName;
   IndexSpec *spec;
   ConcurrentSearchCtx *conc;
+  uint32_t refcount;
+  int isStatic;
 } RedisSearchCtx;
 
-#define SEARCH_CTX_STATIC(ctx, sp) \
-  (RedisSearchCtx) {               \
-    .redisCtx = ctx, .spec = sp    \
+#define SEARCH_CTX_STATIC(ctx, sp)             \
+  (RedisSearchCtx) {                           \
+    .redisCtx = ctx, .spec = sp, .isStatic = 1 \
   }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -31,6 +33,13 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
 
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName);
+
+#define SearchCtx_Incref(sctx) (sctx)->refcount++
+
+#define SearchCtx_Decref(sctx) \
+  if (!--((sctx)->refcount)) { \
+    SearchCtx_Free(sctx);      \
+  }
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
 #endif

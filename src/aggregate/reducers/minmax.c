@@ -60,6 +60,7 @@ static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
     free(r);
     return NULL;
   }
+  r->base.NewInstance = minmaxNewInstance;
   r->base.Add = minmaxAdd;
   r->base.Finalize = minmaxFinalize;
   r->base.Free = Reducer_GenericFree;

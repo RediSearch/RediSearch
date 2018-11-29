@@ -96,8 +96,6 @@ void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
 }
 
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  assert(!(key->flags & RLOOKUP_F_SVSRC));
-
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
   if (*vptr) {
@@ -127,6 +125,10 @@ void RLookupRow_Wipe(RLookupRow *r) {
     }
   }
   r->sv = NULL;
+  if (r->rmkey) {
+    RedisModule_CloseKey(r->rmkey);
+    r->rmkey = NULL;
+  }
 }
 
 void RLookupRow_Cleanup(RLookupRow *r) {
@@ -178,7 +180,7 @@ void RLookup_Cleanup(RLookup *lk) {
   lk->head = lk->tail = NULL;
 }
 
-static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
+static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type, int copyStrings) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll = 0;
     RedisModule_StringToLongLong(src, &ll);
@@ -188,67 +190,79 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(src, &n);
-    return RS_NewCopiedString(s, n);
+    if (copyStrings) {
+      size_t n;
+      const char *s = RedisModule_StringPtrLen(src, &n);
+      return RS_NewCopiedString(s, n);
+    } else {
+      return RS_RedisStringVal(src);
+    }
   }
 }
 
-static void maybeWriteFromSV(RSSortingVector *sv, const RLookupKey *kk, RLookupRow *dst) {
-  if (sv->len <= kk->svidx) {
-    return;
+static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options) {
+  if (kk->flags & RLOOKUP_F_SVSRC) {
+    // No need to "write" this key. It's always implicitly loaded!
+    return REDISMODULE_OK;
   }
-  RSValue *v = sv->values[kk->svidx];
-  if (!v) {
-    return;
-  }
-  RLookup_WriteKey(kk, dst, v);
-}
 
-static int RLookup_LoadFromSchema(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
-  // Load the document from the schema. This should be simple enough...
-  for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
-    if (kk->flags & RLOOKUP_F_SVSRC) {
-      maybeWriteFromSV(options->dmd->sortVector, kk, dst);
-      continue;
-    }
-
-    if (!options->loadNonCached) {
-      continue;
-    }
-
-    if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
-      continue;
-    }
-
-    // In this case, the flag must be obtained via HGET
+  // In this case, the flag must be obtained via HGET
+  if (!options->keyobj) {
+    RedisModuleCtx *ctx = options->sctx->redisCtx;
+    RedisModuleString *keyName =
+        RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+    options->keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    RedisModule_FreeString(ctx, keyName);
     if (!options->keyobj) {
-      RedisModuleCtx *ctx = options->sctx->redisCtx;
-      RedisModuleString *keyName =
-          RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-      options->keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
-      RedisModule_FreeString(ctx, keyName);
-      if (!options->keyobj) {
-        QueryError_SetCode(options->status, QUERY_ENODOC);
-        goto error;
-      }
-      if (RedisModule_KeyType(options->keyobj) != REDISMODULE_KEYTYPE_HASH) {
-        QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
+      QueryError_SetCode(options->status, QUERY_ENODOC);
+      return REDISMODULE_ERR;
+    }
+    if (RedisModule_KeyType(options->keyobj) != REDISMODULE_KEYTYPE_HASH) {
+      QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  // Get the actual hash value
+  RedisModuleString *val = NULL;
+  int rc = RedisModule_HashGet(options->keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
+  if (rc != REDISMODULE_OK || val == NULL) {
+    return REDISMODULE_OK;
+  }
+
+  // Value has a reference count of 1
+  RSValue *rsv = hvalToValue(val, kk->fieldtype, options->copyStrings);
+  RLookup_WriteKey(kk, dst, rsv);
+  RSValue_Decref(rsv);
+  return REDISMODULE_OK;
+}
+
+static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+  // Load the document from the schema. This should be simple enough...
+  if (options->nkeys) {
+    for (size_t ii = 0; ii < options->nkeys; ++ii) {
+      const RLookupKey *kk = options->keys[ii];
+      if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
         goto error;
       }
     }
-
-    // Get the actual hash value
-    RedisModuleString *val = NULL;
-    int rc = RedisModule_HashGet(options->keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
-    if (rc != REDISMODULE_OK) {
-      continue;  // Doesn't exist..
+  } else {
+    for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
+      if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
+        continue;
+      }
+      if (!options->loadNonCached && !(kk->flags & RLOOKUP_F_SVSRC)) {
+        continue;
+      }
+      if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
+        goto error;
+      }
     }
+  }
 
-    // Value has a reference count of 1
-    RSValue *rsv = hvalToValue(val, kk->fieldtype);
-    RLookup_WriteKey(kk, dst, rsv);
-    RSValue_Decref(rsv);
+  if (options->keyobj && options->copyStrings) {
+    RedisModule_CloseKey(options->keyobj);
+    options->keyobj = NULL;
   }
   return REDISMODULE_OK;
 
@@ -275,11 +289,9 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       abort();
     }
     if (kk->flags & RLOOKUP_F_SVSRC) {
-      // Can we get this from the sort vector?
-      maybeWriteFromSV(options->dmd->sortVector, kk, dst);
       continue;  // Can load it from the sort vector on demand.
     }
-    RSValue *vv = hvalToValue(dd.fields[ii].text, kk->fieldtype);
+    RSValue *vv = hvalToValue(dd.fields[ii].text, kk->fieldtype, 1);
     RLookup_WriteKey(kk, dst, vv);
     RSValue_Decref(vv);
   }
@@ -291,6 +303,6 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->loadAllFields) {
     return RLookup_HGETALL(it, dst, options);
   } else {
-    return RLookup_LoadFromSchema(it, dst, options);
+    return loadIndividualKeys(it, dst, options);
   }
 }

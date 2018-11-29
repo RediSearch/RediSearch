@@ -60,7 +60,7 @@ static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
   r->base.Add = sumAdd;
   r->base.Finalize = sumFinalize;
   r->base.Free = Reducer_GenericFree;
-  r->isAvg = 0;
+  r->isAvg = isAvg;
   return &r->base;
 }
 

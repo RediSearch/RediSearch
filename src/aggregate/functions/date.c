@@ -12,7 +12,11 @@
 // TIME(propert, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                       QueryError *err) {
-
+  for (size_t ii = 0; ii < argc; ++ii) {
+    printf("TIME: [%lu]: ", ii);
+    RSValue_Print(argv[ii]);
+    printf("\n");
+  }
   VALIDATE_ARGS("time", 1, 2, err);
   const char *fmt = ISOFMT;
   if (argc == 2) {
@@ -24,6 +28,10 @@ static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   double n;
   // value is not a number
   if (!RSValue_ToNumber(argv[0], &n)) {
+    printf("Couldn't convert to numeric (t=%d):\n", argv[0]->t);
+    RSValue_Print(argv[0]);
+    printf("\n");
+    abort();
     goto err;
   }
   time_t tt = (time_t)n;

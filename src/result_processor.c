@@ -37,7 +37,6 @@ void SearchResult_Clear(SearchResult *r) {
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
-  free(r);
 }
 
 static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
@@ -73,7 +72,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   // Read from the root filter until we have a valid result
   while (1) {
     rc = it->Read(it->ctx, &r);
-
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       return RS_RESULT_EOF;
@@ -87,7 +85,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     }
 
     // Increment the total results barring deleted results
-    ++base->parent->totalResults;
+    base->parent->totalResults++;
     break;
   }
 
@@ -96,6 +94,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->indexResult = r;
   res->score = 0;
   res->dmd = dmd;
+  res->rowdata.sv = dmd->sortVector;
   DMD_Incref(dmd);
   return RS_RESULT_OK;
 }
@@ -109,6 +108,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   ret->iiter = root;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
+  ret->base.name = "Index";
   return &ret->base;
 }
 
@@ -147,6 +147,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
     if (res->score == RS_SCORE_FILTEROUT) {
+      printf("Filterout!\n");
       base->parent->totalResults--;
       SearchResult_Clear(res);
     }
@@ -187,6 +188,7 @@ ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *s
   ret->scorerCtx.indexStats = *stats;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
+  ret->base.name = "Scorer";
   return &ret->base;
 }
 
@@ -212,10 +214,7 @@ ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *s
  * finding the top N results
  ********************************************************************************************************************/
 
-typedef enum {
-  SORTMODE_SCORE,
-  SORTMODE_FIELD,
-} RPSortMode;
+typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
 typedef struct {
   ResultProcessor base;
@@ -231,15 +230,13 @@ typedef struct {
   heap_t *pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
-  int (*cmp)(const void *e1, const void *e2, const void *udata);
+  RPSorterCompareFunc cmp;
 
   // private data for the compare function
   void *cmpCtx;
 
   // pooled result - we recycle it to avoid allocations
   SearchResult *pooledResult;
-
-  RPSortMode sortMode;
 
   struct {
     const RLookupKey **keys;
@@ -361,16 +358,23 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
   int ascending = 0;
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < sizeof(self->fieldcmp.ascendMap) * 8; i++) {
+  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
     if (!v1 || !v2) {
+      printf("Couldn't get v1(%p) or v2(%p)\n", v1, v2);
       break;
     }
 
-    int rc = RSValue_Cmp(v1, v2);
     // take the ascending bit for this property from the ascending bitmap
-    ascending = self->fieldcmp.ascendMap & (1 << i) ? 1 : 0;
+    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
+    int rc = RSValue_Cmp(v1, v2);
+    // printf("asc? %d Compare: \n", ascending);
+    // RSValue_Print(v1);
+    // printf(" <=> ");
+    // RSValue_Print(v2);
+    // printf("\n");
+
     if (rc != 0) return ascending ? -rc : rc;
   }
 
@@ -383,27 +387,38 @@ static void srDtor(void *p) {
   free(p);
 }
 
-ResultProcessor *RPSorter_New(size_t maxresults) {
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
+                                      uint64_t ascmap) {
   RPSorter *ret = calloc(1, sizeof(*ret));
-  ret->cmp = cmpByScore;
+  ret->cmp = nkeys ? cmpByFields : cmpByScore;
+  ret->cmpCtx = ret;
+  ret->fieldcmp.ascendMap = ascmap;
+  ret->fieldcmp.keys = keys;
+  ret->fieldcmp.nkeys = nkeys;
+
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->offset = 0;
   ret->pooledResult = NULL;
-  ret->sortMode = SORTMODE_SCORE;
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
+  ret->base.name = "Sorter";
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap) {
-  RPSorter *ret = (RPSorter *)RPSorter_New(maxresults);
-  ret->sortMode = SORTMODE_FIELD;
-  ret->fieldcmp.ascendMap = ascendingMap;
-  ret->fieldcmp.keys = keys;
-  ret->fieldcmp.nkeys = nkeys;
-  return &ret->base;
+ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+}
+
+void SortAscMap_Dump(uint64_t tt, size_t n) {
+  for (size_t ii = 0; ii < n; ++ii) {
+    if (SORTASCMAP_GETASC(tt, ii)) {
+      printf("%u=(A), ", ii);
+    } else {
+      printf("%u=(D)", ii);
+    }
+  }
+  printf("\n");
 }
 
 /*******************************************************************************************************************
@@ -412,8 +427,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
  * The sorter builds a heap of size N, but the pager is responsible for taking result
  * FIRST...FIRST+NUM from it.
  *
- * For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and the
- * pager is responsible for discarding the first 40 results and returning just 10
+ * For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and
+ *the pager is responsible for discarding the first 40 results and returning just 10
  *
  * They are separated so that later on we can cache the sorter's heap, and continue paging it
  * without re-executing the entire query
@@ -442,12 +457,12 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached LIMIT:
   if (self->count >= self->limit + self->offset) {
-    SearchResult_Clear(r);
     return RS_RESULT_EOF;
   }
 
   self->count++;
-  return RS_RESULT_OK;
+  rc = base->upstream->Next(base->upstream, r);
+  return rc;
 }
 
 static void rppagerFree(ResultProcessor *base) {
@@ -459,6 +474,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->limit = limit;
+  ret->base.name = "Pager/Limiter";
   ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
   return &ret->base;
@@ -477,64 +493,6 @@ typedef struct {
   size_t nfields;
 } RPLoader;
 
-static RSValue *getValueFromField(RedisModuleString *origval, int typeCode) {
-  switch (typeCode) {
-    case RLOOKUP_C_DBL: {
-      double d;
-      if (RedisModule_StringToDouble(origval, &d) == REDISMODULE_OK) {
-        return RS_NumVal(d);
-        break;
-      }
-    }
-    default: {
-      return RS_RedisStringVal(origval);
-      // Just store as a string
-    }
-  }
-}
-
-static void loadExplicitFields(const RPLoader *lc, RedisModuleString *idstr, SearchResult *r) {
-
-  RedisModuleKey *k = NULL;
-  int triedOpen = 0;
-  size_t nfields = array_len(lc->fields);
-  const RSDocumentMetadata *dmd = r->dmd;
-  RedisSearchCtx *sctx = lc->base.parent->sctx;
-
-  for (size_t ii = 0; ii < nfields; ++ii) {
-    const RLookupKey *lk = lc->fields[ii];
-    if (lk->flags & RLOOKUP_F_SVSRC) {
-      // Try to get from SORTABLE
-      RSValue *v = RSSortingVector_Get(dmd->sortVector, lk->svidx);
-
-      if (v) {
-        RLookup_WriteKey(lk, &r->rowdata, v);
-      }
-
-    } else {
-      if (triedOpen && !k) {
-        continue;  // not gonna open the key
-      }
-
-      // Otherwise, we need to load from the fieldspec
-      k = RedisModule_OpenKey(sctx->redisCtx, idstr, REDISMODULE_READ);
-      triedOpen = 1;
-      if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-        continue;
-      }
-
-      // Try to get the field
-      RedisModuleString *v = NULL;
-      int rv = RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, lk->name, &v, NULL);
-      if (rv == REDISMODULE_OK && v) {
-        RSValue *rsv = getValueFromField(v, lk->fieldtype);
-        RLookup_WriteKey(k, &r->rowdata, rsv);
-        RSValue_Decref(rsv);
-      }
-    }
-  }
-}
-
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
   int rc = base->upstream->Next(base->upstream, r);
@@ -550,27 +508,15 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_OK;
   }
   RedisSearchCtx *sctx = lc->base.parent->sctx;
-  RedisModuleString *idstr = DMD_CreateKeyString(r->dmd, sctx->redisCtx);
 
-  if (isExplicitReturn) {
-    // Load the document, do all that jazz
-    loadExplicitFields(lc, idstr, r);
-  } else {
-    Document doc = {0};
-    Redis_LoadDocument(sctx, idstr, &doc);
-    for (size_t ii = 0; ii < doc.numFields; ++ii) {
-      if (doc.fields[ii].text) {
-        const char *name = doc.fields[ii].name;
-        RSValue *docval = RS_RedisStringVal(doc.fields[ii].text);
-        RLookup_WriteKeyByName(lc->lk, name, &r->rowdata, docval);
-        RSValue_Decref(docval);
-      }
-      Document_Free(&doc);
-    }
-  }
-
-  // TODO: load should return strings, not redis strings
-  RedisModule_FreeString(sctx->redisCtx, idstr);
+  QueryError status = {0};
+  RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
+                                 .dmd = r->dmd,
+                                 .copyStrings = 0,
+                                 .status = &status,
+                                 .keys = lc->fields,
+                                 .nkeys = lc->nfields};
+  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
   return RS_RESULT_OK;
 }
 
@@ -583,9 +529,19 @@ static void rploaderFree(ResultProcessor *base) {
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   RPLoader *sc = calloc(1, sizeof(*sc));
   sc->nfields = nkeys;
-  sc->fields = keys;
+  sc->fields = calloc(nkeys, sizeof(*sc->fields));
+  memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
+
   sc->lk = lk;
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
+  sc->base.name = "Loader";
   return &sc->base;
+}
+
+void RP_DumpChain(const ResultProcessor *rp) {
+  for (; rp; rp = rp->upstream) {
+    printf("RP(%s) @%p\n", rp->name, rp);
+    assert(rp->upstream != rp);
+  }
 }

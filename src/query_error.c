@@ -1,13 +1,17 @@
 #include "query_error.h"
+#include <assert.h>
+
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
+  assert(!AC_IsAtEnd(ac));
   const char *s;
   size_t n;
-  if (!AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
+  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
     s = "Unknown (FIXME)";
     n = strlen(s);
   }
 
-  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%s.*` for %s", (int)n, s, name);
+  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %u for %s",
+                         (int)n, s, ac->offset, name);
 }
 
 const char *QueryError_Strerror(QueryErrorCode code) {

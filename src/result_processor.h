@@ -178,6 +178,14 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 
 ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *stats);
 
+/** Functions abstracting the sortmap. Hides the bitwise logic */
+#define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
+#define SORTASCMAP_MAXFIELDS 8
+#define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
+#define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
+#define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
+void SortAscMap_Dump(uint64_t v, size_t n);
+
 ResultProcessor *RPSorter_New(size_t maxresults);
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascendingMap);
@@ -194,5 +202,11 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+
+/** Creates a new Highlight processor */
+ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+                                   const RLookup *lookup);
+
+void RP_DumpChain(const ResultProcessor *rp);
 
 #endif  // !RS_RESULT_PROCESSOR_H_

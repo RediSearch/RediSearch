@@ -42,8 +42,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
   return 1;
 }
 
-static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status,
-                           int allowLegacy);
+static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy);
 
 static void ReturnedField_Free(ReturnedField *field) {
   free(field->highlightSettings.openTag);
@@ -138,8 +137,9 @@ static int handleCommonArgs(AggregateRequest *req, ArgsCursor *ac, QueryError *s
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
+    printf("Handling SORTBY..\n");
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
-    if ((parseSortbyArgs(arng, ac, status, allowLegacy)) != REDISMODULE_OK) {
+    if ((parseSortby(arng, ac, status, allowLegacy)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHSCHEMA")) {
@@ -167,17 +167,15 @@ static int handleCommonArgs(AggregateRequest *req, ArgsCursor *ac, QueryError *s
   return ARG_HANDLED;
 }
 
-static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status,
-                           int allowLegacy) {
+static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   // Assume argument is at 'SORTBY'
   ArgsCursor subArgs = {0};
   int rv = AC_GetVarArgs(ac, &subArgs);
   int isLegacy = 0, legacyDesc = 0;
 
-  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 2 desc
+  // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 0 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
-  uint64_t ascMap = 0xFFFFFFFFFFFFFFFF;
-  size_t n = 0;
+  uint64_t ascMap = SORTASCMAP_INIT;
   const char **keys = NULL;
 
   if (rv != AC_OK) {
@@ -205,43 +203,41 @@ static int parseSortbyArgs(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *st
     keys = array_append(keys, s);
 
     if (legacyDesc) {
-      ascMap &= ~(1 << (n - 1));
+      SORTASCMAP_SETDESC(ascMap, 0);
+      ascMap = 0;  // Only one field, not asceding
     }
   } else {
-    // since ASC/DESC are optional, we need a stateful parser
-    // state 0 means we are open only to property names
-    // state 1 means we are open to either a new property or ASC/DESC
-    int state = 0;
-    while (!AC_IsAtEnd(&subArgs) && n < sizeof(ascMap) * 8) {
-      // New properties are accepted in either state
+    while (!AC_IsAtEnd(&subArgs)) {
+      if (array_len(keys) > SORTASCMAP_MAXFIELDS) {
+        QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+        goto err;
+      }
+
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         s++;
         keys = array_append(keys, s);
-      } else if (state == 0) {
-        goto err;
-      } else if (!strcasecmp(s, "asc")) {
-        // For as - we put a 1 in the map. We don't actually need to, this is just for readability
-        ascMap |= 1 << (n - 1);
-        // switch back to state 0, ASC/DESC cannot follow ASC
-        state = 0;
-      } else if (!strcasecmp(s, "desc")) {
-        // We turn the current bit to 0 meaning desc for the Nth property
-        ascMap &= ~(1 << (n - 1));
-        // switch back to state 0, ASC/DESC cannot follow ASC
-        state = 0;
+        continue;
+      }
+
+      if (!strcasecmp(s, "ASC")) {
+        SORTASCMAP_SETASC(ascMap, array_len(keys) - 1);
+      } else if (!strcasecmp(s, "DESC")) {
+        SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
+        QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field");
         goto err;
       }
     }
   }
 
   // Parse optional MAX
-
-  if (AC_AdvanceIfMatch(&subArgs, "MAX")) {
+  // MAX is not included in the normal SORTBY arglist.. so we need to switch
+  // back to `ac`
+  if (AC_AdvanceIfMatch(ac, "MAX")) {
     unsigned mx = 0;
-    if ((rv = AC_GetUnsigned(&subArgs, &mx, 0) != AC_OK)) {
+    if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
     }
     arng->limit = mx;
@@ -439,6 +435,7 @@ static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const
       QERR_MKBADARGS_AC(status, "AS", rv);
       return REDISMODULE_ERR;
     }
+    printf("Alias: %s\n", alias);
   }
   if (alias == NULL) {
     gr->alias = getReducerAlias(g, name, &gr->args);
@@ -452,42 +449,48 @@ static void genericStepFree(PLN_BaseStep *p) {
   free(p);
 }
 
-static PLN_BaseStep *parseGroupbyArgs(ArgsCursor *ac, AggregateRequest *req, QueryError *status) {
+static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs = {0};
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
   int rv = AC_GetVarArgs(ac, &groupArgs);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
-    return NULL;
+    return REDISMODULE_ERR;
   }
 
   // Number of fields.. now let's see the reducers
 
-  PLN_GroupStep *ret = calloc(1, sizeof(*ret));
-  ret->properties = (const char **)groupArgs.objs;
-  ret->nproperties = groupArgs.argc;
-  ret->base.dtor = groupStepFree;
-  ret->base.type = PLN_T_GROUP;
+  PLN_GroupStep *gstp = calloc(1, sizeof(*gstp));
+  gstp->properties = (const char **)groupArgs.objs;
+  gstp->nproperties = groupArgs.argc;
+  gstp->base.dtor = groupStepFree;
+  gstp->base.type = PLN_T_GROUP;
+  AGPLN_AddStep(&req->ap, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     PLN_Reducer *cur;
     const char *name;
     if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
-      return NULL;
+      return REDISMODULE_ERR;
     }
-    cur = array_ensure_tail(&ret->reducers, PLN_Reducer);
+    printf("Reducer: %s\n", name);
+    cur = array_ensure_tail(&gstp->reducers, PLN_Reducer);
 
-    // Get the name
-    int rv = buildReducer(ret, cur, ac, name, status);
+    if (buildReducer(gstp, cur, ac, name, status) != REDISMODULE_OK) {
+      printf("Error for reducer!\n");
+      goto error;
+    }
   }
-  ret->idx = req->serial++;
-  return &ret->base;
+  gstp->idx = req->serial++;
+  return REDISMODULE_OK;
+
+error:
+  return REDISMODULE_ERR;
 }
 
-static int handleApplyOrFilter(AggregateRequest *req, ArgsCursor *ac, QueryError *status,
-                               int isApply) {
+static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
   // Parse filters!
   const char *expr = NULL;
   int rv = AC_GetString(ac, &expr, NULL, 0);
@@ -502,11 +505,16 @@ static int handleApplyOrFilter(AggregateRequest *req, ArgsCursor *ac, QueryError
   stp->rawExpr = expr;
   AGPLN_AddStep(&req->ap, &stp->base);
 
-  if (isApply && AC_AdvanceIfMatch(ac, "AS")) {
-    const char *alias = NULL;
-    if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
-      QERR_MKBADARGS_FMT(status, "AS needs argument");
-      goto error;
+  if (isApply) {
+    if (AC_AdvanceIfMatch(ac, "AS")) {
+      const char *alias;
+      if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
+        QERR_MKBADARGS_FMT(status, "AS needs argument");
+        goto error;
+      }
+      stp->base.alias = strdup(alias);
+    } else {
+      stp->base.alias = strdup(expr);
     }
   }
   return REDISMODULE_OK;
@@ -516,6 +524,23 @@ error:
     stp->base.dtor(&stp->base);
   }
   return REDISMODULE_ERR;
+}
+
+static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor loadfields = {0};
+  int rc = AC_GetVarArgs(ac, &loadfields);
+  if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;
+  }
+
+  PLN_LoadStep *lstp = calloc(1, sizeof(*lstp));
+  lstp->base.type = PLN_T_LOAD;
+  lstp->args = loadfields;
+  lstp->keys = calloc(loadfields.argc, sizeof(*lstp->keys));
+
+  AGPLN_AddStep(&req->ap, &lstp->base);
+  return REDISMODULE_OK;
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
@@ -540,6 +565,9 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   AGPLN_Init(&req->ap);
 
   RSSearchOptions *searchOpts = &req->searchopts;
+  // TODO: Default should be all fields
+  searchOpts->fieldmask = RS_FIELDMASK_ALL;
+
   if (parseQueryArgs(&ac, req, searchOpts, &req->ap, status) != REDISMODULE_OK) {
     goto error;
   }
@@ -560,36 +588,19 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       if (!ensureExtendedMode(req, "GROUPBY", status)) {
         goto error;
       }
-      PLN_BaseStep *groupStep = parseGroupbyArgs(&ac, req, status);
-      if (groupStep) {
-        AGPLN_AddStep(&req->ap, groupStep);
-      } else {
+      if (parseGroupby(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
-      int rv = handleApplyOrFilter(req, &ac, status, 1);
-      if (rv != REDISMODULE_OK) {
+      if (handleApplyOrFilter(req, &ac, status, 1) != REDISMODULE_OK) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
-      /* IGNORE LOAD!! */
-
-      // if (hasLoad) {
-      //   QueryError_SetError(status, QUERY_EPARSEARGS, "LOAD fields already specified!");
-      //   goto error;
-      // }
-      // hasLoad = 1;
-      // ArgsCursor loadFields = {0};
-      // if ((rv = AC_GetVarArgs(&ac, &loadFields) != AC_OK)) {
-      //   QERR_MKBADARGS_AC(status, "LOAD", rv);
-      //   goto error;
-      // }
-      // AggregateStep *loadStep = PLN_AllocStep(AggregateStep_Load);
-      // loadStep->load.fl = (FieldList){0};
-      // loadStep->load.keys = RS_NewMultiKeyFromAC(&loadFields, 1, 1);
+      if (handleLoad(req, &ac, status) != REDISMODULE_OK) {
+        goto error;
+      }
     } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
-      int rv = handleApplyOrFilter(req, &ac, status, 0);
-      if (rv != REDISMODULE_OK) {
+      if (handleApplyOrFilter(req, &ac, status, 0) != REDISMODULE_OK) {
         goto error;
       }
     } else {
@@ -597,8 +608,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       if (rv == ARG_ERROR) {
         goto error;
       } else if (rv == ARG_UNKNOWN) {
-        const char *s = AC_GetStringNC(&ac, NULL);
-        QERR_MKBADARGS_FMT(status, "Unknown argument: %s", s);
+        QueryError_FmtUnknownArg(status, &ac, "<main>");
         goto error;
       }
     }
@@ -610,9 +620,7 @@ error:
 }
 
 static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
-  /**
-   * The following blocks will set filter options on the entire query
-   */
+  /** The following blocks will set filter options on the entire query */
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts->legacy.filters + ii};
@@ -642,7 +650,7 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
  */
 static void onReopen(RedisModuleKey *k, void *privdata) {
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-  AggregateRequest *req = privdata;
+  AREQ *req = privdata;
 
   // If we don't have a spec or key - we abort the query
   if (k == NULL || sp == NULL) {
@@ -699,6 +707,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
+  printf("Query is %s\n", req->query);
+
   int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -707,6 +717,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   applyGlobalFilters(opts, ast, sctx);
 
   if (!(opts->flags & Search_Verbatim)) {
+    printf("Expanding query...\n");
     QAST_Expand(ast, opts->expanderName, opts, sctx);
   }
 
@@ -744,7 +755,8 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = {.name = pr->name, .args = &pr->args, .status = err};
+    printf("Have %lu arguments for reducer\n", AC_NumRemaining(&pr->args));
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -752,7 +764,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
       return NULL;
     }
     Reducer *rr = ff(&options);
-    if (!ff(&options)) {
+    if (!rr) {
       return NULL;
     }
 
@@ -832,7 +844,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   rp = NULL;
 
   ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
-  ResultProcessor *rpUpstream = rp;
+  ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
@@ -842,7 +854,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   rp = RPScorer_New(&req->searchopts, &stats);
   PUSH_RP();
-  for (const DLLIST_node *nn = pln->steps.prev; nn != &pln->steps; nn = nn->next) {
+  for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     printf("Processing STP::Type: %d\n", stp->type);
 
@@ -850,16 +862,22 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       case PLN_T_GROUP: {
         rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status);
         if (!rpUpstream) {
+          printf("Couldn't get grouper..\n");
           goto error;
         }
         break;
       }
 
       case PLN_T_ARRANGE: {
+        int hasRp = 0;
+
         PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
         if (astp->sortKeys) {
           size_t nkeys = array_len(astp->sortKeys);
-          const RLookupKey *sortkeys[nkeys];
+          astp->sortkeysLK = malloc(sizeof(*astp->sortKeys) * nkeys);
+
+          const RLookupKey **sortkeys = astp->sortkeysLK;
+
           RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
           for (size_t ii = 0; ii < nkeys; ++ii) {
@@ -870,10 +888,13 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
               goto error;
             }
           }
+          printf("Creating sorter with %lu fields. ascmap=%llx\n", nkeys, astp->sortAscMap);
+          SortAscMap_Dump(astp->sortAscMap, nkeys);
           rp = RPSorter_NewByFields(astp->offset + astp->limit, sortkeys, nkeys, astp->sortAscMap);
           PUSH_RP();
+          hasRp = 1;
         }
-        if (astp->offset) {
+        if (astp->offset || (astp->limit && !hasRp)) {
           rp = RPPager_New(astp->offset, astp->limit);
           PUSH_RP();
         }
@@ -904,10 +925,45 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         PUSH_RP();
         break;
       }
+
+      case PLN_T_LOAD: {
+        PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+        RLookup *rootLookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_FIRST);
+        if (curLookup != rootLookup) {
+          QueryError_SetError(status, QUERY_EINVAL,
+                              "LOAD cannot be applied after projectors or reducers");
+          goto error;
+        }
+        // Get all the keys for this lookup...
+        while (!AC_IsAtEnd(&lstp->args)) {
+          const char *s = AC_GetStringNC(&lstp->args, NULL);
+          if (*s == '@') {
+            s++;
+          }
+          const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          if (!kk) {
+            printf("Ignoring already-loaded key %s\n", s);
+            continue;
+          }
+          printf("Will try to load %s\n", s);
+          lstp->keys[lstp->nkeys++] = kk;
+        }
+        rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+        PUSH_RP();
+        break;
+      }
+      case PLN_T_ROOT:
+        break;
+      case PLN_T_DISTRIBUTE:
+      case PLN_T_INVALID:
+        // not handled yet
+        abort();
     }
   }
 
-  if (!(req->reqflags & QEXEC_F_IS_EXTENDED) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+  if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+    printf("Injecting final LOOKUP\n");
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     // Add a LOAD step...
     const RLookupKey **loadkeys = NULL;
@@ -937,6 +993,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       PUSH_RP();
     }
   }
+
+  AGPLN_Dump(pln);
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
@@ -959,13 +1017,12 @@ static const RSValue *getSortKey(AggregateRequest *req, const SearchResult *r) {
   return RLookup_GetItem(k, &r->rowdata);
 }
 
-static size_t serializeResult(AggregateRequest *req, RedisModuleCtx *outctx,
-                              const SearchResult *r) {
+static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r) {
   const uint32_t options = req->reqflags;
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count = 0;
 
-  if (dmd) {
+  if (dmd && req->reqflags & QEXEC_F_IS_SEARCH) {
     size_t n;
     const char *s = DMD_KeyPtrLen(dmd, &n);
     RedisModule_ReplyWithStringBuffer(outctx, s, n);
@@ -991,8 +1048,8 @@ static size_t serializeResult(AggregateRequest *req, RedisModuleCtx *outctx,
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
-          /* Serialize double - by prepending "%" to the number, so the coordinator/client can tell
-           * it's a double and not just a numeric string value */
+          /* Serialize double - by prepending "%" to the number, so the coordinator/client can
+           * tell it's a double and not just a numeric string value */
           RedisModule_ReplyWithString(
               outctx, RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval));
           break;
@@ -1024,6 +1081,7 @@ static size_t serializeResult(AggregateRequest *req, RedisModuleCtx *outctx,
 
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
+        printf("Skipping hidden field %s/%p\n", kk->name, kk);
         continue;
       }
       nfields++;
@@ -1056,16 +1114,24 @@ void AREQ_Execute(AggregateRequest *req, RedisModuleCtx *outctx) {
   }
 
   ResultProcessor *rp = req->qiter.endProc;
-  printf("TopLevel RP Name: %s. Limit=%lu\n", rp->name, limit);
+  RP_DumpChain(rp);
 
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while ((rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  rc = rp->Next(rp, &r);
+
+  if (rc == RS_RESULT_OK) {
+    RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+    nelem++;
+    if (++nrows < limit) {
+      nelem += serializeResult(req, outctx, &r);
+    }
+    SearchResult_Clear(&r);
+  }
+
+  while (++nrows < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     // Serialize it as a search result
     nelem += serializeResult(req, outctx, &r);
     SearchResult_Clear(&r);
-    if (++nrows >= limit) {
-      break;
-    }
   }
 
   req->stateflags |= QEXEC_S_SENTONE;

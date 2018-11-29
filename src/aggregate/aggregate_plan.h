@@ -11,12 +11,14 @@ typedef struct AGGPlan AGGPlan, AggregatePlan;
 struct AggregatePlan;
 
 typedef enum {
-  PLN_T_ROOT = 0,
+  PLN_T_INVALID = 0,
+  PLN_T_ROOT = 1,
   PLN_T_GROUP,
   PLN_T_DISTRIBUTE,
   PLN_T_FILTER,
   PLN_T_APPLY,
-  PLN_T_ARRANGE
+  PLN_T_ARRANGE,
+  PLN_T_LOAD
 } PLN_StepType;
 
 typedef enum {
@@ -64,13 +66,21 @@ typedef struct {
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
   PLN_BaseStep base;
-
-  const char **sortKeys;  // array_*
-  uint64_t sortAscMap;    // Mapping of ascending/descending. Bitwise
+  const RLookupKey **sortkeysLK;  // simple array
+  const char **sortKeys;          // array_*
+  uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
 
   uint64_t offset;  // Seek results. If 0, then no paging is applied
   uint64_t limit;   // Number of rows to output
 } PLN_ArrangeStep;
+
+/** LOAD covers any fields not implicitly found within the document */
+typedef struct {
+  PLN_BaseStep base;
+  ArgsCursor args;
+  const RLookupKey **keys;
+  size_t nkeys;
+} PLN_LoadStep;
 
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
@@ -158,6 +168,8 @@ typedef enum {
  *  are ignored (NYI).
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
+
+void AGPLN_Dump(const AGGPlan *pln);
 
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which

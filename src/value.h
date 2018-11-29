@@ -152,7 +152,9 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(const RSValue *v) {
-  return (RSValue *)(v && v->t == RSValue_Reference ? v->ref : v);
+  for (; v && v->t == RSValue_Reference; v = v->ref)
+    ;
+  return (RSValue *)v;
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
@@ -264,7 +266,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp);
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(RSValue *value, size_t *lenp, char *buf, size_t buflen);
+const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
+                                        size_t buflen);
 
 /* Wrap a number into a value object */
 RSValue *RS_NumVal(double n);
@@ -281,7 +284,18 @@ RSValue *RS_ArrVal(RSValue **vals, uint32_t len);
 /* Don't free the underlying list when the array is freed */
 #define RSVAL_ARRAY_STATIC 0x04
 
+/**
+ * Create a new array
+ * @param vals the values to use for the array. If NULL, the array is allocated
+ * as empty, but with enough *capacity* for these values
+ * @param options RSVAL_ARRAY_*
+ */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
+
+/** Accesses the array element at a given position as an l-value */
+#define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
+/** Accesses the array length as an lvalue */
+#define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 

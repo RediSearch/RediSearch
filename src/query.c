@@ -293,6 +293,8 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
+  printf("Opening reader..%s. FieldMask: %lx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
+
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
@@ -703,6 +705,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .opts = opts,
       .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
+      .sctx = sctx,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -719,7 +722,8 @@ void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, Redis
                          .numTokens = q->numTokens,
                          .root = q->root,
                          .opts = *opts,
-                         .ok = 1};
+                         .ok = 1,
+                         .sctx = sctx};
   RSQueryExpanderCtx expCtx = {.query = &qpCtx,
                                .language = opts->language ? opts->language : DEFAULT_LANGUAGE};
 
@@ -829,7 +833,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
         if (bit) {
-          char *f = GetFieldNameByBit(q->sctx->spec, bit);
+          const char *f = GetFieldNameByBit(q->sctx->spec, bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }

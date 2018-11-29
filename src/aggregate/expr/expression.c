@@ -306,14 +306,9 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-
-  if (rc == EXPR_EVAL_OK) {
-    RLookup_WriteKey(pc->outkey, &r->rowdata, pc->val);
-    pc->val = NULL;
-    return RS_RESULT_OK;
-  } else {
-    return RS_RESULT_ERROR;
-  }
+  RLookup_WriteKey(pc->outkey, &r->rowdata, pc->val);
+  pc->val = NULL;
+  return RS_RESULT_OK;
 }
 
 static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {

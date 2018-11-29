@@ -5,19 +5,50 @@
 #include <util/arr.h>
 #include <ctype.h>
 
+static const char *steptypeToString(PLN_StepType type) {
+  switch (type) {
+    case PLN_T_APPLY:
+      return "APPLY";
+    case PLN_T_FILTER:
+      return "FILTER";
+    case PLN_T_ARRANGE:
+      return "LIMIT/MAX/SORTBY";
+    case PLN_T_ROOT:
+      return "<ROOT>";
+    case PLN_T_GROUP:
+      return "GROUPBY";
+    case PLN_T_LOAD:
+      return "LOAD";
+    case PLN_T_DISTRIBUTE:
+      return "DISTRIBUTE";
+    case PLN_T_INVALID:
+    default:
+      return "<UNKNOWN>";
+  }
+}
+
 /* add a step to the plan at its end (before the dummy tail) */
-void AGPLN_AddStep(AggregatePlan *plan, PLN_BaseStep *step) {
+void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
+  printf("Adding step %p (T=%d)\n", step, step->type);
+  assert(step->type > PLN_T_INVALID);
   dllist_append(&plan->steps, &step->llnodePln);
 }
 
-void AGPLN_Init(AggregatePlan *plan) {
+void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
+  assert(newstp->type > PLN_T_INVALID);
+  dllist_insert(posstp->llnodePln.prev, posstp->llnodePln.next, &newstp->llnodePln);
+}
+
+void AGPLN_Init(AGGPlan *plan) {
   memset(plan, 0, sizeof *plan);
   dllist_init(&plan->steps);
   dllist_append(&plan->steps, &plan->firstStep_s.base.llnodePln);
+  plan->firstStep_s.base.type = PLN_T_ROOT;
 }
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {
   const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+  assert(stp->type != PLN_T_INVALID);
   if (stp->type == PLN_T_ROOT) {
     return &((PLN_FirstStep *)stp)->lookup;
   } else if (stp->type == PLN_T_GROUP) {
@@ -39,12 +70,9 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   }
   // If we are still here, then an arrange step does not exist. Create one!
   PLN_ArrangeStep *ret = calloc(1, sizeof(*ret));
+  ret->base.type = PLN_T_ARRANGE;
   AGPLN_AddStep(pln, &ret->base);
   return ret;
-}
-
-void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  dllist_insert(posstp->llnodePln.prev, posstp->llnodePln.next, &newstp->llnodePln);
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
@@ -86,6 +114,21 @@ RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetL
       }
     }
     return NULL;
+  }
+  return NULL;
+}
+
+void AGPLN_Dump(const AGGPlan *pln) {
+  for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
+    RLookup *lk = lookupFromNode(nn);
+    if (lk) {
+      printf("  NEW LOOKUP: %p\n", lk);
+      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
+      }
+    }
   }
 }
 

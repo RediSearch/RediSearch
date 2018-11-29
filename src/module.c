@@ -453,24 +453,8 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 #endif
 
-#define GEN_CONCURRENT_WRAPPER(name, argcond, target, pooltype)                      \
-  static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {         \
-    if (!(argcond)) {                                                                \
-      return RedisModule_WrongArity(ctx);                                            \
-    }                                                                                \
-    if (CheckConcurrentSupport(ctx)) {                                               \
-      return ConcurrentSearch_HandleRedisCommand(pooltype, target, ctx, argv, argc); \
-    } else {                                                                         \
-      target(ctx, argv, argc, NULL);                                                 \
-      return REDISMODULE_OK;                                                         \
-    }                                                                                \
-  }
-
-GEN_CONCURRENT_WRAPPER(CursorCommand, argc >= 4, AggregateCommand_ExecCursor,
-                       CONCURRENT_POOL_SEARCH)
-
-GEN_CONCURRENT_WRAPPER(AggregateCommand, argc >= 3, AggregateCommand_ExecAggregate,
-                       CONCURRENT_POOL_SEARCH);
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
@@ -1114,6 +1098,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
+  // Register aggregation functions
+  RegisterAllFunctions();
+
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
   /* Load extensions if needed */
@@ -1165,7 +1152,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
   // RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, AggregateCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
 
@@ -1195,7 +1182,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, CursorCommand, "readonly", 2, 2, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write", 1, 1, 1);
 
