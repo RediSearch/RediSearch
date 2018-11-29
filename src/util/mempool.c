@@ -61,4 +61,5 @@ void mempool_destroy(mempool_t *p) {
     p->free(p->entries[i]);
   }
   free(p->entries);
+  free(p);
 }
