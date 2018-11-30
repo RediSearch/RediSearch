@@ -17,7 +17,8 @@ GIT_STATUS_PATTERNS = [
 ]
 
 IGNPTRN = [
-        'src/aggregate/expr/lexer.c'
+        'src/aggregate/expr/lexer.c',
+        'src/redismodule.h'
 ]
 
 IGNOREPATHS = []
