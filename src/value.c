@@ -159,29 +159,14 @@ inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   v->strval.stype = t;
   return v;
 }
-inline RSValue *RS_ConstStringVal(char *str, uint32_t len) {
-  return RS_StringValT(str, len, RSString_Const);
-}
-
-/* Wrap a string with length into a value object, assuming the string is a null terminated C
- * string
- */
-inline RSValue *RS_StringValC(char *str) {
-  return RS_StringVal(str, strlen(str));
-}
 
 RSValue *RS_StringValFmt(const char *fmt, ...) {
-
   char *buf;
   va_list ap;
   va_start(ap, fmt);
   vasprintf(&buf, fmt, ap);
   va_end(ap);
   return RS_StringVal(buf, strlen(buf));
-}
-
-inline RSValue *RS_ConstStringValC(char *str) {
-  return RS_StringValT(str, strlen(str), RSString_Const);
 }
 
 /* Wrap a redis string value */
@@ -397,6 +382,7 @@ RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
   RSValue *v = RS_NewValue(RSValue_Array);
   v->arrval.vals = vals;
   v->arrval.len = len;
+  v->arrval.staticarray = 0;
   for (uint32_t i = 0; i < len; i++) {
     RSValue_IncrRef(v->arrval.vals[i]);
   }

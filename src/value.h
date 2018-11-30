@@ -166,14 +166,13 @@ RSValue *RS_StringValFmt(const char *fmt, ...);
 /* Same as RS_StringVal but with explicit string type */
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
-RSValue *RS_ConstStringVal(char *str, uint32_t len);
-
 /* Wrap a string with length into a value object, assuming the string is a null terminated C
  * string
  */
-RSValue *RS_StringValC(char *str);
 
-RSValue *RS_ConstStringValC(char *str);
+#define RS_StringValC(s) RS_StringVal(s, strlen(s))
+#define RS_ConstStringVal(s, n) RS_StringValT(s, n, RSString_Const)
+#define RS_ConstStringValC(s) RS_ConstStringVal(s, strlen(s))
 
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str);
