@@ -154,6 +154,11 @@ void RLookupRow_Dump(const RLookupRow *rr) {
     printf("  DYN @%p\n", rr->dyn);
     for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
       printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
+      if (rr->dyn[ii]) {
+        printf("    ");
+        RSValue_Print(rr->dyn[ii]);
+        printf("\n");
+      }
     }
   }
   if (rr->sv) {
