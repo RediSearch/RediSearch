@@ -152,13 +152,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   RSValue *l_ptr = RSValue_Dereference(&l);
   RSValue *r_ptr = RSValue_Dereference(&r);
 
-  int res;
-  if (l_ptr->t == RSValue_Null || r_ptr->t == RSValue_Null) {
-    // NULL are not comparable
-    res = 0;
-  } else {
-    res = getPredicateBoolean(&l, &r, pred->cond);
-  }
+  int res = getPredicateBoolean(&l, &r, pred->cond);
 
   result->numval = res;
   result->t = RSValue_Number;

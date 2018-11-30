@@ -167,6 +167,7 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("1 < 1", 0);
   TEST_EVAL("1 != 1", 0);
   TEST_EVAL("1 != 'foo'", 1);
+  TEST_EVAL("1 == NULL", 0);
   TEST_EVAL("1 != NULL", 1);
   TEST_EVAL("'foo' == 'foo'", 1);
   TEST_EVAL("'foo' != 'bar'", 1);
