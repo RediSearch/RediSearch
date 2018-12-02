@@ -500,7 +500,19 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {
     delDoc = 1;
   }
-  int rc = DocTable_Delete(&sp->docs, MakeDocKeyR(argv[2]));
+  RSDocumentKey docId = MakeDocKeyR(argv[2]);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  t_docId id = DocTable_GetId(&sp->docs, docId);
+  for (int i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    if (fs->type != FIELD_GEO) {
+      continue;
+    }
+    GeoIndex gi = {.ctx = &sctx, .sp = fs};
+    GeoIndex_Remove(&gi, id);
+  }
+
+  int rc = DocTable_Delete(&sp->docs, docId);
   if (rc == 1) {
     sp->stats.numDocuments--;
 
