@@ -4,37 +4,37 @@
 class ArrTest : public ::testing::Test {};
 
 typedef struct Foo {
-  int x;
+  size_t x;
   double y;
 } Foo;
 
 TEST_F(ArrTest, testStruct) {
   Foo *arr = (Foo *)array_new(Foo, 8);
 
-  for (int i = 0; i < 10; i++) {
+  for (size_t i = 0; i < 10; i++) {
     arr = (Foo *)array_append(arr, (Foo){i});
     ASSERT_EQ(i + 1, array_len(arr));
   }
 
-  for (int i = 0; i < 10; i++) {
+  for (size_t i = 0; i < 10; i++) {
     ASSERT_EQ(i, arr[i].x);
   }
-  array_foreach(arr, elem, printf("%d\n", elem.x));
+  // array_foreach(arr, elem, printf("%d\n", elem.x));
   array_free(arr);
 }
 
 TEST_F(ArrTest, testScalar) {
   int *ia = array_new(int, 8);
-  for (int i = 0; i < 100; i++) {
+  for (size_t i = 0; i < 100; i++) {
     ia = array_append(ia, i);
     ASSERT_EQ(i + 1, array_len(ia));
     ASSERT_EQ(i, array_tail(ia));
   }
 
-  for (int i = 0; i < array_len(ia); i++) {
+  for (size_t i = 0; i < array_len(ia); i++) {
     ASSERT_EQ(i, ia[i]);
 
-    printf("%d %zd\n", ia[i], array_len(ia));
+    // printf("%d %zd\n", ia[i], array_len(ia));
   }
   array_free(ia);
 }
@@ -42,13 +42,13 @@ TEST_F(ArrTest, testScalar) {
 TEST_F(ArrTest, testStrings) {
   const char *strs[] = {"foo", "bar", "baz", NULL};
   char **a = array_new(char *, 1);
-  int i = 0;
+  size_t i = 0;
   for (i = 0; strs[i] != NULL; i++) {
     a = array_append(a, strdup(strs[i]));
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
-  for (int j = 0; j < i; j++) {
+  for (size_t j = 0; j < i; j++) {
     ASSERT_STREQ(strs[j], a[j]);
 
     // printf("%s\n", a[j]);
@@ -59,7 +59,7 @@ TEST_F(ArrTest, testStrings) {
 TEST_F(ArrTest, testTrimm) {
   const char *strs[] = {"foo", "bar", "baz", NULL};
   const char **a = array_new(const char *, 16);
-  int i = 0;
+  size_t i = 0;
   for (i = 0; strs[i] != NULL; i++) {
     a = array_append(a, strs[i]);
     ASSERT_EQ(i + 1, array_len(a));
@@ -91,10 +91,8 @@ TEST_F(ArrTest, testEnsure) {
 
   // Try again with ensure_tail
   tail = array_ensure_tail(&f, Foo);
-  printf("Assigning to f[0]\n");
   f->x = 99;
   f->y = 990;
-  printf("assigning to tail...\n");
   tail->x = 100;
   tail->y = 200;
   array_free(f);

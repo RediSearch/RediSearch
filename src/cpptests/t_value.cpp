@@ -8,6 +8,7 @@ TEST_F(ValueTest, testBasic) {
   ASSERT_EQ(3, v->numval);
   ASSERT_EQ(RSValue_Number, v->t);
   ASSERT_EQ(1, v->refcount);
+  RSValue_Decref(v);
 
   v = RS_NullVal();
   ASSERT_EQ(RSValue_Null, v->t);

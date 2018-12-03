@@ -16,17 +16,27 @@ struct EvalCtx : ExprEval {
   RSValue res_s = {RSValue_Null};
 
   EvalCtx(const char *s) {
-    root = ExprAST_Parse(s, strlen(s), &status_s);
-    if (!root) {
-      assert(QueryError_HasError(&status_s));
-    }
     lookup = NULL;
+    root = NULL;
+    assign(s);
   }
 
   EvalCtx(RSExpr *root_) {
     err = &status_s;
     lookup = NULL;
     root = root_;
+  }
+
+  void assign(const char *s) {
+    clear();
+
+    memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+
+    root = ExprAST_Parse(s, strlen(s), &status_s);
+    if (!root) {
+      assert(QueryError_HasError(&status_s));
+    }
+    lookup = NULL;
   }
 
   int bindLookupKeys() {
@@ -38,6 +48,9 @@ struct EvalCtx : ExprEval {
     return ExprEval_Eval(this, &res_s);
   }
 
+  EvalCtx operator=(EvalCtx &) = delete;
+  EvalCtx(const EvalCtx &) = delete;
+
   RSValue &result() {
     return res_s;
   }
@@ -48,6 +61,22 @@ struct EvalCtx : ExprEval {
 
   operator bool() const {
     return root && !QueryError_HasError(&status_s);
+  }
+
+  void clear() {
+    QueryError_ClearError(&status_s);
+
+    RSValue_Clear(&res_s);
+    memset(&res_s, 0, sizeof(res_s));
+
+    if (root) {
+      ExprAST_Free(const_cast<RSExpr *>(root));
+      root = NULL;
+    }
+  }
+
+  ~EvalCtx() {
+    clear();
   }
 };
 
@@ -94,6 +123,9 @@ TEST_F(ExprTest, testGetFields) {
   auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_F_OCREAT);
   auto *kbaz = RLookup_GetKey(&lk, "baz", RLOOKUP_F_OCREAT);
   int rc = ExprAST_GetLookupKeys(root, &lk, &status);
+  ASSERT_EQ(EXPR_EVAL_OK, rc);
+  RLookup_Cleanup(&lk);
+  ExprAST_Free(root);
 }
 
 TEST_F(ExprTest, testFunction) {
@@ -147,8 +179,8 @@ TEST_F(ExprTest, testPredicate) {
   auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_F_OCREAT);
   auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_F_OCREAT);
   RLookupRow rr = {0};
-  RLookup_WriteKey(kfoo, &rr, RS_NumVal(1));
-  RLookup_WriteKey(kbar, &rr, RS_NumVal(2));
+  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
+  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
   printf("kfoo->dstidx: %lu\n", kfoo->dstidx);
   RLookupRow_Dump(&rr);
   QueryError status = {QueryErrorCode(0)};
@@ -193,6 +225,9 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("!1", 0);
   TEST_EVAL("!('foo' == 'bar')", 1);
   TEST_EVAL("!NULL", 1);
+
+  RLookupRow_Cleanup(&rr);
+  RLookup_Cleanup(&lk);
 }
 
 TEST_F(ExprTest, testNull) {
@@ -202,7 +237,7 @@ TEST_F(ExprTest, testNull) {
   ASSERT_EQ(EXPR_EVAL_OK, rc) << ctx.error();
   ASSERT_TRUE(RSValue_IsNull(&ctx.result()));
 
-  ctx = EvalCtx("null");
+  ctx.assign("null");
   ASSERT_FALSE(ctx);
 }
 
@@ -213,14 +248,18 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookupRow rr = {0};
   RLookupKey *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_F_OCREAT);
   RLookupKey *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_F_OCREAT);
-  RLookup_WriteKey(kfoo, &rr, RS_NumVal(10));
-  RLookup_WriteKey(kbar, &rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+
   ctx.lookup = &lk;
   ctx.srcrow = &rr;
+
   int rc = ctx.bindLookupKeys();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
   RSValue_Print(&ctx.result());
+  RLookupRow_Cleanup(&rr);
+  RLookup_Cleanup(&lk);
 }
