@@ -182,6 +182,13 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
+ * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
+ * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * a leak.
+ */
+void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
+
+/**
  * Move data from the source row to the destination row. The source row is cleared.
  * The destination row should be pre-cleared (though its cache may still
  * exist).
@@ -294,14 +301,6 @@ int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *optio
 
 /** Use incref/decref instead! */
 void RLookupKey_FreeInternal(RLookupKey *k);
-
-#define RLKEY_INCREF(rlk) (rlk)->refcnt++;
-#define RLKEY_DECREF(rlk)           \
-  do {                              \
-    if (!--(rlk)->refcnt) {         \
-      RLookupKey_FreeInternal(rlk); \
-    }                               \
-  } while (0);
 
 /**
  * Initialize the lookup. If cache is provided, then it will be used as an

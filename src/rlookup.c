@@ -95,7 +95,7 @@ void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   }
 }
 
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
+void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
   if (*vptr) {
@@ -103,8 +103,12 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
     row->ndyn--;
   }
   *vptr = v;
-  RSValue_IncrRef(v);
   row->ndyn++;
+}
+
+void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
+  RLookup_WriteOwnKey(key, row, v);
+  RSValue_IncrRef(v);
 }
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
