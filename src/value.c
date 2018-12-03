@@ -398,7 +398,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
     arr[i] = RS_StringValC(p);
   }
   va_end(ap);
-  return RS_ArrVal(arr, sz);
+  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
@@ -408,7 +408,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
   }
-  return RS_ArrVal(arr, sz);
+  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
