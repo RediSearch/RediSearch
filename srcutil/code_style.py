@@ -18,7 +18,8 @@ GIT_STATUS_PATTERNS = [
 
 IGNPTRN = [
         'src/aggregate/expr/lexer.c',
-        'src/redismodule.h'
+        'src/redismodule.h',
+        'src/dep/gtest'
 ]
 
 IGNOREPATHS = []
@@ -80,8 +81,17 @@ else:
 print IGNOREPATHS
 has_error = False
 for f in files:
+    is_skip = True
     if f in IGNOREPATHS:
         print f + ' [SKIP]'
+        continue
+    for p in IGNOREPATHS:
+        if f.startswith(p):
+            print f + ' [SKIP]'
+            is_skip = True
+            break
+
+    if is_skip:
         continue
 
     cmd = ['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f]
