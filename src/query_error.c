@@ -31,7 +31,9 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   if (status->code != QUERY_OK) {
     return;
   }
+  assert(!status->detail);
   status->code = code;
+
   if (err) {
     status->detail = strdup(err);
   } else {
@@ -48,6 +50,7 @@ void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
 void QueryError_ClearError(QueryError *err) {
   if (err->detail) {
     free(err->detail);
+    err->detail = NULL;
   }
   err->code = QUERY_OK;
 }
