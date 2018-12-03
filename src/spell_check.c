@@ -336,7 +336,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
         break;
 
       case QN_NOT:
-        nodes = array_append(nodes, currNode->not.child);
+        nodes = array_append(nodes, currNode->inverted.child);
         break;
 
       case QN_OPTIONAL:

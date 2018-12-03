@@ -78,7 +78,7 @@ void QueryNode_Free(QueryNode *n) {
 
       break;  //
     case QN_NOT:
-      QueryNode_Free(n->not.child);
+      QueryNode_Free(n->inverted.child);
       break;
     case QN_OPTIONAL:
       QueryNode_Free(n->opt.child);
@@ -183,13 +183,13 @@ QueryNode *NewPhraseNode(int exact) {
 
 QueryNode *NewNotNode(QueryNode *n) {
   QueryNode *ret = NewQueryNode(QN_NOT);
-  ret->not.child = n;
+  ret->inverted.child = n;
   return ret;
 }
 
 QueryNode *NewOptionalNode(QueryNode *n) {
   QueryNode *ret = NewQueryNode(QN_OPTIONAL);
-  ret->not.child = n;
+  ret->inverted.child = n;
   return ret;
 }
 
@@ -447,7 +447,7 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
-  QueryNotNode *node = &qn->not;
+  QueryNotNode *node = &qn->inverted;
 
   return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId,
                         qn->opts.weight);
@@ -760,7 +760,7 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
       break;
 
     case QN_NOT:
-      QueryNode_SetFieldMask(n->not.child, mask);
+      QueryNode_SetFieldMask(n->inverted.child, mask);
       break;
     case QN_OPTIONAL:
       QueryNode_SetFieldMask(n->opt.child, mask);
@@ -867,13 +867,13 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
-      s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
+      s = QueryNode_DumpSds(s, q, qs->inverted.child, depth + 1);
       s = doPad(s, depth);
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
-      s = QueryNode_DumpSds(s, q, qs->not.child, depth + 1);
+      s = QueryNode_DumpSds(s, q, qs->inverted.child, depth + 1);
       s = doPad(s, depth);
       break;
 
@@ -970,7 +970,7 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
         break;
 
       case QN_NOT:
-        nodes = array_append(nodes, curr->not.child);
+        nodes = array_append(nodes, curr->inverted.child);
         break;
 
       case QN_OPTIONAL:

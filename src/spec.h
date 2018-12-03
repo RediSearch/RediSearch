@@ -13,6 +13,10 @@
 #include "synonym_map.h"
 #include "query_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
@@ -323,4 +327,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

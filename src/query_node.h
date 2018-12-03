@@ -143,7 +143,7 @@ typedef struct RSQueryNode {
     QueryNumericNode nn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
-    QueryNotNode not;
+    QueryNotNode inverted;
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
     QueryWildcardNode wc;
