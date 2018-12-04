@@ -64,7 +64,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
       aCtx->fspecs[i] = *fs;
       if (dedupe[fs->index]) {
-        aCtx->errorString = DUP_FIELD_ERRSTR;
+        QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, fs->name);
         return -1;
       }
 
@@ -114,7 +114,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
     actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
@@ -123,7 +123,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   // Get a new context
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
   aCtx->stateFlags = 0;
-  aCtx->errorString = NULL;
+  QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
@@ -132,7 +132,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
-    *err = aCtx->errorString;
+    *status = aCtx->status;
+    aCtx->status.detail = NULL;
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }
@@ -160,11 +161,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(ctx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
+  aCtx->donecb(aCtx, ctx, NULL);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -227,7 +224,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   array_free(toLoad);
 
   if (rv != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Error updating document");
+    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
+    aCtx->donecb(aCtx, sctx->redisCtx, NULL);
     AddDocumentCtx_Free(aCtx);
     return 1;
   }
@@ -306,18 +304,18 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
+  QueryError_ClearError(&aCtx->status);
 
   mempool_release(actxPool_g, aCtx);
 }
 
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
-                  fieldData *fdata, const char **errorString)
+                  fieldData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                    \
   static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, \
-                  DocumentField *field, const FieldSpec *fs, fieldData *fdata,      \
-                  const char **errorString)
+                  DocumentField *field, const FieldSpec *fs, fieldData *fdata, QueryError *status)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -372,7 +370,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
   if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-    *errorString = "Could not parse numeric index value";
+    QueryError_SetCode(status, QUERY_EPARSEARGS);
     return -1;
   }
 
@@ -400,7 +398,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
-    *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+    QueryError_SetCode(status, QUERY_EGEOFORMAT);
     return -1;
   }
   *pos = '\0';
@@ -415,7 +413,7 @@ FIELD_BULK_INDEXER(geoIndexer) {
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
   if (rv == REDISMODULE_ERR) {
-    *errorString = "Could not index geo value";
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
     return -1;
   }
   return 0;
@@ -444,7 +442,7 @@ FIELD_BULK_CTOR(tagCtor) {
 FIELD_BULK_INDEXER(tagIndexer) {
   int rc = 0;
   if (!bulk->indexData) {
-    *errorString = "Could not open tag index for indexing";
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     rc = -1;
   } else {
     TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
@@ -506,7 +504,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       continue;
     }
 
-    if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
+    if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
       ourRv = REDISMODULE_ERR;
       goto cleanup;
     }
@@ -519,9 +517,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
 cleanup:
   if (ourRv != REDISMODULE_OK) {
-    if (aCtx->errorString == NULL) {
-      aCtx->errorString = "ERR couldn't index document";
-    }
+    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
@@ -587,10 +583,10 @@ done:
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-#define BAIL(s)            \
-  do {                     \
-    aCtx->errorString = s; \
-    goto done;             \
+#define BAIL(s)                                            \
+  do {                                                     \
+    QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
+    goto done;                                             \
   } while (0);
 
   Document *doc = &aCtx->doc;
@@ -654,11 +650,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(sctx->redisCtx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "OK");
-  }
+  aCtx->donecb(aCtx, sctx->redisCtx, NULL);
   AddDocumentCtx_Free(aCtx);
 }
 

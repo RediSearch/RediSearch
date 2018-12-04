@@ -192,7 +192,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       }
 
       if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
-        aCtx->errorString = "ERR Index is no longer valid!";
+        QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
         return -1;
       }
     }
@@ -233,7 +233,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
     entry = ForwardIndexIterator_Next(&it);
     if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
-      aCtx->errorString = "ERR Index is no longer valid!";
+      QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
       return;
     }
   }
@@ -241,7 +241,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
 /** Assigns a document ID to a single document. */
 static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
-                          const char **errorString) {
+                          QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = &aCtx->doc;
   if (replace) {
@@ -258,7 +258,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
 
   doc->docId = DocTable_Put(table, s, n, doc->score, 0, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
-    *errorString = "Document already exists";
+    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     return -1;
   }
   ++spec->stats.numDocuments;
@@ -280,7 +280,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     assert(!cur->doc.docId);
-    int rv = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->errorString);
+    int rv = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
@@ -332,7 +332,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         bulk->type = fs->type;
         activeBulks[numActiveBulks++] = bulk;
       }
-      if (procs->BulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->errorString) != 0) {
+      if (procs->BulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
@@ -417,7 +417,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 
   if (!ctx.spec) {
-    aCtx->errorString = "ERR Index no longer valid";
+    QueryError_SetCode(&aCtx->status, QUERY_ENOINDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     goto cleanup;
   }
