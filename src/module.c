@@ -503,7 +503,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSDocumentKey docId = MakeDocKeyR(argv[2]);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   t_docId id = DocTable_GetId(&sp->docs, docId);
-  for (int i = 0; i < sp->numFields; ++i) {
+  for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = sp->fields + i;
     if (fs->type != FIELD_GEO) {
       continue;
@@ -513,7 +513,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int rc = DocTable_Delete(&sp->docs, docId);
-  if (rc == 1) {
+  if (rc) {
     sp->stats.numDocuments--;
 
     // If needed - delete the actual doc
