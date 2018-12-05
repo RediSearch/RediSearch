@@ -94,3 +94,11 @@ def testDeleteEntireBlock(env):
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
     for _ in env.reloading_iterator():
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
+
+
+def testDeleteDocWithGoeField(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'GEO').ok()
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
+    env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
+    env.expect('FT.DEL', 'idx', 'doc1').equal(1)
+    env.expect('zrange', 'geo:idx/test2', '0', '-1').equal([])
