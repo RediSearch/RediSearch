@@ -1,0 +1,1 @@
+ADD_LIBRARY(redismock STATIC redismock.cpp util.cpp)
