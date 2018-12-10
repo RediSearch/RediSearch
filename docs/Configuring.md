@@ -1,6 +1,6 @@
 # Run-time configuration
 
-RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
+RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.
 
 ## Passing Configuration Options During Loading
 
@@ -26,7 +26,7 @@ $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 
 ## Setting Configuration Options In Run-Time
 
-As of v1.4.1, the [`FT.CONFIG`](/Commands/#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
+As of v1.4.1, the [`FT.CONFIG`](/redisearch/Commands/#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -89,7 +89,7 @@ $ redis-server --loadmodule ./redisearch.so SAFEMODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/Extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/Extensions) for details.
 
 ### Default
 
@@ -169,7 +169,7 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/Chinese#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/redisearch/Chinese#using_custom_dictionaries) for more details.
 
 ### Default
 
@@ -183,7 +183,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ---
 
-## GC_SCANSIZE 
+## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
 

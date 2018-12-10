@@ -2,36 +2,36 @@
 
 # RediSearch - Redis Powered Search Engine
 
-RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
+RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com).
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).
     * [Latest Release: 1.4.2](https://github.com/RedisLabsModules/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
-    * [Quick Start Guide](/Quick_Start)
+    * [Quick Start Guide](/redisearch/Quick_Start)
     * [Mailing list / Forum](https://groups.google.com/forum/#!forum/redisearch)
 
 !!! tip "Supported Platforms"
     RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
 
-    i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. 
+    i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.
 
 ## Overview
 
-Redisearch implements a search engine on top of Redis, but unlike other Redis 
+Redisearch implements a search engine on top of Redis, but unlike other Redis
 search libraries, it does not use internal data structures like sorted sets.
 
-This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
+This also enables more advanced features, like exact phrase matching and numeric filtering for text queries,
 that are not possible or efficient with traditional Redis search approaches.
 
 ## Client Libraries
 
-Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
-See [Clients Page](/Clients)
+Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.
+See [Clients Page](/redisearch/Clients)
 
 ## Cluster Support and Commercial Version
 
-RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
+RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
 
 ## Primary Features
 
@@ -44,14 +44,12 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Field weights.
 * Auto-complete suggestions (with fuzzy prefix suggestions).
 * Exact Phrase Search, Slop based search.
-* Stemming based query expansion in [many languages](/Stemming/) (using [Snowball](http://snowballstem.org/)).
-* Support for custom functions for query expansion and scoring (see [Extensions](/Extensions)).
+* Stemming based query expansion in [many languages](/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/)).
+* Support for custom functions for query expansion and scoring (see [Extensions](/redisearch/Extensions)).
 * Limiting searches to specific document fields.
 * Numeric filters and ranges.
-* Geo filtering using Redis' own Geo-commands. 
+* Geo filtering using Redis' own Geo-commands.
 * Unicode support (UTF-8 input required).
 * Retrieve full document content or just ids
 * Document deletion and updating with index garbage collection.
 * Partial and conditional document updates.
-
-

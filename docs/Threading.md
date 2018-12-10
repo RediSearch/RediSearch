@@ -4,15 +4,15 @@
 
 ## 1. One Thread To Rule Them All
 
-Redis has been, from its inception, single threaded - and will remain so at least in 4.0. I'm not going to get into the reasons of why that is - but up until now it has been a reality that Redis apps, and more recently Redis Modules such as RediSearch - have to deal with. 
+Redis has been, from its inception, single threaded - and will remain so at least in 4.0. I'm not going to get into the reasons of why that is - but up until now it has been a reality that Redis apps, and more recently Redis Modules such as RediSearch - have to deal with.
 
-While keeping things single-threaded makes Redis simple and fast - the down-side is that long running commands block the entire server for the duration of the query's execution. Most Redis commands are fast so that is not a problem, but commands like [ZUNIONSTORE](https://Redis.io/commands/zunionstore), [LRANGE](https://Redis.io/commands/lrange), [SINTER](https://Redis.io/commands/sinter) and of course the infamous [KEYS](https://Redis.io/commands/keys), can block Redis for seconds or minutes, depending on the size of data they are handling. 
+While keeping things single-threaded makes Redis simple and fast - the down-side is that long running commands block the entire server for the duration of the query's execution. Most Redis commands are fast so that is not a problem, but commands like [ZUNIONSTORE](https://Redis.io/commands/zunionstore), [LRANGE](https://Redis.io/commands/lrange), [SINTER](https://Redis.io/commands/sinter) and of course the infamous [KEYS](https://Redis.io/commands/keys), can block Redis for seconds or minutes, depending on the size of data they are handling.
 
 ## 2. RediSearch and the Single Thread Issue
 
-[RediSearch](https://Redisearch.io) is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine. 
+[RediSearch](https://oss.redislabs.com/redisearch) is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine. 
 
-While it is extremely fast and uses highly optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your data-set and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked. 
+While it is extremely fast and uses highly optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your data-set and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked.
 
 Think, for example, on the a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond, [which is impossible with current hardware](https://gist.github.com/jboner/2841832). The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.
 
@@ -22,17 +22,17 @@ So taking into account that in the real world, search queries may not behave lik
 
 Luckily, Redis BDFL [Salvatore Sanfilippo](https://twitter.com/antirez) has added a revolutionary change just near the finish line of Redis 4.0 and the release of the modules API - **Thread Safe Contexts** and the **Global Lock**.
 
-The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
+The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it.
 
 We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning models, actual parallel processing the background is achievable and easy.
 
 ## 4. Making Search Concurrent
 
-Up until now, the flow of a search query was simple - the query would arrive at a **Command Handler** callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result. 
+Up until now, the flow of a search query was simple - the query would arrive at a **Command Handler** callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result.
 
 To allow concurrency, we adapted the following design:
 
-1. RediSearch has a thread pool for running concurrent search queries. 
+1. RediSearch has a thread pool for running concurrent search queries.
 
 2. When a search request arrives, it gets to the handler, gets parsed on the main thread, and a request object is passed to the thread pool via a queue.
 
@@ -44,9 +44,9 @@ To allow concurrency, we adapted the following design:
 
 6. If enough time has elapsed, the query processor releases the Global Lock, and immediately tries to acquire it again. When the lock is released, the kernel will schedule another thread to run - be it Redis' main thread, or another query thread.
 
-7. When the lock is acquired again - we reopen all Redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been "sleeping"), and continue work from the previous state. 
+7. When the lock is acquired again - we reopen all Redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been "sleeping"), and continue work from the previous state.
 
-Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently. 
+Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently.
 
 > ### Figure 1: Serial vs. Concurrent Search
 > ![Figure 1: Serial vs. Concurrent Search](concurrency.png "Concurrency")
@@ -62,9 +62,9 @@ As a side note - this could have been implemented with a single thread switching
 
 While this is not magic, and if all your queries are slow they will remain slow, and no real parallel processing is done here - this is revolutionary in Redis terms. Think about the old problem of running `KEYS *` in a busy Redis instance. In single threaded operation, this will cause the instance to hang for seconds if not minutes. No it is possible to implement a concurrent version of KEYS in a module, that will hardly affect performance. In fact, Salvatore has already implemented one!
 
-There is, however, a negative effect as well: we sacrifice atomicity of reads and writes for concurrency to a degree. Consider the following situation: One thread is processing a query that should retrieve document A, then yields the execution context; At the same time, another thread deletes or changes document A. The result - the query run by the first thread will not be able to retrieve the document, as it has already been changed or deleted while the thread was "asleep". 
+There is, however, a negative effect as well: we sacrifice atomicity of reads and writes for concurrency to a degree. Consider the following situation: One thread is processing a query that should retrieve document A, then yields the execution context; At the same time, another thread deletes or changes document A. The result - the query run by the first thread will not be able to retrieve the document, as it has already been changed or deleted while the thread was "asleep".
 
-This is of course only relevant to high update/delete loads, and relatively slow and complex queries. In our view, for most use cases this is a sacrifice worth making, and usually query processing is fast enough that the probability of this happening is very low. However, this can be overcome easily: if strong atomicity of the operations is important, it is possible to have RediSearch operate in "safe mode", making all searches and updates atomic, thus making sure that each query refers to the sate of the index at the moment of its invocation. 
+This is of course only relevant to high update/delete loads, and relatively slow and complex queries. In our view, for most use cases this is a sacrifice worth making, and usually query processing is fast enough that the probability of this happening is very low. However, this can be overcome easily: if strong atomicity of the operations is important, it is possible to have RediSearch operate in "safe mode", making all searches and updates atomic, thus making sure that each query refers to the sate of the index at the moment of its invocation.
 
 To enable safe mode and disable query concurrency, you can configure RediSearch at load time: `redis-server --loadmodule redisearch.so SAFEMODE` in command line, or by adding `loadmodule redisearch.so SAFEMODE` to your redis.conf - depending on how you load the module.
 
@@ -84,8 +84,8 @@ I've benchmarked both versions of the module - simple single threaded, and concu
 ![Throughput](img/throughput.png "Throughput Benchmark")
 ![Latency](img/latency.png "Latency Benchmark")
 
-!!! note 
-    While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries. 
+!!! note
+    While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries.
 
 ## 7. Parting Words
 

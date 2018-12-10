@@ -1,8 +1,8 @@
 # Scoring in RediSearch
 
-RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](/Sorting/). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.
+RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](/redisearch/Sorting/). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.
 
-If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/Extensions).
+If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/redisearch/Extensions).
 
 These are the pre-bundled scoring functions available in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a `SCORER` argument in `FT.SEARCH`.
 
