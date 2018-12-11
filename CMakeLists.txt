@@ -10,9 +10,10 @@ ADD_DEFINITIONS(-UNDEBUG)
 SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
+SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_COMMON_FLAGS} -std=gnu99")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_COMMON_FLAGS} -std=c++11 -fno-rtti -fno-exceptions")
 
 IF(RS_RUN_TESTS)
     ENABLE_TESTING()
