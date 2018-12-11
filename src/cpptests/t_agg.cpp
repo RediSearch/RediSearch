@@ -11,27 +11,7 @@
 #include <iostream>
 #include <cstdarg>
 
-extern "C" {
-static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
-      REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-}
-
-class AggTest : public ::testing::Test {
- public:
-  static void SetUpTestCase() {
-    const char *arguments[] = {"SAFEMODE", "NOGC"};
-    // No arguments..
-    RMCK_Bootstrap(my_OnLoad, arguments, 2);
-  }
-
-  void setUp() {
-  }
-};
+class AggTest : public ::testing::Test {};
 
 static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
   printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));

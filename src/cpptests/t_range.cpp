@@ -59,7 +59,7 @@ TEST_F(RangeTest, testRangeIterator) {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT_TRUE(t != NULL);
 
-  const size_t N = 1000000;
+  const size_t N = 100000;
   std::vector<double> lookup;
   std::vector<uint8_t> matched;
   lookup.resize(N + 1);
@@ -133,7 +133,7 @@ TEST_F(RangeTest, testRangeIterator) {
     it->Free(it);
   }
 
-  ASSERT_EQ(t->numRanges, 145);
+  ASSERT_EQ(t->numRanges, 14);
   ASSERT_EQ(t->numEntries, N);
   NumericRangeTree_Free(t);
 }
