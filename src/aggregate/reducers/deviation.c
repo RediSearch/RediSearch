@@ -60,10 +60,6 @@ static RSValue *stddevFinalize(Reducer *parent, void *instance) {
   return RS_NumVal(stddev);
 }
 
-static void stddevFreeInstance(Reducer *r, void *p) {
-  free(p);
-}
-
 Reducer *RDCRStdDev_New(const ReducerOptions *options) {
   Reducer *r = calloc(1, sizeof(*r));
   if (!ReducerOptions_GetKey(options, &r->srckey)) {
@@ -73,7 +69,6 @@ Reducer *RDCRStdDev_New(const ReducerOptions *options) {
   r->Add = stddevAdd;
   r->Finalize = stddevFinalize;
   r->Free = Reducer_GenericFree;
-  r->FreeInstance = stddevFreeInstance;
   r->NewInstance = stddevNewInstance;
   r->reducerId = REDUCER_T_STDDEV;
   return r;

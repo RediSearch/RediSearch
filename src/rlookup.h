@@ -247,6 +247,17 @@ void RLookupRow_Cleanup(RLookupRow *row);
 
 void RLookupRow_Dump(const RLookupRow *row);
 
+typedef enum {
+  /* Use keylist (keys/nkeys) for the fields to list */
+  RLOOKUP_LOAD_KEYLIST,
+  /* Load only cached keys (don't open keys) */
+  RLOOKUP_LOAD_SVKEYS,
+  /* Load all keys in the document */
+  RLOOKUP_LOAD_ALLKEYS,
+  /* Load all the keys in the RLookup object */
+  RLOOKUP_LOAD_LKKEYS
+} RLookupLoadFlags;
+
 typedef struct {
   /**
    * If loadAllFields or loadNonCached is true, then this contains the pointer
@@ -270,12 +281,7 @@ typedef struct {
    * The following options control the loading of fields, in case non-SORTABLE
    * fields are desired.
    */
-
-  /** If set, loads all fields in the document. Uses HGETALL */
-  int loadAllFields;
-
-  /** If set, loads all fields -- even those not SORTABLE in the document */
-  int loadNonCached;
+  RLookupLoadFlags mode;
 
   /**
    * If set, the strings from documents are copied from the key, rather than

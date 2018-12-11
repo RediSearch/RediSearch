@@ -42,28 +42,33 @@ static int parseDoubleRange(const char *s, int *inclusive, double *target, int i
  *  Returns a numeric filter on success, NULL if there was a problem with the
  * arguments
  */
-int NumericFilter_Parse(NumericFilter *nf, ArgsCursor *ac, QueryError *status) {
+NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
-    return REDISMODULE_ERR;
+    return NULL;
   }
+
+  NumericFilter *nf = calloc(1, sizeof(*nf));
 
   // make sure we have an index spec for this filter and it's indeed numeric
   nf->inclusiveMax = 1;
   nf->inclusiveMin = 1;
   nf->min = 0;
   nf->max = 0;
+  nf->fieldName = strdup(AC_GetStringNC(ac, NULL));
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
   if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+    NumericFilter_Free(nf);
+    return NULL;
   }
   s = AC_GetStringNC(ac, NULL);
   if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 1, status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+    NumericFilter_Free(nf);
+    return NULL;
   }
-  return REDISMODULE_OK;
+  return nf;
 }
 
 void NumericFilter_Free(NumericFilter *nf) {

@@ -549,10 +549,15 @@ DECODER(readNumeric) {
     }
   }
 
+  // printf("res->num.value: %lf\n", res->num.value);
+
   NumericFilter *f = ctx.ptr;
   if (f) {
-    return NumericFilter_Match(f, res->num.value);
+    int rv = NumericFilter_Match(f, res->num.value);
+    // printf("Checking against filter: %d\n", rv);
+    return rv;
   }
+  // printf("Field matches.. hurray!\n");
   return 1;
 }
 

@@ -345,7 +345,7 @@ IndexIterator *NewNumericRangeIterator(NumericRange *nr, const NumericFilter *f)
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-static IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f) {
+IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {

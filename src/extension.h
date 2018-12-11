@@ -21,7 +21,7 @@ typedef struct {
 } ExtQueryExpanderCtx;
 
 /* Get a scoring function by name. Returns NULL if no such scoring function exists */
-ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
+ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name);
 
 /* Get a query expander function by name. Returns NULL if no such function exists */
 ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);

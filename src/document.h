@@ -10,6 +10,10 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 /// General Architecture                                                     ///
@@ -287,4 +291,9 @@ int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
+                   QueryError *status);
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -326,7 +326,7 @@ static void II_Rewind(void *ctx) {
 
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
-
+  // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
   ctx->its = its;
   ctx->num = num;
@@ -493,17 +493,21 @@ static int II_Read(void *ctx, RSIndexResult **hit) {
 
       // // make sure the flags are matching.
       if ((ic->current->fieldMask & ic->fieldMask) == 0) {
+        // printf("Field masks don't match!\n");
         continue;
       }
 
       // If we need to match slop and order, we do it now, and possibly skip the result
       if (ic->maxSlop >= 0) {
+        // printf("Checking SLOP... (%d)\n", ic->maxSlop);
         if (!IndexResult_IsWithinRange(ic->current, ic->maxSlop, ic->inOrder)) {
+          // printf("Not within range!\n");
           continue;
         }
       }
 
       ic->len++;
+      // printf("Returning OK\n");
       return INDEXREAD_OK;
     }
   } while (1);

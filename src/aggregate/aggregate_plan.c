@@ -32,6 +32,11 @@ void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
   printf("Adding step %p (T=%d)\n", step, step->type);
   assert(step->type > PLN_T_INVALID);
   dllist_append(&plan->steps, &step->llnodePln);
+  plan->steptypes |= (1 << (step->type - 1));
+}
+
+int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
+  return (pln->steptypes & (1 << (t - 1)));
 }
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
@@ -56,6 +61,26 @@ static RLookup *lookupFromNode(const DLLIST_node *nn) {
   } else {
     return NULL;
   }
+}
+
+const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin,
+                                   const PLN_BaseStep *end, PLN_StepType type) {
+  if (!begin) {
+    begin = DLLIST_ITEM(pln->steps.next, PLN_BaseStep, llnodePln);
+  }
+  if (!end) {
+    end = DLLIST_ITEM(&pln->steps, PLN_BaseStep, llnodePln);
+  }
+  for (const PLN_BaseStep *bstp = begin; bstp != end;
+       bstp = DLLIST_ITEM(bstp->llnodePln.next, PLN_BaseStep, llnodePln)) {
+    if (bstp->type == type) {
+      return bstp;
+    }
+    if (type == PLANTYPE_ANY_REDUCER && PLN_IsReduce(bstp)) {
+      return bstp;
+    }
+  }
+  return NULL;
 }
 
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
@@ -118,6 +143,17 @@ RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetL
   return NULL;
 }
 
+void AGPLN_FreeSteps(AGGPlan *pln) {
+  DLLIST_node *nn = pln->steps.next;
+  while (nn && nn != &pln->steps) {
+    PLN_BaseStep *bstp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    nn = nn->next;
+    if (bstp->dtor) {
+      bstp->dtor(bstp);
+    }
+  }
+}
+
 void AGPLN_Dump(const AGGPlan *pln) {
   for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
@@ -131,201 +167,3 @@ void AGPLN_Dump(const AGGPlan *pln) {
     }
   }
 }
-
-#if 0
-void arrPushStrdup(char ***v, const char *s) {
-  char *c = strdup(s);
-  *v = array_append(*v, c);
-}
-
-void arrPushStrfmt(char ***v, const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  char *c;
-  vasprintf(&c, fmt, ap);
-  va_end(ap);
-
-  *v = array_append(*v, c);
-}
-
-void serializeGroup(AggregateGroupStep *g, char ***v) {
-  arrPushStrdup(v, "GROUPBY");
-  arrPushStrfmt(v, "%d", g->properties->len);
-
-  for (int i = 0; i < g->properties->len; i++) {
-    arrPushStrfmt(v, "@%s", g->properties->keys[i].key);
-  }
-  for (int i = 0; i < array_len(g->reducers); i++) {
-    arrPushStrdup(v, "REDUCE");
-    arrPushStrdup(v, g->reducers[i].name);
-    arrPushStrfmt(v, "%d", array_len(g->reducers[i].args));
-    if (g->reducers[i].args) {
-      RSValue tmp = {.allocated = 0};
-
-      for (int j = 0; j < array_len(g->reducers[i].args); j++) {
-        RSValue_ToString(&tmp, g->reducers[i].args[j]);
-        arrPushStrdup(v, RSValue_StringPtrLen(&tmp, NULL));
-        RSValue_Free(&tmp);
-      }
-    }
-    if (g->reducers[i].alias) {
-      arrPushStrdup(v, "AS");
-      arrPushStrdup(v, g->reducers[i].alias);
-    }
-  }
-}
-
-void serializeSort(AggregateSortStep *s, char ***v) {
-  arrPushStrdup(v, "SORTBY");
-  arrPushStrfmt(v, "%d", s->keys->len * 2);
-  for (int i = 0; i < s->keys->len; i++) {
-    arrPushStrfmt(v, "@%s", s->keys->keys[i].key);
-    arrPushStrdup(v, s->ascMap & (1 << i) ? "ASC" : "DESC");
-  }
-  if (s->max) {
-    arrPushStrdup(v, "MAX");
-    arrPushStrfmt(v, "%d", s->max);
-  }
-}
-
-void serializeApply(AggregateApplyStep *a, char ***v) {
-  arrPushStrdup(v, "APPLY");
-  arrPushStrdup(v, a->rawExpr);
-  arrPushStrdup(v, "AS");
-  arrPushStrdup(v, a->alias);
-}
-
-void serializeFilter(AggregateFilterStep *f, char ***v) {
-  arrPushStrdup(v, "FILTER");
-  arrPushStrdup(v, f->rawExpr);
-}
-
-void serializeLimit(AggregateLimitStep *l, char ***v) {
-  arrPushStrdup(v, "LIMIT");
-  arrPushStrfmt(v, "%lld", l->offset);
-  arrPushStrfmt(v, "%lld", l->num);
-}
-
-void serializeLoad(AggregateLoadStep *l, char ***v) {
-  arrPushStrdup(v, "LOAD");
-  arrPushStrfmt(v, "%d", l->keys->len);
-  for (int i = 0; i < l->keys->len; i++) {
-    arrPushStrfmt(v, "@%s", l->keys->keys[i].key);
-  }
-}
-
-void plan_serializeCursor(AggregatePlan *plan, char ***vec) {
-  arrPushStrdup(vec, "WITHCURSOR");
-  arrPushStrdup(vec, "COUNT");
-  arrPushStrfmt(vec, "%d", plan->cursor.count);
-  if (plan->cursor.maxIdle > 0) {
-    arrPushStrdup(vec, "MAXIDLE");
-    arrPushStrfmt(vec, "%d", plan->cursor.maxIdle);
-  }
-}
-
-char **AggregatePlan_Serialize(AggregatePlan *plan) {
-  char **vec = array_new(char *, 10);
-  arrPushStrdup(&vec, RS_AGGREGATE_CMD);
-
-  if (plan->index) arrPushStrdup(&vec, plan->index);
-
-  // Serialize the cursor if needed
-
-  AggregateStep *current = plan->head;
-  while (current) {
-    switch (current->type) {
-      case AggregateStep_Group:
-        serializeGroup(&current->group, &vec);
-        break;
-      case AggregateStep_Sort:
-        serializeSort(&current->sort, &vec);
-        break;
-
-      case AggregateStep_Apply:
-        serializeApply(&current->apply, &vec);
-        break;
-
-      case AggregateStep_Filter:
-        serializeFilter(&current->filter, &vec);
-        break;
-
-      case AggregateStep_Limit:
-        serializeLimit(&current->limit, &vec);
-        break;
-
-      case AggregateStep_Load:
-        serializeLoad(&current->load, &vec);
-        break;
-
-      case AggregateStep_Distribute: {
-        arrPushStrdup(&vec, "{{");
-        char **sub = AggregatePlan_Serialize(current->dist.plan);
-        for (int k = 0; k < array_len(sub); k++) {
-          vec = array_append(vec, sub[k]);
-        }
-
-        arrPushStrdup(&vec, "}}");
-        array_free(sub);
-        break;
-      }
-
-      case AggregateStep_Dummy:
-      case AggregateStep_Query:
-        break;
-    }
-    current = current->next;
-  }
-
-  return vec;
-}
-
-AggregateStep *AggregatePlan_MoveStep(AggregatePlan *src, AggregatePlan *dist,
-                                      AggregateStep *step) {
-  AggregateStep *next = AggregateStep_Detach(step);
-
-  AggregatePlan_AddStep(dist, step);
-  return next;
-}
-
-void AggregatePlan_FPrint(AggregatePlan *plan, FILE *out) {
-  char **args = AggregatePlan_Serialize(plan);
-  for (int i = 0; i < array_len(args); i++) {
-
-    sds s = sdscatrepr(sdsnew(""), args[i], strlen(args[i]));
-    fputs(s, out);
-    fputc(' ', out);
-    sdsfree(s);
-  }
-  array_free_ex(args, free(*(void **)ptr););
-  fputs("\n", out);
-}
-
-void AggregatePlan_Print(AggregatePlan *plan) {
-  AggregatePlan_FPrint(plan, stderr);
-}
-
-void AggregatePlan_Free(AggregatePlan *plan) {
-  AggregateStep *current = plan->head;
-  while (current) {
-    AggregateStep *next = current->next;
-    // FIXME: Actually free!
-    free(current);
-    current = next;
-  }
-  plan->head = plan->tail = NULL;
-}
-
-int AggregatePlan_DumpSchema(RedisModuleCtx *ctx, QueryProcessingCtx *qpc, void *privdata) {
-  AggregateSchema sc = privdata;
-  if (!ctx || !sc) return 0;
-  RedisModule_ReplyWithArray(ctx, array_len(sc));
-  for (size_t i = 0; i < array_len(sc); i++) {
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithStringBuffer(ctx, sc[i].property, strlen(sc[i].property));
-    const char *t = RSValue_TypeName(sc[i].type);
-    RedisModule_ReplyWithStringBuffer(ctx, t, strlen(t));
-  }
-  return 1;
-}
-#endif

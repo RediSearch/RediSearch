@@ -187,6 +187,7 @@ void RLookup_Cleanup(RLookup *lk) {
   }
 
   lk->head = lk->tail = NULL;
+  memset(lk, 0xff, sizeof(*lk));
 }
 
 static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type, int copyStrings) {
@@ -258,9 +259,10 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   } else {
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
+        printf("Skipping over %s -> not a docsrc key\n", kk->name);
         continue;
       }
-      if (!options->loadNonCached && !(kk->flags & RLOOKUP_F_SVSRC)) {
+      if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & RLOOKUP_F_SVSRC)) {
         continue;
       }
       if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
@@ -286,7 +288,7 @@ error:
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   Document dd = {0};
   int rv =
-      Redis_LoadDocumentC(options->sctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr), &dd);
+      Redis_LoadDocumentC(options->sctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr), &dd);
   if (rv != REDISMODULE_OK) {
     return rv;
   }
@@ -309,7 +311,10 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
 }
 
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
-  if (options->loadAllFields) {
+  if (options->dmd) {
+    dst->sv = options->dmd->sortVector;
+  }
+  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
     return RLookup_HGETALL(it, dst, options);
   } else {
     return loadIndividualKeys(it, dst, options);

@@ -43,6 +43,9 @@ typedef enum {
 
   /* Fuzzy term - expand with levenshtein distance */
   QN_FUZZY,
+
+  /* Null term - take no action */
+  QN_NULL
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -53,6 +56,14 @@ typedef struct {
   int exact;
 
 } QueryPhraseNode;
+
+/**
+ * Query node used when the query is effectively null but not invalid. This
+ * might happen as a result of a query containing only stopwords.
+ */
+typedef struct {
+  int dummy;
+} QueryNullNode;
 
 /* A Union node represents a set of child nodes where the index unions the result between them */
 typedef struct {
@@ -149,6 +160,7 @@ typedef struct RSQueryNode {
     QueryWildcardNode wc;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryNullNode null;
   };
 
   /* The node type, for resolving the union access */

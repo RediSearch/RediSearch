@@ -23,6 +23,8 @@
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
+static IndexIterator *getEOFIterator(void);
+
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
   if (tn->str) free(tn->str);
@@ -101,6 +103,9 @@ void QueryNode_Free(QueryNode *n) {
 
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
+
+    case QN_NULL:
+      break;
   }
   free(n);
 }
@@ -118,7 +123,7 @@ static QueryNode *NewQueryNode(QueryNodeType type) {
   return s;
 }
 
-QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RSTokenFlags flags) {
+QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
@@ -239,10 +244,13 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 }
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+  printf("Setting global filters.. NOW\n");
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
     setFilterNode(ast, n);
+    printf("setting FILTER node... field=%s, min=%lf, max=%lf\n", n->nn.nf->fieldName,
+           options->numeric->min, options->numeric->max);
   }
   if (options->geo) {
     QueryNode *n = NewQueryNode(QN_GEO);
@@ -293,7 +301,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  printf("Opening reader..%s. FieldMask: %lx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
+  // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
@@ -393,12 +401,14 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_PHRASE) {
+    printf("Not a phrase node!\n");
     return NULL;
   }
   QueryPhraseNode *node = &qn->pn;
   // an intersect stage with one child is the same as the child, so we just
   // return it
   if (node->numChildren == 1) {
+    printf("Only a single child!\n");
     node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }
@@ -668,6 +678,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
       return Query_EvalWildcardNode(q, n);
+    case QN_NULL:
+      return getEOFIterator();
   }
 
   return NULL;
@@ -689,13 +701,26 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     if (err) {
       QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Couldn't parse query string: %s", err);
       free(err);
+      return REDISMODULE_ERR;
     } else {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Couldn't parse query");
+      dst->root = NewQueryNode(QN_NULL);
     }
-    return REDISMODULE_ERR;
   }
   dst->numTokens = qpCtx.numTokens;
   return REDISMODULE_OK;
+}
+
+static int EOI_Read(void *p, RSIndexResult **e) {
+  return INDEXREAD_EOF;
+}
+static void EOI_Free(struct indexIterator *self) {
+  // Nothing
+}
+
+static IndexIterator eofIterator = {.Read = EOI_Read, .Free = EOI_Free};
+
+static IndexIterator *getEOFIterator(void) {
+  return &eofIterator;
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
@@ -710,34 +735,32 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
     if (!QueryError_HasError(status)) {
-      QueryError_SetError(status, QUERY_ENOREDUCER, "No results");
+      // Return the dummy iterator
+      return &eofIterator;
     }
   }
   return root;
 }
 
+void QAST_Destroy(QueryAST *q) {
+  QueryNode_Free(q->root);
+  q->root = NULL;
+  q->numTokens = 0;
+}
+
 void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx) {
   if (!q->root) return;
-  QueryParseCtx qpCtx = {// force newline
-                         .numTokens = q->numTokens,
-                         .root = q->root,
-                         .opts = *opts,
-                         .ok = 1,
-                         .sctx = sctx};
-  RSQueryExpanderCtx expCtx = {.query = &qpCtx,
-                               .language = opts->language ? opts->language : DEFAULT_LANGUAGE};
+  RSQueryExpanderCtx expCtx = {
+      .qast = q, .language = opts->language ? opts->language : DEFAULT_LANGUAGE, .handle = sctx};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
     QueryNode_Expand(xpc->exp, &expCtx, &q->root);
-    if (xpc->ff) xpc->ff(expCtx.privdata);
+    if (xpc->ff) {
+      xpc->ff(expCtx.privdata);
+    }
   }
-
-  // Copy the settings back!
-  *opts = qpCtx.opts;
-  q->root = qpCtx.root;
-  q->numTokens = qpCtx.numTokens;
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
@@ -815,7 +838,7 @@ static sds doPad(sds s, int len) {
   return sdscat(s, buf);
 }
 
-static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) {
+static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth) {
   s = doPad(s, depth);
 
   if (qs->opts.fieldMask == 0) {
@@ -824,7 +847,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
   if (qs->opts.fieldMask && qs->opts.fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
-    if (!q || !q->sctx->spec) {
+    if (!spec) {
       s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->opts.fieldMask);
     } else {
       s = sdscat(s, "@");
@@ -833,7 +856,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
         if (bit) {
-          const char *f = GetFieldNameByBit(q->sctx->spec, bit);
+          const char *f = GetFieldNameByBit(spec, bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }
@@ -848,7 +871,7 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
     case QN_PHRASE:
       s = sdscatprintf(s, "%s {\n", qs->pn.exact ? "EXACT" : "INTERSECT");
       for (int i = 0; i < qs->pn.numChildren; i++) {
-        s = QueryNode_DumpSds(s, q, qs->pn.children[i], depth + 1);
+        s = QueryNode_DumpSds(s, spec, qs->pn.children[i], depth + 1);
       }
       s = doPad(s, depth);
 
@@ -867,13 +890,13 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
-      s = QueryNode_DumpSds(s, q, qs->inverted.child, depth + 1);
+      s = QueryNode_DumpSds(s, spec, qs->inverted.child, depth + 1);
       s = doPad(s, depth);
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
-      s = QueryNode_DumpSds(s, q, qs->inverted.child, depth + 1);
+      s = QueryNode_DumpSds(s, spec, qs->inverted.child, depth + 1);
       s = doPad(s, depth);
       break;
 
@@ -885,14 +908,14 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
       for (int i = 0; i < qs->un.numChildren; i++) {
-        s = QueryNode_DumpSds(s, q, qs->un.children[i], depth + 1);
+        s = QueryNode_DumpSds(s, spec, qs->un.children[i], depth + 1);
       }
       s = doPad(s, depth);
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
       for (int i = 0; i < qs->tag.numChildren; i++) {
-        s = QueryNode_DumpSds(s, q, qs->tag.children[i], depth + 1);
+        s = QueryNode_DumpSds(s, spec, qs->tag.children[i], depth + 1);
       }
       s = doPad(s, depth);
       break;
@@ -915,6 +938,9 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
     case QN_FUZZY:
       s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
       return s;
+
+    case QN_NULL:
+      s = sdscat(s, "<empty>");
   }
 
   s = sdscat(s, "}");
@@ -939,13 +965,13 @@ static sds QueryNode_DumpSds(sds s, QueryParseCtx *q, QueryNode *qs, int depth) 
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
  */
-char *Query_DumpExplain(QueryAST *q) {
+char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   // empty query
   if (!q || !q->root) {
     return strdup("NULL");
   }
 
-  sds s = QueryNode_DumpSds(sdsnew(""), q, q->root, 0);
+  sds s = QueryNode_DumpSds(sdsnew(""), spec, q->root, 0);
   char *ret = strndup(s, sdslen(s));
   sdsfree(s);
   return ret;
@@ -996,18 +1022,13 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
       case QN_TOKEN:
       case QN_PREFX:
       case QN_NUMERIC:
+      case QN_NULL:
         break;
     }
   }
 
   array_free(nodes);
   return retVal;
-}
-
-void QueryNode_Print(QueryParseCtx *q, QueryNode *qn, int depth) {
-  sds s = QueryNode_DumpSds(sdsnew(""), q, qn, depth);
-  printf("%s", s);
-  sdsfree(s);
 }
 
 int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {

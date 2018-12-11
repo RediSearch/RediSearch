@@ -84,7 +84,6 @@ void RSValue_Clear(RSValue *v) {
       break;
   }
 
-  v->t = RSValue_Undef;
   v->ref = NULL;
 }
 
@@ -538,31 +537,32 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v) {
 }
 
 void RSValue_Print(const RSValue *v) {
+  FILE *fp = stderr;
   if (!v) {
-    printf("nil");
+    fprintf(fp, "nil");
   }
   switch (v->t) {
     case RSValue_String:
-      printf("\"%.*s\"", v->strval.len, v->strval.str);
+      fprintf(fp, "\"%.*s\"", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
-      printf("\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
+      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
-      printf("%.12g", v->numval);
+      fprintf(fp, "%.12g", v->numval);
       break;
     case RSValue_Null:
-      printf("NULL");
+      fprintf(fp, "NULL");
       break;
     case RSValue_Undef:
-      printf("<Undefined>");
+      fprintf(fp, "<Undefined>");
     case RSValue_Array:
-      printf("[");
+      fprintf(fp, "[");
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_Print(v->arrval.vals[i]);
         printf(", ");
       }
-      printf("]");
+      fprintf(fp, "]");
       break;
     case RSValue_Reference:
       RSValue_Print(v->ref);

@@ -79,8 +79,8 @@ typedef struct {
   const char *language;
   const char *expanderName;
   const char *scorerName;
-  const char *payload;
-  size_t npayload;
+  // const char *payload;
+  // size_t npayload;
 
   uint32_t flags;
   t_fieldMask fieldmask;
@@ -98,7 +98,7 @@ typedef struct {
 
   /** Legacy options */
   struct {
-    NumericFilter *filters;
+    NumericFilter **filters;
     GeoFilter *gf;
     const char **infields;
     size_t ninfields;

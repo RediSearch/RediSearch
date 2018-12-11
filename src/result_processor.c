@@ -21,6 +21,7 @@ void QITR_Cleanup(QueryIterator *qitr) {
 
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
+  r->score = 0;
   if (r->indexResult) {
     // IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
@@ -128,7 +129,7 @@ typedef struct {
   ResultProcessor base;
   RSScoringFunction scorer;
   RSFreeFunction scorerFree;
-  RSScoringFunctionCtx scorerCtx;
+  ScoringFunctionArgs scorerCtx;
 } RPScorer;
 
 static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
@@ -147,7 +148,6 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
     if (res->score == RS_SCORE_FILTEROUT) {
-      printf("Filterout!\n");
       base->parent->totalResults--;
       SearchResult_Clear(res);
     }
@@ -162,30 +162,19 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
 static void rpscoreFree(ResultProcessor *rp) {
   RPScorer *self = (RPScorer *)rp;
   if (self->scorerFree) {
-    self->scorerFree(self->scorerCtx.privdata);
+    self->scorerFree(self->scorerCtx.extdata);
   }
   free(self);
 }
 
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
-ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *stats) {
-  const char *scorer = opts->scorerName;
-  if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
-  }
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
+                              const ScoringFunctionArgs *fnargs) {
   RPScorer *ret = calloc(1, sizeof(*ret));
-  ExtScoringFunctionCtx *scx = Extensions_GetScoringFunction(&ret->scorerCtx, scorer);
-  if (!scx) {
-    // TODO: Make this an error
-    scx = Extensions_GetScoringFunction(&ret->scorerCtx, DEFAULT_SCORER_NAME);
-  }
-
-  ret->scorer = scx->sf;
-  ret->scorerFree = scx->ff;
-  ret->scorerCtx.payload.data = opts->payload;
-  ret->scorerCtx.payload.len = opts->npayload;
-  ret->scorerCtx.indexStats = *stats;
+  ret->scorer = funcs->sf;
+  ret->scorerFree = funcs->ff;
+  ret->scorerCtx = *fnargs;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
   ret->base.name = "Scorer";
@@ -362,7 +351,6 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
     if (!v1 || !v2) {
-      printf("Couldn't get v1(%p) or v2(%p)\n", v1, v2);
       break;
     }
 
@@ -383,8 +371,10 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 }
 
 static void srDtor(void *p) {
-  SearchResult_Destroy(p);
-  free(p);
+  if (p) {
+    SearchResult_Destroy(p);
+    free(p);
+  }
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
@@ -413,9 +403,9 @@ ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
 void SortAscMap_Dump(uint64_t tt, size_t n) {
   for (size_t ii = 0; ii < n; ++ii) {
     if (SORTASCMAP_GETASC(tt, ii)) {
-      printf("%u=(A), ", ii);
+      printf("%lu=(A), ", ii);
     } else {
-      printf("%u=(D)", ii);
+      printf("%lu=(D)", ii);
     }
   }
   printf("\n");
@@ -500,7 +490,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     return rc;
   }
 
-  int isExplicitReturn = lc->fields != NULL;
+  int isExplicitReturn = !!lc->nfields;
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
@@ -512,10 +502,15 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   QueryError status = {0};
   RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
                                  .dmd = r->dmd,
-                                 .copyStrings = 0,
+                                 .copyStrings = 1,
                                  .status = &status,
                                  .keys = lc->fields,
                                  .nkeys = lc->nfields};
+  if (isExplicitReturn) {
+    loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
+  } else {
+    loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
+  }
   RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
   return RS_RESULT_OK;
 }

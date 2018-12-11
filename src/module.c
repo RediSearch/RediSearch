@@ -270,7 +270,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 100
 #define STRINGIFY(s) #s
-  char *err = NULL;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -281,20 +280,21 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  QueryError status;
+  QueryError status = {0};
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
+  const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+
   if (rc != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+    goto end;
   }
-  return rc;
 
-  const char **includeDict = array_new(const char *, DICT_INITIAL_SIZE);
-  const char **excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
+  includeDict = array_new(const char *, DICT_INITIAL_SIZE);
+  excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
 
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
@@ -346,81 +346,21 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 end:
   array_free(includeDict);
   array_free(excludeDict);
-  Query_Free(&qast);
+  QAST_Destroy(&qast);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
 
-#if 0
+char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          QueryError *status);
+
 static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                               int newlinesAsElements) {
-  // at least one field, and number of field/text args must be even
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1]);
-  if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
   QueryError status = {0};
-  RSSearchRequest *req = ParseRequest(sctx, argv, argc, &status);
-  if (req == NULL) {
-    const char *errstr = QueryError_GetError(&status);
-    RedisModule_Log(ctx, "warning", "Error parsing request: %s", errstr);
-    SearchCtx_Free(sctx);
-    RedisModule_ReplyWithError(ctx, errstr);
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
+  char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
+  if (!explainRoot) {
+    return QueryError_ReplyAndClear(ctx, &status);
   }
-
-  QueryParseCtx *q = NewQueryParseCtx(sctx, req->rawQuery, req->qlen, &req->opts);
-  if (!q) {
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, "Error parsing query");
-  }
-
-  if (!Query_Parse(q, &status.detail)) {
-    // TODO: Use proper 'status' for this...
-    if (status.detail) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", status.detail);
-      RedisModule_ReplyWithError(ctx, status.detail);
-      ERR_FREE(status.detail);
-    } else {
-      /* Simulate an empty response - this means an empty query */
-      RedisModule_ReplyWithArray(ctx, 1);
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
-    goto end;
-  }
-
-  if (!(req->opts.flags & Search_Verbatim)) {
-    Query_Expand(q, req->opts.expanderName);
-  }
-  if (req->geoFilter) {
-    Query_SetGeoFilter(q, req->geoFilter);
-  }
-
-  if (req->idFilter) {
-    Query_SetIdFilter(q, req->idFilter);
-  }
-  // set numeric filters if possible
-  if (req->numericFilters) {
-    for (int i = 0; i < Vector_Size(req->numericFilters); i++) {
-      NumericFilter *nf;
-      Vector_Get(req->numericFilters, i, &nf);
-      if (nf) {
-        Query_SetNumericFilter(q, nf);
-      }
-    }
-
-    Vector_Free(req->numericFilters);
-    req->numericFilters = NULL;
-  }
-
-  char *explainRoot = Query_DumpExplain(q);
   if (newlinesAsElements) {
     size_t numElems = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -434,12 +374,8 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   } else {
     RedisModule_ReplyWithStringBuffer(ctx, explainRoot, strlen(explainRoot));
   }
+
   free(explainRoot);
-
-end:
-
-  Query_Free(q);
-  RSSearchRequest_Free(req);
   return REDISMODULE_OK;
 }
 
@@ -451,9 +387,8 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   return queryExplainCommon(ctx, argv, argc, 1);
 }
 
-#endif
-
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -1093,7 +1028,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Init extension mechanism
   Extensions_Init();
 
-  ConcurrentSearch_ThreadPoolStart();
+  if (RSGlobalConfig.concurrentMode) {
+    ConcurrentSearch_ThreadPoolStart();
+  }
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
@@ -1151,7 +1088,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
-  // RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, SearchCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
@@ -1168,10 +1105,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
 
-  // RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1,
-  // 1); RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand,
-  // "readonly", 1,
-  //  1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1,
+         1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
          1);

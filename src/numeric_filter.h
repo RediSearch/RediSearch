@@ -5,6 +5,10 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define NF_INFINITY (1.0 / 0.0)
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
@@ -17,7 +21,7 @@ typedef struct numericFilter {
 } NumericFilter;
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
-int NumericFilter_Parse(NumericFilter *nf, ArgsCursor *ac, QueryError *status);
+NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
 /*
@@ -37,4 +41,7 @@ static inline int NumericFilter_Match(const NumericFilter *f, double score) {
   return rc;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

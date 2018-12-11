@@ -339,11 +339,11 @@ static inline int RSValue_BoolTest(const RSValue *v) {
   }
 }
 
-static inline RSValue *RSValue_ArrayItem(RSValue *arr, uint32_t index) {
+static inline RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
   return arr->arrval.vals[index];
 }
 
-static inline uint32_t RSValue_ArrayLen(RSValue *arr) {
+static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
   return arr ? arr->arrval.len : 0;
 }
 

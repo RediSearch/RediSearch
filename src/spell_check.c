@@ -362,6 +362,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
       case QN_IDS:
       case QN_WILDCARD:
       case QN_FUZZY:
+      case QN_NULL:
         break;
     }
   }

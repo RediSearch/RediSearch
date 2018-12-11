@@ -140,11 +140,17 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   if (exists && opts->evalExpr) {
     int res = 0;
     if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+      printf("Eval OK!\n");
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
         goto error;
       }
     } else {
+      printf("Eval failed! (%s)\n", opts->evalExpr);
+      if (status->code == QUERY_ENOPROPVAL) {
+        QueryError_ClearError(status);
+        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
+      }
       goto error;
     }
   }
@@ -188,7 +194,11 @@ error:
 
 static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
   if (QueryError_HasError(&aCtx->status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+    if (aCtx->status.code == QUERY_EDOCNOTADDED) {
+      RedisModule_ReplyWithError(ctx, "NOADD");
+    } else {
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+    }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -241,7 +251,11 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    if (status.code == QUERY_EDOCNOTADDED) {
+      RedisModule_ReplyWithSimpleString(ctx, "NOADD");
+    } else {
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    }
   } else {
     // Replicate *here*
     RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
@@ -360,6 +374,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     Document_FreeDetached(&doc, ctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
+
+  aCtx->donecb = replyCallback;
 
   if (isBlockable) {
     isBlockable = CheckConcurrentSupport(ctx);

@@ -45,7 +45,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
-const char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
+const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].type == FIELD_FULLTEXT &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
@@ -107,6 +107,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                QueryError *status) {
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
   if (sp == NULL) {
+    printf("Couldn't parse Redis args!\n");
     return NULL;
   }
 
@@ -121,6 +122,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
       QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     }
     IndexSpec_Free(sp);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return NULL;
   }
 
@@ -136,7 +140,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
-
+  RedisModule_CloseKey(k);
   return sp;
 }
 
@@ -489,6 +493,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
     ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
   }
+
+  spec->spcache->refcount++;
   return spec->spcache;
 }
 

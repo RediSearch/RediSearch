@@ -10,10 +10,10 @@
 #include <err.h>
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
-TrieMap *__queryExpanders = NULL;
+static TrieMap *__queryExpanders = NULL;
 
 /* The registry for scorers. Initialized by Extensions_Init() */
-TrieMap *__scorers = NULL;
+static TrieMap *__scorers = NULL;
 
 /* Init the extension system - currently just create the regsistries */
 void Extensions_Init() {
@@ -102,7 +102,8 @@ int Extension_LoadDynamic(const char *path, char **errMsg) {
 }
 
 /* Get a scoring function by name */
-ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name) {
+ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs,
+                                                     const char *name) {
 
   if (!__scorers) return NULL;
 
@@ -110,9 +111,9 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, 
   ExtScoringFunctionCtx *p = TrieMap_Find(__scorers, (char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
-    if (ctx) {
-      ctx->privdata = p->privdata;
-      ctx->GetSlop = IndexResult_MinOffsetDelta;
+    if (fnargs) {
+      fnargs->extdata = p->privdata;
+      fnargs->GetSlop = IndexResult_MinOffsetDelta;
     }
     return p;
   }
@@ -125,7 +126,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, 
 void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
                      RSTokenFlags flags) {
 
-  QueryParseCtx *q = ctx->query;
+  QueryAST *q = ctx->qast;
   QueryNode *qn = *ctx->currentNode;
 
   /* Replace current node with a new union node if needed */
@@ -152,7 +153,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
 void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
                                RSTokenFlags flags, int replace, int exact) {
 
-  QueryParseCtx *q = ctx->query;
+  QueryAST *q = ctx->qast;
   QueryNode *qn = *ctx->currentNode;
 
   QueryNode *ph = NewPhraseNode(exact);
@@ -182,8 +183,8 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
 
 /* Set the query payload */
 void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
-  ctx->query->opts.payload = payload.data;
-  ctx->query->opts.npayload = payload.len;
+  ctx->qast->udata = payload.data;
+  ctx->qast->udatalen = payload.len;
 }
 
 /* Get an expander by name */

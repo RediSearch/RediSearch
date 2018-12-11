@@ -43,7 +43,7 @@ double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
-static inline double tfIdfInternal(RSScoringFunctionCtx *ctx, RSIndexResult *h,
+static inline double tfIdfInternal(ScoringFunctionArgs *ctx, RSIndexResult *h,
                                    RSDocumentMetadata *dmd, double minScore, int normMode) {
   if (dmd->score == 0) return 0;
   double norm = normMode == NORM_MAXFREQ ? (double)dmd->maxFreq : dmd->len;
@@ -60,14 +60,14 @@ static inline double tfIdfInternal(RSScoringFunctionCtx *ctx, RSIndexResult *h,
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
-double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double TFIDFScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
 
 /* Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
  */
-double TFIDFNormDocLenScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double TFIDFNormDocLenScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                              double minScore) {
 
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN);
@@ -82,7 +82,7 @@ double TFIDFNormDocLenScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocu
  ******************************************************************************************/
 
 /* recursively calculate score for each token, summing up sub tokens */
-static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd) {
+static double bm25Recursive(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
@@ -106,7 +106,7 @@ static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocum
 }
 
 /* BM25 scoring function */
-double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
+double BM25Scorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
                   double minScore) {
   double score = dmd->score * bm25Recursive(ctx, r, dmd);
 
@@ -124,7 +124,7 @@ double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadat
  * Raw document-score scorer. Just returns the document score
  *
  ******************************************************************************************/
-double DocScoreScorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
+double DocScoreScorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
                       double minScore) {
   return dmd->score;
 }
@@ -159,7 +159,7 @@ double _dismaxRecursive(RSIndexResult *r) {
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
-double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double DisMaxScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                     double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
@@ -178,17 +178,17 @@ static const unsigned char bitsinbyte[256] = {
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
-double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double HammingDistanceScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                              double minScore) {
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->payload.len) {
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     return 0;
   }
   size_t ret = 0;
-  size_t len = ctx->payload.len;
+  size_t len = ctx->qdatalen;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
 
-  const unsigned char *a = (unsigned char *)ctx->payload.data;
+  const unsigned char *a = (unsigned char *)ctx->qdata;
   const unsigned char *b = (unsigned char *)dmd->payload->data;
   for (size_t i = 0; i < len; i++) {
     ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
@@ -256,7 +256,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  // printf("Enter: %.*s\n", (int)token->len, token->str);
+  printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
@@ -283,6 +283,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
+    printf("No stemmer available for language..\n");
     return;
   }
 
@@ -298,6 +299,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     memcpy(dup + 1, stemmed, sl + 1);
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
+      printf("Stemmed: %s\n", stemmed);
       ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl, 0x0);
     }
   }
@@ -342,7 +344,7 @@ void PhoneticExpanderFree(void *p) {
  ******************************************************************************************/
 void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 #define BUFF_LEN 100
-  IndexSpec *spec = ctx->query->sctx->spec;
+  IndexSpec *spec = ctx->handle->spec;
   if (!spec->smap) {
     return;
   }

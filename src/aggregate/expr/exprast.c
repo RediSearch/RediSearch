@@ -196,8 +196,8 @@ RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
 
   RSExpr *ret = RSExpr_Parse(e, n, &errtmp);
   if (!ret) {
-    QueryError_SetError(status, QUERY_EEXPR, NULL);
-    status->detail = errtmp;
+    QueryError_SetError(status, QUERY_EEXPR, errtmp);
   }
+  free(errtmp);
   return ret;
 }

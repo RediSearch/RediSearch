@@ -6,9 +6,11 @@
 #include <aggregate/expr/expression.h>
 #include <util/dllist.h>
 
-typedef struct AGGPlan AGGPlan, AggregatePlan;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-struct AggregatePlan;
+typedef struct AGGPlan AGGPlan, AggregatePlan;
 
 typedef enum {
   PLN_T_INVALID = 0,
@@ -18,8 +20,11 @@ typedef enum {
   PLN_T_FILTER,
   PLN_T_APPLY,
   PLN_T_ARRANGE,
-  PLN_T_LOAD
+  PLN_T_LOAD,
+  PLN_T__MAX
 } PLN_StepType;
+
+#define PLANTYPE_ANY_REDUCER (PLN_T__MAX + 1)
 
 typedef enum {
   PLN_F_ALIAS = 0x01,  // Plan step has an alias
@@ -63,15 +68,17 @@ typedef struct {
   RSExpr *parsedExpr;
 } PLN_MapFilterStep;
 
+// Magic value -- will sort by score. For use in SEARCH mode
+#define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
+
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
   PLN_BaseStep base;
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-
-  uint64_t offset;  // Seek results. If 0, then no paging is applied
-  uint64_t limit;   // Number of rows to output
+  uint64_t offset;                // Seek results. If 0, then no paging is applied
+  uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */
@@ -101,24 +108,12 @@ typedef struct {
 
 typedef struct PLN_Reducer PLN_Reducer;
 
-/* Schema property kind (not type!) is this a field from the result, a projection or an aggregation?
- */
-typedef enum {
-  Property_Field = 1,
-  Property_Aggregate = 2,
-  Property_Projection = 3,
-} AggregatePropertyKind;
-
-/* Distribute step - send a sub-plan to all shards and collect the results */
-typedef struct {
-  struct AggregatePlan *plan;
-} AggregateDistributeStep;
-
 /* A plan is a linked list of all steps */
 struct AGGPlan {
   DLLIST steps;
   PLN_ArrangeStep *arrangement;
   PLN_FirstStep firstStep_s;  // Storage for initial plan
+  uint64_t steptypes;         // Mask of step-types contained in plan
 };
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
@@ -134,16 +129,35 @@ void AGPLN_Print(AGGPlan *plan);
 
 void AGPLN_Init(AGGPlan *plan);
 
+/* Frees all the steps within the plan */
+void AGPLN_FreeSteps(AGGPlan *pln);
+
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 
+/** Checks if a step with the given type is contained within the plan */
+int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange
  * step exists, one is created.
  *
  * This function should be used to limit/page through the current step
  */
-PLN_ArrangeStep *AGPLN_GetArrangeStep(AggregatePlan *pln);
+PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
+
+/**
+ * Locate a plan within the given constraints. begin and end are the plan ranges
+ * to check. `end` is considered exclusive while `begin` is inclusive. To search
+ * the entire plan, set `begin` and `end` to NULL.
+ *
+ * @param pln the plan to search
+ * @param begin step to start searching from
+ * @param end step to stop searching at
+ * @param type type of plan to search for. The special PLANTYPE_ANY_REDUCER
+ *  can be used for any plan type which creates a new RLookup
+ */
+const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin,
+                                   const PLN_BaseStep *end, PLN_StepType type);
 
 typedef enum {
   // Get the root lookup, stopping at stp if provided
@@ -158,7 +172,6 @@ typedef enum {
   // Get the next lookup, starting from bstp
   AGPLN_GETLOOKUP_NEXT
 } AGPLNGetLookupMode;
-
 /**
  * Get the lookup provided the given mode
  * @param pln the plan containing the steps
@@ -185,4 +198,8 @@ static inline int PLN_IsReduce(const PLN_BaseStep *pln) {
       return 0;
   }
 }
+
+#ifdef __cplusplus
+}
+#endif
 #endif

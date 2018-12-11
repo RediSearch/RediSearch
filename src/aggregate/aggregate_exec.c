@@ -4,41 +4,63 @@
 #include "aggregate.h"
 #include "cursor.h"
 
-int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+
+static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
+                        QueryError *status, AREQ **r) {
+
+  int rc = REDISMODULE_ERR;
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  *r = AREQ_New();
+  RedisSearchCtx *sctx = NULL;
+
+  if (type == COMMAND_SEARCH) {
+    (*r)->reqflags |= QEXEC_F_IS_SEARCH;
+  }
+
+  if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
+    assert(QueryError_HasError(status));
+    goto done;
+  }
+
+  // Prepare the query.. this is where the context is applied.
+  sctx = NewSearchCtxC(ctx, indexname);
+  if (!sctx) {
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
+    goto done;
+  }
+
+  if (AREQ_ApplyContext(*r, sctx, status) != REDISMODULE_OK) {
+    assert(QueryError_HasError(status));
+    goto done;
+  }
+
+  rc = AREQ_BuildPipeline(*r, status);
+
+done:
+  if (rc != REDISMODULE_OK && *r) {
+    AREQ_Free(*r);
+    *r = NULL;
+  }
+  return rc;
+}
+
+static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  AREQ *r = calloc(1, sizeof(*r));
-  RedisSearchCtx *sctx = NULL;
-
+  AREQ *r = NULL;
   QueryError status = {0};
-  if (AREQ_Compile(r, argv + 2, argc - 2, &status) != REDISMODULE_OK) {
-    assert(QueryError_HasError(&status));
+
+  if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
   }
 
-  // Prepare the query.. this is where the context is applied.
-  sctx = NewSearchCtxC(ctx, indexname);
-  if (!sctx) {
-    QueryError_SetErrorFmt(&status, QUERY_ENOINDEX, "%s: no such index", indexname);
-    goto error;
-  }
-
-  SearchCtx_Decref(sctx);
-  if (AREQ_ApplyContext(r, sctx, &status) != REDISMODULE_OK) {
-    assert(QueryError_HasError(&status));
-    goto error;
-  }
-
-  int rc = AREQ_BuildPipeline(r, &status);
-  if (rc != REDISMODULE_OK) {
-    goto error;
-  }
-
-  // Now, actually issue the query..
+  // Execute() will call free when appropriate.
   AREQ_Execute(r, ctx);
   return REDISMODULE_OK;
 
@@ -48,6 +70,24 @@ error:
   }
 
   return QueryError_ReplyAndClear(ctx, &status);
+}
+
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE);
+}
+int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH);
+}
+
+char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          QueryError *status) {
+  AREQ *r = NULL;
+  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+    return NULL;
+  }
+  char *ret = Query_DumpExplain(&r->ast, r->sctx->spec);
+  AREQ_Free(r);
+  return ret;
 }
 
 void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

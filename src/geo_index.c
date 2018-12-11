@@ -40,12 +40,18 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   gf->unit = NULL;
   gf->radius = 0;
 
-  if (AC_NumRemaining(ac) < 4) {
-    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 4 arguments");
+  if (AC_NumRemaining(ac) < 5) {
+    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
     return REDISMODULE_ERR;
   }
 
   int rv;
+  if ((rv = AC_GetString(ac, &gf->property, NULL, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<geo property>", rv);
+    return REDISMODULE_ERR;
+  } else {
+    gf->property = strdup(gf->property);
+  }
   if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
@@ -65,7 +71,9 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   if (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") && strcasecmp(gf->unit, "ft") &&
       strcasecmp(gf->unit, "mi")) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
+    return REDISMODULE_ERR;
   }
+  gf->unit = strdup(gf->unit);
 
   return REDISMODULE_OK;
 }

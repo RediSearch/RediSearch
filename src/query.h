@@ -16,9 +16,16 @@
 #include "query_error.h"
 #include "query_internal.h"
 
-typedef struct {
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct QueryAST {
   size_t numTokens;
   QueryNode *root;
+  // User data and length, for use by scorers
+  const void *udata;
+  size_t udatalen;
 } QueryAST;
 
 /**
@@ -67,7 +74,7 @@ void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, Redis
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
-QueryNode *NewTokenNodeExpanded(QueryParseCtx *q, const char *s, size_t len, RSTokenFlags flags);
+QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 QueryNode *NewUnionNode();
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
@@ -97,12 +104,15 @@ void QueryNode_Free(QueryNode *n);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
-char *Query_DumpExplain(QueryAST *q);
+char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec);
 
-typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryParseCtx *q, void *ctx);
+typedef int (*QueryNode_ForEachCallback)(QueryNode *node, void *q, void *ctx);
 int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx);
 
-/* Free a QueryParseCtx object */
-void Query_Free(QueryAST *q);
+/* Cleanup a query AST */
+void QAST_Destroy(QueryAST *q);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

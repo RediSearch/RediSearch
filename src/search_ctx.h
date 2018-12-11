@@ -9,6 +9,10 @@
 #include "trie/trie_type.h"
 #include <time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key;
@@ -19,10 +23,8 @@ typedef struct RedisSearchCtx {
   int isStatic;
 } RedisSearchCtx;
 
-#define SEARCH_CTX_STATIC(ctx, sp)             \
-  (RedisSearchCtx) {                           \
-    .redisCtx = ctx, .spec = sp, .isStatic = 1 \
-  }
+#define SEARCH_CTX_STATIC(ctx, sp) \
+  { ctx, NULL, NULL, sp, NULL, 0, 1 }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
@@ -42,4 +44,7 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName);
   }
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -141,12 +141,11 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = (RedisSearchCtx){
-      .spec = sp,
-      .redisCtx = ctx,
-      .key = k,
-      .keyName = keyName,
-  };
+  *sctx = (RedisSearchCtx){.spec = sp,  // newline
+                           .redisCtx = ctx,
+                           .key = k,
+                           .keyName = keyName,
+                           .refcount = 1};
   return sctx;
 }
 

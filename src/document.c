@@ -64,7 +64,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
       aCtx->fspecs[i] = *fs;
       if (dedupe[fs->index]) {
-        QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, fs->name);
+        QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice",
+                               fs->name);
         return -1;
       }
 
@@ -557,19 +558,19 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+    printf("Couldn't load document!\n");
     goto done;
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+    printf("Eval not OK!!! SAD!!\n");
     goto done;
   }
 
   *result = RSValue_BoolTest(&rv);
-  if (rv.t == RSValue_Reference) {
-    RSValue_Decref(RSValue_Dereference(&rv));
-  }
+  RSValue_Clear(&rv);
   rc = REDISMODULE_OK;
 
 // Clean up:

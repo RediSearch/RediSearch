@@ -81,7 +81,6 @@ typedef struct Reducer {
 
 static inline void Reducer_GenericFree(Reducer *r) {
   BlkAlloc_FreeAll(&r->alloc, NULL, 0, 0);
-  RLKEY_DECREF(r->dstkey);
   free(r);
 }
 

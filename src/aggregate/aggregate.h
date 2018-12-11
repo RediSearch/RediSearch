@@ -7,9 +7,11 @@
 #include "aggregate_plan.h"
 #include <value.h>
 
-#ifndef GROUPBY_C_
-typedef struct Grouper Grouper;
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+typedef struct Grouper Grouper;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,  // Contains aggregations or projections
@@ -33,7 +35,10 @@ typedef enum {
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
-  QEXEC_F_SEND_HIGHLIGHT = 0x400
+  QEXEC_F_SEND_HIGHLIGHT = 0x400,
+
+  /* Do not emit any rows, only the number of query results */
+  QEXEC_F_NOROWS = 0x800
 
 } QEFlags;
 
@@ -101,6 +106,8 @@ typedef struct {
   int pause;
 } AggregateRequest, AREQ;
 
+AREQ *AREQ_New(void);
+
 /**
  * Compile the request given the arguments. This does not rely on
  * Redis-specific states and may be unit-tested. This largely just
@@ -144,7 +151,7 @@ typedef struct {
  * The current implementation simply does a malloc and memcpy, but this is
  * abstracted in case the request's own members contain references to it.
  */
-AggregateRequest *AggregateRequest_Persist(AggregateRequest *req);
+AggregateRequest *AREQ_Persist(AggregateRequest *req);
 
 /******************************************************************************
  ******************************************************************************
@@ -209,4 +216,10 @@ void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 void AREQ_Execute(AggregateRequest *req, RedisModuleCtx *outctx);
 void AREQ_Free(AggregateRequest *req);
+
+#define AREQ_RP(req) (req)->qiter.endProc
+
+#ifdef __cplusplus
+}
+#endif
 #endif

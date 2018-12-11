@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Free the internal data of an index hit. Since index hits are usually on the
 stack,
 this does not actually free the hit itself */
@@ -121,4 +124,7 @@ IndexIterator *NewWildcardIterator(t_docId maxId);
  * are sorted in this function, so there is no need to sort them. They are automatically freed in
  * the end and assumed to be allocated using rm_malloc */
 IndexIterator *NewIdListIterator(const t_docId *ids, t_offset num, double weight);
+#ifdef __cplusplus
+}
+#endif
 #endif

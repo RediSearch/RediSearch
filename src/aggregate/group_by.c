@@ -73,7 +73,7 @@ typedef struct Grouper {
  *
  * These will be placed in the output row.
  */
-static Group *createGroup(Grouper *g, RSValue **groupvals, size_t ngrpvals) {
+static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals) {
   size_t numReducers = array_len(g->reducers);
   size_t elemSize = GROUP_BYTESIZE(g);
   Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
@@ -86,7 +86,7 @@ static Group *createGroup(Grouper *g, RSValue **groupvals, size_t ngrpvals) {
   /** Initialize the row data! */
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
-    RLookup_WriteKey(dstkey, &group->rowdata, groupvals[ii]);
+    RLookup_WriteKey(dstkey, &group->rowdata, (RSValue *)groupvals[ii]);
     // printf("Write: %s => ", dstkey->name);
     // RSValue_Print(groupvals[ii]);
     // printf("\n");
@@ -132,10 +132,76 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
+static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
+  size_t nreducers = GROUPER_NREDUCERS(g);
+  for (size_t ii = 0; ii < nreducers; ii++) {
+    g->reducers[ii]->Add(g->reducers[ii], gr->accumdata[ii], srcrow);
+  }
+}
+
+/**
+ * This function recursively descends into each value within a group and invokes
+ * Add() for each cartesian product of the current row.
+ *
+ * @param g the grouper
+ * @param xarr the array of 'x' values - i.e. the raw results received from the
+ *  upstream result processor. The number of results can be found via
+ *  the `GROUPER_NSRCKEYS(g)` macro
+ * @param xpos the current position in xarr
+ * @param xlen cached value of GROUPER_NSRCKEYS
+ * @param ypos if xarr[xpos] is an array, this is the current position within
+ *  the array
+ * @param hval current X-wise hash value. Note that members of the same Y array
+ *  are not hashed together.
+ * @param res the row is passed to each reducer
+ */
+static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,
+                          uint64_t hval, RLookupRow *res) {
+  // end of the line - create/add to group
+  if (xpos == xlen) {
+    Group *group = NULL;
+
+    // Get or create the group
+    khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
+    if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
+      group = createGroup(g, xarr, xlen);
+      kh_set(khid, g->groups, hval, group);
+    } else {
+      group = kh_value(g->groups, k);
+    }
+
+    // send the result to the group and its reducers
+    invokeReducers(g, group, res);
+    return;
+  }
+
+  // get the value
+  const RSValue *v = RSValue_Dereference(xarr[xpos]);
+  // regular value - just move one step -- increment XPOS
+  if (v->t != RSValue_Array) {
+    hval = RSValue_Hash(v, hval);
+    extractGroups(g, xarr, xpos + 1, xlen, 0, hval, res);
+  } else {
+    // Array value. Replace current XPOS with child temporarily
+    const RSValue *array = xarr[xpos];
+    const RSValue *elem = RSValue_ArrayItem(v, arridx);
+    uint64_t hh = RSValue_Hash(elem, hval);
+
+    xarr[xpos] = elem;
+    extractGroups(g, xarr, xpos, xlen, arridx, hh, res);
+    xarr[xpos] = array;
+
+    // Replace the value back, and proceed to the next value of the array
+    if (++arridx < RSValue_ArrayLen(v)) {
+      extractGroups(g, xarr, xpos, xlen, arridx, hval, res);
+    }
+  }
+}
+
 static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
-  RSValue *groupvals[nkeys];
+  const RSValue *groupvals[nkeys];
 
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = g->srckeys[ii];
@@ -144,28 +210,9 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
       printf("Couldn't get value for %s\n", srckey->name);
       v = RS_NullVal();
     }
-    hval = RSValue_Hash(v, hval);
-    // printf("Hash is %llu. Value is", hval);
-    // RSValue_Print(v);
-    // printf("\n");
     groupvals[ii] = v;
   }
-
-  Group *gr = NULL;
-  // Got all the values. Now let's see if the group for this set of values
-  // exists:
-  khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
-  if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
-    gr = createGroup(g, groupvals, nkeys);
-    kh_set(khid, g->groups, hval, gr);
-  } else {
-    gr = kh_value(g->groups, k);
-  }
-
-  size_t nreducers = GROUPER_NREDUCERS(g);
-  for (size_t ii = 0; ii < nreducers; ii++) {
-    g->reducers[ii]->Add(g->reducers[ii], gr->accumdata[ii], srcrow);
-  }
+  extractGroups(g, groupvals, 0, nkeys, 0, 0, srcrow);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
@@ -193,7 +240,10 @@ static void cleanCallback(void *ptr, void *arg) {
   Grouper *parent = arg;
   // Call the reducer's FreeInstance
   for (size_t ii = 0; ii < GROUPER_NREDUCERS(parent); ++ii) {
-    parent->reducers[ii]->FreeInstance(parent->reducers[ii], group->accumdata[ii]);
+    Reducer *rr = parent->reducers[ii];
+    if (rr->FreeInstance) {
+      rr->FreeInstance(rr, group->accumdata[ii]);
+    }
   }
 }
 
@@ -215,8 +265,8 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
-  g->srckeys = calloc(1, sizeof(*g->srckeys));
-  g->dstkeys = calloc(1, sizeof(*g->dstkeys));
+  g->srckeys = calloc(nkeys, sizeof(*g->srckeys));
+  g->dstkeys = calloc(nkeys, sizeof(*g->dstkeys));
   g->nkeys = nkeys;
   for (size_t ii = 0; ii < nkeys; ++ii) {
     g->srckeys[ii] = srckeys[ii];

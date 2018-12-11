@@ -56,7 +56,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
     }
   }
 
-  RSValue *ret = RSValue_NewArrayEx(arr, i, 0);
+  RSValue *ret = RSValue_NewArrayEx(arr, i, RSVAL_ARRAY_ALLOC);
   TrieMapIterator_Free(it);
   return ret;
 }

@@ -14,6 +14,10 @@
 
 #define RT_LEAF_CARDINALITY_MAX 500
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   double value;
   size_t appearances;
@@ -123,4 +127,7 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

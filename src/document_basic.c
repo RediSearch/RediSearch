@@ -87,6 +87,9 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
                     RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
     QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return REDISMODULE_ERR;
   }
 
@@ -94,6 +97,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
     RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
                         NULL);
   }
+  RedisModule_CloseKey(k);
   return REDISMODULE_OK;
 }
 

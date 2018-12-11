@@ -9,7 +9,11 @@
 #include "index_iterator.h"
 #include "search_options.h"
 #include "rlookup.h"
+#include "extension.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /********************************************************************************
  * Result Processor Chain
  *
@@ -176,7 +180,8 @@ void SearchResult_Destroy(SearchResult *r);
 
 ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 
-ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *stats);
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
+                              const ScoringFunctionArgs *fnargs);
 
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
@@ -186,9 +191,10 @@ ResultProcessor *RPScorer_New(const RSSearchOptions *opts, const RSIndexStats *s
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 void SortAscMap_Dump(uint64_t v, size_t n);
 
-ResultProcessor *RPSorter_New(size_t maxresults);
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascendingMap);
+
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -209,4 +215,7 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
+#ifdef __cplusplus
+}
+#endif
 #endif  // !RS_RESULT_PROCESSOR_H_

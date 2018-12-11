@@ -25,6 +25,10 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
  * extracted from each result or document */
@@ -107,12 +111,14 @@ typedef struct {
   RSTokenFlags flags : 31;
 } RSToken;
 
+struct QueryAST;
+
 /* RSQueryExpanderCtx is a context given to query expanders, containing callback methods and useful
  * data */
 typedef struct RSQueryExpanderCtx {
 
   /* Opaque query object used internally by the engine, and should not be accessed */
-  struct RSQuery *query;
+  struct QueryAST *qast;
 
   struct RedisSearchCtx *handle;
 
@@ -206,7 +212,7 @@ typedef struct {
 /* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
  * records */
 typedef struct {
-
+  char dummy;
 } RSVirtualRecord;
 
 typedef struct {
@@ -305,9 +311,11 @@ typedef struct {
  * private data set by the extensionm and callback functions */
 typedef struct {
   /* Private data set by the extension on initialization time, or during scoring */
-  void *privdata;
+  void *extdata;
+
   /* Payload set by the client or by the query expander */
-  RSPayload payload;
+  const void *qdata;
+  size_t qdatalen;
 
   /* Index statistics to be used by scoring functions */
   RSIndexStats indexStats;
@@ -315,10 +323,10 @@ typedef struct {
   /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
-} RSScoringFunctionCtx;
+} ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
-typedef double (*RSScoringFunction)(RSScoringFunctionCtx *ctx, RSIndexResult *res,
+typedef double (*RSScoringFunction)(ScoringFunctionArgs *ctx, RSIndexResult *res,
                                     RSDocumentMetadata *dmd, double minScore);
 
 /* The extension registeration context, containing the callbacks avaliable to the extension for
@@ -332,4 +340,7 @@ typedef struct RSExtensionCtx {
 
 /* An extension initialization function  */
 typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
+#ifdef __cplusplus
+}
+#endif
 #endif

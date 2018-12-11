@@ -174,6 +174,8 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
+    printf("Could not get value for %s\n", e->lookupObj->name);
+    RLookupRow_Dump(eval->srcrow);
     QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
     return 0;
   }
@@ -214,6 +216,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 
   switch (expr->t) {
     case RSExpr_Property:
+      printf("Getting property for key %s\n", expr->property.key);
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOINCREF);
       if (!expr->property.lookupObj) {
         QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
