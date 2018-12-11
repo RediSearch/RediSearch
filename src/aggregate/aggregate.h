@@ -106,6 +106,33 @@ typedef struct {
   int pause;
 } AggregateRequest, AREQ;
 
+/**
+ * Create a new aggregate request. The request's lifecycle consists of several
+ * stages:
+ *
+ * 1) New - creates a blank request
+ *
+ * 2) Compile - this gathers the request options from the commandline, creates
+ *    the basic abstract plan.
+ *
+ * 3) ApplyContext - This is the second stage of Compile, and applies
+ *    a stateful context. The reason for this state remaining separate is
+ *    the ability to test parsing and option logic without having to worry
+ *    that something might touch the underlying index.
+ *    Compile also provides a place to optimize or otherwise rework the plan
+ *    based on information known only within the query itself
+ *
+ * 4) BuildPipeline: This lines up all the iterators so that it can be
+ *    read from.
+ *
+ * 5) Execute: This step is optional, and iterates through the result iterator,
+ *    formatting the output and sending it to the network client. This step is
+ *    optional, since the iterator can be obtained directly via AREQ_RP and
+ *    processed directly
+ *
+ * 6) Free: This releases all resources consumed by the request
+ */
+
 AREQ *AREQ_New(void);
 
 /**
@@ -194,8 +221,8 @@ AggregateRequest *AREQ_Persist(AggregateRequest *req);
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
 
 /**
- * Gets the result processor associated with the grouper. This is used for building
- * the query pipeline
+ * Gets the result processor associated with the grouper.
+ * This is used for building the query pipeline
  */
 ResultProcessor *Grouper_GetRP(Grouper *gr);
 
