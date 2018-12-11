@@ -584,8 +584,20 @@ static int RMCK_GetApi(const char *s, void *pp) {
 extern "C" {
 void RMCK_Bootstrap(RMCKModuleLoadFunction fn, const char **s, size_t n) {
   // Create the context:
-  RedisModuleCtx *ctx = new RedisModuleCtx();
-  auto args = RMCK::CreateArgv(ctx, s, n);
-  fn(ctx, &args[0], args.size());
+  RedisModuleCtx ctxTmp;
+  RMCK::ArgvList args(&ctxTmp, s, n);
+  fn(&ctxTmp, &args[0], args.size());
+}
+
+void RMCK_Shutdown(void) {
+  for (auto db : KVDB::dbs) {
+    delete db;
+  }
+  KVDB::dbs.clear();
+
+  for (auto c : Command::commands) {
+    delete c.second;
+  }
+  Command::commands.clear();
 }
 }

@@ -180,7 +180,6 @@ int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   unsigned nargs;
   int rv = AC_GetUnsigned(ac, &nargs, 0);
   if (rv != AC_OK) {
-    printf("Couldn't get varargs..\n");
     return rv;
   }
   return AC_GetSlice(ac, dst, nargs);

@@ -79,8 +79,6 @@ typedef struct {
   const char *language;
   const char *expanderName;
   const char *scorerName;
-  // const char *payload;
-  // size_t npayload;
 
   uint32_t flags;
   t_fieldMask fieldmask;

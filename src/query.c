@@ -244,13 +244,10 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 }
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
-  printf("Setting global filters.. NOW\n");
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
     setFilterNode(ast, n);
-    printf("setting FILTER node... field=%s, min=%lf, max=%lf\n", n->nn.nf->fieldName,
-           options->numeric->min, options->numeric->max);
   }
   if (options->geo) {
     QueryNode *n = NewQueryNode(QN_GEO);
@@ -408,7 +405,6 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   // an intersect stage with one child is the same as the child, so we just
   // return it
   if (node->numChildren == 1) {
-    printf("Only a single child!\n");
     node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, node->children[0]);
   }

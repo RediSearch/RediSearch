@@ -256,7 +256,6 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  printf("Enter: %.*s\n", (int)token->len, token->str);
 
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
@@ -283,7 +282,6 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
-    printf("No stemmer available for language..\n");
     return;
   }
 
@@ -299,7 +297,6 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     memcpy(dup + 1, stemmed, sl + 1);
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
-      printf("Stemmed: %s\n", stemmed);
       ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl, 0x0);
     }
   }

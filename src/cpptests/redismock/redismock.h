@@ -10,6 +10,9 @@ typedef int (*RMCKModuleLoadFunction)(RedisModuleCtx *, RedisModuleString **, in
 
 void RMCK_Bootstrap(RMCKModuleLoadFunction fn, const char **s, size_t n);
 
+// Destroy all globals
+void RMCK_Shutdown(void);
+
 #ifdef __cplusplus
 }
 #endif

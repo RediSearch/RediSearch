@@ -23,6 +23,10 @@ class MyEnvironment : public ::testing::Environment {
     // No arguments..
     RMCK_Bootstrap(my_OnLoad, arguments, 2);
   }
+
+  virtual void TearDown() {
+    RMCK_Shutdown();
+  }
 };
 
 int main(int argc, char **argv) {

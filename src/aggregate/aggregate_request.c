@@ -148,7 +148,6 @@ static int handleCommonArgs(AggregateRequest *req, ArgsCursor *ac, QueryError *s
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    printf("Handling SORTBY..\n");
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     if ((parseSortby(arng, ac, status, allowLegacy)) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -367,7 +366,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  printf("Have %lu INFIELDS\n", searchOpts->legacy.ninfields);
 
   if (AC_IsInitialized(&returnFields)) {
     if (!ensureSimpleMode(req, "RETURN", status)) {
@@ -381,7 +379,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     while (!AC_IsAtEnd(&returnFields)) {
       const char *name = AC_GetStringNC(&returnFields, NULL);
-      printf("RETURN %s\n", name);
       ReturnedField *f = FieldList_GetCreateField(&req->outFields, name);
       f->explicitReturn = 1;
     }
@@ -454,7 +451,6 @@ static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const
       QERR_MKBADARGS_AC(status, "AS", rv);
       return REDISMODULE_ERR;
     }
-    printf("Alias: %s\n", alias);
   }
   if (alias == NULL) {
     gr->alias = getReducerAlias(g, name, &gr->args);
@@ -494,7 +490,6 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
-    printf("Reducer: %s\n", name);
     cur = array_ensure_tail(&gstp->reducers, PLN_Reducer);
 
     if (buildReducer(gstp, cur, ac, name, status) != REDISMODULE_OK) {
@@ -734,6 +729,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
   if (!(opts->flags & Search_NoStopwrods)) {
     opts->stopwords = sctx->spec->stopwords;
+    StopWordList_Ref(sctx->spec->stopwords);
   }
 
   QueryAST *ast = &req->ast;
@@ -783,7 +779,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    printf("Have %lu arguments for reducer\n", AC_NumRemaining(&pr->args));
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
@@ -829,19 +824,16 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
   // See if we need a LOADER group here...?
   RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST);
-  printf("FirstLK: %p. CurLookup: %p\n", firstLk, lookup);
 
   if (firstLk == lookup) {
     // See if we need a loader step?
     const RLookupKey **kklist = NULL;
     for (RLookupKey *kk = firstLk->head; kk; kk = kk->next) {
-      printf("Checking RLookupKey: %s; flags=%d\n", kk->name, kk->flags);
       if ((kk->flags & RLOOKUP_F_DOCSRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
         *array_ensure_tail(&kklist, const RLookupKey *) = kk;
       }
     }
     if (kklist != NULL) {
-      printf("Creating initial loader...\n");
       ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
       array_free(kklist);
       assert(rpLoader);
@@ -885,8 +877,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         return NULL;
       }
     }
-    printf("Creating sorter with %lu fields. ascmap=%llx\n", nkeys, astp->sortAscMap);
-    SortAscMap_Dump(astp->sortAscMap, nkeys);
 
     rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
@@ -964,14 +954,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   /** Create a scorer if there is no subsequent sorter within this grouping */
   if (!hasQuerySortby(pln)) {
-    printf("No sortby!\n");
     rp = getScorerRP(req);
     PUSH_RP();
   }
 
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    printf("Processing STP::Type: %d\n", stp->type);
 
     switch (stp->type) {
       case PLN_T_GROUP: {
@@ -1034,10 +1022,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           }
           const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
-            printf("Ignoring already-loaded key %s\n", s);
+            // printf("Ignoring already-loaded key %s\n", s);
             continue;
           }
-          printf("Will try to load %s\n", s);
           lstp->keys[lstp->nkeys++] = kk;
         }
         rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
@@ -1063,7 +1050,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
 
   if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    printf("Injecting final LOOKUP\n");
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     // Add a LOAD step...
     const RLookupKey **loadkeys = NULL;
@@ -1094,7 +1080,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     }
   }
 
-  AGPLN_Dump(pln);
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
@@ -1176,7 +1161,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
-        printf("Skipping hidden field %s/%p\n", kk->name, kk);
+        // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         continue;
       }
       nfields++;
@@ -1213,7 +1198,6 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   }
 
   ResultProcessor *rp = req->qiter.endProc;
-  RP_DumpChain(rp);
 
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   rc = rp->Next(rp, &r);
@@ -1263,6 +1247,10 @@ void AREQ_Free(AREQ *req) {
   AGPLN_FreeSteps(&req->ap);
 
   QAST_Destroy(&req->ast);
+
+  if (req->searchopts.stopwords) {
+    StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
+  }
 
   // Finally, free the context
   if (req->sctx) {

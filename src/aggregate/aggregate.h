@@ -14,17 +14,16 @@ extern "C" {
 typedef struct Grouper Grouper;
 
 typedef enum {
-  QEXEC_F_IS_EXTENDED = 0x01,  // Contains aggregations or projections
-  QEXEC_F_SEND_SCORES = 0x02,
-  QEXEC_F_SEND_SORTKEYS = 0x04,
+  QEXEC_F_IS_EXTENDED = 0x01,    // Contains aggregations or projections
+  QEXEC_F_SEND_SCORES = 0x02,    // Output: Send scores with each result
+  QEXEC_F_SEND_SORTKEYS = 0x04,  // Sent the key used for sorting, for each result
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
-  QEXEC_F_SEND_PAYLOADS = 0x10,
-  QEXEC_F_IS_CURSOR = 0x20,  // Is a cursor-type query
-  QEXEC_F_SEND_SCHEMA = 0x40,
+  QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
+  QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
+  QEXEC_F_SEND_SCHEMA = 0x40,    // Unused for now
 
   /**
-   * If this pointer is heap allocated, in which case the pointer itself is
-   * freed during AR_Free()
+   * If this pointer is heap allocated, in which case the pointer itself is freed during AR_Free()
    */
   QEXEC_F_IS_HEAPALLOC = 0x80,
 
@@ -57,16 +56,16 @@ typedef enum {
 } QEStateFlags;
 
 typedef struct {
+  /* plan containing the logical sequence of steps */
   AGGPlan ap;
 
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
 
-  /** Search Query */
+  /** Search query string */
   const char *query;
-  /** Stopwords used for query. This is refcounted here */
-  StopWordList *stopwords;
+
   /** Fields to be output and otherwise processed */
   FieldList outFields;
   /** Options controlling search behavior */
@@ -78,6 +77,7 @@ typedef struct {
   /** Root iterator. This is owned by the request */
   IndexIterator *rootiter;
 
+  /** Context, owned by request */
   RedisSearchCtx *sctx;
 
   /** Resumable context */

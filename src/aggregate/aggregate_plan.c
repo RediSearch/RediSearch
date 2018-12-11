@@ -29,7 +29,6 @@ static const char *steptypeToString(PLN_StepType type) {
 
 /* add a step to the plan at its end (before the dummy tail) */
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
-  printf("Adding step %p (T=%d)\n", step, step->type);
   assert(step->type > PLN_T_INVALID);
   dllist_append(&plan->steps, &step->llnodePln);
   plan->steptypes |= (1 << (step->type - 1));

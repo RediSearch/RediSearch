@@ -131,6 +131,7 @@ TEST_F(RangeTest, testRangeIterator) {
     // printf("The iterator returned %d elements\n", xcount);
     ASSERT_EQ(xcount, count);
     it->Free(it);
+    NumericFilter_Free(flt);
   }
 
   ASSERT_EQ(t->numRanges, 14);
