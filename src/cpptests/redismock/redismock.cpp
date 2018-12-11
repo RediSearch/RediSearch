@@ -266,6 +266,7 @@ int RMCK_HashSet(RedisModuleKey *key, int flags, ...) {
     wasEmpty = true;
     printf("Creating new hash value.\n");
     key->ref = new HashValue(key->key);
+    key->ref->incref();
   } else if (key->ref->typecode() != REDISMODULE_KEYTYPE_HASH) {
     return REDISMODULE_ERR;
   }
