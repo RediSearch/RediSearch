@@ -4,7 +4,7 @@ PROJECT(redisearch)
 # Allow to use 'LOCATION' setting
 CMAKE_POLICY(SET CMP0026 OLD)
 
-OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
+OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
 SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result")
@@ -94,7 +94,7 @@ IF (RS_RUN_TESTS)
     SET(BUILD_GMOCK OFF)
     ADD_SUBDIRECTORY(src/dep/gtest)
     ADD_SUBDIRECTORY(src/cpptests)
-    # ADD_SUBDIRECTORY(src/tests)
+    ADD_SUBDIRECTORY(src/tests)
     ADD_SUBDIRECTORY(src/pytest)
 ENDIF()
 

@@ -4,6 +4,9 @@ defaults:
   ci_steps: &ci_steps
     - checkout
     - run:
+        name: Get GTest
+        command: ./srcutil/get_gtest.sh
+    - run:
         name: Build
         command: ./.circleci/ci_build.sh
     - run:
