@@ -91,6 +91,7 @@ SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 TARGET_LINK_LIBRARIES(redisearchS -lm -lc -ldl)
 
 IF (RS_RUN_TESTS)
+    SET(BUILD_GMOCK OFF)
     ADD_SUBDIRECTORY(src/dep/gtest)
     ADD_SUBDIRECTORY(src/cpptests)
     # ADD_SUBDIRECTORY(src/tests)
