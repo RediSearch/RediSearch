@@ -214,7 +214,6 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
-      ascMap = 0;  // Only one field, not asceding
     }
   } else {
     while (!AC_IsAtEnd(&subArgs)) {
