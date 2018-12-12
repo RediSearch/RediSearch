@@ -9,12 +9,12 @@ struct privdata {
 };
 
 /* Calculate sum(TF-IDF)*document score for each result */
-double myScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double myScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                 double minScore) {
   return 3.141;
 }
 
-double filterOutScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double filterOutScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                        double minScore) {
   return RS_SCORE_FILTEROUT;
 }

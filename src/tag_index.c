@@ -86,12 +86,12 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
 }
 
 /* Ecode a single docId into a specific tag value */
-static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docId docId) {
+static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
 
-  InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
+  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     iv = NewInvertedIndex(Index_DocIdsOnly, 1);
-    TrieMap_Add(idx->values, value, len, iv, NULL);
+    TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
   }
 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -101,15 +101,15 @@ static inline size_t tagIndex_Put(TagIndex *idx, char *value, size_t len, t_docI
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId) {
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId) {
   if (!values) return 0;
   size_t ret = 0;
-  array_foreach(values, tok, {
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
     if (tok && *tok != '\0') {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
     }
-  });
-
+  }
   return ret;
 }
 

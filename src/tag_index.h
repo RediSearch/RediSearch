@@ -7,6 +7,10 @@
 #include "value.h"
 #include "geo_index.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * A Tag Index is an index that indexes textual tags for documents, in a simple manner than a full
  * text index, although
@@ -98,6 +102,8 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
 
+void TagIndex_Free(void *p);
+
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
 
@@ -107,7 +113,7 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId);
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
@@ -127,4 +133,7 @@ extern RedisModuleType *TagIndexType;
 /* Register the tag index type in redis */
 int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

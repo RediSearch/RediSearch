@@ -497,7 +497,7 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 /* the current top of the iterator stack */
 #define __tmi_current(it) &it->stack[it->stackOffset - 1]
 
-  /* Step itearator return codes below: */
+/* Step itearator return codes below: */
 
 #define TM_ITERSTATE_SELF 0
 #define TM_ITERSTATE_CHILDREN 1
