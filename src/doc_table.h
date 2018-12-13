@@ -9,6 +9,9 @@
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Retrieves the pointer and length for the document's key.
 static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
   if (len) {
@@ -187,4 +190,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
 /* Load the table from RDB */
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

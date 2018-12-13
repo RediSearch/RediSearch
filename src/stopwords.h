@@ -3,6 +3,9 @@
 
 #include <stdlib.h>
 #include "redismodule.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static const char *DEFAULT_STOPWORDS[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
@@ -40,4 +43,7 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 
 void StopWordList_Ref(struct StopWordList *sl);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

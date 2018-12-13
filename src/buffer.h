@@ -11,6 +11,10 @@
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Simple wrapper over any kind of string
  */
@@ -178,4 +182,7 @@ Buffer *NewBuffer(size_t len);
 Buffer *Buffer_Wrap(char *data, size_t len);
 void Buffer_Free(Buffer *buf);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

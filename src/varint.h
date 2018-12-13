@@ -7,6 +7,9 @@
 #include "buffer.h"
 #include "redisearch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
 static inline uint32_t ReadVarint(BufferReader *b) {
 
@@ -71,4 +74,8 @@ static inline void VVW_Reset(VarintVectorWriter *w) {
 #define VVW_GetByteData(vvw) ((vvw) ? (vvw)->buf.data : NULL)
 #define VVW_OFFSETVECTOR_INIT(vvw) \
   { .data = VVW_GetByteData(vvw), .len = VVW_GetByteLength(vvw) }
+
+#ifdef __cplusplus
+}
+#endif
 #endif

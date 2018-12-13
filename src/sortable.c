@@ -63,7 +63,7 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
+void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
   if (idx <= RS_SORTABLES_MAX) {
     switch (type) {
       case RS_SORTABLE_NUM:
@@ -71,7 +71,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
 
         break;
       case RS_SORTABLE_STR: {
-        char *ns = normalizeStr((char *)p);
+        char *ns = normalizeStr((const char *)p);
         tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
         break;
       }

@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include <math.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
   t_docId firstId;
@@ -188,4 +192,7 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif
