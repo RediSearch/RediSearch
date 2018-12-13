@@ -8,6 +8,10 @@
 #include <util/block_alloc.h>
 #include "query_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   REDUCER_T_COUNT = 0,
   REDUCER_T_SUM,
@@ -156,4 +160,8 @@ typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory);
 void RDCR_RegisterBuiltins(void);
+
+#ifdef __cplusplus
+}
+#endif
 #endif

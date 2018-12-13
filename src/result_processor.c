@@ -117,6 +117,16 @@ IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
   return ((RPIndexIterator *)it->rootProc)->iiter;
 }
 
+void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
+  rp->parent = it;
+  if (!it->rootProc) {
+    it->endProc = it->rootProc = rp;
+    rp->upstream = NULL;
+    return;
+  }
+  rp->upstream = it->endProc;
+  it->endProc = rp;
+}
 /*******************************************************************************************************************
  *  Scoring Processor
  *

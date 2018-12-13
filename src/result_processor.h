@@ -76,6 +76,7 @@ typedef struct {
 } QueryIterator, QueryProcessingCtx;
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
+void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 
 /*
  * SearchResult - the object all the processing chain is working on.
@@ -162,6 +163,7 @@ size_t ResultProcessor_Total(ResultProcessor *rp);
 
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
+// #define RS_NEXT(rp, res) (rp)->Next(rp, res)
 
 #define SEARCHRESULT_CLEAR_KEEPCACHE 0x01
 #define SEARCHRESULT_CLEAR_FREECACHE 0x02

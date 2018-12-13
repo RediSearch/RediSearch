@@ -230,7 +230,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  * Adds a reducer to the grouper. This must be called before any results are
  * processed by the grouper.
  */
-void Grouper_AddReducer(Grouper *g, Reducer *r);
+void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 // Entry points
 void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

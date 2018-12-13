@@ -279,9 +279,10 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   return g;
 }
 
-void Grouper_AddReducer(Grouper *g, Reducer *r) {
+void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dstkey) {
   Reducer **rpp = array_ensure_tail(&g->reducers, Reducer *);
   *rpp = r;
+  r->dstkey = dstkey;
 }
 
 ResultProcessor *Grouper_GetRP(Grouper *g) {

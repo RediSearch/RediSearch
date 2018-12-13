@@ -416,7 +416,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
   }
-  return RS_ArrVal(arr, sz);
+  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
