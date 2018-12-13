@@ -2,7 +2,7 @@
 # Run this from the toplevel directory of the source code tree
 GTEST_URL_BASE=https://s3-eu-central-1.amazonaws.com/redislabs-dev-public-deps
 GTEST_URL_BASE=https://github.com/google/googletest/archive/
-GTEST_FILENAME=release-1.8.0.zip
+GTEST_FILENAME=release-1.8.0.tar.gz
 GTEST_TOPDIR=googletest-release-1.8.0
 DESTDIR=src/dep/
 
@@ -11,13 +11,13 @@ if [ -d $DESTDIR/gtest ]; then
 fi
 
 curdir=$PWD
-zipball=/tmp/${GTEST_FILENAME}
+tarball=/tmp/${GTEST_FILENAME}
 url=${GTEST_URL_BASE}/${GTEST_FILENAME}
-if [ ! -e $zipball ]; then
-    wget -O $zipball $url
+if [ ! -e $tarball ]; then
+    wget -O $tarball $url
 fi
 
-unzip -d $DESTDIR/ $zipball
+tar -C $DESTDIR -xf $tarball
 rm $DESTDIR/gtest
 cd $DESTDIR
 ln -s $GTEST_TOPDIR gtest
