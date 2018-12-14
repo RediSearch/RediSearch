@@ -1,65 +1,95 @@
 #include "../query.h"
 #include "../query_parser/tokenizer.h"
 #include "../stopwords.h"
-#include "test_util.h"
-#include "time_sample.h"
 #include "../extension.h"
-#include "../search_request.h"
 #include "../ext/default.h"
-#include "../rmutil/alloc.h"
 #include <stdio.h>
+#include <gtest/gtest.h>
 
 void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
 
-#define SEARCH_OPTS(ctx)                                                                \
-  (RSSearchOptions) {                                                                   \
-    .flags = RS_DEFAULT_QUERY_FLAGS, .fieldMask = RS_FIELDMASK_ALL, .indexName = "idx", \
-    .language = "en", .stopwords = DefaultStopWordList()                                \
-  }
-
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
-int isValidQuery(char *qt, RedisSearchCtx ctx) {
-  char *err = NULL;
-
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
-
-  QueryNode *n = Query_Parse(q, &err);
-
-  if (err) {
-    Query_Free(q);
-    fprintf(stderr, "Error parsing query '%s': %s\n", qt, err);
-    free(err);
-    return 1;
+struct SearchOptionsCXX : RSSearchOptions {
+  SearchOptionsCXX() {
+    memset(this, 0, sizeof(*this));
+    flags = RS_DEFAULT_QUERY_FLAGS;
+    fieldmask = RS_FIELDMASK_ALL;
+    language = "en";
+    stopwords = DefaultStopWordList();
   }
-  if (n) {
-    QueryNode_Print(q, n, 0);
-  }
-  Query_Free(q);
+};
 
-  return 0;
+class QASTCXX : public QueryAST {
+  SearchOptionsCXX m_opts;
+  QueryError m_status = {QueryErrorCode(0)};
+  RedisSearchCtx *sctx = NULL;
+
+ public:
+  QASTCXX() {
+    memset(static_cast<QueryAST *>(this), 0, sizeof(QueryAST));
+  }
+  QASTCXX(RedisSearchCtx &sctx) : QASTCXX() {
+    setContext(&sctx);
+  }
+  void setContext(RedisSearchCtx *sctx) {
+    this->sctx = sctx;
+  }
+
+  bool parse(const char *s) {
+    QueryError_ClearError(&m_status);
+    QAST_Destroy(this);
+
+    int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), &m_status);
+    return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
+  }
+
+  void print() const {
+    QAST_Print(this, sctx->spec);
+  }
+
+  const char *getError() const {
+    return QueryError_GetError(&m_status);
+  }
+
+  ~QASTCXX() {
+    QueryError_ClearError(&m_status);
+    QAST_Destroy(this);
+  }
+};
+
+bool isValidQuery(const char *qt, RedisSearchCtx &ctx) {
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  return ast.parse(qt);
+
+  // if (err) {
+  //   Query_Free(q);
+  //   fprintf(stderr, "Error parsing query '%s': %s\n", qt, err);
+  //   free(err);
+  //   return 1;
+  // }
+  // if (n) {
+  //   QueryNode_Print(q, n, 0);
+  // }
+  // Query_Free(q);
+
+  // return 0;
 }
 
-#define assertValidQuery(qt, ctx)              \
-  {                                            \
-    if (0 != isValidQuery(qt, ctx)) return -1; \
-  }
+#define assertValidQuery(qt, ctx) ASSERT_TRUE(isValidQuery(qt, ctx))
+#define assertInvalidQuery(qt, ctx) ASSERT_FALSE(isValidQuery(qt, ctx))
 
-#define assertInvalidQuery(qt, ctx)            \
-  {                                            \
-    if (0 == isValidQuery(qt, ctx)) return -1; \
-  }
+class QueryTest : public ::testing::Test {};
 
-int testQueryParser() {
-
+TEST_F(QueryTest, testParser) {
   RedisSearchCtx ctx;
   static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
                                "body",    "text",  "weight", "2.0",    "bar",
                                "numeric", "loc",   "geo",    "tags",   "tag"};
-  char *err = NULL;
+  QueryError err = {QueryErrorCode(0)};
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT(err == NULL);
+  ASSERT_FALSE(QueryError_HasError(&err));
 
   // test some valid queries
   assertValidQuery("hello", ctx);
@@ -181,281 +211,193 @@ int testQueryParser() {
 
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
-  char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
+  const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  ASSERT_TRUE(ast.parse(qt));
+  QueryNode *n = ast.root;
+  QAST_Print(&ast, ctx.spec);
+  ASSERT_TRUE(n != NULL);
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->pn.exact, 0);
+  ASSERT_EQ(n->pn.numChildren, 4);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
 
-  QueryNode *n = Query_Parse(q, &err);
-
-  if (err) FAIL("Error parsing query: %s", err);
-  QueryNode_Print(q, n, 0);
-  ASSERT(err == NULL);
-  ASSERT(n != NULL);
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->pn.exact, 0);
-  ASSERT_EQUAL(n->pn.numChildren, 4);
-  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL);
-
-  ASSERT(n->pn.children[0]->type == QN_UNION);
-  ASSERT_STRING_EQ("hello", n->pn.children[0]->un.children[0]->tn.str);
-  ASSERT_STRING_EQ("world", n->pn.children[0]->un.children[1]->tn.str);
+  ASSERT_TRUE(n->pn.children[0]->type == QN_UNION);
+  ASSERT_STREQ("hello", n->pn.children[0]->un.children[0]->tn.str);
+  ASSERT_STREQ("world", n->pn.children[0]->un.children[1]->tn.str);
 
   QueryNode *_n = n->pn.children[1];
 
-  ASSERT(_n->type == QN_PHRASE);
-  ASSERT(_n->pn.exact == 1);
-  ASSERT_EQUAL(_n->pn.numChildren, 2);
-  ASSERT_STRING_EQ("another", _n->pn.children[0]->tn.str);
-  ASSERT_STRING_EQ("world", _n->pn.children[1]->tn.str);
+  ASSERT_TRUE(_n->type == QN_PHRASE);
+  ASSERT_TRUE(_n->pn.exact == 1);
+  ASSERT_EQ(_n->pn.numChildren, 2);
+  ASSERT_STREQ("another", _n->pn.children[0]->tn.str);
+  ASSERT_STREQ("world", _n->pn.children[1]->tn.str);
 
   _n = n->pn.children[2];
-  ASSERT(_n->type == QN_PHRASE);
+  ASSERT_TRUE(_n->type == QN_PHRASE);
 
-  ASSERT(_n->pn.exact == 0);
-  ASSERT_EQUAL(_n->pn.numChildren, 2);
-  ASSERT_STRING_EQ("foo", _n->pn.children[0]->tn.str);
-  ASSERT_STRING_EQ("bar", _n->pn.children[1]->tn.str);
+  ASSERT_TRUE(_n->pn.exact == 0);
+  ASSERT_EQ(_n->pn.numChildren, 2);
+  ASSERT_STREQ("foo", _n->pn.children[0]->tn.str);
+  ASSERT_STREQ("bar", _n->pn.children[1]->tn.str);
 
   _n = n->pn.children[3];
-  ASSERT(_n->type == QN_NOT);
-  _n = _n->not.child;
-  ASSERT(_n->pn.exact == 0);
-  ASSERT_EQUAL(_n->pn.numChildren, 2);
-  ASSERT_STRING_EQ("baz", _n->pn.children[0]->tn.str);
+  ASSERT_TRUE(_n->type == QN_NOT);
+  _n = _n->inverted.child;
+  ASSERT_TRUE(_n->pn.exact == 0);
+  ASSERT_EQ(_n->pn.numChildren, 2);
+  ASSERT_STREQ("baz", _n->pn.children[0]->tn.str);
 
-  ASSERT_EQUAL(_n->pn.children[1]->type, QN_PREFX);
-  ASSERT_STRING_EQ("boo", _n->pn.children[1]->pfx.str);
-
-  Query_Free(q);
+  ASSERT_EQ(_n->pn.children[1]->type, QN_PREFX);
+  ASSERT_STREQ("boo", _n->pn.children[1]->pfx.str);
+  QAST_Destroy(&ast);
   IndexSpec_Free(ctx.spec);
-
-  return 0;
 }
 
-int testPureNegative() {
-  char *err = NULL;
+TEST_F(QueryTest, testPureNegative) {
   const char *qs[] = {"-@title:hello", "-hello", "@title:-hello", "-(foo)", "-foo", "(-foo)", NULL};
-
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
+  QueryError err = {QueryErrorCode(0)};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-
-  for (int i = 0; qs[i] != NULL; i++) {
-    QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qs[i], opts);
-
-    QueryNode *n = Query_Parse(q, &err);
-
-    if (err) FAIL("Error parsing query: %s", err);
-    // QueryNode_Print(q, n, 0);
-    ASSERT(err == NULL);
-    ASSERT(n != NULL);
-    ASSERT_EQUAL(n->type, QN_NOT);
-    ASSERT(n->not.child != NULL);
-
-    Query_Free(q);
+  for (size_t i = 0; qs[i] != NULL; i++) {
+    QASTCXX ast;
+    ast.setContext(&ctx);
+    ASSERT_TRUE(ast.parse(qs[i])) << ast.getError();
+    QueryNode *n = ast.root;
+    ASSERT_TRUE(n != NULL);
+    ASSERT_EQ(n->type, QN_NOT);
+    ASSERT_TRUE(n->inverted.child != NULL);
   }
-  return 0;
+  IndexSpec_Free(ctx.spec);
 }
 
-int testGeoQuery() {
-  char *err;
+TEST_F(QueryTest, testGeoQuery) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
+  QueryError err = {QueryErrorCode(0)};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
-
-  QueryNode *n = Query_Parse(q, &err);
-
-  if (err) FAIL("Error parsing query: %s", err);
-  QueryNode_Print(q, n, 0);
-  ASSERT(err == NULL);
-  ASSERT(n != NULL);
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT((n->opts.fieldMask == RS_FIELDMASK_ALL));
-  ASSERT_EQUAL(n->pn.numChildren, 2);
+  const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
+  ASSERT_EQ(n->pn.numChildren, 2);
 
   QueryNode *gn = n->pn.children[1];
-  ASSERT_EQUAL(gn->type, QN_GEO);
-  ASSERT_STRING_EQ(gn->gn.gf->property, "loc");
-  ASSERT_STRING_EQ(gn->gn.gf->unit, "km");
-  ASSERT_EQUAL(gn->gn.gf->lon, 31.52);
-  ASSERT_EQUAL(gn->gn.gf->lat, 32.1342);
-  ASSERT_EQUAL(gn->gn.gf->radius, 10.01);
-  Query_Free(q);
-
-  return 0;
+  ASSERT_EQ(gn->type, QN_GEO);
+  ASSERT_STREQ(gn->gn.gf->property, "loc");
+  ASSERT_STREQ(gn->gn.gf->unit, "km");
+  ASSERT_EQ(gn->gn.gf->lon, 31.52);
+  ASSERT_EQ(gn->gn.gf->lat, 32.1342);
+  ASSERT_EQ(gn->gn.gf->radius, 10.01);
+  IndexSpec_Free(ctx.spec);
 }
-int testFieldSpec() {
-  char *err = NULL;
 
+TEST_F(QueryTest, testFieldSpec) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
+  QueryError err = {QUERY_OK};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  char *qt = "@title:hello world";
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
-
-  QueryNode *n = Query_Parse(q, &err);
-
-  if (err) FAIL("Error parsing query: %s", err);
-  QueryNode_Print(q, n, 0);
-  ASSERT(err == NULL);
-  ASSERT(n != NULL);
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->opts.fieldMask, 0x01)
-  Query_Free(q);
+  const char *qt = "@title:hello world";
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  ast.print();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->opts.fieldMask, 0x01);
 
   qt = "(@title:hello) (@body:world)";
-  q = QUERY_PARSE_CTX(ctx, qt, opts);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  n = ast.root;
 
-  n = Query_Parse(q, &err);
-  if (err) {
-    Query_Free(q);
-    IndexSpec_Free(ctx.spec);
-    FAIL("Error parsing query: %s", err);
-  }
-
-  ASSERT(n != NULL);
+  ASSERT_TRUE(n != NULL);
   printf("%s ====> ", qt);
-  QueryNode_Print(q, n, 0);
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL)
-  ASSERT_EQUAL(n->pn.children[0]->opts.fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->opts.fieldMask, 0x02)
-  Query_Free(q);
+  ast.print();
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQ(n->pn.children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->pn.children[1]->opts.fieldMask, 0x02);
 
   // test field modifiers
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
-  q = QUERY_PARSE_CTX(ctx, qt, opts);
-
-  n = Query_Parse(q, &err);
-  if (err) FAIL("Error parsing query: %s", err);
-  ASSERT(n != NULL);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  n = ast.root;
   printf("%s ====> ", qt);
-  QueryNode_Print(q, n, 0);
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->opts.fieldMask, RS_FIELDMASK_ALL)
-  ASSERT_EQUAL(n->pn.numChildren, 3)
-  ASSERT_EQUAL(n->pn.children[0]->opts.fieldMask, 0x01)
-  ASSERT_EQUAL(n->pn.children[1]->opts.fieldMask, 0x02)
-  ASSERT_EQUAL(n->pn.children[2]->opts.fieldMask, 0x00)
-  // ASSERT_EQUAL(n->pn.children[2]->fieldMask, 0x00)
-  Query_Free(q);
+  ast.print();
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQ(n->pn.numChildren, 3);
+  ASSERT_EQ(n->pn.children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->pn.children[1]->opts.fieldMask, 0x02);
+  ASSERT_EQ(n->pn.children[2]->opts.fieldMask, 0x00);
+  // ASSERT_EQ(n->pn.children[2]->fieldMask, 0x00)
 
   // test numeric ranges
   qt = "@num:[0.4 (500]";
-  q = QUERY_PARSE_CTX(ctx, qt, opts);
-  n = Query_Parse(q, &err);
-  if (err) FAIL("Error parsing query: %s", err);
-  ASSERT(n != NULL);
-  ASSERT_EQUAL(n->type, QN_NUMERIC);
-  ASSERT_EQUAL(n->nn.nf->min, 0.4);
-  ASSERT_EQUAL(n->nn.nf->max, 500.0);
-  ASSERT_EQUAL(n->nn.nf->inclusiveMin, 1);
-  ASSERT_EQUAL(n->nn.nf->inclusiveMax, 0);
-  Query_Free(q);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_NUMERIC);
+  ASSERT_EQ(n->nn.nf->min, 0.4);
+  ASSERT_EQ(n->nn.nf->max, 500.0);
+  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
+  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
   IndexSpec_Free(ctx.spec);
-
-  return 0;
 }
 
-int testAttributes() {
-  char *err = NULL;
-
+TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
+  QueryError err = {QUERY_OK};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
 
-  char *qt =
+  const char *qt =
       "(@title:(foo bar) => {$weight: 0.5} @body:lol => {$weight: 0.2}) => "
       "{$weight:0.3; $slop:2; $inorder:true}";
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(0.3, n->opts.weight);
+  ASSERT_EQ(2, n->opts.maxSlop);
+  ASSERT_EQ(1, n->opts.inOrder);
 
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
-  QueryNode *n = Query_Parse(q, &err);
-
-  if (err) FAIL("Error parsing query: %s", err);
-  QueryNode_Print(q, n, 0);
-  ASSERT(err == NULL);
-  ASSERT(n != NULL);
-
-  ASSERT_EQUAL(0.3, n->opts.weight);
-  ASSERT_EQUAL(2, n->opts.maxSlop);
-  ASSERT_EQUAL(1, n->opts.inOrder);
-
-  ASSERT_EQUAL(n->type, QN_PHRASE);
-  ASSERT_EQUAL(n->pn.numChildren, 2)
-  ASSERT_EQUAL(0.5, n->pn.children[0]->opts.weight)
-  ASSERT_EQUAL(0.2, n->pn.children[1]->opts.weight)
-
-  RETURN_TEST_SUCCESS;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->pn.numChildren, 2);
+  ASSERT_EQ(0.5, n->pn.children[0]->opts.weight);
+  ASSERT_EQ(0.2, n->pn.children[1]->opts.weight);
+  IndexSpec_Free(ctx.spec);
 }
-int testTags() {
 
-  char *err = NULL;
-
+TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
+  QueryError err = {QUERY_OK};
   RedisSearchCtx ctx = {
       .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
-  char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
 
-  RSSearchOptions opts = SEARCH_OPTS(ctx);
-  QueryParseCtx *q = QUERY_PARSE_CTX(ctx, qt, opts);
-  QueryNode *n = Query_Parse(q, &err);
+  const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  ast.print();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_TAG);
+  ASSERT_EQ(4, n->tag.numChildren);
+  ASSERT_EQ(QN_PHRASE, n->tag.children[0]->type);
+  ASSERT_STREQ("hello", n->tag.children[0]->pn.children[0]->tn.str);
+  ASSERT_STREQ("world", n->tag.children[0]->pn.children[1]->tn.str);
 
-  if (err) FAIL("Error parsing query: %s", err);
-  QueryNode_Print(q, n, 0);
-  ASSERT(err == NULL);
-  ASSERT(n != NULL);
+  ASSERT_EQ(QN_TOKEN, n->tag.children[1]->type);
+  ASSERT_STREQ("foo", n->tag.children[1]->tn.str);
 
-  ASSERT_EQUAL(n->type, QN_TAG);
-  ASSERT_EQUAL(4, n->tag.numChildren);
-  ASSERT_EQUAL(QN_PHRASE, n->tag.children[0]->type)
-  ASSERT_STRING_EQ("hello", n->tag.children[0]->pn.children[0]->tn.str)
-  ASSERT_STRING_EQ("world", n->tag.children[0]->pn.children[1]->tn.str)
+  ASSERT_EQ(QN_TOKEN, n->tag.children[2]->type);
+  ASSERT_STREQ("שלום", n->tag.children[2]->tn.str);
 
-  ASSERT_EQUAL(QN_TOKEN, n->tag.children[1]->type)
-  ASSERT_STRING_EQ("foo", n->tag.children[1]->tn.str)
-
-  ASSERT_EQUAL(QN_TOKEN, n->tag.children[2]->type)
-  ASSERT_STRING_EQ("שלום", n->tag.children[2]->tn.str)
-
-  ASSERT_EQUAL(QN_TOKEN, n->tag.children[3]->type)
-  ASSERT_STRING_EQ("lorem ipsum", n->tag.children[3]->tn.str)
-
-  Query_Free(q);
+  ASSERT_EQ(QN_TOKEN, n->tag.children[3]->type);
+  ASSERT_STREQ("lorem ipsum", n->tag.children[3]->tn.str);
   IndexSpec_Free(ctx.spec);
-
-  RETURN_TEST_SUCCESS;
 }
-// void benchmarkQueryParser() {
-//   char *qt = "(hello|world) \"another world\"";
-//   char *err = NULL;
-
-//   RSSearcreq = SEARCH_REQUEST(qt, NULL);
-
-//   q = NewQueryParseCtx(&req);
-
-//   QueryParseCtx *q = NewQuery(NULL, qt, strlen(qt), 0, 1, 0xff, 0, "en", DefaultStopWordList(),
-//                               NULL, -1, 0, NULL, (RSPayload){}, NULL);
-//   TIME_SAMPLE_RUN_LOOP(50000, { Query_Parse(q, &err); });
-// }
-
-void RMUTil_InitAlloc();
-TEST_MAIN({
-  RMUTil_InitAlloc();
-  LOGGING_INIT(L_INFO);
-  TESTFUNC(testTags)
-  TESTFUNC(testGeoQuery);
-  TESTFUNC(testQueryParser);
-  TESTFUNC(testPureNegative);
-  TESTFUNC(testFieldSpec);
-  TESTFUNC(testAttributes);
-  // benchmarkQueryParser();
-});
