@@ -81,6 +81,8 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
                          AC_Strerror(rv))
 
+#define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
+
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
  * I'm making this into a macro so I don't need to include redismodule.h

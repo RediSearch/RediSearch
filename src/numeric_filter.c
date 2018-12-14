@@ -20,7 +20,7 @@ static int parseDoubleRange(const char *s, int *inclusive, double *target, int i
   errno = 0;
   *target = strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, "Bad range: %s", s);
+    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -64,7 +64,7 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
     return NULL;
   }
   s = AC_GetStringNC(ac, NULL);
-  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }

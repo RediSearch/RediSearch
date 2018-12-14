@@ -681,26 +681,36 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-QueryNode *Query_Parse(QueryParseCtx *, char **);
+QueryNode *Query_Parse(QueryParseCtx *);
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *qstr, size_t len, QueryError *status) {
+               const char *q, size_t n, QueryError *status) {
+  if (!dst->query) {
+    dst->query = strndup(q, n);
+    dst->nquery = n;
+  }
   QueryParseCtx qpCtx = {// force multiline
-                         .raw = qstr,
-                         .len = len,
-                         .ok = 1,
+                         .raw = dst->query,
+                         .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
-                         .opts = *opts};
-  char *err = NULL;
-  dst->root = Query_Parse(&qpCtx, &err);
+                         .opts = opts,
+                         .status = status};
+  dst->root = Query_Parse(&qpCtx);
+  printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
+         dst->root);
   if (!dst->root) {
-    if (err) {
-      QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Couldn't parse query string: %s", err);
-      free(err);
+    if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     } else {
       dst->root = NewQueryNode(QN_NULL);
     }
+  }
+  if (QueryError_HasError(status)) {
+    if (dst->root) {
+      QueryNode_Free(dst->root);
+      dst->root = NULL;
+    }
+    return REDISMODULE_ERR;
   }
   dst->numTokens = qpCtx.numTokens;
   return REDISMODULE_OK;
@@ -742,6 +752,9 @@ void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
   q->numTokens = 0;
+  free(q->query);
+  q->nquery = 0;
+  q->query = NULL;
 }
 
 void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx) {
@@ -973,6 +986,12 @@ char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   return ret;
 }
 
+void QAST_Print(const QueryAST *ast, const IndexSpec *spec) {
+  sds s = QueryNode_DumpSds(sdsnew(""), spec, ast->root, 0);
+  printf("%s\n", s);
+  sdsfree(s);
+}
+
 int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx) {
 #define INITIAL_ARRAY_NODE_SIZE 5
   QueryNode **nodes = array_new(QueryNode *, INITIAL_ARRAY_NODE_SIZE);
@@ -1027,14 +1046,17 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
   return retVal;
 }
 
-int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
+static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
+
+#define MK_INVALID_VALUE()                                                         \
+  QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%.*s) for `%.*s`", \
+                         (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
   // Apply slop: [-1 ... INF]
   if (STR_EQCASE(attr->name, attr->namelen, "slop")) {
-
     long long n;
     if (!ParseInteger(attr->value, &n) || n < -1) {
-      SET_ERR(err, "Invalid value for slop");
+      MK_INVALID_VALUE();
       return 0;
     }
     qn->opts.maxSlop = n;
@@ -1043,7 +1065,7 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
     // Apply inorder: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
-      SET_ERR(err, "Invalid value for 'inorder'");
+      MK_INVALID_VALUE();
       return 0;
     }
     qn->opts.inOrder = b;
@@ -1052,7 +1074,7 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
     // Apply weight: [0  ... INF]
     double d;
     if (!ParseDouble(attr->value, &d) || d < 0) {
-      SET_ERR(err, "Invalid value for 'weight'");
+      MK_INVALID_VALUE();
       return 0;
     }
     qn->opts.weight = d;
@@ -1061,7 +1083,7 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
     // Apply phonetic: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
-      SET_ERR(err, "Invalid value for 'inorder'");
+      MK_INVALID_VALUE();
       return 0;
     }
     if (b) {
@@ -1074,16 +1096,18 @@ int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, char **err) {
     //                                          will be enable if field was declared phonetic
 
   } else {
-    FMT_ERR(err, "Invalid attribute '%.*s'", (int)attr->namelen, attr->name);
+    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->name,
+                           attr->name);
     return 0;
   }
 
   return 1;
 }
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, char **err) {
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len,
+                              QueryError *status) {
   for (size_t i = 0; i < len; i++) {
-    if (!QueryNode_ApplyAttribute(qn, &attrs[i], err)) {
+    if (!QueryNode_ApplyAttribute(qn, &attrs[i], status)) {
       return 0;
     }
   }

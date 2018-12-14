@@ -2,6 +2,7 @@
 #define __QUERY_NODE_H__
 #include <stdlib.h>
 #include "redisearch.h"
+#include "query_error.h"
 //#include "numeric_index.h"
 
 struct RSQueryNode;
@@ -168,7 +169,7 @@ typedef struct RSQueryNode {
   QueryNodeOptions opts;
 } QueryNode;
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, char **err);
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
 
 /* Add a child to a phrase node */
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);

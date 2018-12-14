@@ -26,6 +26,11 @@ typedef struct QueryAST {
   // User data and length, for use by scorers
   const void *udata;
   size_t udatalen;
+  // Copied query and length, because it seems we modify the string
+  // in the parser (FIXME). Thus, if the original query is const
+  // then it explodes
+  char *query;
+  size_t nquery;
 } QueryAST;
 
 /**
@@ -105,6 +110,9 @@ void QueryNode_Free(QueryNode *n);
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec);
+
+/** Print a representation of the query to standard output */
+void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, void *q, void *ctx);
 int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx);

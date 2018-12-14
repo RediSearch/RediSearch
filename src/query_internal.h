@@ -2,6 +2,7 @@
 #define QUERY_INTERNAL_H
 
 #include <stdlib.h>
+#include <query_error.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,19 +14,19 @@ typedef struct RSQuery {
   // the token count
   size_t numTokens;
 
-  // parsing state
-  int ok;
-
   // Index spec
   RedisSearchCtx *sctx;
 
   // query root
   QueryNode *root;
 
-  char *errorMsg;
-  RSSearchOptions opts;
+  const RSSearchOptions *opts;
+
+  QueryError *status;
 
 } QueryParseCtx;
+
+#define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
 
 typedef struct {
   ConcurrentSearchCtx *conc;

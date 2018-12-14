@@ -31,7 +31,7 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
-int GeoFilter_IsValid(GeoFilter *f, char **err);
+int GeoFilter_Validate(GeoFilter *f, QueryError *status);
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
