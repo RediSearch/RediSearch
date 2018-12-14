@@ -3,6 +3,9 @@
 
 #include "redisearch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Initialize the extensions mechanism, create registries, etc */
 void Extensions_Init();
 
@@ -33,4 +36,7 @@ int Extension_Load(const char *name, RSExtensionInitFunc func);
  * is set to NULL on success or an error message on failure */
 int Extension_LoadDynamic(const char *path, char **errMsg);
 
+#ifdef __cplusplus
+}
+#endif
 #endif
