@@ -2,6 +2,7 @@
 #include <rmalloc.h>
 #include <stopwords.h>
 
+REDISMODULE_INIT_SYMBOLS();
 void RMUTil_InitAlloc();
 
 int testStopwordList() {
