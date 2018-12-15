@@ -23,6 +23,25 @@ void Extensions_Init() {
   }
 }
 
+static void freeExpanderCb(void *p) {
+  rm_free(p);
+}
+
+static void freeScorerCb(void *p) {
+  rm_free(p);
+}
+
+void Extensions_Free() {
+  if (queryExpanders_g) {
+    TrieMap_Free(queryExpanders_g, freeExpanderCb);
+    queryExpanders_g = NULL;
+  }
+  if (scorers_g) {
+    TrieMap_Free(scorers_g, freeScorerCb);
+    scorers_g = NULL;
+  }
+}
+
 /* Register a scoring function by its alias. privdata is an optional pointer to a user defined
  * struct. ff is a free function releasing any resources allocated at the end of query execution */
 int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,

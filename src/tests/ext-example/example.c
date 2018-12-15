@@ -4,10 +4,6 @@
 #include <redisearch.h>
 #include "example.h"
 
-struct privdata {
-  int freed;
-};
-
 /* Calculate sum(TF-IDF)*document score for each result */
 double myScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                 double minScore) {
@@ -33,21 +29,18 @@ void myFreeFunc(void *p) {
 /* Register the default extension */
 int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
-  struct privdata *spd = malloc(sizeof(struct privdata));
-  spd->freed = 0;
-  if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
-  }
-
-  if (ctx->RegisterScoringFunction("filterout_scorer", filterOutScorer, myFreeFunc, spd) ==
+  if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
-  spd = malloc(sizeof(struct privdata));
-  spd->freed = 0;
+  if (ctx->RegisterScoringFunction("filterout_scorer", filterOutScorer, myFreeFunc, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander("example_expander", myExpander, myFreeFunc, spd) ==
+  if (ctx->RegisterQueryExpander("example_expander", myExpander, myFreeFunc, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

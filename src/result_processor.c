@@ -127,6 +127,16 @@ void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
   rp->upstream = it->endProc;
   it->endProc = rp;
 }
+
+void QITR_FreeChain(QueryIterator *qitr) {
+  ResultProcessor *rp = qitr->endProc;
+  while (rp) {
+    ResultProcessor *next = rp->upstream;
+    rp->Free(rp);
+    rp = next;
+  }
+}
+
 /*******************************************************************************************************************
  *  Scoring Processor
  *

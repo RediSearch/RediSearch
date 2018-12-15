@@ -8,6 +8,8 @@ extern "C" {
 #endif
 /* Initialize the extensions mechanism, create registries, etc */
 void Extensions_Init();
+/* clear the extensions list */
+void Extensions_Free();
 
 /* Context for saving a scoring function and its private data and free */
 typedef struct {

@@ -77,6 +77,7 @@ typedef struct {
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
+void QITR_FreeChain(QueryIterator *qitr);
 
 /*
  * SearchResult - the object all the processing chain is working on.

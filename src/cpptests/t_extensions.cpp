@@ -5,10 +5,15 @@
 #include "../ext/default.h"
 #include <gtest/gtest.h>
 
-class ExtTest : public ::testing::Test {};
+class ExtTest : public ::testing::Test {
+ protected:
+  virtual void SetUp(void) {
+    Extensions_Init();
+  }
 
-struct privdata {
-  int freed;
+  virtual void TearDown(void) {
+    Extensions_Free();
+  }
 };
 
 static const char *getExtensionPath(void) {
@@ -37,22 +42,21 @@ static int numFreed = 0;
 void myFreeFunc(void *p) {
   numFreed++;
   printf("Freeing %p %d\n", p, numFreed);
-
   free(p);
 }
 
+#define SCORER_NAME "myScorer_" __FILE__
+#define EXPANDER_NAME "myExpander_" __FILE__
+#define EXTENSION_NAME "testung_" __FILE__
+
 /* Register the default extension */
 int myRegisterFunc(RSExtensionCtx *ctx) {
-  struct privdata *spd = new privdata();
-  spd->freed = 0;
-  if (ctx->RegisterScoringFunction("myScorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
+  if (ctx->RegisterScoringFunction(SCORER_NAME, myScorer, myFreeFunc, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
-  spd = new privdata;
-  spd->freed = 0;
   /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander("myExpander", myExpander, myFreeFunc, spd) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(EXPANDER_NAME, myExpander, myFreeFunc, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
@@ -60,36 +64,37 @@ int myRegisterFunc(RSExtensionCtx *ctx) {
 }
 
 TEST_F(ExtTest, testRegistration) {
-  Extensions_Init();
   numFreed = 0;
   ASSERT_TRUE(REDISEARCH_OK == Extension_Load("testung", myRegisterFunc));
 
   RSQueryExpanderCtx qexp;
-  ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qexp, "myExpander");
+  ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qexp, EXPANDER_NAME);
   ASSERT_TRUE(qx != NULL);
   ASSERT_TRUE(qx->exp == myExpander);
   ASSERT_TRUE(qx->ff == myFreeFunc);
-  ASSERT_TRUE(qx->privdata != NULL);
   ASSERT_TRUE(qexp.privdata == qx->privdata);
   qx->ff(qx->privdata);
   ASSERT_EQ(1, numFreed);
   // verify case sensitivity and null on not-found
-  ASSERT_TRUE(NULL == Extensions_GetQueryExpander(&qexp, "MYEXPANDER"));
+
+  std::string ucExpander(EXPANDER_NAME);
+  std::transform(ucExpander.begin(), ucExpander.end(), ucExpander.begin(), toupper);
+  ASSERT_TRUE(NULL == Extensions_GetQueryExpander(&qexp, ucExpander.c_str()));
 
   ScoringFunctionArgs scxp;
-  ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, "myScorer");
+  ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, SCORER_NAME);
   ASSERT_TRUE(sx != NULL);
-  ASSERT_TRUE(sx->privdata = scxp.extdata);
-  ASSERT_TRUE(sx->ff = myFreeFunc);
-  ASSERT_TRUE(sx->sf = myScorer);
+  ASSERT_EQ(sx->privdata, scxp.extdata);
+  ASSERT_TRUE(sx->ff == myFreeFunc);
+  ASSERT_TRUE(sx->sf == myScorer);
   sx->ff(sx->privdata);
   ASSERT_EQ(2, numFreed);
-  ASSERT_TRUE(NULL == Extensions_GetScoringFunction(&scxp, "MYScorer"));
+  std::string ucScorer(SCORER_NAME);
+  std::transform(ucScorer.begin(), ucScorer.end(), ucScorer.begin(), toupper);
+  ASSERT_TRUE(NULL == Extensions_GetScoringFunction(&scxp, ucScorer.c_str()));
 }
 
 TEST_F(ExtTest, testDynamicLoading) {
-  Extensions_Init();
-
   char *errMsg = NULL;
   int rc = Extension_LoadDynamic(getExtensionPath(), &errMsg);
   ASSERT_EQ(rc, REDISMODULE_OK);
@@ -107,7 +112,6 @@ TEST_F(ExtTest, testDynamicLoading) {
 }
 
 TEST_F(ExtTest, testQueryExpander) {
-  Extensions_Init();
   numFreed = 0;
   ASSERT_TRUE(REDISEARCH_OK == Extension_Load("testung", myRegisterFunc));
 
@@ -116,8 +120,8 @@ TEST_F(ExtTest, testQueryExpander) {
   opts.fieldmask = RS_FIELDMASK_ALL;
   opts.flags = RS_DEFAULT_QUERY_FLAGS;
   opts.language = "en";
-  opts.expanderName = "myExpander";
-  opts.scorerName = "myScore";
+  opts.expanderName = EXPANDER_NAME;
+  opts.scorerName = SCORER_NAME;
   QueryAST qast = {0};
 
   QueryError err = {QUERY_OK};
