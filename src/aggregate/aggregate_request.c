@@ -663,44 +663,6 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 }
 
-/* A callback called when we regain concurrent execution context, and the index spec key is
- * reopened. We protect against the case that the spec has been deleted during query execution
- */
-static void onReopen(RedisModuleKey *k, void *privdata) {
-  abort();
-  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-  AREQ *req = privdata;
-
-  // If we don't have a spec or key - we abort the query
-  if (k == NULL || sp == NULL) {
-    req->qiter.state = QITR_S_ABORTED;
-    req->sctx->spec = NULL;
-    return;
-  }
-
-  // The spec might have changed while we were sleeping - for example a realloc of the doc table
-  req->sctx->spec = sp;
-
-  // FIXME: Per-query!!
-  if (req->tmoMS > 0) {
-    // Check the elapsed processing time
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-
-    long long durationNS = (long long)1000000000 * (now.tv_sec - req->qiter.startTime.tv_sec) +
-                           (now.tv_nsec - req->qiter.startTime.tv_nsec);
-    // printf("Elapsed: %zdms\n", durationNS / 1000000);
-    // Abort on timeout
-    if (durationNS > req->tmoMS * 1000000) {
-      if (req->reqflags & QEXEC_F_IS_CURSOR) {
-        req->pause = 1;
-      } else {
-        req->qiter.state = QITR_S_TIMEDOUT;
-      }
-    }
-  }
-}
-
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   req->sctx = sctx;
@@ -742,14 +704,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (!(opts->flags & Search_Verbatim)) {
     QAST_Expand(ast, opts->expanderName, opts, sctx);
-  }
-
-  /** Handle concurrent context */
-  if (!(req->reqflags & QEXEC_F_SAFEMODE)) {
-    ConcurrentSearchCtx *conc = &req->conc;
-    ConcurrentSearch_AddKey(conc, sctx->key, REDISMODULE_READ, sctx->keyName, onReopen, req, NULL,
-                            ConcurrentKey_SharedKeyString);
-    sctx->conc = conc;
   }
 
   req->rootiter = QAST_Iterate(ast, opts, sctx, status);
