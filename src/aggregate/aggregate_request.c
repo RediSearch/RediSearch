@@ -106,7 +106,7 @@ static int parseCursorSettings(AggregateRequest *req, ArgsCursor *ac, QueryError
 
   int rv;
   ACArgSpec *errArg = NULL;
-  if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) != AC_OK) {
+  if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) != AC_OK && rv != AC_ERR_ENOENT) {
     QERR_MKBADARGS_AC(status, errArg->name, rv);
     return REDISMODULE_ERR;
   }

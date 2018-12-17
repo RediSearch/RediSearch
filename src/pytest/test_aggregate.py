@@ -457,7 +457,7 @@ class TestAggregateSecondUseCases():
         self.env.assertEqual(len(res), 4531)
 
     def testSimpleAggregateWithCursor(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertTrue(res[1] != 0)
 
 def grouper(iterable, n, fillvalue=None):
