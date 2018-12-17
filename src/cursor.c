@@ -67,7 +67,7 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
     RedisModule_FreeThreadSafeContext(cur->sctx->redisCtx);
     cur->sctx->redisCtx = NULL;
   }
-  SearchCtx_Free(cur->sctx);
+  SearchCtx_Decref(cur->sctx);
   rm_free(cur);
 }
 
@@ -165,19 +165,20 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1; // 0 should never be returned as cursor id
+  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
   return id;
 }
 
 Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned interval, char **err) {
+                        unsigned interval, QueryError *status) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   CursorSpecInfo *spec = findInfo(cl, lookupName);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
-    SET_ERR(err, "Index does not have cursors enabled or does not exist");
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
+                           lookupName);
     goto done;
   }
 
@@ -185,7 +186,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
     Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
       /** Collect idle cursors now */
-      SET_ERR(err, "Too many cursors allocated for index");
+      QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
   }
@@ -193,7 +194,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
   cur = rm_calloc(1, sizeof(*cur));
   cur->parent = cl;
   cur->specInfo = spec;
-  cur->sctx = sctx;
+  cur->sctx = SearchCtx_Incref(sctx);
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;

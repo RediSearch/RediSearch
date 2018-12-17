@@ -96,11 +96,11 @@ static void FieldList_RestrictReturn(FieldList *fields) {
 static int parseCursorSettings(AggregateRequest *req, ArgsCursor *ac, QueryError *status) {
   ACArgSpec specs[] = {{.name = "MAXIDLE",
                         .type = AC_ARGTYPE_UINT,
-                        .target = &req->cursorChunkSize,
+                        .target = &req->cursorMaxIdle,
                         .intflags = AC_F_GE1},
                        {.name = "COUNT",
                         .type = AC_ARGTYPE_UINT,
-                        .target = &req->cursorMaxIdle,
+                        .target = &req->cursorChunkSize,
                         .intflags = AC_F_GE1},
                        {NULL}};
 
@@ -1037,151 +1037,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
-}
-
-/**
- * Get the sorting key of the result. This will be the sorting key of the last
- * RLookup registry. Returns NULL if there is no sorting key
- */
-static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
-  PLN_ArrangeStep *astp = AGPLN_GetArrangeStep(&req->ap);
-  if (!astp) {
-    return NULL;
-  }
-  return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
-}
-
-static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r) {
-  const uint32_t options = req->reqflags;
-  const RSDocumentMetadata *dmd = r->dmd;
-  size_t count = 0;
-
-  if (dmd && req->reqflags & QEXEC_F_IS_SEARCH) {
-    size_t n;
-    const char *s = DMD_KeyPtrLen(dmd, &n);
-    RedisModule_ReplyWithStringBuffer(outctx, s, n);
-    count++;
-  }
-
-  if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_ReplyWithDouble(outctx, r->score);
-    count++;
-  }
-  if (options & QEXEC_F_SEND_PAYLOADS) {
-    count++;
-    if (dmd && dmd->payload) {
-      RedisModule_ReplyWithStringBuffer(outctx, dmd->payload->data, dmd->payload->len);
-    } else {
-      RedisModule_ReplyWithNull(outctx);
-    }
-  }
-
-  if ((options & QEXEC_F_SEND_SORTKEYS)) {
-    count++;
-    const RSValue *sortkey = getSortKey(req, r);
-    if (sortkey) {
-      switch (sortkey->t) {
-        case RSValue_Number:
-          /* Serialize double - by prepending "%" to the number, so the coordinator/client can
-           * tell it's a double and not just a numeric string value */
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval));
-          break;
-        case RSValue_String:
-          /* Serialize string - by prepending "$" to it */
-
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval));
-          break;
-        case RSValue_RedisString:
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(
-                          outctx, "$%s", RedisModule_StringPtrLen(sortkey->rstrval, NULL)));
-          break;
-        default:
-          // NIL, or any other type:
-          RedisModule_ReplyWithNull(outctx);
-      }
-    } else {
-      RedisModule_ReplyWithNull(outctx);
-    }
-  }
-
-  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    count++;
-    size_t nfields = 0;
-    REDISMODULE_BEGIN_ARRAY(outctx);
-    RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
-
-    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
-        // printf("Skipping hidden field %s/%p\n", kk->name, kk);
-        continue;
-      }
-      nfields++;
-      RedisModule_ReplyWithSimpleString(outctx, kk->name);
-      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      if (!v) {
-        RedisModule_ReplyWithNull(outctx);
-      } else {
-        RSValue_SendReply(outctx, v);
-      }
-    }
-    REDISMODULE_END_ARRAY(outctx, nfields * 2);
-  }
-  return count;
-}
-
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-  SearchResult r = {0};
-  size_t nelem = 0, nrows = 0;
-  size_t limit = -1;
-  int rc;
-
-  // char *dumped = Query_DumpExplain(&req->ast, req->sctx->spec);
-  // printf("dumped: %s\n", dumped);
-  // free(dumped);
-
-  const int isCursor = req->reqflags & QEXEC_F_IS_CURSOR;
-  const int firstCursor = !(req->reqflags & QEXEC_S_SENTONE);
-
-  if (isCursor) {
-    if ((limit = req->cursorChunkSize) == 0) {
-      limit = -1;
-    }
-  }
-
-  ResultProcessor *rp = req->qiter.endProc;
-
-  RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  rc = rp->Next(rp, &r);
-  RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
-  nelem++;
-
-  if (rc == RS_RESULT_OK) {
-    if (++nrows < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
-      nelem += serializeResult(req, outctx, &r);
-    }
-    SearchResult_Clear(&r);
-  }
-
-  if (rc != RS_RESULT_OK || (req->reqflags & QEXEC_F_NOROWS)) {
-    goto rows_done;
-  }
-
-  while (++nrows < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-    // Serialize it as a search result
-    nelem += serializeResult(req, outctx, &r);
-    SearchResult_Clear(&r);
-  }
-
-rows_done:
-  req->stateflags |= QEXEC_S_SENTONE;
-  // TODO: Check for errors in `rc`
-
-  SearchResult_Destroy(&r);
-  RedisModule_ReplySetArrayLength(outctx, nelem);
-  AREQ_Free(req);
 }
 
 void AREQ_Free(AREQ *req) {

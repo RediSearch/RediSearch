@@ -36,7 +36,11 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName);
 
-#define SearchCtx_Incref(sctx) (sctx)->refcount++
+#define SearchCtx_Incref(sctx) \
+  ({                           \
+    (sctx)->refcount++;        \
+    sctx;                      \
+  })
 
 #define SearchCtx_Decref(sctx) \
   if (!--((sctx)->refcount)) { \

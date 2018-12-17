@@ -696,8 +696,8 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .opts = opts,
                          .status = status};
   dst->root = Query_Parse(&qpCtx);
-  printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
-         dst->root);
+  // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
+  //  dst->root);
   if (!dst->root) {
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

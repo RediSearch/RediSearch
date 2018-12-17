@@ -49,10 +49,7 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 
   /* Has an error */
-  QEXEC_S_ERROR = 0x04,
-
-  /* Output done */
-  QEXEC_S_OUTPOUTDONE = 0x08
+  QEXEC_S_ERROR = 0x04
 } QEStateFlags;
 
 typedef struct {

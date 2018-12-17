@@ -135,7 +135,7 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
  * milliseconds.
  */
 Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned timeout, char **err);
+                        unsigned timeout, QueryError *status);
 
 /**
  * Retrieve a cursor for execution. This locates the cursor, removes it
