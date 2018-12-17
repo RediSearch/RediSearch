@@ -415,7 +415,7 @@ TEST_F(IndexTest, DISABLED_testOptional) {
 
   int i = 1;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    printf("%d <=> %d\n", h->docId, i);
+    // printf("%d <=> %d\n", h->docId, i);
     ASSERT_EQ(i, h->docId);
     if (i > 0 && i % 3 == 0) {
       ASSERT_EQ(1, h->agg.children[1]->freq);
@@ -814,21 +814,21 @@ TEST_F(IndexTest, testIndexSpec) {
 }
 
 void fillSchema(char **args, int N, int *sz) {
-  args[0] = "mySpec";
-  args[1] = "SCHEMA";
+  args[0] = strdup("mySpec");
+  args[1] = strdup("SCHEMA");
   int n = 2;
   for (int i = 0; i < N; i++) {
-    int _ = asprintf(&args[n++], "field%d", i);
+    asprintf(&args[n++], "field%d", i);
     if (i % 2 == 0) {
-      args[n++] = "TEXT";
+      args[n++] = strdup("TEXT");
     } else {
       if (i < 40) {
         // odd fields under 40 are TEXT noINDEX
-        args[n++] = ("TEXT");
-        args[n++] = ("NOINDEX");
+        args[n++] = strdup("TEXT");
+        args[n++] = strdup("NOINDEX");
       } else {
         // the rest are numeric
-        args[n++] = ("NUMERIC");
+        args[n++] = strdup("NUMERIC");
       }
     }
   }
