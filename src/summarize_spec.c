@@ -69,7 +69,7 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
   Array fieldPtrs;
   Array_Init(&fieldPtrs);
 
-  if (AC_AdvanceIfMatch(ac, "FIELDS") == AC_OK) {
+  if (AC_AdvanceIfMatch(ac, "FIELDS")) {
     if (parseFieldList(ac, fields, &fieldPtrs) != 0) {
       rc = -1;
       goto done;
@@ -77,7 +77,7 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
   }
 
   while (!AC_IsAtEnd(ac)) {
-    if (isHighlight && AC_AdvanceIfMatch(ac, "TAGS") == AC_OK) {
+    if (isHighlight && AC_AdvanceIfMatch(ac, "TAGS")) {
       // Open tag, close tag
       if (AC_NumRemaining(ac) < 2) {
         rc = REDISMODULE_ERR;
@@ -85,19 +85,19 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       }
       defOpts.highlightSettings.openTag = (char *)AC_GetStringNC(ac, NULL);
       defOpts.highlightSettings.closeTag = (char *)AC_GetStringNC(ac, NULL);
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN") == AC_OK) {
+    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "FRAGS") == AC_OK) {
+    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "FRAGS")) {
       unsigned tmp;
       if (AC_GetUnsigned(ac, &tmp, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }
       defOpts.summarizeSettings.numFrags = tmp;
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR") == AC_OK) {
+    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
       if (AC_GetString(ac, (const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;

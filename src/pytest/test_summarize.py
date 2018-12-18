@@ -155,8 +155,11 @@ def testIssue364(env):
              'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the end')
 
     ret = env.cmd('FT.SEARCH', 'idx', 'retail', 'RETURN', 1, 'description', 'SUMMARIZE')
-    env.assertEqual([2L, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']],
-        ret)
+    expected = [2L, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']]
+    # import pprint
+    # pprint.pprint(expected)
+    # pprint.pprint(ret)
+    env.assertEqual(expected, ret)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -665,10 +665,16 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
 
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
-  req->sctx = sctx;
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
+  if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
+    QueryError_SetError(
+        status, QUERY_EINVAL,
+        "Cannot use highlight/summarize because NOOFSETS was specified at index level");
+    return REDISMODULE_ERR;
+  }
 
+  req->sctx = sctx;
   // Go through the query options and see what else needs to be filled in!
   // 1) INFIELDS
   if (opts->legacy.ninfields) {
@@ -1029,6 +1035,20 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     PUSH_RP();
 
     if (req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
+      RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+      for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
+        ReturnedField *ff = req->outFields.fields + ii;
+        RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
+        if (!kk) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
+          goto error;
+        } else if (!(kk->flags & (RLOOKUP_F_DOCSRC | RLOOKUP_F_SVSRC))) {
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in document",
+                                 ff->name);
+          goto error;
+        }
+        ff->lookupKey = kk;
+      }
       rp = RPHighlighter_New(&req->searchopts, &req->outFields, lookup);
       PUSH_RP();
     }

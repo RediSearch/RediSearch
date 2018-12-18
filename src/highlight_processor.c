@@ -123,6 +123,8 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
   }
 
   out->mode |= defaults->mode | srcField->mode;
+  out->name = srcField->name;
+  out->lookupKey = srcField->lookupKey;
 }
 
 // Called when we cannot fragmentize based on byte offsets.
@@ -302,20 +304,20 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
-                             .indexResult = ir};
+                             .indexResult = ir,
+                             .row = &r->rowdata};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
-      if (fields->fields[ii].mode == SummarizeMode_None &&
-          fields->defaultField.mode == SummarizeMode_None) {
+      const ReturnedField *ff = fields->fields + ii;
+      if (ff->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
-      } else {
-        ReturnedField combinedSpec = {0};
-        normalizeSettings(fields->fields + ii, &fields->defaultField, &combinedSpec);
-        resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
-        processField(hlp, &docParams, &combinedSpec);
       }
+      ReturnedField combinedSpec = {0};
+      normalizeSettings(ff, &fields->defaultField, &combinedSpec);
+      resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
+      processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
     for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
@@ -325,6 +327,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       ReturnedField spec = {0};
       normalizeSettings(NULL, &fields->defaultField, &spec);
       spec.lookupKey = k;
+      spec.name = k->name;
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
       processField(hlp, &docParams, &spec);
     }
