@@ -123,7 +123,7 @@ void IL_Rewind(void *p) {
   il->offset = 0;
 }
 
-IndexIterator *NewIdListIterator(const t_docId *ids, t_offset num, double weight) {
+IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);

@@ -113,7 +113,7 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
-  const t_docId *ids;
+  t_docId *ids;
   size_t len;
 } QueryIdFilterNode;
 

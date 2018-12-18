@@ -123,7 +123,7 @@ IndexIterator *NewWildcardIterator(t_docId maxId);
 /* Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
  * are sorted in this function, so there is no need to sort them. They are automatically freed in
  * the end and assumed to be allocated using rm_malloc */
-IndexIterator *NewIdListIterator(const t_docId *ids, t_offset num, double weight);
+IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 #ifdef __cplusplus
 }
 #endif

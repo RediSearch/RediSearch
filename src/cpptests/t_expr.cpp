@@ -181,7 +181,6 @@ TEST_F(ExprTest, testPredicate) {
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
-  printf("kfoo->dstidx: %lu\n", kfoo->dstidx);
   RLookupRow_Dump(&rr);
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \

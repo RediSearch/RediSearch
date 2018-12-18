@@ -87,16 +87,16 @@ size_t unescapen(char *s, size_t sz) {
 // 0 if a && b
 // -1 if !a && !b
 // 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
-static int one_not_null(void *a, void *b, void **out) {
+static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
     } else if (a == NULL && b == NULL) {
         return NODENN_BOTH_INVALID;
     } if (a) {
-        *out = a;
+        *(void **)out = a;
         return NODENN_ONE_NULL;
     } else {
-        *out = b;
+        *(void **)out = b;
         return NODENN_ONE_NULL;
     }
 }

@@ -3,7 +3,7 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 
-RedisModuleString *fmtGeoIndexKey(GeoIndex *gi) {
+RedisModuleString *fmtGeoIndexKey(const GeoIndex *gi) {
   return RedisModule_CreateStringPrintf(gi->ctx->redisCtx, GEOINDEX_KEY_FMT, gi->ctx->spec->name,
                                         gi->sp->name);
 }
@@ -90,7 +90,7 @@ static int cmp_docids(const void *p1, const void *p2) {
   return (int)(*d1 - *d2);
 }
 
-t_docId *__gr_load(GeoIndex *gi, GeoFilter *gf, size_t *num) {
+static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
 
   *num = 0;
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
@@ -122,7 +122,7 @@ t_docId *__gr_load(GeoIndex *gi, GeoFilter *gf, size_t *num) {
 
 IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
   size_t sz;
-  t_docId *docIds = __gr_load(gi, gf, &sz);
+  t_docId *docIds = geoRangeLoad(gi, gf, &sz);
   if (!docIds) {
     return NULL;
   }

@@ -19,7 +19,7 @@ struct StopWordList;
 #endif
 
 /* Check if a stopword list contains a term. The term must be already lowercased */
-int StopWordList_Contains(struct StopWordList *sl, const char *term, size_t len);
+int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
 struct StopWordList *EmptyStopWordList();

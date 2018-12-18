@@ -19,7 +19,7 @@ typedef struct {
 } _RSOffsetVectorIterator;
 
 typedef struct {
-  RSAggregateResult *res;
+  const RSAggregateResult *res;
   size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
@@ -73,7 +73,7 @@ void *_newAggregateIter() {
   return it;
 }
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
-RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
+static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   if (!__aggregateIters) {
     __aggregateIters = mempool_new(8, _newAggregateIter, free);
   }

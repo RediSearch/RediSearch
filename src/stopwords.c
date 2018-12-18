@@ -30,7 +30,7 @@ StopWordList *EmptyStopWordList() {
 }
 
 /* Check if a stopword list contains a term. The term must be already lowercased */
-int StopWordList_Contains(StopWordList *sl, const char *term, size_t len) {
+int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
   if (!sl || !term) {
     return 0;
   }

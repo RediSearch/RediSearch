@@ -678,7 +678,7 @@ IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt) {
   res->fieldMask = RS_FIELDMASK_ALL;
   res->num.value = 0;
 
-  IndexDecoderCtx ctx = {.ptr = flt};
+  IndexDecoderCtx ctx = {.ptr = (void *)flt};
   return NewIndexReaderGeneric(idx, readNumeric, ctx, res, 1);
 }
 
