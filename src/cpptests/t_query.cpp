@@ -261,8 +261,8 @@ TEST_F(QueryTest, testPureNegative) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QueryErrorCode(0)};
-  RedisSearchCtx ctx = {
-      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   for (size_t i = 0; qs[i] != NULL; i++) {
     QASTCXX ast;
     ast.setContext(&ctx);
@@ -278,8 +278,8 @@ TEST_F(QueryTest, testPureNegative) {
 TEST_F(QueryTest, testGeoQuery) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
-  RedisSearchCtx ctx = {
-      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -303,8 +303,8 @@ TEST_F(QueryTest, testFieldSpec) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
-  RedisSearchCtx ctx = {
-      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
@@ -354,8 +354,8 @@ TEST_F(QueryTest, testFieldSpec) {
 TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
   QueryError err = {QUERY_OK};
-  RedisSearchCtx ctx = {
-      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt =
       "(@title:(foo bar) => {$weight: 0.5} @body:lol => {$weight: 0.2}) => "
@@ -377,8 +377,8 @@ TEST_F(QueryTest, testAttributes) {
 TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
   QueryError err = {QUERY_OK};
-  RedisSearchCtx ctx = {
-      .spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
   QASTCXX ast(ctx);
