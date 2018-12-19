@@ -27,7 +27,8 @@ that are not possible or efficient with traditional Redis search approaches.
 ## Client Libraries
 
 Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
-See [Clients Page](/Clients)
+
+See the [Clients Page](Clients.md) for the full list.
 
 ## Cluster Support and Commercial Version
 
