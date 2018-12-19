@@ -82,16 +82,17 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
 
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    return REDISMODULE_ERR;
-  }
+//  RedisModuleKey *k =
+//      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
+//  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+//                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+//    return REDISMODULE_ERR;
+//  }
 
   for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
+    RedisModule_Call(ctx->redisCtx, "HSET", "scs", doc->docKey, doc->fields[i].name, doc->fields[i].text);
+//    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
+//                        NULL);
   }
   return REDISMODULE_OK;
 }

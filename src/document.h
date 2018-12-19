@@ -165,6 +165,8 @@ typedef struct RSAddDocumentCtx {
     RedisSearchCtx *sctx;
   } client;
 
+  bool shouldReturnReply;
+
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
 
@@ -277,5 +279,6 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSAddHashCrdt(RedisModuleCtx *ctx, RedisModuleString *hashName, char* idx);
 
 #endif

@@ -377,25 +377,33 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
   }
 
   // Get the key itself
-  *rkeyp = RedisModule_OpenKey(ctx->redisCtx, key, REDISMODULE_READ);
-  if (*rkeyp == NULL) {
-    return REDISMODULE_ERR;
-  }
-
-  if (RedisModule_KeyType(*rkeyp) != REDISMODULE_KEYTYPE_HASH) {
-    RedisModule_CloseKey(*rkeyp);
-    return REDISMODULE_ERR;
-  }
+//  *rkeyp = RedisModule_OpenKey(ctx->redisCtx, key, REDISMODULE_READ);
+//  if (*rkeyp == NULL) {
+//    return REDISMODULE_ERR;
+//  }
+//
+//  if (RedisModule_KeyType(*rkeyp) != REDISMODULE_KEYTYPE_HASH) {
+//    RedisModule_CloseKey(*rkeyp);
+//    return REDISMODULE_ERR;
+//  }
 
   doc->fields = malloc(sizeof(*doc->fields) * nfields);
 
   for (size_t ii = 0; ii < nfields; ++ii) {
-    int rv = RedisModule_HashGet(*rkeyp, REDISMODULE_HASH_CFIELDS, fields[ii],
-                                 &doc->fields[ii].text, NULL);
-    if (rv == REDISMODULE_OK) {
+    RedisModuleCallReply *reply = RedisModule_Call(ctx->redisCtx, "HGET", "sc", key, fields[ii]);
+    if(reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING){
       doc->numFields++;
       doc->fields[ii].name = fields[ii];
+      size_t len;
+      const char *res = RedisModule_CallReplyStringPtr(reply, &len);
+      doc->fields[ii].text = RedisModule_CreateString(ctx->redisCtx, res, len);
     }
+//    int rv = RedisModule_HashGet(*rkeyp, REDISMODULE_HASH_CFIELDS, fields[ii],
+//                                 &doc->fields[ii].text, NULL);
+//    if (rv == REDISMODULE_OK) {
+//      doc->numFields++;
+//      doc->fields[ii].name = fields[ii];
+//    }
   }
 
   return REDISMODULE_OK;

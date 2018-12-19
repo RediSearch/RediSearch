@@ -130,6 +130,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = GetDocumentIndexer(sp->name);
+  aCtx->shouldReturnReply = true;
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
@@ -161,10 +162,12 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(ctx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  if(aCtx->shouldReturnReply){
+    if (aCtx->errorString) {
+      RedisModule_ReplyWithError(ctx, aCtx->errorString);
+    } else {
+      RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
   }
   AddDocumentCtx_Free(aCtx);
 }

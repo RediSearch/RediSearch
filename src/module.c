@@ -1076,6 +1076,48 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
+static void* IndexHash(void* key){
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModule_ThreadSafeContextLock(ctx);
+  RedisModuleString * keyStr = key;
+  const char* keyCStr = RedisModule_StringPtrLen(keyStr, NULL);
+  char* p = strstr(keyCStr, ".");
+  if(!p){
+    RedisModule_FreeString(ctx, key);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
+    return NULL;
+  }
+  size_t len = (size_t)(p - keyCStr);
+  char idx[len + 1];
+  memcpy(idx, keyCStr, len);
+  idx[len] = '\0';
+  RSAddHashCrdt(ctx, key, idx);
+  RedisModule_FreeString(ctx, key);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  return NULL;
+}
+
+static void OnHashChanged(RedisModuleString* key){
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModule_RetainString(ctx, key);
+  static pthread_t dummyThr;
+  pthread_create(&dummyThr, NULL, IndexHash, key);
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+static int RegisterCrdtApi(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  void (*RegisterOnHashChange)(void (*)(RedisModuleString* key));
+  if(RedisModule_GetApi("RegisterOnHashChangeCallback", &RegisterOnHashChange)){
+	  RedisModule_ReplyWithError(ctx, "could not register api");
+  }else{
+	  RegisterOnHashChange(OnHashChanged);
+	  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  return REDISMODULE_OK;
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
@@ -1086,6 +1128,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
   }
+
+  RedisModule_CreateCommand(ctx, "ft.registercrdtapi", RegisterCrdtApi, "readonly", 0, 0, 0);
 
   // Print version string!
   RedisModule_Log(ctx, "notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,

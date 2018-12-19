@@ -368,3 +368,43 @@ int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddHashCommand(ctx, argv, argc, 0);
 }
+
+int RSAddHashCrdt(RedisModuleCtx *ctx, RedisModuleString *hashName, char* idx) {
+  QueryError status = {0};
+  IndexSpec *sp = IndexSpec_Load(ctx, idx, 1);
+  if (sp == NULL) {
+    QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
+    goto cleanup;
+  }
+
+  Document doc;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  if (Redis_LoadDocument(&sctx, hashName, &doc) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  }
+
+  doc.docKey = hashName;
+  doc.score = 1.0;
+  doc.language = DEFAULT_LANGUAGE;
+  doc.payload = NULL;
+  doc.payloadSize = 0;
+  Document_Detach(&doc, ctx);
+
+  const char *err;
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &err);
+  if (aCtx == NULL) {
+    Document_FreeDetached(&doc, ctx);
+    return RedisModule_ReplyWithError(ctx, err);
+  }
+
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  aCtx->shouldReturnReply = false;
+
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+  return REDISMODULE_OK;
+
+cleanup:
+  assert(QueryError_HasError(&status));
+  QueryError_ClearError(&status);
+  return REDISMODULE_OK;
+}
