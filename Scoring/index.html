@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#scoring"_"in"_"redisearch" tabindex="1" class="md-skip">
+      <a href="#scoring_in_redisearch" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -430,7 +430,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#tfidf"_"default" title="TFIDF (default)" class="md-nav__link">
+  <a href="#tfidf_default" title="TFIDF (default)" class="md-nav__link">
     TFIDF (default)
   </a>
   
@@ -748,7 +748,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#tfidf"_"default" title="TFIDF (default)" class="md-nav__link">
+  <a href="#tfidf_default" title="TFIDF (default)" class="md-nav__link">
     TFIDF (default)
   </a>
   
@@ -808,11 +808,11 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Scoring.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="scoring&quot;_&quot;in&quot;_&quot;redisearch">Scoring in RediSearch<a class="headerlink" href="#scoring&quot;_&quot;in&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
+                <h1 id="scoring_in_redisearch">Scoring in RediSearch<a class="headerlink" href="#scoring_in_redisearch" title="Permanent link">&para;</a></h1>
 <p>RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use <a href="../Sorting/">sortable fields</a>. Scoring functions are specified by adding the <code>SCORER {scorer_name}</code> argument to a search query.</p>
 <p>If you prefer a custom scoring function, it is possible to add more functions using the <a href="../Extensions">Extension API</a>.</p>
 <p>These are the pre-bundled scoring functions available in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a <code>SCORER</code> argument in <code>FT.SEARCH</code>.</p>
-<h2 id="tfidf&quot;_&quot;default">TFIDF (default)<a class="headerlink" href="#tfidf&quot;_&quot;default" title="Permanent link">&para;</a></h2>
+<h2 id="tfidf_default">TFIDF (default)<a class="headerlink" href="#tfidf_default" title="Permanent link">&para;</a></h2>
 <p>Basic <a href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF scoring</a> with a few extra features thrown inside:</p>
 <ol>
 <li>

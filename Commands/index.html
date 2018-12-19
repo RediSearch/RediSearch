@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#redisearch"_"full"_"command"_"documentation" tabindex="1" class="md-skip">
+      <a href="#redisearch_full_command_documentation" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -318,7 +318,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#field"_"options" title="Field Options" class="md-nav__link">
+  <a href="#field_options" title="Field Options" class="md-nav__link">
     Field Options
   </a>
   
@@ -373,7 +373,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#adding"_"chinese"_"documents" title="Adding Chinese Documents" class="md-nav__link">
+  <a href="#adding_chinese_documents" title="Adding Chinese Documents" class="md-nav__link">
     Adding Chinese Documents
   </a>
   
@@ -634,7 +634,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output" title="Example output" class="md-nav__link">
+  <a href="#example_output" title="Example output" class="md-nav__link">
     Example output
   </a>
   
@@ -1221,7 +1221,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output_1" title="Example output" class="md-nav__link">
+  <a href="#example_output_1" title="Example output" class="md-nav__link">
     Example output
   </a>
   
@@ -1841,7 +1841,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#field"_"options" title="Field Options" class="md-nav__link">
+  <a href="#field_options" title="Field Options" class="md-nav__link">
     Field Options
   </a>
   
@@ -1896,7 +1896,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#adding"_"chinese"_"documents" title="Adding Chinese Documents" class="md-nav__link">
+  <a href="#adding_chinese_documents" title="Adding Chinese Documents" class="md-nav__link">
     Adding Chinese Documents
   </a>
   
@@ -2157,7 +2157,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output" title="Example output" class="md-nav__link">
+  <a href="#example_output" title="Example output" class="md-nav__link">
     Example output
   </a>
   
@@ -2744,7 +2744,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example"_"output_1" title="Example output" class="md-nav__link">
+  <a href="#example_output_1" title="Example output" class="md-nav__link">
     Example output
   </a>
   
@@ -2938,7 +2938,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Commands.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="redisearch&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation">RediSearch Full Command Documentation<a class="headerlink" href="#redisearch&quot;_&quot;full&quot;_&quot;command&quot;_&quot;documentation" title="Permanent link">&para;</a></h1>
+                <h1 id="redisearch_full_command_documentation">RediSearch Full Command Documentation<a class="headerlink" href="#redisearch_full_command_documentation" title="Permanent link">&para;</a></h1>
 <h2 id="ftcreate">FT.CREATE<a class="headerlink" href="#ftcreate" title="Permanent link">&para;</a></h2>
 <h3 id="format">Format<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>  FT.CREATE {index} 
@@ -2996,7 +2996,7 @@
 <p><strong>SCHEMA {field} {options...}</strong>: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
   The default weight is 1.0.</p>
-<h3 id="field&quot;_&quot;options">Field Options<a class="headerlink" href="#field&quot;_&quot;options" title="Permanent link">&para;</a></h3>
+<h3 id="field_options">Field Options<a class="headerlink" href="#field_options" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p><strong>SORTABLE</strong></p>
@@ -3111,7 +3111,7 @@ This is useful in conjunction with <code>SORTABLE</code>, to create fields whose
 </ul>
 <p>If indexing a Chinese language document, you must set the language to <code>chinese</code>
   in order for Chinese characters to be tokenized properly.</p>
-<h3 id="adding&quot;_&quot;chinese&quot;_&quot;documents">Adding Chinese Documents<a class="headerlink" href="#adding&quot;_&quot;chinese&quot;_&quot;documents" title="Permanent link">&para;</a></h3>
+<h3 id="adding_chinese_documents">Adding Chinese Documents<a class="headerlink" href="#adding_chinese_documents" title="Permanent link">&para;</a></h3>
 <p>When adding Chinese-language documents, <code>LANGUAGE chinese</code> should be set in
 order for the indexer to properly tokenize the terms. If the default language
 is used then search terms will be extracted based on punctuation characters and
@@ -3454,7 +3454,7 @@ contain more than 32 fields, create it with the <code>MAXTEXTFIELDS</code> optio
 <p>Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. </p>
 <h3 id="returns_6">Returns<a class="headerlink" href="#returns_6" title="Permanent link">&para;</a></h3>
 <p>Array Response. Each row is an array and represents a single aggregate result.</p>
-<h3 id="example&quot;_&quot;output">Example output<a class="headerlink" href="#example&quot;_&quot;output" title="Permanent link">&para;</a></h3>
+<h3 id="example_output">Example output<a class="headerlink" href="#example_output" title="Permanent link">&para;</a></h3>
 <p>Here we are counting GitHub events by user (actor), to produce the most active users:</p>
 <div class="codehilite"><pre><span></span>127.0.0.1:6379&gt; FT.AGGREGATE gh &quot;*&quot; GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
  1) (integer) 284784
@@ -3805,7 +3805,7 @@ index definitions, and leaves creating and updating suggestions dictionaries to 
 <p>An array, in which each element represents a misspelled term from the query. The misspelled terms are ordered by their order of appearance in the query.</p>
 <p>Each misspelled term, in turn, is a 3-element array consisting of the constant string "TERM", the term itself and an array of suggestions for spelling corrections.</p>
 <p>Each element in the spelling corrections array consists of the score of the suggestion and the suggestion itself. The suggestions array, per misspelled term, is ordered in descending order by score.</p>
-<h3 id="example&quot;_&quot;output_1">Example output<a class="headerlink" href="#example&quot;_&quot;output_1" title="Permanent link">&para;</a></h3>
+<h3 id="example_output_1">Example output<a class="headerlink" href="#example_output_1" title="Permanent link">&para;</a></h3>
 <div class="codehilite"><pre><span></span>1)  1) &quot;TERM&quot;
     2) &quot;{term1}&quot;
     3)  1)  1)  &quot;{score1}&quot;

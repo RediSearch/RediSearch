@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#phonetic"_"matching" tabindex="1" class="md-skip">
+      <a href="#phonetic_matching" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -502,7 +502,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#phonetic"_"algorithms"_"support" title="Phonetic algorithms support" class="md-nav__link">
+  <a href="#phonetic_algorithms_support" title="Phonetic algorithms support" class="md-nav__link">
     Phonetic algorithms support
   </a>
   
@@ -713,7 +713,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#phonetic"_"algorithms"_"support" title="Phonetic algorithms support" class="md-nav__link">
+  <a href="#phonetic_algorithms_support" title="Phonetic algorithms support" class="md-nav__link">
     Phonetic algorithms support
   </a>
   
@@ -738,12 +738,12 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Phonetic_Matching.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="phonetic&quot;_&quot;matching">Phonetic Matching<a class="headerlink" href="#phonetic&quot;_&quot;matching" title="Permanent link">&para;</a></h1>
+                <h1 id="phonetic_matching">Phonetic Matching<a class="headerlink" href="#phonetic_matching" title="Permanent link">&para;</a></h1>
 <p>Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronounciation. This capability can be a useful tool when searching for names of people.</p>
 <p>Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronounciation. This allows indexing terms, and consequently searching, by their pronounciation.</p>
 <p>As of v1.4 RediSearch provides phonetic matching via the definition of text fields with the <code>PHONETIC</code> attribute. This causes the terms in such fields to be indexed both by their textual value as well as their phonetic approximation.</p>
 <p>Performing a search on <code>PHONETIC</code> fields will, by default, also return results for phonetically similar terms. This behavior can be controlled with the <a href="../Query_Syntax/#query_attributes"><code>$phonetic</code> query attribute</a>.</p>
-<h2 id="phonetic&quot;_&quot;algorithms&quot;_&quot;support">Phonetic algorithms support<a class="headerlink" href="#phonetic&quot;_&quot;algorithms&quot;_&quot;support" title="Permanent link">&para;</a></h2>
+<h2 id="phonetic_algorithms_support">Phonetic algorithms support<a class="headerlink" href="#phonetic_algorithms_support" title="Permanent link">&para;</a></h2>
 <p>RediSearch currently supports a single phonetic algorithm, the <a href="https://en.wikipedia.org/wiki/Metaphone#Double_Metaphone">Double Metaphone</a> (DM). It uses the implementation at <a href="https://github.com/slacy/double-metaphone">slacy/double-metaphone</a>, which provides general support for Latin languages.</p>
                 
                   

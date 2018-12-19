@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#highlighting"_"api" tabindex="1" class="md-skip">
+      <a href="#highlighting_api" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -418,7 +418,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#command"_"syntax" title="Command syntax" class="md-nav__link">
+  <a href="#command_syntax" title="Command syntax" class="md-nav__link">
     Command syntax
   </a>
   
@@ -441,7 +441,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#field"_"selection" title="Field selection" class="md-nav__link">
+  <a href="#field_selection" title="Field selection" class="md-nav__link">
     Field selection
   </a>
   
@@ -746,7 +746,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#command"_"syntax" title="Command syntax" class="md-nav__link">
+  <a href="#command_syntax" title="Command syntax" class="md-nav__link">
     Command syntax
   </a>
   
@@ -769,7 +769,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#field"_"selection" title="Field selection" class="md-nav__link">
+  <a href="#field_selection" title="Field selection" class="md-nav__link">
     Field selection
   </a>
   
@@ -804,10 +804,10 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Highlight.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="highlighting&quot;_&quot;api">Highlighting API<a class="headerlink" href="#highlighting&quot;_&quot;api" title="Permanent link">&para;</a></h1>
+                <h1 id="highlighting_api">Highlighting API<a class="headerlink" href="#highlighting_api" title="Permanent link">&para;</a></h1>
 <p>The highlighting API allows you to have only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.</p>
 <p>RediSearch implements high performance highlighting and summarization algorithms, with the following API: </p>
-<h2 id="command&quot;_&quot;syntax">Command syntax<a class="headerlink" href="#command&quot;_&quot;syntax" title="Permanent link">&para;</a></h2>
+<h2 id="command_syntax">Command syntax<a class="headerlink" href="#command_syntax" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>FT.SEARCH ...
     SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]
     HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
@@ -869,7 +869,7 @@
     specified, a built-in tag value is appended and prepended.</p>
 </li>
 </ul>
-<h4 id="field&quot;_&quot;selection">Field selection<a class="headerlink" href="#field&quot;_&quot;selection" title="Permanent link">&para;</a></h4>
+<h4 id="field_selection">Field selection<a class="headerlink" href="#field_selection" title="Permanent link">&para;</a></h4>
 <p>If no specific fields are passed to the <code>RETURN</code>, <code>SUMMARIZE</code>, or <code>HIGHLIGHT</code> keywords, then all of a document's fields are returned. However, if any of these keywords contain a <code>FIELD</code> directive, then the <code>SEARCH</code> command will only return the sum total of all fields enumerated in any of those directives.</p>
 <p>The <code>RETURN</code> keyword is treated specially, as it overrides any fields specified in <code>SUMMARIZE</code> or <code>HIGHLIGHT</code>.</p>
 <p>In the command <code>RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz</code>, the fields <code>foo</code> is returned as-is, while <code>bar</code> and <code>baz</code> are not returned, because <code>RETURN</code> was specified, but did not include those fields.</p>

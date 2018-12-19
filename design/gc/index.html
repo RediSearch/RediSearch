@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#garbage"_"collection"_"in"_"redisearch" tabindex="1" class="md-skip">
+      <a href="#garbage_collection_in_redisearch" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -610,14 +610,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1"_"the"_"need"_"for"_"gc" title="1. The Need For GC" class="md-nav__link">
+  <a href="#1_the_need_for_gc" title="1. The Need For GC" class="md-nav__link">
     1. The Need For GC
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2"_"garbage"_"collecting"_"a"_"single"_"term"_"index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+  <a href="#2_garbage_collecting_a_single_term_index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
     2. Garbage Collecting a Single Term Index
   </a>
   
@@ -625,7 +625,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#21"_"garbage"_"collection"_"on"_"numeric"_"indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+  <a href="#21_garbage_collection_on_numeric_indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
     2.1 Garbage Collection on Numeric Indexes
   </a>
   
@@ -637,14 +637,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3"_"gc"_"and"_"concurrency" title="3. GC And Concurrency" class="md-nav__link">
+  <a href="#3_gc_and_concurrency" title="3. GC And Concurrency" class="md-nav__link">
     3. GC And Concurrency
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4"_"scheduling"_"garbage"_"collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+  <a href="#4_scheduling_garbage_collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
     4. Scheduling Garbage Collection
   </a>
   
@@ -747,14 +747,14 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1"_"the"_"need"_"for"_"gc" title="1. The Need For GC" class="md-nav__link">
+  <a href="#1_the_need_for_gc" title="1. The Need For GC" class="md-nav__link">
     1. The Need For GC
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2"_"garbage"_"collecting"_"a"_"single"_"term"_"index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+  <a href="#2_garbage_collecting_a_single_term_index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
     2. Garbage Collecting a Single Term Index
   </a>
   
@@ -762,7 +762,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#21"_"garbage"_"collection"_"on"_"numeric"_"indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+  <a href="#21_garbage_collection_on_numeric_indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
     2.1 Garbage Collection on Numeric Indexes
   </a>
   
@@ -774,14 +774,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3"_"gc"_"and"_"concurrency" title="3. GC And Concurrency" class="md-nav__link">
+  <a href="#3_gc_and_concurrency" title="3. GC And Concurrency" class="md-nav__link">
     3. GC And Concurrency
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4"_"scheduling"_"garbage"_"collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+  <a href="#4_scheduling_garbage_collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
     4. Scheduling Garbage Collection
   </a>
   
@@ -806,8 +806,8 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/design/gc.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="garbage&quot;_&quot;collection&quot;_&quot;in&quot;_&quot;redisearch">Garbage Collection in RediSearch<a class="headerlink" href="#garbage&quot;_&quot;collection&quot;_&quot;in&quot;_&quot;redisearch" title="Permanent link">&para;</a></h1>
-<h2 id="1&quot;_&quot;the&quot;_&quot;need&quot;_&quot;for&quot;_&quot;gc">1. The Need For GC<a class="headerlink" href="#1&quot;_&quot;the&quot;_&quot;need&quot;_&quot;for&quot;_&quot;gc" title="Permanent link">&para;</a></h2>
+                <h1 id="garbage_collection_in_redisearch">Garbage Collection in RediSearch<a class="headerlink" href="#garbage_collection_in_redisearch" title="Permanent link">&para;</a></h1>
+<h2 id="1_the_need_for_gc">1. The Need For GC<a class="headerlink" href="#1_the_need_for_gc" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.</li>
 <li>This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.</li>
@@ -817,7 +817,7 @@
 </ul>
 <p>All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. </p>
 <p>Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.</p>
-<h2 id="2&quot;_&quot;garbage&quot;_&quot;collecting&quot;_&quot;a&quot;_&quot;single&quot;_&quot;term&quot;_&quot;index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2&quot;_&quot;garbage&quot;_&quot;collecting&quot;_&quot;a&quot;_&quot;single&quot;_&quot;term&quot;_&quot;index" title="Permanent link">&para;</a></h2>
+<h2 id="2_garbage_collecting_a_single_term_index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2_garbage_collecting_a_single_term_index" title="Permanent link">&para;</a></h2>
 <p>A single term inverted index is consisted of an array of "blocks" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. </p>
 <p>The algorithm is pretty simple: </p>
 <ol>
@@ -847,9 +847,9 @@
 
 
 <p><strong>NOTE</strong>: Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.</p>
-<h3 id="21&quot;_&quot;garbage&quot;_&quot;collection&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;indexes">2.1 Garbage Collection on Numeric Indexes<a class="headerlink" href="#21&quot;_&quot;garbage&quot;_&quot;collection&quot;_&quot;on&quot;_&quot;numeric&quot;_&quot;indexes" title="Permanent link">&para;</a></h3>
+<h3 id="21_garbage_collection_on_numeric_indexes">2.1 Garbage Collection on Numeric Indexes<a class="headerlink" href="#21_garbage_collection_on_numeric_indexes" title="Permanent link">&para;</a></h3>
 <p>Numeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.</p>
-<h2 id="3&quot;_&quot;gc&quot;_&quot;and&quot;_&quot;concurrency">3. GC And Concurrency<a class="headerlink" href="#3&quot;_&quot;gc&quot;_&quot;and&quot;_&quot;concurrency" title="Permanent link">&para;</a></h2>
+<h2 id="3_gc_and_concurrency">3. GC And Concurrency<a class="headerlink" href="#3_gc_and_concurrency" title="Permanent link">&para;</a></h2>
 <p>Since RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us). </p>
 <p>It GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.</p>
 <p>This means, however, that we need to consider a few things:</p>
@@ -872,7 +872,7 @@
 </em> The GC will never yield execution while in the middle of a block.
 <em> The GC will check whether the key has been deleted while it slept.
 </em> The GC will get a new pointer to the next block on each read, assuring the pointer is safe.</p>
-<h2 id="4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4&quot;_&quot;scheduling&quot;_&quot;garbage&quot;_&quot;collection" title="Permanent link">&para;</a></h2>
+<h2 id="4_scheduling_garbage_collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4_scheduling_garbage_collection" title="Permanent link">&para;</a></h2>
 <p>While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. 
 The problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively. </p>
 <p>So the GC will use sampling of random terms and collect them. </p>

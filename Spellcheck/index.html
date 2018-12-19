@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#query"_"spelling"_"correction" tabindex="1" class="md-skip">
+      <a href="#query_spelling_correction" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -490,7 +490,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#custom"_"dictionaries" title="Custom dictionaries" class="md-nav__link">
+  <a href="#custom_dictionaries" title="Custom dictionaries" class="md-nav__link">
     Custom dictionaries
   </a>
   
@@ -713,7 +713,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#custom"_"dictionaries" title="Custom dictionaries" class="md-nav__link">
+  <a href="#custom_dictionaries" title="Custom dictionaries" class="md-nav__link">
     Custom dictionaries
   </a>
   
@@ -738,7 +738,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Spellcheck.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="query&quot;_&quot;spelling&quot;_&quot;correction">Query Spelling Correction<a class="headerlink" href="#query&quot;_&quot;spelling&quot;_&quot;correction" title="Permanent link">&para;</a></h1>
+                <h1 id="query_spelling_correction">Query Spelling Correction<a class="headerlink" href="#query_spelling_correction" title="Permanent link">&para;</a></h1>
 <p>Query spelling correction, a.k.a "did you mean", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.</p>
 <p>In such cases and as of v1.4 RediSearch can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:</p>
 <ol>
@@ -748,7 +748,7 @@
 </ol>
 <p>The alternatives for a misspelled term are generated from the corpus of already-indexed terms and, optionally, one or more custom dictionaries. Alternatives become spelling suggestions based on their respective Levenshtein distances (LD) from the misspelled term. Each spelling suggestion is given a normalized score based on its occurances in the index.</p>
 <p>To obtain the spelling corrections for a query, refer to the documentation of the <a href="../Commands/#ftspellcheck"><code>FT.SPELLCHECK</code></a> command.</p>
-<h2 id="custom&quot;_&quot;dictionaries">Custom dictionaries<a class="headerlink" href="#custom&quot;_&quot;dictionaries" title="Permanent link">&para;</a></h2>
+<h2 id="custom_dictionaries">Custom dictionaries<a class="headerlink" href="#custom_dictionaries" title="Permanent link">&para;</a></h2>
 <p>A dictionary is a set of terms. Dictionaries can be added with terms, have terms deleted from them and have their entire contents dumped using the <a href="../Commands/#ftdictadd"><code>FT.DICTADD</code></a>, <a href="../Commands/#ftdictdel"><code>FT.DICTDEL</code></a> and <a href="../Commands/#ftdictdump"><code>FT.DICTDUMP</code></a> commands, respectively.</p>
 <p>Dictionaries can be used to modify the behavior of RediSearch's query spelling correction, by including or excluding their contents from potential spelling correction suggestions.</p>
 <p>When used for term inclusion, the terms in a dictionary can be provided as spelling suggestions regardless their occurances (or lack of) in the index. Scores of suggestions from inclusion dictionaries are always 0. </p>

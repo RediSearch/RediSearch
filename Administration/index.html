@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#redisearch"_"administration"_"guide" tabindex="1" class="md-skip">
+      <a href="#redisearch_administration_guide" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -321,7 +321,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#aof"_"persistence" title="AOF Persistence" class="md-nav__link">
+  <a href="#aof_persistence" title="AOF Persistence" class="md-nav__link">
     AOF Persistence
   </a>
   
@@ -333,14 +333,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#masterslave"_"replication" title="Master/Slave Replication" class="md-nav__link">
+  <a href="#masterslave_replication" title="Master/Slave Replication" class="md-nav__link">
     Master/Slave Replication
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#cluster"_"support" title="Cluster Support" class="md-nav__link">
+  <a href="#cluster_support" title="Cluster Support" class="md-nav__link">
     Cluster Support
   </a>
   
@@ -746,7 +746,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#aof"_"persistence" title="AOF Persistence" class="md-nav__link">
+  <a href="#aof_persistence" title="AOF Persistence" class="md-nav__link">
     AOF Persistence
   </a>
   
@@ -758,14 +758,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#masterslave"_"replication" title="Master/Slave Replication" class="md-nav__link">
+  <a href="#masterslave_replication" title="Master/Slave Replication" class="md-nav__link">
     Master/Slave Replication
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#cluster"_"support" title="Cluster Support" class="md-nav__link">
+  <a href="#cluster_support" title="Cluster Support" class="md-nav__link">
     Cluster Support
   </a>
   
@@ -790,11 +790,11 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Administration.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="redisearch&quot;_&quot;administration&quot;_&quot;guide">RediSearch Administration Guide<a class="headerlink" href="#redisearch&quot;_&quot;administration&quot;_&quot;guide" title="Permanent link">&para;</a></h1>
+                <h1 id="redisearch_administration_guide">RediSearch Administration Guide<a class="headerlink" href="#redisearch_administration_guide" title="Permanent link">&para;</a></h1>
 <p>RediSearch doesn't require any configuration to work, but there are a few things worth noting when running RediSearch on top of Redis.</p>
 <h2 id="persistence">Persistence<a class="headerlink" href="#persistence" title="Permanent link">&para;</a></h2>
 <p>RediSearch supports both RDB and AOF based persistence. For a pure RDB set-up, nothing special is needed beyond the standard Redis RDB configuration.</p>
-<h3 id="aof&quot;_&quot;persistence">AOF Persistence<a class="headerlink" href="#aof&quot;_&quot;persistence" title="Permanent link">&para;</a></h3>
+<h3 id="aof_persistence">AOF Persistence<a class="headerlink" href="#aof_persistence" title="Permanent link">&para;</a></h3>
 <p>While RediSearch supports working with AOF based persistence, as of version 1.1.0 it <strong>does not support</strong> "classic AOF" mode, which uses AOF rewriting. Instead, it only supports AOF with RDB preamble mode. In this mode, rewriting the AOF log just creates an RDB file, which is appended to. </p>
 <p>To enable AOF persistence with RediSearch, add the two following lines to your redis.conf:</p>
 <div class="codehilite"><pre><span></span>appendonly yes
@@ -802,9 +802,9 @@ aof-use-rdb-preamble yes
 </pre></div>
 
 
-<h2 id="masterslave&quot;_&quot;replication">Master/Slave Replication<a class="headerlink" href="#masterslave&quot;_&quot;replication" title="Permanent link">&para;</a></h2>
+<h2 id="masterslave_replication">Master/Slave Replication<a class="headerlink" href="#masterslave_replication" title="Permanent link">&para;</a></h2>
 <p>RediSearch supports replication inherently, and using a master/slave set-up, you can use slaves for high availability. On top of that, slaves can be used for searching, to load-balance read traffic. </p>
-<h2 id="cluster&quot;_&quot;support">Cluster Support<a class="headerlink" href="#cluster&quot;_&quot;support" title="Permanent link">&para;</a></h2>
+<h2 id="cluster_support">Cluster Support<a class="headerlink" href="#cluster_support" title="Permanent link">&para;</a></h2>
 <p>RediSearch will not work correctly on a cluster. The enterprise version of RediSearch, which is commercially available from Redis Labs, does support a cluster set up and scales to hundreds of nodes, billions of documents and terabytes of data. See the <a href="https://redislabs.com/redis-enterprise-documentation/developing/modules/redisearch/">Redis Labs Website</a> for more details. </p>
                 
                   

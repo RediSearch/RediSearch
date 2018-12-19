@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#tag"_"fields" tabindex="1" class="md-skip">
+      <a href="#tag_fields" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -406,28 +406,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating"_"a"_"tag"_"field" title="Creating a tag field" class="md-nav__link">
+  <a href="#creating_a_tag_field" title="Creating a tag field" class="md-nav__link">
     Creating a tag field
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#querying"_"tag"_"fields" title="Querying tag fields" class="md-nav__link">
+  <a href="#querying_tag_fields" title="Querying tag fields" class="md-nav__link">
     Querying tag fields
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multiple"_"tags"_"in"_"a"_"single"_"filter" title="Multiple tags in a single filter" class="md-nav__link">
+  <a href="#multiple_tags_in_a_single_filter" title="Multiple tags in a single filter" class="md-nav__link">
     Multiple tags in a single filter
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multi-word"_"tags"_"and"_"escaping" title="Multi-word tags And escaping" class="md-nav__link">
+  <a href="#multi-word_tags_and_escaping" title="Multi-word tags And escaping" class="md-nav__link">
     Multi-word tags And escaping
   </a>
   
@@ -734,28 +734,28 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating"_"a"_"tag"_"field" title="Creating a tag field" class="md-nav__link">
+  <a href="#creating_a_tag_field" title="Creating a tag field" class="md-nav__link">
     Creating a tag field
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#querying"_"tag"_"fields" title="Querying tag fields" class="md-nav__link">
+  <a href="#querying_tag_fields" title="Querying tag fields" class="md-nav__link">
     Querying tag fields
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multiple"_"tags"_"in"_"a"_"single"_"filter" title="Multiple tags in a single filter" class="md-nav__link">
+  <a href="#multiple_tags_in_a_single_filter" title="Multiple tags in a single filter" class="md-nav__link">
     Multiple tags in a single filter
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#multi-word"_"tags"_"and"_"escaping" title="Multi-word tags And escaping" class="md-nav__link">
+  <a href="#multi-word_tags_and_escaping" title="Multi-word tags And escaping" class="md-nav__link">
     Multi-word tags And escaping
   </a>
   
@@ -780,7 +780,7 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Tags.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="tag&quot;_&quot;fields">Tag Fields<a class="headerlink" href="#tag&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
+                <h1 id="tag_fields">Tag Fields<a class="headerlink" href="#tag_fields" title="Permanent link">&para;</a></h1>
 <p>RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to full-text fields but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search and can be used only with a special syntax.</p>
 <p>The main differences between tag and full-text fields are:</p>
 <ol>
@@ -803,7 +803,7 @@
 <p>An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.</p>
 </li>
 </ol>
-<h2 id="creating&quot;_&quot;a&quot;_&quot;tag&quot;_&quot;field">Creating a tag field<a class="headerlink" href="#creating&quot;_&quot;a&quot;_&quot;tag&quot;_&quot;field" title="Permanent link">&para;</a></h2>
+<h2 id="creating_a_tag_field">Creating a tag field<a class="headerlink" href="#creating_a_tag_field" title="Permanent link">&para;</a></h2>
 <p>Tag fields can be added to the schema in FT.ADD with the following syntax:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
 </pre></div>
@@ -814,7 +814,7 @@
 </pre></div>
 
 
-<h2 id="querying&quot;_&quot;tag&quot;_&quot;fields">Querying tag fields<a class="headerlink" href="#querying&quot;_&quot;tag&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
+<h2 id="querying_tag_fields">Querying tag fields<a class="headerlink" href="#querying_tag_fields" title="Permanent link">&para;</a></h2>
 <p>As mentioned above, just searching for a tag without any modifiers will not retrieve documents
 containing it.</p>
 <p>The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in
@@ -830,7 +830,7 @@ this case):</p>
 </pre></div>
 
 
-<h2 id="multiple&quot;_&quot;tags&quot;_&quot;in&quot;_&quot;a&quot;_&quot;single&quot;_&quot;filter">Multiple tags in a single filter<a class="headerlink" href="#multiple&quot;_&quot;tags&quot;_&quot;in&quot;_&quot;a&quot;_&quot;single&quot;_&quot;filter" title="Permanent link">&para;</a></h2>
+<h2 id="multiple_tags_in_a_single_filter">Multiple tags in a single filter<a class="headerlink" href="#multiple_tags_in_a_single_filter" title="Permanent link">&para;</a></h2>
 <p>Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing <em>all</em> tags, you should repeat the tag filter several times.</p>
 <p>For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:</p>
 <div class="codehilite"><pre><span></span>FT.CREATE myIndex SCHEMA name TEXT cities TAG
@@ -849,7 +849,7 @@ FT.ADD myIndex user1 1.0 FIELDS name &quot;John Doe&quot; cities &quot;New York,
 </pre></div>
 
 
-<h2 id="multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping">Multi-word tags And escaping<a class="headerlink" href="#multi-word&quot;_&quot;tags&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h2>
+<h2 id="multi-word_tags_and_escaping">Multi-word tags And escaping<a class="headerlink" href="#multi-word_tags_and_escaping" title="Permanent link">&para;</a></h2>
 <p>Tags can be composed multiple words, or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). <em>NOTE:</em> in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as hello\-world.</p>
 <p>It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
 <p>The following are identical:</p>

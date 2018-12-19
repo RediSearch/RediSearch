@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#sorting"_"by"_"indexed"_"fields" tabindex="1" class="md-skip">
+      <a href="#sorting_by_indexed_fields" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -394,7 +394,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
+  <a href="#declaring_sortable_fields" title="Declaring Sortable Fields" class="md-nav__link">
     Declaring Sortable Fields
   </a>
   
@@ -402,7 +402,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
+  <a href="#note_on_sortable_text_fields" title="Note on sortable TEXT fields" class="md-nav__link">
     Note on sortable TEXT fields
   </a>
   
@@ -414,14 +414,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
+  <a href="#specifying_sortby" title="Specifying SORTBY" class="md-nav__link">
     Specifying SORTBY
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick"_"example" title="Quick example" class="md-nav__link">
+  <a href="#quick_example" title="Quick example" class="md-nav__link">
     Quick example
   </a>
   
@@ -740,7 +740,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#declaring"_"sortable"_"fields" title="Declaring Sortable Fields" class="md-nav__link">
+  <a href="#declaring_sortable_fields" title="Declaring Sortable Fields" class="md-nav__link">
     Declaring Sortable Fields
   </a>
   
@@ -748,7 +748,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#note"_"on"_"sortable"_"text"_"fields" title="Note on sortable TEXT fields" class="md-nav__link">
+  <a href="#note_on_sortable_text_fields" title="Note on sortable TEXT fields" class="md-nav__link">
     Note on sortable TEXT fields
   </a>
   
@@ -760,14 +760,14 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#specifying"_"sortby" title="Specifying SORTBY" class="md-nav__link">
+  <a href="#specifying_sortby" title="Specifying SORTBY" class="md-nav__link">
     Specifying SORTBY
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick"_"example" title="Quick example" class="md-nav__link">
+  <a href="#quick_example" title="Quick example" class="md-nav__link">
     Quick example
   </a>
   
@@ -792,19 +792,19 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Sorting.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields">Sorting by Indexed Fields<a class="headerlink" href="#sorting&quot;_&quot;by&quot;_&quot;indexed&quot;_&quot;fields" title="Permanent link">&para;</a></h1>
+                <h1 id="sorting_by_indexed_fields">Sorting by Indexed Fields<a class="headerlink" href="#sorting_by_indexed_fields" title="Permanent link">&para;</a></h1>
 <p>As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name.</p>
-<h2 id="declaring&quot;_&quot;sortable&quot;_&quot;fields">Declaring Sortable Fields<a class="headerlink" href="#declaring&quot;_&quot;sortable&quot;_&quot;fields" title="Permanent link">&para;</a></h2>
+<h2 id="declaring_sortable_fields">Declaring Sortable Fields<a class="headerlink" href="#declaring_sortable_fields" title="Permanent link">&para;</a></h2>
 <p>When creating the index with <code>FT.CREATE</code>, you can declare <code>TEXT</code> and <code>NUMERIC</code> properties to be <code>SORTABLE</code>. When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:</p>
 <div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
 </pre></div>
 
 
 <p>The fields <code>last_name</code> and <code>age</code> are sortable, but <code>first_name</code> isn't. This means we can search by either first and/or last name, and sort by last name or age.</p>
-<h3 id="note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields">Note on sortable TEXT fields<a class="headerlink" href="#note&quot;_&quot;on&quot;_&quot;sortable&quot;_&quot;text&quot;_&quot;fields" title="Permanent link">&para;</a></h3>
+<h3 id="note_on_sortable_text_fields">Note on sortable TEXT fields<a class="headerlink" href="#note_on_sortable_text_fields" title="Permanent link">&para;</a></h3>
 <p>In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.</p>
 <p>Also, note that text fields get normalized and lowercased in a Unicode-safe way when stored for sorting and currently there is no way to change this behaviour. This means that <code>America</code> and <code>america</code> are considered equal in terms of sorting.</p>
-<h2 id="specifying&quot;_&quot;sortby">Specifying SORTBY<a class="headerlink" href="#specifying&quot;_&quot;sortby" title="Permanent link">&para;</a></h2>
+<h2 id="specifying_sortby">Specifying SORTBY<a class="headerlink" href="#specifying_sortby" title="Permanent link">&para;</a></h2>
 <p>If an index includes sortable fields, you can add the <code>SORTBY</code> parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If <code>WITHSCORES</code> is specified along with <code>SORTBY</code>, the scores returned are simply the relative position of each result in the result set.</p>
 <p>The syntax for <code>SORTBY</code> is:</p>
 <div class="codehilite"><pre><span></span>SORTBY {field_name} [ASC|DESC]
@@ -822,7 +822,7 @@
 <p>The default ordering is <code>ASC</code> if not specified otherwise.</p>
 </li>
 </ul>
-<h2 id="quick&quot;_&quot;example">Quick example<a class="headerlink" href="#quick&quot;_&quot;example" title="Permanent link">&para;</a></h2>
+<h2 id="quick_example">Quick example<a class="headerlink" href="#quick_example" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span>&gt; FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
 
 # Add some users

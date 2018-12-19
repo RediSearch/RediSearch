@@ -2,12 +2,12 @@
     "docs": [
         {
             "location": "/", 
-            "text": "RediSearch - Redis Powered Search Engine\n\n\nRediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by \nRedis Labs\n. \n\n\n\n\nQuick Links:\n\n\n\n\nSource Code at GitHub\n.\n\n\nLatest Release: 1.4.0\n\n\nDocker Image: redislabs/redisearch\n\n\nQuick Start Guide\n\n\nMailing list / Forum\n\n\n\n\n\n\n\n\nSupported Platforms\n\n\nRediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.\n\n\ni386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. \n\n\n\n\nOverview\n\n\nRedisearch implements a search engine on top of Redis, but unlike other Redis \nsearch libraries, it does not use internal data structures like sorted sets.\n\n\nThis also enables more advanced features, like exact phrase matching and numeric filtering for text queries, \nthat are not possible or efficient with traditional Redis search approaches.\n\n\nClient Libraries\n\n\nOfficial and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. \nSee \nClients Page\n\n\nCluster Support and Commercial Version\n\n\nRediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the \nRedis Labs Website\n for more info and contact information. \n\n\nPrimary Features\n\n\n\n\nFull-Text indexing of multiple fields in documents.\n\n\nIncremental indexing without performance loss.\n\n\nDocument ranking (provided manually by the user at index time).\n\n\nComplex boolean queries with AND, OR, NOT operators between sub-queries.\n\n\nOptional query clauses.\n\n\nPrefix based searches.\n\n\nField weights.\n\n\nAuto-complete suggestions (with fuzzy prefix suggestions).\n\n\nExact Phrase Search, Slop based search.\n\n\nStemming based query expansion in \nmany languages\n (using \nSnowball\n).\n\n\nSupport for custom functions for query expansion and scoring (see \nExtensions\n).\n\n\nLimiting searches to specific document fields.\n\n\nNumeric filters and ranges.\n\n\nGeo filtering using Redis' own Geo-commands. \n\n\nUnicode support (UTF-8 input required).\n\n\nRetrieve full document content or just ids\n\n\nDocument deletion and updating with index garbage collection.\n\n\nPartial and conditional document updates.", 
+            "text": "RediSearch - Redis Powered Search Engine\n\n\nRediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by \nRedis Labs\n. \n\n\n\n\nQuick Links:\n\n\n\n\nSource Code at GitHub\n.\n\n\nLatest Release: 1.4.2\n\n\nDocker Image: redislabs/redisearch\n\n\nQuick Start Guide\n\n\nMailing list / Forum\n\n\n\n\n\n\n\n\nSupported Platforms\n\n\nRediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.\n\n\ni386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. \n\n\n\n\nOverview\n\n\nRedisearch implements a search engine on top of Redis, but unlike other Redis \nsearch libraries, it does not use internal data structures like sorted sets.\n\n\nThis also enables more advanced features, like exact phrase matching and numeric filtering for text queries, \nthat are not possible or efficient with traditional Redis search approaches.\n\n\nClient Libraries\n\n\nOfficial and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.\n\n\nSee the \nClients Page\n for the full list.\n\n\nCluster Support and Commercial Version\n\n\nRediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the \nRedis Labs Website\n for more info and contact information. \n\n\nPrimary Features\n\n\n\n\nFull-Text indexing of multiple fields in documents.\n\n\nIncremental indexing without performance loss.\n\n\nDocument ranking (provided manually by the user at index time).\n\n\nComplex boolean queries with AND, OR, NOT operators between sub-queries.\n\n\nOptional query clauses.\n\n\nPrefix based searches.\n\n\nField weights.\n\n\nAuto-complete suggestions (with fuzzy prefix suggestions).\n\n\nExact Phrase Search, Slop based search.\n\n\nStemming based query expansion in \nmany languages\n (using \nSnowball\n).\n\n\nSupport for custom functions for query expansion and scoring (see \nExtensions\n).\n\n\nLimiting searches to specific document fields.\n\n\nNumeric filters and ranges.\n\n\nGeo filtering using Redis' own Geo-commands. \n\n\nUnicode support (UTF-8 input required).\n\n\nRetrieve full document content or just ids\n\n\nDocument deletion and updating with index garbage collection.\n\n\nPartial and conditional document updates.", 
             "title": "Home"
         }, 
         {
-            "location": "/#redisearch\"_\"-\"_\"redis\"_\"powered\"_\"search\"_\"engine", 
-            "text": "RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by  Redis Labs .    Quick Links:   Source Code at GitHub .  Latest Release: 1.4.0  Docker Image: redislabs/redisearch  Quick Start Guide  Mailing list / Forum     Supported Platforms  RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.  i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.", 
+            "location": "/#redisearch_-_redis_powered_search_engine", 
+            "text": "RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by  Redis Labs .    Quick Links:   Source Code at GitHub .  Latest Release: 1.4.2  Docker Image: redislabs/redisearch  Quick Start Guide  Mailing list / Forum     Supported Platforms  RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.  i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.", 
             "title": "RediSearch - Redis Powered Search Engine"
         }, 
         {
@@ -16,17 +16,17 @@
             "title": "Overview"
         }, 
         {
-            "location": "/#client\"_\"libraries", 
-            "text": "Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. \nSee  Clients Page", 
+            "location": "/#client_libraries", 
+            "text": "Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.  See the  Clients Page  for the full list.", 
             "title": "Client Libraries"
         }, 
         {
-            "location": "/#cluster\"_\"support\"_\"and\"_\"commercial\"_\"version", 
+            "location": "/#cluster_support_and_commercial_version", 
             "text": "RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the  Redis Labs Website  for more info and contact information.", 
             "title": "Cluster Support and Commercial Version"
         }, 
         {
-            "location": "/#primary\"_\"features", 
+            "location": "/#primary_features", 
             "text": "Full-Text indexing of multiple fields in documents.  Incremental indexing without performance loss.  Document ranking (provided manually by the user at index time).  Complex boolean queries with AND, OR, NOT operators between sub-queries.  Optional query clauses.  Prefix based searches.  Field weights.  Auto-complete suggestions (with fuzzy prefix suggestions).  Exact Phrase Search, Slop based search.  Stemming based query expansion in  many languages  (using  Snowball ).  Support for custom functions for query expansion and scoring (see  Extensions ).  Limiting searches to specific document fields.  Numeric filters and ranges.  Geo filtering using Redis' own Geo-commands.   Unicode support (UTF-8 input required).  Retrieve full document content or just ids  Document deletion and updating with index garbage collection.  Partial and conditional document updates.", 
             "title": "Primary Features"
         }, 
@@ -36,42 +36,42 @@
             "title": "Quick Start"
         }, 
         {
-            "location": "/Quick_Start/#quick\"_\"start\"_\"guide\"_\"for\"_\"redisearch", 
+            "location": "/Quick_Start/#quick_start_guide_for_redisearch", 
             "text": "", 
             "title": "Quick Start Guide for RediSearch"
         }, 
         {
-            "location": "/Quick_Start/#running\"_\"with\"_\"docker", 
+            "location": "/Quick_Start/#running_with_docker", 
             "text": "docker run -p  6379 :6379 redislabs/redisearch:latest", 
             "title": "Running with Docker"
         }, 
         {
-            "location": "/Quick_Start/#building\"_\"and\"_\"running\"_\"from\"_\"source", 
+            "location": "/Quick_Start/#building_and_running_from_source", 
             "text": "RediSearch uses  CMake  as its build system. CMake is\navailable for almost every available platform. You can obtain cmake through\nyour operating system's package manager. RediSearch requires CMake version\n3 or greater. If your package repository does not contain CMake3, you can\ndownload a precompiled binary from  CMake downloads .  To build using CMake:  git clone https://github.com/RedisLabsModules/RediSearch.git cd  RediSearch\nmkdir build cd  build\ncmake .. -DCMAKE_BUILD_TYPE = RelWithDebInfo\nmake\n\nredis-server --loadmodule ./redisearch.so  The resulting module will be in the current directory.  You can also simply type  make  from the top level directory, this will\ntake care of running  cmake  with the appropriate arguments, and provide you\nwith a  redisearch.so  file in the  src  directory:  git clone https://github.com/RedisLabsModules/RediSearch.git cd  RediSearch\nmake\nredis-server --loadmodule ./src/redisearch.so", 
             "title": "Building and running from source"
         }, 
         {
-            "location": "/Quick_Start/#creating\"_\"an\"_\"index\"_\"with\"_\"fields\"_\"and\"_\"weights\"_\"default\"_\"weight\"_\"is\"_\"10", 
+            "location": "/Quick_Start/#creating_an_index_with_fields_and_weights_default_weight_is_10", 
             "text": "127.0.0.1:6379  FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT\nOK", 
             "title": "Creating an index with fields and weights (default weight is 1.0)"
         }, 
         {
-            "location": "/Quick_Start/#adding\"_\"documents\"_\"to\"_\"the\"_\"index", 
+            "location": "/Quick_Start/#adding_documents_to_the_index", 
             "text": "127.0.0.1:6379  FT.ADD myIdx doc1 1.0 FIELDS title  hello world  body  lorem ipsum  url  http://redis.io  \nOK", 
             "title": "Adding documents to the index"
         }, 
         {
-            "location": "/Quick_Start/#searching\"_\"the\"_\"index", 
+            "location": "/Quick_Start/#searching_the_index", 
             "text": "127.0.0.1:6379  FT.SEARCH myIdx  hello world  LIMIT 0 10\n1) (integer) 1\n2)  doc1 \n3) 1)  title \n   2)  hello world \n   3)  body \n   4)  lorem ipsum \n   5)  url \n   6)  http://redis.io    Note  Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment.", 
             "title": "Searching the index"
         }, 
         {
-            "location": "/Quick_Start/#dropping\"_\"the\"_\"index", 
+            "location": "/Quick_Start/#dropping_the_index", 
             "text": "127.0.0.1:6379  FT.DROP myIdx\nOK", 
             "title": "Dropping the index"
         }, 
         {
-            "location": "/Quick_Start/#adding\"_\"and\"_\"getting\"_\"auto-complete\"_\"suggestions", 
+            "location": "/Quick_Start/#adding_and_getting_auto-complete_suggestions", 
             "text": "127.0.0.1:6379  FT.SUGADD autocomplete  hello world  100\nOK\n\n127.0.0.1:6379  FT.SUGGET autocomplete  he \n1)  hello world", 
             "title": "Adding and getting Auto-complete suggestions"
         }, 
@@ -81,7 +81,7 @@
             "title": "Command Reference"
         }, 
         {
-            "location": "/Commands/#redisearch\"_\"full\"_\"command\"_\"documentation", 
+            "location": "/Commands/#redisearch_full_command_documentation", 
             "text": "", 
             "title": "RediSearch Full Command Documentation"
         }, 
@@ -106,7 +106,7 @@
             "title": "Parameters"
         }, 
         {
-            "location": "/Commands/#field\"_\"options", 
+            "location": "/Commands/#field_options", 
             "text": "SORTABLE  Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later  sort the results by the value of this field  (this adds memory overhead so do not declare it on large text fields).    NOSTEM  Text fields can have the NOSTEM argument which will disable stemming when indexing its values. \nThis may be ideal for things like proper names.    NOINDEX  Fields can have the  NOINDEX  option, which means they will not be indexed. \nThis is useful in conjunction with  SORTABLE , to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.    PHONETIC {matcher}  Declaring a text field as  PHONETIC  will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:   dm:en  - Double Metaphone for English  dm:fr  - Double Metaphone for French  dm:pt  - Double Metaphone for Portuguese  dm:es  - Double Metaphone for Spanish   For more details see  Phonetic Matching .", 
             "title": "Field Options"
         }, 
@@ -141,7 +141,7 @@
             "title": "Parameters"
         }, 
         {
-            "location": "/Commands/#adding\"_\"chinese\"_\"documents", 
+            "location": "/Commands/#adding_chinese_documents", 
             "text": "When adding Chinese-language documents,  LANGUAGE chinese  should be set in\norder for the indexer to properly tokenize the terms. If the default language\nis used then search terms will be extracted based on punctuation characters and\nwhitespace. The Chinese language tokenizer makes use of a segmentation algorithm\n(via  Friso ) which segments texts and\nchecks it against a predefined dictionary. See  Stemming  for more\ninformation.", 
             "title": "Adding Chinese Documents"
         }, 
@@ -306,7 +306,7 @@
             "title": "Returns"
         }, 
         {
-            "location": "/Commands/#example\"_\"output", 
+            "location": "/Commands/#example_output", 
             "text": "Here we are counting GitHub events by user (actor), to produce the most active users:  127.0.0.1:6379  FT.AGGREGATE gh  *  GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10\n 1) (integer) 284784\n 2) 1)  actor \n    2)  lombiqbot \n    3)  num \n    4)  22197 \n 3) 1)  actor \n    2)  codepipeline-test \n    3)  num \n    4)  17746 \n 4) 1)  actor \n    2)  direwolf-github \n    3)  num \n    4)  10683 \n 5) 1)  actor \n    2)  ogate \n    3)  num \n    4)  6449 \n 6) 1)  actor \n    2)  openlocalizationtest \n    3)  num \n    4)  4759 \n 7) 1)  actor \n    2)  digimatic \n    3)  num \n    4)  3809 \n 8) 1)  actor \n    2)  gugod \n    3)  num \n    4)  3512 \n 9) 1)  actor \n    2)  xdzou \n    3)  num \n    4)  3216 \n10) 1)  actor \n    2)  opstest \n    3)  num \n    4)  2863 \n11) 1)  actor \n    2)  jikker \n    3)  num \n    4)  2794 \n(0.59s)", 
             "title": "Example output"
         }, 
@@ -661,7 +661,7 @@
             "title": "Returns"
         }, 
         {
-            "location": "/Commands/#example\"_\"output_1", 
+            "location": "/Commands/#example_output_1", 
             "text": "1)  1)  TERM \n    2)  {term1} \n    3)  1)  1)   {score1} \n            2)   {suggestion1} \n        2)  1)   {score2} \n            2)   {suggestion2} \n        .\n        .\n        .\n2)  1)  TERM \n    2)  {term2} \n    3)  1)  1)   {score1} \n            2)   {suggestion1} \n        2)  1)   {score2} \n            2)   {suggestion2} \n        .\n        .\n        .\n.\n.\n.", 
             "title": "Example output"
         }, 
@@ -771,22 +771,22 @@
             "title": "Configuration"
         }, 
         {
-            "location": "/Configuring/#run-time\"_\"configuration", 
+            "location": "/Configuring/#run-time_configuration", 
             "text": "RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.", 
             "title": "Run-time configuration"
         }, 
         {
-            "location": "/Configuring/#passing\"_\"configuration\"_\"options\"_\"during\"_\"loading", 
+            "location": "/Configuring/#passing_configuration_options_during_loading", 
             "text": "In general, passing configuration options is done by appending arguments after the  --loadmodule  argument in the command line,  loadmodule  configuration directive in a Redis config file, or the  MODULE LOAD  command. For example:  In redis.conf:  loadmodule redisearch.so OPT1 OPT2  From redis-cli:  127.0.0.6379  MODULE load redisearch.so OPT1 OPT2  From command line:  $ redis-server --loadmodule ./redisearch.so OPT1 OPT2", 
             "title": "Passing Configuration Options During Loading"
         }, 
         {
-            "location": "/Configuring/#setting\"_\"configuration\"_\"options\"_\"in\"_\"run-time", 
+            "location": "/Configuring/#setting_configuration_options_in_run-time", 
             "text": "As of v1.4.1, the  FT.CONFIG  allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.", 
             "title": "Setting Configuration Options In Run-Time"
         }, 
         {
-            "location": "/Configuring/#redisearch\"_\"configuration\"_\"options", 
+            "location": "/Configuring/#redisearch_configuration_options", 
             "text": "", 
             "title": "RediSearch configuration options"
         }, 
@@ -806,7 +806,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#on\"_\"timeout\"_\"policy", 
+            "location": "/Configuring/#on_timeout_policy", 
             "text": "The response policy for queries that exceed the  TIMEOUT  setting.  The policy can be one of the following:   RETURN : this policy will return the top results accumulated by the query until it timed out.  FAIL : will return an error when the query exeeds the timeout value.", 
             "title": "ON_TIMEOUT {policy}"
         }, 
@@ -836,7 +836,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#extload\"_\"file\"_\"name", 
+            "location": "/Configuring/#extload_file_name", 
             "text": "If present, we try to load a RediSearch extension dynamic library from the specified file path. See  Extensions  for details.", 
             "title": "EXTLOAD {file_name}"
         }, 
@@ -911,7 +911,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#frisoini\"_\"file\"_\"name", 
+            "location": "/Configuring/#frisoini_file_name", 
             "text": "If present, we load the custom Chinese dictionary from the specified path. See  Using custom dictionaries  for more details.", 
             "title": "FRISOINI {file_name}"
         }, 
@@ -926,7 +926,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#gc\"_\"scansize", 
+            "location": "/Configuring/#gc_scansize", 
             "text": "The garbage collection bulk size of the internal gc used for cleaning up the indexes.", 
             "title": "GC_SCANSIZE"
         }, 
@@ -941,7 +941,7 @@
             "title": "Example"
         }, 
         {
-            "location": "/Configuring/#gc\"_\"policy", 
+            "location": "/Configuring/#gc_policy", 
             "text": "The policy for the garbage collector. Supported policies are:   DEFAULT : the default policy.  FORK : uses a forked thread for garbage collection (v1.4.1 and above).    The  FORK  garbage collection policy is considered an experimental feature, and should be used responsibly.", 
             "title": "GC_POLICY"
         }, 
@@ -961,7 +961,7 @@
             "title": "Administration"
         }, 
         {
-            "location": "/Administration/#redisearch\"_\"administration\"_\"guide", 
+            "location": "/Administration/#redisearch_administration_guide", 
             "text": "RediSearch doesn't require any configuration to work, but there are a few things worth noting when running RediSearch on top of Redis.", 
             "title": "RediSearch Administration Guide"
         }, 
@@ -971,17 +971,17 @@
             "title": "Persistence"
         }, 
         {
-            "location": "/Administration/#aof\"_\"persistence", 
+            "location": "/Administration/#aof_persistence", 
             "text": "While RediSearch supports working with AOF based persistence, as of version 1.1.0 it  does not support  \"classic AOF\" mode, which uses AOF rewriting. Instead, it only supports AOF with RDB preamble mode. In this mode, rewriting the AOF log just creates an RDB file, which is appended to.   To enable AOF persistence with RediSearch, add the two following lines to your redis.conf:  appendonly yes\naof-use-rdb-preamble yes", 
             "title": "AOF Persistence"
         }, 
         {
-            "location": "/Administration/#masterslave\"_\"replication", 
+            "location": "/Administration/#masterslave_replication", 
             "text": "RediSearch supports replication inherently, and using a master/slave set-up, you can use slaves for high availability. On top of that, slaves can be used for searching, to load-balance read traffic.", 
             "title": "Master/Slave Replication"
         }, 
         {
-            "location": "/Administration/#cluster\"_\"support", 
+            "location": "/Administration/#cluster_support", 
             "text": "RediSearch will not work correctly on a cluster. The enterprise version of RediSearch, which is commercially available from Redis Labs, does support a cluster set up and scales to hundreds of nodes, billions of documents and terabytes of data. See the  Redis Labs Website  for more details.", 
             "title": "Cluster Support"
         }, 
@@ -991,77 +991,77 @@
             "title": "Query Syntax"
         }, 
         {
-            "location": "/Query_Syntax/#search\"_\"query\"_\"syntax", 
+            "location": "/Query_Syntax/#search_query_syntax", 
             "text": "We support a simple syntax for complex queries with the following rules:   Multi-word phrases simply a list of tokens, e.g.  foo bar baz , and imply intersection (AND) of the terms.  Exact phrases are wrapped in quotes, e.g  \"hello world\" .  OR Unions (i.e  word1 OR word2 ), are expressed with a pipe ( | ), e.g.  hello|hallo|shalom|hola .  NOT negation (i.e.  word1 NOT word2 ) of expressions or sub-queries. e.g.  hello -world . As of version 0.19.3, purely negative queries (i.e.  -foo  or  -@title:(foo|bar) ) are supported.  Prefix matches (all terms starting with a prefix) are expressed with a  * . For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)  A special \"wildcard query\" that returns all results in the index -  *  (cannot be combined with anything else).  Selection of specific fields using the syntax  @field:hello world .  Numeric Range matches on numeric fields with the syntax  @field:[{min} {max}] .  Geo radius matches on geo fields with the syntax  @field:[{lon} {lat} {radius} {m|km|mi|ft}]  Tag field filters with the syntax  @field:{tag | tag | ...} . See the full documentation on [tag fields|/Tags].  Optional terms or clauses:  foo ~bar  means bar is optional but documents with bar in them will rank higher.  Fuzzy matching on terms (as of v1.2.0):  %hello%  means all terms with Levenshtein distance of 1 from it.  An expression in a query can be wrapped in parentheses to disambiguate, e.g.  (hello|hella) (world|werld) .  Query attributes can be applied to individual clauses, e.g.  (foo bar) =  { $weight: 2.0; $slop: 1; $inorder: false; }  Combinations of the above can be used together, e.g  hello (world|foo) \"bar baz\" bbbb", 
             "title": "Search Query Syntax"
         }, 
         {
-            "location": "/Query_Syntax/#pure\"_\"negative\"_\"queries", 
+            "location": "/Query_Syntax/#pure_negative_queries", 
             "text": "As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g.  -hello  or  -(@title:foo|bar) . The results will be all the documents  NOT  containing the query terms.   Warning  Any complex expression can be negated this way, however, caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.", 
             "title": "Pure negative queries"
         }, 
         {
-            "location": "/Query_Syntax/#field\"_\"modifiers", 
+            "location": "/Query_Syntax/#field_modifiers", 
             "text": "As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword.  Per query expression or sub-expression, it is possible to specify which fields it matches, by prepending the expression with the  @  symbol, the field name and a  :  (colon) symbol.  If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier.  If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses.  Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:  FT.SEARCH cars  @country:korea @engine:(diesel|hybrid) @class:suv   Multiple modifiers can be applied to the same term or grouped terms. e.g.:  FT.SEARCH idx  @title|body:(hello world) @url|image:mydomain   This will search for documents that have \"hello world\" either in the body or the title, and the term \"mydomain\" in their url or image fields.", 
             "title": "Field modifiers"
         }, 
         {
-            "location": "/Query_Syntax/#numeric\"_\"filters\"_\"in\"_\"query", 
+            "location": "/Query_Syntax/#numeric_filters_in_query", 
             "text": "If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is  @field:[{min} {max}]  - e.g.  @price:[100 200] .", 
             "title": "Numeric filters in query"
         }, 
         {
-            "location": "/Query_Syntax/#a\"_\"few\"_\"notes\"_\"on\"_\"numeric\"_\"predicates", 
+            "location": "/Query_Syntax/#a_few_notes_on_numeric_predicates", 
             "text": "It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.    It is possible to intersect or union multiple numeric filters in the same query, be it for the same field or different ones.    -inf ,  inf  and  +inf  are acceptable numbers in a range. Thus greater-than 100 is expressed as  [(100 inf] .    Numeric filters are inclusive. Exclusive min or max are expressed with  (  prepended to the number, e.g.  [(100 (200] .    It is possible to negate a numeric filter by prepending a  -  sign to the filter, e.g. returning a result where price differs from 100 is expressed as:  @title:foo -@price:[100 100] .", 
             "title": "A few notes on numeric predicates"
         }, 
         {
-            "location": "/Query_Syntax/#tag\"_\"filters", 
+            "location": "/Query_Syntax/#tag_filters", 
             "text": "RediSearch (starting with version 0.91) allows a special field type called \"tag field\", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax:  @field:{ tag | tag | ...}\n\ne.g.\n\n@cities:{ New York | Los Angeles | Barcelona }  Tags can have multiple words or include other punctuation marks other than the field's separator ( ,  by default). Punctuation marks in tags should be escaped with a backslash ( \\ ). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like \"to be or not to be\" should be escaped as \"to\\ be\\ or\\ not\\ to\\ be\". For good measure, you can escape all spaces within tags.  Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing  all  tags, you should repeat the tag filter several times, e.g.:  # This will return all documents containing all three cities as tags:\n@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }\n\n# This will return all documents containing either city:\n@cities:{ New York | Los Angeles | Barcelona }  Tag clauses can be combined into any sub-clause, used as negative expressions, optional expressions, etc.", 
             "title": "Tag filters"
         }, 
         {
-            "location": "/Query_Syntax/#geo\"_\"filters\"_\"in\"_\"query", 
+            "location": "/Query_Syntax/#geo_filters_in_query", 
             "text": "As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax  @field:[{lon} {lat} {radius} {m|km|mi|ft}] . This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own  GEORADIUS  command for more details as it is used internally for that).  Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as:  chinese restaurant @location:[-122.41 37.77 5 km] .", 
             "title": "Geo filters in query"
         }, 
         {
-            "location": "/Query_Syntax/#prefix\"_\"matching", 
+            "location": "/Query_Syntax/#prefix_matching", 
             "text": "On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending  *  to a prefix token. For example:  hel* world  Will be expanded to cover  (hello|help|helm|...) world .", 
             "title": "Prefix matching"
         }, 
         {
-            "location": "/Query_Syntax/#a\"_\"few\"_\"notes\"_\"on\"_\"prefix\"_\"searches", 
+            "location": "/Query_Syntax/#a_few_notes_on_prefix_searches", 
             "text": "As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.    As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:    Prefixes are limited to 2 letters or more. You can change this number by using the  MINPREFIX  setting on the module command line.    Expansion is limited to 200 terms or less. You can change this number by using the  MAXEXPANSIONS  setting on the module command line.    Prefix matching fully supports Unicode and is case insensitive.    Currently, there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.", 
             "title": "A few notes on prefix searches"
         }, 
         {
-            "location": "/Query_Syntax/#fuzzy\"_\"matching", 
+            "location": "/Query_Syntax/#fuzzy_matching", 
             "text": "As of v1.2.0, the dictionary of all terms in the index can also be used to perform  Fuzzy Matching . Fuzzy matches are performed based on  Levenshtein distance  (LD). Fuzzy matching on a term is performed by surrounding the term with '%', for example:  %hello %   world   Will perform fuzzy matching on 'hello' for all terms where LD is 1.  As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' surrounding it, so that  %%hello%%  will perform fuzzy matching on 'hello' for all terms where LD is 2.  The maximal LD for fuzzy matching is 3.", 
             "title": "Fuzzy matching"
         }, 
         {
-            "location": "/Query_Syntax/#wildcard\"_\"queries", 
+            "location": "/Query_Syntax/#wildcard_queries", 
             "text": "As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation engine. You can call it by specifying only a single star sign as the query string - i.e.  FT.SEARCH myIndex * .  This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query string in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance.", 
             "title": "Wildcard queries"
         }, 
         {
-            "location": "/Query_Syntax/#query\"_\"attributes", 
+            "location": "/Query_Syntax/#query_attributes", 
             "text": "As of version 1.2.0, it is possible to apply specific query modifying attributes to specific clauses of the query.  The syntax is  (foo bar) =  { $attribute: value; $attribute:value; ...} , e.g:  ( foo   bar )   =   {   $ weight :   2.0 ;   $ slop :   1 ;   $ inorder :   true ;   }  ~( bar   baz )   =   {   $ weight :   0.5 ;   }   The supported attributes are:   $weight : determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).  $slop : determines the maximum allowed \"slop\" (space between terms) in the query clause (default: 0).  $inorder : whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with  $slop  (default: false).  $phonetic : whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as  PHONETIC  will produce an error.", 
             "title": "Query attributes"
         }, 
         {
-            "location": "/Query_Syntax/#a\"_\"few\"_\"query\"_\"examples", 
+            "location": "/Query_Syntax/#a_few_query_examples", 
             "text": "Simple phrase query - hello AND world  hello world    Exact phrase query -  hello  FOLLOWED BY  world  hello world     Union: documents containing either  hello  OR  world  hello|world    Not: documents containing  hello  but not  world  hello -world    Intersection of unions  (hello|halo) (world|werld)    Negation of union  hello -(world|werld)    Union inside phrase  (barack|barrack) obama    Optional terms with higher priority to ones containing more matches:  obama ~barack ~michelle    Exact phrase in one field, one word in another field:  @title: barack obama  @job:president    Combined AND, OR with field specifiers:  @title:hello world @body:(foo bar) @category:(articles|biographies)    Prefix Queries:  hello worl*\n\nhel* worl*\n\nhello -worl*    Numeric Filtering - products named \"tv\" with a price range of 200-500:  @name:tv @price:[200 500]    Numeric Filtering - users with age greater than 18:  @age:[(18 +inf]", 
             "title": "A few query examples"
         }, 
         {
-            "location": "/Query_Syntax/#mapping\"_\"common\"_\"sql\"_\"predicates\"_\"to\"_\"redisearch", 
+            "location": "/Query_Syntax/#mapping_common_sql_predicates_to_redisearch", 
             "text": "SQL Condition  RediSearch Equivalent  Comments      WHERE x='foo' AND y='bar'  @x:foo @y:bar  for less ambiguity use (@x:foo) (@y:bar)    WHERE x='foo' AND y!='bar'  @x:foo -@y:bar     WHERE x='foo' OR y='bar'  (@x:foo)|(@y:bar)     WHERE x IN ('foo', 'bar','hello world')  @x:(foo|bar|\"hello world\")  quotes mean exact phrase    WHERE y='foo' AND x NOT IN ('foo','bar')  @y:foo (-@x:foo) (-@x:bar)     WHERE x NOT IN ('foo','bar')  -@x:(foo|bar)     WHERE num BETWEEN 10 AND 20  @num:[10 20]     WHERE num  = 10  @num:[10 +inf]     WHERE num   10  @num:[(10 +inf]     WHERE num   10  @num:[-inf (10]     WHERE num  = 10  @num:[-inf 10]     WHERE num   10 OR num   20  @num:[-inf (10] | @num:[(20 +inf]     WHERE name LIKE 'john%'  @name:john*", 
             "title": "Mapping common SQL predicates to RediSearch"
         }, 
         {
-            "location": "/Query_Syntax/#technical\"_\"note", 
+            "location": "/Query_Syntax/#technical_note", 
             "text": "The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition  at the git repo .", 
             "title": "Technical note"
         }, 
@@ -1076,22 +1076,22 @@
             "title": "Stop-Words"
         }, 
         {
-            "location": "/Stopwords/#default\"_\"stop-word\"_\"list", 
+            "location": "/Stopwords/#default_stop-word_list", 
             "text": "The following words are treated as stop-words by default:    a,    is,    the,   an,   and,  are, as,  at,   be,   but,  by,   for,\n if,   in,    into,  it,   no,   not, of,  on,   or,   such, that, their,\n then, there, these, they, this, to,  was, will, with", 
             "title": "Default stop-word list"
         }, 
         {
-            "location": "/Stopwords/#overriding\"_\"the\"_\"default\"_\"stop-words", 
+            "location": "/Stopwords/#overriding_the_default_stop-words", 
             "text": "Stop-words for an index can be defined (or disabled completely) on index creation using the  STOPWORDS  argument in the  FT.CREATE  command.  The format is  STOPWORDS {number} {stopword} ...  where number is the number of stopwords given. The  STOPWORDS  argument must come before the  SCHEMA  argument. For example:  FT.CREATE myIndex STOPWORDS 3 foo bar baz SCHEMA title TEXT body TEXT", 
             "title": "Overriding the default stop-words"
         }, 
         {
-            "location": "/Stopwords/#disabling\"_\"stop-words\"_\"completely", 
+            "location": "/Stopwords/#disabling_stop-words_completely", 
             "text": "Disabling stopwords completely can be done by passing  STOPWORDS 0  on  FT.CREATE .", 
             "title": "Disabling stop-words completely"
         }, 
         {
-            "location": "/Stopwords/#avoiding\"_\"stop-word\"_\"detection\"_\"in\"_\"search\"_\"queries", 
+            "location": "/Stopwords/#avoiding_stop-word_detection_in_search_queries", 
             "text": "In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries.", 
             "title": "Avoiding stop-word detection in search queries"
         }, 
@@ -1101,47 +1101,47 @@
             "title": "Aggregations"
         }, 
         {
-            "location": "/Aggregations/#redisearch\"_\"aggregations", 
+            "location": "/Aggregations/#redisearch_aggregations", 
             "text": "Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform  Faceted Search  style queries.   For example, indexing a web-server's logs, we can create a report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc.", 
             "title": "RediSearch Aggregations"
         }, 
         {
-            "location": "/Aggregations/#core\"_\"concepts", 
+            "location": "/Aggregations/#core_concepts", 
             "text": "The basic idea of an aggregate query is this:   Perform a search query, filtering for records you wish to process.  Build a pipeline of operations that transform the results by zero or more steps of:  Group and Reduce : grouping by fields in the results, and applying reducer functions on each group.  Sort : sort the results based on one or more fields.  Apply Transformations : Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones  Limit : Limit the result, regardless of sorting the result.   Filter : Filter the results (post-query) based on predicates relating to its values.    The pipeline is dynamic and reentrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output.   Figure 1: Aggregation Pipeline Example", 
             "title": "Core concepts"
         }, 
         {
-            "location": "/Aggregations/#aggregate\"_\"request\"_\"format", 
+            "location": "/Aggregations/#aggregate_request_format", 
             "text": "The aggregate request's syntax is defined as follows:  FT . AGGREGATE \n   { index_name : string } \n   { query_string : string } \n   [ WITHSCHEMA ]   [ VERBATIM ] \n   [ LOAD   { nargs : integer }   { property : string }   ...] \n   [ GROUPBY \n     { nargs : integer }   { property : string }   ... \n     REDUCE \n       { FUNC : string } \n       { nargs : integer }   { arg : string }   ... \n       [ AS   { name : string } ] \n     ... \n   ]   ... \n   [ SORTBY \n     { nargs : integer }   { string }   ... \n     [ MAX   { num : integer } ]   ... \n   ]   ... \n   [ APPLY \n     { EXPR : string } \n     AS   { name : string } \n   ]   ... \n   [ FILTER   { EXPR : string } ]   ... \n   [ LIMIT   { offset : integer }   { num : integer }   ]   ...", 
             "title": "Aggregate request format"
         }, 
         {
-            "location": "/Aggregations/#parameters\"_\"in\"_\"detail", 
+            "location": "/Aggregations/#parameters_in_detail", 
             "text": "Parameters which may take a variable number of arguments are expressed in the\nform of  param {nargs} {property_1... property_N} . The first argument to the\nparameter is the number of arguments following the parameter. This allows\nRediSearch to avoid a parsing ambiguity in case one of your arguments has the\nname of another parameter. For example, to sort by first name, last name, and\ncountry, one would specify  SORTBY 6 firstName ASC lastName DESC country ASC .    index_name : The index the query is executed again.    query_string : The base filtering query that retrieves the documents. It follows  the exact same syntax  as the search query, including filters, unions, not, optional, etc.    LOAD {nargs} {property} \u2026 : Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as  SORTABLE , where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.     GROUPBY {nargs} {property} : Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).    REDUCE {func} {nargs} {arg} \u2026 [AS {name}] : Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.  The reducers can have their own property names using the  AS {name}  optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property  @foo , the resulting name will be  count_distinct(@foo) .     SORTBY {nargs} {property} {ASC|DESC} [MAX {num}] : Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but  ASC  or  DESC  can be added for each property.  nargs  is the number of sorting parameters, including ASC and DESC. for example:  SORTBY 4 @foo ASC @bar DESC .   MAX  is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to  LIMIT , you usually need just  SORTBY \u2026 MAX  for common queries.     APPLY {expr} AS {name} : Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation.  expr  is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example:  APPLY \"sqrt(@foo)/log(@bar) + 5\" AS baz  will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline.     LIMIT {offset} {num} . Limit the number of results to return just  num  results starting at index  offset  (zero based). AS mentioned above, it is much more efficient to use  SORTBY \u2026 MAX  if you are interested in just limiting the optput of a sort operation.  However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by  SORTBY MAX . For example, getting results 50-100 of the top 100 results is most efficiently expressed as  SORTBY 1 @foo MAX 100 LIMIT 50 50 . Removing the MAX from SORTBY will result in the pipeline sorting  all  the records and then paging over results 50-100.     FILTER {expr} . Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.", 
             "title": "Parameters in detail"
         }, 
         {
-            "location": "/Aggregations/#quick\"_\"example", 
+            "location": "/Aggregations/#quick_example", 
             "text": "Let's assume we have log of visits to our website, each record containing the following fields/properties:   url  (text, sortable)  timestamp  (numeric, sortable) - unix timestamp of visit entry.   country  (tag, sortable)  user_id  (text, sortable, not indexed)", 
             "title": "Quick example"
         }, 
         {
-            "location": "/Aggregations/#example\"_\"1\"_\"unique\"_\"users\"_\"by\"_\"hour\"_\"ordered\"_\"chronologically", 
+            "location": "/Aggregations/#example_1_unique_users_by_hour_ordered_chronologically", 
             "text": "First of all, we want  all  records in the index, because why not. The first step is to determine the index name and the filtering query. A filter query of  *  means \"get all records\":  FT.AGGREGATE myIndex  *   Now we want to group the results by hour. Since we have the visit times as unix timestamps in second resolution, we need to extract the hour component of the timestamp. So we first add an APPLY step, that strips the sub-hour information from the timestamp and stores is as a new property,  hour :  FT.AGGREGATE myIndex  * \n  APPLY  @timestamp - (@timestamp % 3600)  AS hour  Now we want to group the results by hour, and count the distinct user ids in each hour. This is done by a GROUPBY/REDUCE  step:  FT.AGGREGATE myIndex  * \n  APPLY  @timestamp - (@timestamp % 3600)  AS hour\n\n  GROUPBY 1 @hour\n    REDUCE COUNT_DISTINCT 1 @user_id AS num_users  Now we'd like to sort the results by hour, ascending:  FT.AGGREGATE myIndex  * \n  APPLY  @timestamp - (@timestamp % 3600)  AS hour\n\n  GROUPBY 1 @hour\n    REDUCE COUNT_DISTINCT 1 @user_id AS num_users\n\n  SORTBY 2 @hour ASC  And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function  timefmt  that formats unix timestamps. You can specify a format to be passed to the system's  strftime  function ( see documentation ), but not specifying one  is equivalent to specifying  %FT%TZ  to  strftime .  FT.AGGREGATE myIndex  * \n  APPLY  @timestamp - (@timestamp % 3600)  AS hour\n\n  GROUPBY 1 @hour\n    REDUCE COUNT_DISTINCT 1 @user_id AS num_users\n\n  SORTBY 2 @hour ASC\n\n  APPLY timefmt(@hour) AS hour", 
             "title": "Example 1: unique users by hour, ordered chronologically."
         }, 
         {
-            "location": "/Aggregations/#example\"_\"2\"_\"sort\"_\"visits\"_\"to\"_\"a\"_\"specific\"_\"url\"_\"by\"_\"day\"_\"and\"_\"country", 
+            "location": "/Aggregations/#example_2_sort_visits_to_a_specific_url_by_day_and_country", 
             "text": "In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending.   FT.AGGREGATE myIndex  @url:\\ about.html\\ \n    APPLY  @timestamp - (@timestamp % 86400)  AS day\n    GROUPBY 2 @day @country\n        REDUCE count 0 AS num_visits \n    SORTBY 4 @day ASC @country DESC", 
             "title": "Example 2: Sort visits to a specific URL by day and country:"
         }, 
         {
-            "location": "/Aggregations/#groupby\"_\"reducers", 
+            "location": "/Aggregations/#groupby_reducers", 
             "text": "GROUPBY  step work similarly to SQL  GROUP BY  clauses, and create groups of results based on one or more properties in each record. For each group, we return the \"group keys\", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more  REDUCE  clauses.  Each  GROUPBY  step in the pipeline may be accompanied by zero or more  REDUCE  clauses. Reducers apply some accumulation function to each record in the group and reduce them into a single record representing the group. When we are finished processing all the records upstream of the  GROUPBY  step, each group emits its reduced record.   For example, the simplest reducer is COUNT, which simply counts the number of records in each group.   If multiple  REDUCE  clauses exist for a single  GROUPBY  step, each reducer works independently on each result and writes its final output once. Each reducer may have its own alias determined using the  AS  optional parameter. If  AS  is not specified, the alias is the reduce function and its parameters, e.g.  count_distinct(foo,bar) .", 
             "title": "GROUPBY reducers"
         }, 
         {
-            "location": "/Aggregations/#supported\"_\"groupby\"_\"reducers", 
+            "location": "/Aggregations/#supported_groupby_reducers", 
             "text": "", 
             "title": "Supported GROUPBY reducers"
         }, 
@@ -1151,12 +1151,12 @@
             "title": "COUNT"
         }, 
         {
-            "location": "/Aggregations/#count\"_\"distinct", 
+            "location": "/Aggregations/#count_distinct", 
             "text": "Format  REDUCE COUNT_DISTINCT 1 {property}  Description  Count the number of distinct values for  property .    Note  The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.", 
             "title": "COUNT_DISTINCT"
         }, 
         {
-            "location": "/Aggregations/#count\"_\"distinctish", 
+            "location": "/Aggregations/#count_distinctish", 
             "text": "Format    REDUCE COUNT_DISTINCTISH 1 {property}  Description  Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups.    Note  The reducer uses  HyperLogLog  counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case.", 
             "title": "COUNT_DISTINCTISH"
         }, 
@@ -1196,72 +1196,72 @@
             "title": "TOLIST"
         }, 
         {
-            "location": "/Aggregations/#first\"_\"value", 
+            "location": "/Aggregations/#first_value", 
             "text": "Format  REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]  Description  Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:  REDUCE FIRST_VALUE 4 @name BY @age DESC  If no  BY  is specified, we return the first value we encounter in the group.  If you with to get the top or bottom value in the group sorted by the same value, you are better off using the  MIN/MAX  reducers, but the same effect will be achieved by doing  REDUCE FIRST_VALUE 4 @foo BY @foo DESC .", 
             "title": "FIRST_VALUE"
         }, 
         {
-            "location": "/Aggregations/#random\"_\"sample", 
+            "location": "/Aggregations/#random_sample", 
             "text": "Format  REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}  Description  Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.", 
             "title": "RANDOM_SAMPLE"
         }, 
         {
-            "location": "/Aggregations/#apply\"_\"expressions", 
+            "location": "/Aggregations/#apply_expressions", 
             "text": "APPLY  performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation.   The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example:  sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)  or simply  @foo/@bar .  If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result.   APPLY steps must have an explicit alias determined by the  AS  parameter.", 
             "title": "APPLY expressions"
         }, 
         {
-            "location": "/Aggregations/#literals\"_\"inside\"_\"expressions", 
+            "location": "/Aggregations/#literals_inside_expressions", 
             "text": "Numbers are expressed as integers or floating point numbers, i.e.  2 ,  3.141 ,  -34 , etc.  inf  and  -inf  are acceptable as well.  Strings are quoted with either single or double quotes. Single quotes are acceptable inside strings quoted with double quotes and vice versa. Punctuation marks can be escaped with backslashes. e.g.  \"foo's bar\"  , 'foo\\'s bar' ,  \"foo \\\"bar\\\"\"  .  Any literal or sub expression can be wrapped in parentheses to resolve ambiguities of operator precedence.", 
             "title": "Literals inside expressions"
         }, 
         {
-            "location": "/Aggregations/#arithmetic\"_\"operations", 
+            "location": "/Aggregations/#arithmetic_operations", 
             "text": "For numeric expressions and properties, we support addition ( + ), subtraction ( - ), multiplication ( * ), division ( / ), modulo ( % ) and power ( ^ ). We currently do not support bitwise logical operators.    Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.", 
             "title": "Arithmetic operations"
         }, 
         {
-            "location": "/Aggregations/#list\"_\"of\"_\"numeric\"_\"apply\"_\"functions", 
+            "location": "/Aggregations/#list_of_numeric_apply_functions", 
             "text": "Function  Description  Example      log(x)  Return the logarithm of a number, property or sub-expression  log(@foo)    abs(x)  Return the absolute number of a numeric expression  abs(@foo-@bar)    ceil(x)  Round to the smallest value not less than x  ceil(@foo/3.14)    floor(x)  Round to largest value not greater than x  floor(@foo/3.14)    log2(x)  Return the  logarithm of x to base 2  log2(2^@foo)    exp(x)  Return the exponent of x, i.e.  e^x  exp(@foo)    sqrt(x)  Return the square root of x  sqrt(@foo)", 
             "title": "List of numeric APPLY functions"
         }, 
         {
-            "location": "/Aggregations/#list\"_\"of\"_\"string\"_\"apply\"_\"functions", 
+            "location": "/Aggregations/#list_of_string_apply_functions", 
             "text": "Function        upper(s)  Return the uppercase conversion of s  upper('hello world')    lower(s)  Return the lowercase conversion of 2  lower(\"HELLO WORLD\")    substr(s, offset, count)  Return the substring of s, starting at  offset  and having  count  characters.  If offset is negative, it represents the distance from the end of the string.  If count is -1, it means \"the rest of the string starting at offset\".  substr(\"hello\", 0, 3)     substr(\"hello\", -2, -1)    format( fmt, ...)  Use the arguments following  fmt  to format a string.  Currently the only format argument supported is  %s  and it applies to all types of arguments.  format(\"Hello, %s, you are %s years old\", @name, @age)    matched_terms([max_terms=100])  Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order.  matched_terms()    split(s, [sep=\",\"], [strip=\" \"])  Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array.  split(\"foo,bar\")", 
             "title": "List of string APPLY functions"
         }, 
         {
-            "location": "/Aggregations/#list\"_\"of\"_\"datetime\"_\"apply\"_\"functions", 
+            "location": "/Aggregations/#list_of_datetime_apply_functions", 
             "text": "Function  Description      timefmt(x, [fmt])  Return a formatted time string based on a numeric timestamp value x.   See  strftime  for formatting options.  Not specifying  fmt  is equivalent to  %FT%TZ .    parsetime(timesharing, [fmt])  The opposite of timefmt() - parse a time format using a given format string    day(timestamp)  Round a Unix timestamp to midnight (00:00) start of the current day.    hour(timestamp)  Round a Unix timestamp to the beginning of the current hour.    minute(timestamp)  Round a Unix timestamp to the beginning of the current minute.    month(timestamp)  Round a unix timestamp to the beginning of the current month.    dayofweek(timestamp)  Convert a Unix timestamp to the day number (Sunday = 0).    dayofmonth(timestamp)  Convert a Unix timestamp to the day of month number (1 .. 31).    dayofyear(timestamp)  Convert a Unix timestamp to the day of year number (0 .. 365).    year(timestamp)  Convert a Unix timestamp to the current year (e.g. 2018).    monthofyear(timestamp)  Convert a Unix timestamp to the current month (0 .. 11).", 
             "title": "List of date/time APPLY functions"
         }, 
         {
-            "location": "/Aggregations/#filter\"_\"expressions", 
+            "location": "/Aggregations/#filter_expressions", 
             "text": "FILTER expressions filter the results using predicates relating to values in the result set.  The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se.   Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions  == ,  != ,  ,  = ,  ,  = . Two or more predicates can be combined with logical AND ( ) and OR ( || ). A single predicate can be negated with a NOT prefix ( ! ).    For example, filtering all results where the user name is 'foo' and the age is less than 20 is expressed  as:  FT.AGGREGATE \n  ...\n  FILTER  @name== foo    @age   20 \n  ...  Several filter steps can be added, although at the same stage in the pipeline, it is more efficient to combine several predicates into a single filter step.", 
             "title": "FILTER expressions"
         }, 
         {
-            "location": "/Aggregations/#cursor\"_\"api", 
+            "location": "/Aggregations/#cursor_api", 
             "text": "FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]\nFT.CURSOR READ {idx} {cid} [COUNT {read size}]\nFT.CURSOR DEL {idx} {cid}  You can use cursors with  FT.AGGREGATE , with the  WITHCURSOR  keyword. Cursors allow you to\nconsume only part of the response, allowing you to fetch additional results as needed.\nThis is much quicker than using  LIMIT  with offset, since the query is executed only\nonce, and its state is stored on the server.  To use cursors, specify the  WITHCURSOR  keyword in  FT.AGGREGATE , e.g.  FT.AGGREGATE idx * WITHCURSOR  This will return a response of an array with two elements. The first element is\nthe actual (partial) results, and the second is the cursor ID. The cursor ID\ncan then be fed to  FT.CURSOR READ  repeatedly, until the cursor ID is 0, in\nwhich case all results have been returned.  To read from an existing cursor, use  FT.CURSOR READ , e.g.  FT.CURSOR READ idx 342459320  Assuming  342459320  is the cursor ID returned from the  FT.AGGREGATE  request.  Here is an example in pseudo-code:  response, cursor = FT.AGGREGATE  idx   redis   WITHCURSOR ;\nwhile (1) {\n  processResponse(response)\n  if (!cursor) {\n    break;\n  }\n  response, cursor = FT.CURSOR read  idx  cursor\n}  Note that even if the cursor is 0, a partial result may still be returned.", 
             "title": "Cursor API"
         }, 
         {
-            "location": "/Aggregations/#cursor\"_\"settings", 
+            "location": "/Aggregations/#cursor_settings", 
             "text": "", 
             "title": "Cursor settings"
         }, 
         {
-            "location": "/Aggregations/#read\"_\"size", 
+            "location": "/Aggregations/#read_size", 
             "text": "You can control how many rows are read per each cursor fetch by using the COUNT  parameter. This parameter can be specified both in  FT.AGGREGATE \n(immediately after  WITHCURSOR ) or in  FT.CURSOR READ .  FT.AGGREGATE idx query WITHCURSOR COUNT 10  Will read 10 rows at a time.  You can override this setting by also specifying  COUNT  in  CURSOR READ , e.g.  FT.CURSOR READ idx 342459320 COUNT 50  Will return at most 50 results.  The default read size is 1000", 
             "title": "Read size"
         }, 
         {
-            "location": "/Aggregations/#timeouts\"_\"and\"_\"limits", 
+            "location": "/Aggregations/#timeouts_and_limits", 
             "text": "Because cursors are stateful resources which occupy memory on the server, they\nhave a limited lifetime. In order to safeguard against orphaned/stale cursors,\ncursors have an idle timeout value. If no activity occurs on the cursor before\nthe idle timeout, the cursor is deleted. The idle timer resets to 0 whenever\nthe cursor is read from using  CURSOR READ .  The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify\nthe idle timeout using the  MAXIDLE  keyword when creating the cursor. Note that\nthe value cannot exceed the default 30s.  FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000  Will set the limit for 10 seconds.", 
             "title": "Timeouts and limits"
         }, 
         {
-            "location": "/Aggregations/#other\"_\"cursor\"_\"commands", 
+            "location": "/Aggregations/#other_cursor_commands", 
             "text": "Cursors can be explicity deleted using the  CURSOR DEL  command, e.g.  FT.CURSOR DEL idx 342459320  Note that cursors are automatically deleted if all their results have been\nreturned, or if they have been timed out.  All idle cursors can be forcefully purged at once using  FT.CURSOR GC idx 0  command.\nBy default, RediSearch uses a lazy throttled approach to garbage collection, which\ncollects idle cursors every 500 operations, or every second - whichever is later.", 
             "title": "Other cursor commands"
         }, 
@@ -1271,12 +1271,12 @@
             "title": "Tokenization and Escaping"
         }, 
         {
-            "location": "/Escaping/#controlling\"_\"text\"_\"tokenization\"_\"and\"_\"escaping", 
+            "location": "/Escaping/#controlling_text_tokenization_and_escaping", 
             "text": "At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization.   Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the  Tag Fields  documentation.", 
             "title": "Controlling Text Tokenization and Escaping"
         }, 
         {
-            "location": "/Escaping/#the\"_\"rules\"_\"of\"_\"text\"_\"field\"_\"tokenization", 
+            "location": "/Escaping/#the_rules_of_text_field_tokenization", 
             "text": "All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of  ,. {}[]\"':;!@#$%^ *()-+=~  will break the text into terms.  So the text  foo-bar.baz...bag  will be tokenized into  [foo, bar, baz, bag]    Escaping separators in both queries and documents is done by prepending a backslash to any separator. e.g. the text  hello\\-world hello-world  will be tokenized as  [hello-world, hello, world] .  NOTE  that in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as  hello\\\\-world .     Underscores ( _ ) are not used as separators in either document or query. So the text  hello_world  will remain as is after tokenization.     Repeating spaces or punctuation marks are stripped.     In Latin characters, everything gets converted to lowercase.", 
             "title": "The rules of text field tokenization"
         }, 
@@ -1286,27 +1286,27 @@
             "title": "Sortable Values"
         }, 
         {
-            "location": "/Sorting/#sorting\"_\"by\"_\"indexed\"_\"fields", 
+            "location": "/Sorting/#sorting_by_indexed_fields", 
             "text": "As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name.", 
             "title": "Sorting by Indexed Fields"
         }, 
         {
-            "location": "/Sorting/#declaring\"_\"sortable\"_\"fields", 
+            "location": "/Sorting/#declaring_sortable_fields", 
             "text": "When creating the index with  FT.CREATE , you can declare  TEXT  and  NUMERIC  properties to be  SORTABLE . When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:   FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE  The fields  last_name  and  age  are sortable, but  first_name  isn't. This means we can search by either first and/or last name, and sort by last name or age.", 
             "title": "Declaring Sortable Fields"
         }, 
         {
-            "location": "/Sorting/#note\"_\"on\"_\"sortable\"_\"text\"_\"fields", 
+            "location": "/Sorting/#note_on_sortable_text_fields", 
             "text": "In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.  Also, note that text fields get normalized and lowercased in a Unicode-safe way when stored for sorting and currently there is no way to change this behaviour. This means that  America  and  america  are considered equal in terms of sorting.", 
             "title": "Note on sortable TEXT fields"
         }, 
         {
-            "location": "/Sorting/#specifying\"_\"sortby", 
+            "location": "/Sorting/#specifying_sortby", 
             "text": "If an index includes sortable fields, you can add the  SORTBY  parameter to the search request (outside the query body), and order the results by it. This overrides the scoring function mechanism, and the two cannot be combined. If  WITHSCORES  is specified along with  SORTBY , the scores returned are simply the relative position of each result in the result set.  The syntax for  SORTBY  is:  SORTBY {field_name} [ASC|DESC]    field_name must be a sortable field defined in the schema.    ASC  means the order will be ascending,  DESC  that it will be descending.    The default ordering is  ASC  if not specified otherwise.", 
             "title": "Specifying SORTBY"
         }, 
         {
-            "location": "/Sorting/#quick\"_\"example", 
+            "location": "/Sorting/#quick_example", 
             "text": "FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE\n\n# Add some users  FT.ADD users user1 1.0 FIELDS first_name  alice  last_name  jones  age 35  FT.ADD users user2 1.0 FIELDS first_name  bob  last_name  jones  age 36\n\n# Searching while sorting\n\n# Searching by last name and sorting by first name  FT.SEARCH users  @last_name:jones  SORTBY first_name DESC\n\n# Searching by both first and last name, and sorting by age  FT.SEARCH users  alice jones  SORTBY age ASC", 
             "title": "Quick example"
         }, 
@@ -1316,27 +1316,27 @@
             "title": "Tag Fields"
         }, 
         {
-            "location": "/Tags/#tag\"_\"fields", 
+            "location": "/Tags/#tag_fields", 
             "text": "RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to full-text fields but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search and can be used only with a special syntax.  The main differences between tag and full-text fields are:    An entire tag field index resides in a single Redis key and doesn't have a key per term as the full-text one.    We do not perform stemming on tag indexes.    The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags, and we only do whitespace trimming at the end of tags. Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations we perform are lower-casing (for latin languages only as of now), and whitespace trimming.    Tags cannot be found from a general full-text search. If a document has a field called \"tags\" with the values \"foo\" and \"bar\", searching for foo or bar without a special tag modifier (see below) will not return this document.    The index is much simpler and more compressed: We do not store frequencies, offset vectors of field flags. The index contains only document IDs encoded as deltas. This means that an entry in a tag index is usually one or two bytes long. This makes them very memory efficient and fast.    An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.", 
             "title": "Tag Fields"
         }, 
         {
-            "location": "/Tags/#creating\"_\"a\"_\"tag\"_\"field", 
+            "location": "/Tags/#creating_a_tag_field", 
             "text": "Tag fields can be added to the schema in FT.ADD with the following syntax:  FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]  SEPARATOR defaults to a comma ( , ), and can be any printable ASCII character. For example:  FT.CREATE idx SCHEMA tags TAG SEPARATOR  ;", 
             "title": "Creating a tag field"
         }, 
         {
-            "location": "/Tags/#querying\"_\"tag\"_\"fields", 
+            "location": "/Tags/#querying_tag_fields", 
             "text": "As mentioned above, just searching for a tag without any modifiers will not retrieve documents\ncontaining it.  The syntax for matching tags in a query is as follows (the curly braces are part of the syntax in\nthis case):  @ field_name :{  tag  |  tag  | ...}  e.g.      @tags:{hello world | foo bar}  Tag clauses can be combined into any sub-clause, used as negative expressions, optional expressions, etc. For example:  FT.SEARCH idx  @title:hello @price:[0 100] @tags:{ foo bar | hello world }", 
             "title": "Querying tag fields"
         }, 
         {
-            "location": "/Tags/#multiple\"_\"tags\"_\"in\"_\"a\"_\"single\"_\"filter", 
+            "location": "/Tags/#multiple_tags_in_a_single_filter", 
             "text": "Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing  all  tags, you should repeat the tag filter several times.  For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:  FT.CREATE myIndex SCHEMA name TEXT cities TAG\n\nFT.ADD myIndex user1 1.0 FIELDS name  John Doe  cities  New York, Barcelona, San Francisco   For this index, the following query will return all the people who visited  at least one  of the following cities:  FT.SEARCH myIndex  @cities:{ New York | Los Angeles | Barcelona }   But the next query will return all people who have visited  all three cities :  @cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }", 
             "title": "Multiple tags in a single filter"
         }, 
         {
-            "location": "/Tags/#multi-word\"_\"tags\"_\"and\"_\"escaping", 
+            "location": "/Tags/#multi-word_tags_and_escaping", 
             "text": "Tags can be composed multiple words, or include other punctuation marks other than the field's separator ( ,  by default). Punctuation marks in tags should be escaped with a backslash ( \\ ).  NOTE:  in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as hello\\-world.  It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like \"to be or not to be\" should be escaped as \"to\\ be\\ or\\ not\\ to\\ be\". For good measure, you can escape all spaces within tags.  The following are identical:  @tags:{foo\\ bar\\ baz | hello\\ world}\n\n@tags:{foo bar baz | hello world }", 
             "title": "Multi-word tags And escaping"
         }, 
@@ -1346,12 +1346,12 @@
             "title": "Highlighting Results"
         }, 
         {
-            "location": "/Highlight/#highlighting\"_\"api", 
+            "location": "/Highlight/#highlighting_api", 
             "text": "The highlighting API allows you to have only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.  RediSearch implements high performance highlighting and summarization algorithms, with the following API:", 
             "title": "Highlighting API"
         }, 
         {
-            "location": "/Highlight/#command\"_\"syntax", 
+            "location": "/Highlight/#command_syntax", 
             "text": "FT.SEARCH ...\n    SUMMARIZE [FIELDS {num} {field}] [FRAGS {numFrags}] [LEN {fragLen}] [SEPARATOR {sepstr}]\n    HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]  There are two sub-commands commands used for highlighting. One is  HIGHLIGHT  which surrounds matching text with an open and/or close tag, and the other is  SUMMARIZE  which splits a field into contextual fragments surrounding the found terms. It is possible to summarize a field, highlight a field, or perform both actions in the same query.", 
             "title": "Command syntax"
         }, 
@@ -1366,7 +1366,7 @@
             "title": "Highlighting"
         }, 
         {
-            "location": "/Highlight/#field\"_\"selection", 
+            "location": "/Highlight/#field_selection", 
             "text": "If no specific fields are passed to the  RETURN ,  SUMMARIZE , or  HIGHLIGHT  keywords, then all of a document's fields are returned. However, if any of these keywords contain a  FIELD  directive, then the  SEARCH  command will only return the sum total of all fields enumerated in any of those directives.  The  RETURN  keyword is treated specially, as it overrides any fields specified in  SUMMARIZE  or  HIGHLIGHT .  In the command  RETURN 1 foo SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz , the fields  foo  is returned as-is, while  bar  and  baz  are not returned, because  RETURN  was specified, but did not include those fields.  In the command  SUMMARIZE FIELDS 1 bar HIGHLIGHT FIELDS 1 baz ,  bar  is returned summarized and  baz  is returned highlighted.", 
             "title": "Field selection"
         }, 
@@ -1376,12 +1376,12 @@
             "title": "Scoring Documents"
         }, 
         {
-            "location": "/Scoring/#scoring\"_\"in\"_\"redisearch", 
+            "location": "/Scoring/#scoring_in_redisearch", 
             "text": "RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use  sortable fields . Scoring functions are specified by adding the  SCORER {scorer_name}  argument to a search query.  If you prefer a custom scoring function, it is possible to add more functions using the  Extension API .  These are the pre-bundled scoring functions available in RediSearch and how they work. Each function is mentioned by registered name, that can be passed as a  SCORER  argument in  FT.SEARCH .", 
             "title": "Scoring in RediSearch"
         }, 
         {
-            "location": "/Scoring/#tfidf\"_\"default", 
+            "location": "/Scoring/#tfidf_default", 
             "text": "Basic  TF-IDF scoring  with a few extra features thrown inside:    For each term in each result, we calculate the TF-IDF score of that term to that document. Frequencies are weighted based on field weights that are pre-determined, and each term's frequency is  normalized by the highest term frequency in each document .    We multiply the total TF-IDF for the query term by the a priory document score given on  FT.ADD .    We give a penalty to each result based on \"slop\" or cumulative distance between the search terms: exact matches will get no penalty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared -  1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...) .    So for N terms in document D,  T1...Tn , the resulting score could be described with this python function:  def   get_score ( terms ,   doc ): \n     # the sum of tf-idf \n     score   =   0 \n\n     # the distance penalty for all terms \n     dist_penalty   =   0 \n\n     for   i ,   term   in   enumerate ( terms ): \n         # tf normalized by maximum frequency \n         tf   =   doc . freq ( term )   /   doc . max_freq \n\n         # idf is global for the index, and not calculated each time in real life \n         idf   =   log2 ( 1   +   total_docs   /   docs_with_term ( term )) \n\n         score   +=   tf * idf \n\n         # sum up the distance penalty \n         if   i     0 : \n             dist_penalty   +=   min_distance ( term ,   terms [ i - 1 ]) ** 2 \n\n     # multiply the score by the document score \n     score   *=   doc . score \n\n     # divide the score by the root of the cumulative distance \n     if   len ( terms )     1 : \n         score   /=   sqrt ( dist_penalty ) \n\n     return   score", 
             "title": "TFIDF (default)"
         }, 
@@ -1416,32 +1416,32 @@
             "title": "Extension API"
         }, 
         {
-            "location": "/Extensions/#extending\"_\"redisearch", 
+            "location": "/Extensions/#extending_redisearch", 
             "text": "RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.  There are two kinds of extension APIs at the moment:    Query Expanders , whose role is to expand query tokens (i.e. stemmers).  Scoring Functions , whose role is to rank search results in query time.", 
             "title": "Extending RediSearch"
         }, 
         {
-            "location": "/Extensions/#registering\"_\"and\"_\"loading\"_\"extensions", 
+            "location": "/Extensions/#registering_and_loading_extensions", 
             "text": "Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module.     Compiling   Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension  can be found here .   That folder also contains an example extension that is used for testing and can be taken as a skeleton for implementing your own extension.    Loading   Loading an extension is done by apending  EXTLOAD {path/to/ext.so}  after the  loadmodule  configuration directive when loading RediSearch. For example:  sh\n$ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so  This causes RediSearch to automatically load the extension and register its expanders and scorers.", 
             "title": "Registering and loading extensions"
         }, 
         {
-            "location": "/Extensions/#initializing\"_\"an\"_\"extension", 
+            "location": "/Extensions/#initializing_an_extension", 
             "text": "The entry point of an extension is a function with the signature:  int   RS_ExtensionInit ( RSExtensionCtx   * ctx );   When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers.   It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.", 
             "title": "Initializing an extension"
         }, 
         {
-            "location": "/Extensions/#example\"_\"init\"_\"function", 
+            "location": "/Extensions/#example_init_function", 
             "text": "#include   redisearch.h  //must be in the include path  int   RS_ExtensionInit ( RSExtensionCtx   * ctx )   { \n\n   /* Register  a scoring function with an alias my_scorer and no special private data and free function */ \n   if   ( ctx - RegisterScoringFunction ( my_scorer ,   MyCustomScorer ,   NULL ,   NULL )   ==   REDISEARCH_ERR )   { \n     return   REDISEARCH_ERR ; \n   } \n\n   /* Register a query expander  */ \n   if   ( ctx - RegisterQueryExpander ( my_expander ,   MyExpander ,   NULL ,   NULL )   == \n       REDISEARCH_ERR )   { \n     return   REDISEARCH_ERR ; \n   } \n\n   return   REDISEARCH_OK ;  }", 
             "title": "Example init function"
         }, 
         {
-            "location": "/Extensions/#calling\"_\"your\"_\"custom\"_\"functions", 
+            "location": "/Extensions/#calling_your_custom_functions", 
             "text": "When performing a query, you can tell RediSearch to use your scorers or expanders by specifying the SCORER or EXPANDER arguments, with the given alias.\ne.g.:  FT.SEARCH my_index  foo bar  EXPANDER my_expander SCORER my_scorer  NOTE : Expander and scorer aliases are  case sensitive .", 
             "title": "Calling your custom functions"
         }, 
         {
-            "location": "/Extensions/#the\"_\"query\"_\"expander\"_\"api", 
+            "location": "/Extensions/#the_query_expander_api", 
             "text": "At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.  The API for an expander is the following:  #include   redisearch.h  //must be in the include path  void   MyQueryExpander ( RSQueryExpanderCtx   * ctx ,   RSToken   * token )   { \n     ...  }", 
             "title": "The query expander API"
         }, 
@@ -1456,7 +1456,7 @@
             "title": "RSToken"
         }, 
         {
-            "location": "/Extensions/#the\"_\"scoring\"_\"function\"_\"api", 
+            "location": "/Extensions/#the_scoring_function_api", 
             "text": "A scoring function receives each document being evaluated by the query, for final ranking. \nIt has access to all the query terms that brought up the document,and to metadata about the\ndocument such as its a-priory score, length, etc.  Since the scoring function is evaluated per each document, potentially millions of times, and since\nredis is single threaded - it is important that it works as fast as possible and be heavily optimized.   A scoring function is applied to each potential result (per document) and is implemented with the following signature:  double   MyScoringFunction ( RSScoringFunctionCtx   * ctx ,   RSIndexResult   * res , \n                                     RSDocumentMetadata   * dmd ,   double   minScore );   RSScoringFunctionCtx is a context that implements some helper methods.   RSIndexResult is the result information - containing the document id, frequency, terms, and offsets.   RSDocumentMetadata is an object holding global information about the document, such as its a-priory score.   minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.  The return value of the function is double representing the final score of the result. \nReturning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. \nTo completely filter out a result and not count it in the totals, the scorer should return the special value  RS_SCORE_FILTEROUT  (which is internally set to negative infinity, or -1/0).", 
             "title": "The scoring function API"
         }, 
@@ -1476,12 +1476,12 @@
             "title": "RSDocumentMetadata"
         }, 
         {
-            "location": "/Extensions/#example\"_\"query\"_\"expander", 
+            "location": "/Extensions/#example_query_expander", 
             "text": "This example query expander expands each token with the term foo:  #include   redisearch.h  //must be in the include path  void   DummyExpander ( RSQueryExpanderCtx   * ctx ,   RSToken   * token )   { \n     ctx - ExpandToken ( ctx ,   strdup ( foo ),   strlen ( foo ),   0x1337 );    }", 
             "title": "Example query expander"
         }, 
         {
-            "location": "/Extensions/#example\"_\"scoring\"_\"function", 
+            "location": "/Extensions/#example_scoring_function", 
             "text": "This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:  #include   redisearch.h  //must be in the include path  double   TFIDFScorer ( RSScoringFunctionCtx   * ctx ,   RSIndexResult   * h ,   RSDocumentMetadata   * dmd , \n                    double   minScore )   { \n   // no need to evaluate documents with score 0  \n   if   ( dmd - score   ==   0 )   return   0 ; \n\n   // calculate sum(tf-idf) for each term in the result \n   double   tfidf   =   0 ; \n   for   ( int   i   =   0 ;   i     h - numRecords ;   i ++ )   { \n     // take the term frequency and multiply by the term IDF, add that to the total \n     tfidf   +=   ( float ) h - records [ i ]. freq   *   ( h - records [ i ]. term   ?   h - records [ i ]. term - idf   :   0 ); \n   } \n   // normalize by the maximal frequency of any term in the document    \n   tfidf   /=    ( double ) dmd - maxFreq ; \n\n   // multiply by the document score (between 0 and 1) \n   tfidf   *=   dmd - score ; \n\n   // no need to factor the slop if tfidf is already below minimal score \n   if   ( tfidf     minScore )   { \n     return   0 ; \n   } \n\n   // get the slop and divide the result by it, making sure we prefer results with closer terms \n   tfidf   /=   ( double ) ctx - GetSlop ( h ); \n\n   return   tfidf ;  }", 
             "title": "Example scoring function"
         }, 
@@ -1491,22 +1491,22 @@
             "title": "Stemming Support"
         }, 
         {
-            "location": "/Stemming/#stemming\"_\"support", 
+            "location": "/Stemming/#stemming_support", 
             "text": "RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for \"going\" to also return results for \"go\" and \"gone\", for example.  The current stemming support is based on the Snowball stemmer library, which supports most European languages, as well as Arabic and other. We hope to include more languages soon (if you need a specific language support, please open an issue).  For further details see the  Snowball Stemmer website .", 
             "title": "Stemming Support"
         }, 
         {
-            "location": "/Stemming/#supported\"_\"languages", 
+            "location": "/Stemming/#supported_languages", 
             "text": "The following languages are supported and can be passed to the engine when indexing or querying, with lowercase letters:   arabic  danish  dutch  english  finnish  french  german  hungarian  italian  norwegian  portuguese  romanian  russian  spanish  swedish  tamil  turkish  chinese (see below)", 
             "title": "Supported languages"
         }, 
         {
-            "location": "/Stemming/#chinese\"_\"support", 
+            "location": "/Stemming/#chinese_support", 
             "text": "Indexing a Chinese document is different than indexing a document in most other languages because of how tokens are extracted. While most languages can have their tokens distinguished by separation characters and whitespace, this is not common in Chinese.  Chinese tokenization is done by scanning the input text and checking every character or sequence of characters against a dictionary of predefined terms and determining the most likely (based on the surrounding terms and characters) match.  RediSearch makes use of the  Friso  chinese tokenization library for this purpose. This is largely transparent to the user and often no additional configuration is required.", 
             "title": "Chinese support"
         }, 
         {
-            "location": "/Stemming/#using\"_\"custom\"_\"dictionaries", 
+            "location": "/Stemming/#using_custom_dictionaries", 
             "text": "If you wish to use a custom dictionary, you can do so at the module level when loading the module. The  FRISOINI  setting can point to the location of a  friso.ini  file which contains the relevant settings and paths to the dictionary files.  Note that there is no \"default\" friso.ini file location. RedisSearch comes with its own  friso.ini  and dictionary files which are compiled into the module binary at build-time.", 
             "title": "Using custom dictionaries"
         }, 
@@ -1516,7 +1516,7 @@
             "title": "Synonyms Support"
         }, 
         {
-            "location": "/Synonyms/#synonyms\"_\"support", 
+            "location": "/Synonyms/#synonyms_support", 
             "text": "", 
             "title": "Synonyms Support"
         }, 
@@ -1526,12 +1526,12 @@
             "title": "Overview"
         }, 
         {
-            "location": "/Synonyms/#the\"_\"synonym\"_\"search\"_\"technique", 
+            "location": "/Synonyms/#the_synonym_search_technique", 
             "text": "We use a simple HashMap to map between the terms and the group ids. During building the index, we check if the current term appears in the synonym map, and if it does we take all the group ids that the term belongs to.  For each group id, we add another record to the inverted index called \"\\~\\ id>\" that contains the same information as the term itself. When performing a search, we check if the searched term appears in the synonym map, and if it does we take all the group ids the term is belong to. For each group id, we search for \"\\~\\ id>\" and return the combined results. This technique ensures that we return all the synonyms of a given term.", 
             "title": "The synonym search technique"
         }, 
         {
-            "location": "/Synonyms/#handling\"_\"concurrency", 
+            "location": "/Synonyms/#handling_concurrency", 
             "text": "Since the indexing is performed in a separate thread, the synonyms map may change during the indexing, which in turn may cause data corruption or crashes during indexing/searches. To solve this issue, we create a read-only copy for indexing purposes. The read-only copy is maintained using ref count.  As long as the synonyms map does not change, the original synonym map holds a reference to its read-only copy so it will not be freed. Once the data inside the synonyms map has changed, the synonyms map decreses the reference count of its read only copy. This ensures that when all the indexers are done using the read only copy, then the read only copy will automatically freed. Also it ensures that the next time an indexer asks for a read-only copy, the synonyms map will create a new copy (contains the new data) and return it.", 
             "title": "Handling concurrency"
         }, 
@@ -1541,22 +1541,22 @@
             "title": "Document Payloads"
         }, 
         {
-            "location": "/payloads/#document\"_\"payloads", 
+            "location": "/payloads/#document_payloads", 
             "text": "Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.  Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.  Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.", 
             "title": "Document Payloads"
         }, 
         {
-            "location": "/payloads/#adding\"_\"payloads\"_\"for\"_\"documents", 
+            "location": "/payloads/#adding_payloads_for_documents", 
             "text": "When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload. This is done with the  PAYLOAD  keyword:  FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...", 
             "title": "Adding payloads for documents"
         }, 
         {
-            "location": "/payloads/#evaluating\"_\"payloads\"_\"in\"_\"query\"_\"time", 
+            "location": "/payloads/#evaluating_payloads_in_query_time", 
             "text": "When implementing a scoring function, the signature of the function exposed is:  double   ( * ScoringFunction )( DocumentMetadata   * dmd ,   IndexResult   * h );    Note  Currently, scoring functions cannot be dynamically added, and forking the engine and replacing them is required.   DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with arbitrary length:  typedef   struct    { \n     char   * data , \n     uint32_t   len ;  }   DocumentPayload ;   If no payload was set to the document, it is simply NULL. If it is not, you can go ahead and decode it. It is recommended to encode some metadata about the payload inside it, like a leading version number, etc.", 
             "title": "Evaluating payloads in query time"
         }, 
         {
-            "location": "/payloads/#retrieving\"_\"payloads\"_\"from\"_\"documents", 
+            "location": "/payloads/#retrieving_payloads_from_documents", 
             "text": "When searching, it is possible to request the document payloads from the engine.   This is done by adding the keyword  WITHPAYLOADS  to  FT.SEARCH .   If  WITHPAYLOADS  is set, the payloads follow the document id in the returned result. \nIf  WITHSCORES  is set as well, the payloads follow the scores. e.g.:  127.0.0.1:6379  FT.CREATE foo SCHEMA bar TEXT\nOK\n127.0.0.1:6379  FT.ADD foo doc2 1.0 PAYLOAD  hi there!  FIELDS bar  hello \nOK\n127.0.0.1:6379  FT.SEARCH foo  hello  WITHPAYLOADS WITHSCORES\n1) (integer) 1\n2)  doc2            # id\n3)  1               # score\n4)  hi there!       # payload\n5) 1)  bar          # fields\n   2)  hello", 
             "title": "Retrieving payloads from documents"
         }, 
@@ -1566,12 +1566,12 @@
             "title": "Spelling Correction"
         }, 
         {
-            "location": "/Spellcheck/#query\"_\"spelling\"_\"correction", 
+            "location": "/Spellcheck/#query_spelling_correction", 
             "text": "Query spelling correction, a.k.a \"did you mean\", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.  In such cases and as of v1.4 RediSearch can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:   Not a stop word  Not in the index  At least 3 characters long   The alternatives for a misspelled term are generated from the corpus of already-indexed terms and, optionally, one or more custom dictionaries. Alternatives become spelling suggestions based on their respective Levenshtein distances (LD) from the misspelled term. Each spelling suggestion is given a normalized score based on its occurances in the index.  To obtain the spelling corrections for a query, refer to the documentation of the  FT.SPELLCHECK  command.", 
             "title": "Query Spelling Correction"
         }, 
         {
-            "location": "/Spellcheck/#custom\"_\"dictionaries", 
+            "location": "/Spellcheck/#custom_dictionaries", 
             "text": "A dictionary is a set of terms. Dictionaries can be added with terms, have terms deleted from them and have their entire contents dumped using the  FT.DICTADD ,  FT.DICTDEL  and  FT.DICTDUMP  commands, respectively.  Dictionaries can be used to modify the behavior of RediSearch's query spelling correction, by including or excluding their contents from potential spelling correction suggestions.  When used for term inclusion, the terms in a dictionary can be provided as spelling suggestions regardless their occurances (or lack of) in the index. Scores of suggestions from inclusion dictionaries are always 0.   Conversely, terms in an exlusion dictionary will never be returned as spelling alternatives.", 
             "title": "Custom dictionaries"
         }, 
@@ -1581,12 +1581,12 @@
             "title": "Phonetic Matching"
         }, 
         {
-            "location": "/Phonetic_Matching/#phonetic\"_\"matching", 
+            "location": "/Phonetic_Matching/#phonetic_matching", 
             "text": "Phonetic matching, a.k.a \"Jon or John\", allows searching for terms based on their pronounciation. This capability can be a useful tool when searching for names of people.  Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronounciation. This allows indexing terms, and consequently searching, by their pronounciation.  As of v1.4 RediSearch provides phonetic matching via the definition of text fields with the  PHONETIC  attribute. This causes the terms in such fields to be indexed both by their textual value as well as their phonetic approximation.  Performing a search on  PHONETIC  fields will, by default, also return results for phonetically similar terms. This behavior can be controlled with the  $phonetic  query attribute .", 
             "title": "Phonetic Matching"
         }, 
         {
-            "location": "/Phonetic_Matching/#phonetic\"_\"algorithms\"_\"support", 
+            "location": "/Phonetic_Matching/#phonetic_algorithms_support", 
             "text": "RediSearch currently supports a single phonetic algorithm, the  Double Metaphone  (DM). It uses the implementation at  slacy/double-metaphone , which provides general support for Latin languages.", 
             "title": "Phonetic algorithms support"
         }, 
@@ -1596,12 +1596,12 @@
             "title": "Client Libraries"
         }, 
         {
-            "location": "/Clients/#redisearch\"_\"client\"_\"libraries", 
+            "location": "/Clients/#redisearch_client_libraries", 
             "text": "RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages.   While it is possible and simple to use the raw Redis commands API, in most cases it's easier to just use a client library abstracting it.", 
             "title": "RediSearch Client Libraries"
         }, 
         {
-            "location": "/Clients/#currently\"_\"available\"_\"libraries", 
+            "location": "/Clients/#currently_available_libraries", 
             "text": "Language  Library  Author  License  Comments      Python  redisearch-py  Redis Labs  BSD  Usually the most up-to-date client library    Java  JRediSearch  Redis Labs  BSD     Go  redisearch-go  Redis Labs  BSD  Incomplete API    JavaScript  RedRediSearch  Kyle J. Davis  MIT  Partial API, compatible with  Reds    C#  NRediSearch  Marc Gravell  MIT  Part of StackExchange.Redis    PHP  redisearch-php  Ethan Hann  MIT     Ruby on Rails  redi_search_rails  Dmitry Polyakovsky  MIT     Ruby  redisearch-rb  Victor Ruiz  MIT", 
             "title": "Currently available Libraries"
         }, 
@@ -1611,7 +1611,7 @@
             "title": "Python API"
         }, 
         {
-            "location": "/python_client/#package\"_\"redisearch\"_\"documentation", 
+            "location": "/python_client/#package_redisearch_documentation", 
             "text": "", 
             "title": "Package redisearch Documentation"
         }, 
@@ -1621,12 +1621,12 @@
             "title": "Overview"
         }, 
         {
-            "location": "/python_client/#example\"_\"using\"_\"the\"_\"python\"_\"client", 
+            "location": "/python_client/#example_using_the_python_client", 
             "text": "from   redisearch   import   Client ,   TextField ,   NumericField ,   Query  # Creating a client with a given index name  client   =   Client ( myIndex )  # Creating the index definition and schema  client . create_index ([ TextField ( title ,   weight = 5.0 ),   TextField ( body )])  # Indexing a document  client . add_document ( doc1 ,   title   =   RediSearch ,   body   =   Redisearch implements a search engine on top of redis )  # Simple search  res   =   client . search ( search engine )  # the result has the total number of results, and a list of documents  print   res . total   #  1  print   res . docs [ 0 ] . title  # Searching with snippets  res   =   client . search ( search engine ,   snippet_sizes   =   { body :   50 })  # Searching with complex parameters:  q   =   Query ( search engine ) . verbatim () . no_content () . paging ( 0 , 5 )  res   =   client . search ( q )", 
             "title": "Example: Using the Python Client"
         }, 
         {
-            "location": "/python_client/#example\"_\"using\"_\"the\"_\"auto\"_\"completer\"_\"client", 
+            "location": "/python_client/#example_using_the_auto_completer_client", 
             "text": "# Using the auto-completer  ac   =   AutoCompleter ( ac )  # Adding some terms  ac . add_suggestions ( Suggestion ( foo ,   5.0 ),   Suggestion ( bar ,   1.0 ))  # Getting suggestions  suggs   =   ac . get_suggestions ( goo )   # returns nothing  suggs   =   ac . get_suggestions ( goo ,   fuzzy   =   True )   # returns [ foo ]", 
             "title": "Example: Using the Auto Completer Client:"
         }, 
@@ -1636,7 +1636,7 @@
             "title": "Installing"
         }, 
         {
-            "location": "/python_client/#class\"_\"autocompleter", 
+            "location": "/python_client/#class_autocompleter", 
             "text": "A client to RediSearch's AutoCompleter API  It provides prefix searches with optionally fuzzy matching of prefixes", 
             "title": "Class AutoCompleter"
         }, 
@@ -1671,7 +1671,7 @@
             "title": "len"
         }, 
         {
-            "location": "/python_client/#class\"_\"client", 
+            "location": "/python_client/#class_client", 
             "text": "A client for the RediSearch module.\nIt abstracts the API of the module and lets you just use the engine", 
             "title": "Class Client"
         }, 
@@ -1741,7 +1741,7 @@
             "title": "Parameters"
         }, 
         {
-            "location": "/python_client/#class\"_\"batchindexer", 
+            "location": "/python_client/#class_batchindexer", 
             "text": "A batch indexer allows you to automatically batch\ndocument indexing in pipelines, flushing it every N documents.", 
             "title": "Class BatchIndexer"
         }, 
@@ -1761,7 +1761,7 @@
             "title": "commit"
         }, 
         {
-            "location": "/python_client/#class\"_\"document", 
+            "location": "/python_client/#class_document", 
             "text": "Represents a single document in a result set", 
             "title": "Class Document"
         }, 
@@ -1771,7 +1771,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"geofield", 
+            "location": "/python_client/#class_geofield", 
             "text": "GeoField is used to define a geo-indexing field in a schema definition", 
             "title": "Class GeoField"
         }, 
@@ -1786,7 +1786,7 @@
             "title": "redis_args"
         }, 
         {
-            "location": "/python_client/#class\"_\"geofilter", 
+            "location": "/python_client/#class_geofilter", 
             "text": "None", 
             "title": "Class GeoFilter"
         }, 
@@ -1796,7 +1796,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"numericfield", 
+            "location": "/python_client/#class_numericfield", 
             "text": "NumericField is used to define a numeric field in a schema definition", 
             "title": "Class NumericField"
         }, 
@@ -1811,7 +1811,7 @@
             "title": "redis_args"
         }, 
         {
-            "location": "/python_client/#class\"_\"numericfilter", 
+            "location": "/python_client/#class_numericfilter", 
             "text": "None", 
             "title": "Class NumericFilter"
         }, 
@@ -1821,7 +1821,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"query", 
+            "location": "/python_client/#class_query", 
             "text": "Query is used to build complex queries that have more parameters than just the query string.\nThe query string is set in the constructor, and other options have setter functions.  The setter functions return the query object, so they can be chained,\ni.e.  Query(\"foo\").verbatim().filter(...)  etc.", 
             "title": "Class Query"
         }, 
@@ -1911,7 +1911,7 @@
             "title": "with_payloads"
         }, 
         {
-            "location": "/python_client/#class\"_\"result", 
+            "location": "/python_client/#class_result", 
             "text": "Represents the result of a search query, and has an array of Document objects", 
             "title": "Class Result"
         }, 
@@ -1921,7 +1921,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"sortbyfield", 
+            "location": "/python_client/#class_sortbyfield", 
             "text": "None", 
             "title": "Class SortbyField"
         }, 
@@ -1931,7 +1931,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"suggestion", 
+            "location": "/python_client/#class_suggestion", 
             "text": "Represents a single suggestion being sent or returned from the auto complete server", 
             "title": "Class Suggestion"
         }, 
@@ -1941,7 +1941,7 @@
             "title": "__init__"
         }, 
         {
-            "location": "/python_client/#class\"_\"tagfield", 
+            "location": "/python_client/#class_tagfield", 
             "text": "TagField is a tag-indexing field with simpler compression and tokenization.\nSee https://oss.redislabs.com/redisearch/Tags/", 
             "title": "Class TagField"
         }, 
@@ -1956,7 +1956,7 @@
             "title": "redis_args"
         }, 
         {
-            "location": "/python_client/#class\"_\"textfield", 
+            "location": "/python_client/#class_textfield", 
             "text": "TextField is used to define a text field in a schema definition", 
             "title": "Class TextField"
         }, 
@@ -1976,7 +1976,7 @@
             "title": "Java API"
         }, 
         {
-            "location": "/java_client/#jredisearch\"_\"-\"_\"redisearch\"_\"java\"_\"client", 
+            "location": "/java_client/#jredisearch_-_redisearch_java_client", 
             "text": "https://github.com/RedisLabs/JRediSearch", 
             "title": "JRediSearch - RediSearch Java Client"
         }, 
@@ -1986,7 +1986,7 @@
             "title": "Overview"
         }, 
         {
-            "location": "/java_client/#usage\"_\"example", 
+            "location": "/java_client/#usage_example", 
             "text": "Initializing the client:  import   io.redisearch.client.Client ;  import   io.redisearch.Document ;  import   io.redisearch.SearchResult ;  import   io.redisearch.Query ;  import   io.redisearch.Schema ;  ...  Client   client   =   new   Client ( testung ,   localhost ,   6379 );   Defining a schema for an index and creating it:  Schema   sc   =   new   Schema () \n                 . addTextField ( title ,   5.0 ) \n                 . addTextField ( body ,   1.0 ) \n                 . addNumericField ( price );  client . createIndex ( sc ,   Client . IndexOptions . Default ());   Adding documents to the index:  Map String ,   Object   fields   =   new   HashMap ();  fields . put ( title ,   hello world );  fields . put ( body ,   lorem ipsum );  fields . put ( price ,   1337 );  client . addDocument ( doc1 ,   fields );   Searching the index:  // Creating a complex query  Query   q   =   new   Query ( hello world ) \n                     . addFilter ( new   Query . NumericFilter ( price ,   0 ,   1000 )) \n                     . limit ( 0 , 5 );  // actual search  SearchResult   res   =   client . search ( q );", 
             "title": "Usage example"
         }, 
@@ -2001,7 +2001,7 @@
             "title": "redisearch"
         }, 
         {
-            "location": "/go_client/#example\"_\"usage", 
+            "location": "/go_client/#example_usage", 
             "text": "import   ( \n       github.com/RedisLabs/redisearch-go/redisearch \n       log \n       fmt \n     ) \n\n     func   ExampleClient ()   { \n       // Create a client. By default a client is schemaless \n       // unless a schema is provided when creating the index \n       c   :=   createClient ( myIndex ) \n\n       // Create a schema \n       sc   :=   redisearch . NewSchema ( redisearch . DefaultOptions ). \n         AddField ( redisearch . NewTextField ( body )). \n         AddField ( redisearch . NewTextFieldOptions ( title ,   redisearch . TextFieldOptions { Weight :   5.0 ,   Sortable :   true })). \n         AddField ( redisearch . NewNumericField ( date )) \n\n       // Drop an existing index. If the index does not exist an error is returned \n       c . Drop () \n\n       // Create the index with the given schema \n       if   err   :=   c . CreateIndex ( sc );   err   !=   nil   { \n         log . Fatal ( err ) \n       } \n\n       // Create a document with an id and given score \n       doc   :=   redisearch . NewDocument ( doc1 ,   1.0 ) \n       doc . Set ( title ,   Hello world ). \n         Set ( body ,   foo bar ). \n         Set ( date ,   time . Now (). Unix ()) \n\n       // Index the document. The API accepts multiple documents at a time \n       if   err   :=   c . IndexOptions ( redisearch . DefaultIndexingOptions ,   doc );   err   !=   nil   { \n         log . Fatal ( err ) \n       } \n\n       // Searching with limit and sorting \n       docs ,   total ,   err   :=   c . Search ( redisearch . NewQuery ( hello world ). \n         Limit ( 0 ,   2 ). \n         SetReturnFields ( title )) \n\n       fmt . Println ( docs [ 0 ]. Id ,   docs [ 0 ]. Properties [ title ],   total ,   err ) \n       // Output: doc1 Hello world 1  nil \n     }", 
             "title": "Example Usage"
         }, 
@@ -2011,432 +2011,432 @@
             "title": "Usage"
         }, 
         {
-            "location": "/go_client/#type\"_\"autocompleter", 
+            "location": "/go_client/#type_autocompleter", 
             "text": "type   Autocompleter   struct   {  }   Autocompleter implements a redisearch auto-completer API", 
             "title": "type Autocompleter"
         }, 
         {
-            "location": "/go_client/#func\"_\"newautocompleter", 
+            "location": "/go_client/#func_newautocompleter", 
             "text": "func   NewAutocompleter ( addr ,   name   string )   * Autocompleter   NewAutocompleter creates a new Autocompleter with the given host and key name", 
             "title": "func  NewAutocompleter"
         }, 
         {
-            "location": "/go_client/#func\"_\"autocompleter\"_\"addterms", 
+            "location": "/go_client/#func_autocompleter_addterms", 
             "text": "func   ( a   * Autocompleter )   AddTerms ( terms   ... Suggestion )   error   AddTerms pushes new term suggestions to the index", 
             "title": "func (*Autocompleter) AddTerms"
         }, 
         {
-            "location": "/go_client/#func\"_\"autocompleter\"_\"delete", 
+            "location": "/go_client/#func_autocompleter_delete", 
             "text": "func   ( a   * Autocompleter )   Delete ()   error   Delete deletes the Autocompleter key for this AC", 
             "title": "func (*Autocompleter) Delete"
         }, 
         {
-            "location": "/go_client/#func\"_\"autocompleter\"_\"suggest", 
+            "location": "/go_client/#func_autocompleter_suggest", 
             "text": "func   ( a   * Autocompleter )   Suggest ( prefix   string ,   num   int ,   fuzzy   bool )   ([] Suggestion ,   error )   Suggest gets completion suggestions from the Autocompleter dictionary to the\ngiven prefix. If fuzzy is set, we also complete for prefixes that are in 1\nLevenshten distance from the given prefix", 
             "title": "func (*Autocompleter) Suggest"
         }, 
         {
-            "location": "/go_client/#type\"_\"client", 
+            "location": "/go_client/#type_client", 
             "text": "type   Client   struct   {  }   Client is an interface to redisearch's redis commands", 
             "title": "type Client"
         }, 
         {
-            "location": "/go_client/#func\"_\"newclient", 
+            "location": "/go_client/#func_newclient", 
             "text": "func   NewClient ( addr ,   name   string )   * Client   NewClient creates a new client connecting to the redis host, and using the given\nname as key prefix. Addr can be a single host:port pair, or a comma separated\nlist of host:port,host:port... In the case of multiple hosts we create a\nmulti-pool and select connections at random", 
             "title": "func  NewClient"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"createindex", 
+            "location": "/go_client/#func_client_createindex", 
             "text": "func   ( i   * Client )   CreateIndex ( s   * Schema )   error   CreateIndex configues the index and creates it on redis", 
             "title": "func (*Client) CreateIndex"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"drop", 
+            "location": "/go_client/#func_client_drop", 
             "text": "func   ( i   * Client )   Drop ()   error   Drop the Currentl just flushes the DB - note that this will delete EVERYTHING on\nthe redis instance", 
             "title": "func (*Client) Drop"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"explain", 
+            "location": "/go_client/#func_client_explain", 
             "text": "func   ( i   * Client )   Explain ( q   * Query )   ( string ,   error )   Explain Return a textual string explaining the query", 
             "title": "func (*Client) Explain"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"index", 
+            "location": "/go_client/#func_client_index", 
             "text": "func   ( i   * Client )   Index ( docs   ... Document )   error   Index indexes a list of documents with the default options", 
             "title": "func (*Client) Index"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"indexoptions", 
+            "location": "/go_client/#func_client_indexoptions", 
             "text": "func   ( i   * Client )   IndexOptions ( opts   IndexingOptions ,   docs   ... Document )   error   IndexOptions indexes multiple documents on the index, with optional Options\npassed to options", 
             "title": "func (*Client) IndexOptions"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"info", 
+            "location": "/go_client/#func_client_info", 
             "text": "func   ( i   * Client )   Info ()   ( * IndexInfo ,   error )   Info - Get information about the index. This can also be used to check if the\nindex exists", 
             "title": "func (*Client) Info"
         }, 
         {
-            "location": "/go_client/#func\"_\"client\"_\"search", 
+            "location": "/go_client/#func_client_search", 
             "text": "func   ( i   * Client )   Search ( q   * Query )   ( docs   [] Document ,   total   int ,   err   error )   Search searches the index for the given query, and returns documents, the total\nnumber of results, or an error if something went wrong", 
             "title": "func (*Client) Search"
         }, 
         {
-            "location": "/go_client/#type\"_\"connpool", 
+            "location": "/go_client/#type_connpool", 
             "text": "type   ConnPool   interface   { \n     Get ()   redis . Conn  }", 
             "title": "type ConnPool"
         }, 
         {
-            "location": "/go_client/#type\"_\"document", 
+            "location": "/go_client/#type_document", 
             "text": "type   Document   struct   { \n     Id           string \n     Score        float32 \n     Payload      [] byte \n     Properties   map [ string ] interface {}  }   Document represents a single document to be indexed or returned from a query.\nBesides a score and id, the Properties are completely arbitrary", 
             "title": "type Document"
         }, 
         {
-            "location": "/go_client/#func\"_\"newdocument", 
+            "location": "/go_client/#func_newdocument", 
             "text": "func   NewDocument ( id   string ,   score   float32 )   Document   NewDocument creates a document with the specific id and score", 
             "title": "func  NewDocument"
         }, 
         {
-            "location": "/go_client/#func\"_\"document\"_\"estimatesize", 
+            "location": "/go_client/#func_document_estimatesize", 
             "text": "func   ( d   * Document )   EstimateSize ()   ( sz   int )", 
             "title": "func (*Document) EstimateSize"
         }, 
         {
-            "location": "/go_client/#func\"_\"document\"_\"set", 
+            "location": "/go_client/#func_document_set", 
             "text": "func   ( d   Document )   Set ( name   string ,   value   interface {})   Document   Set sets a property and its value in the document", 
             "title": "func (Document) Set"
         }, 
         {
-            "location": "/go_client/#func\"_\"document\"_\"setpayload", 
+            "location": "/go_client/#func_document_setpayload", 
             "text": "func   ( d   * Document )   SetPayload ( payload   [] byte )   SetPayload Sets the document payload", 
             "title": "func (*Document) SetPayload"
         }, 
         {
-            "location": "/go_client/#type\"_\"documentlist", 
+            "location": "/go_client/#type_documentlist", 
             "text": "type   DocumentList   [] Document   DocumentList is used to sort documents by descending score", 
             "title": "type DocumentList"
         }, 
         {
-            "location": "/go_client/#func\"_\"documentlist\"_\"len", 
+            "location": "/go_client/#func_documentlist_len", 
             "text": "func   ( l   DocumentList )   Len ()   int", 
             "title": "func (DocumentList) Len"
         }, 
         {
-            "location": "/go_client/#func\"_\"documentlist\"_\"less", 
+            "location": "/go_client/#func_documentlist_less", 
             "text": "func   ( l   DocumentList )   Less ( i ,   j   int )   bool", 
             "title": "func (DocumentList) Less"
         }, 
         {
-            "location": "/go_client/#func\"_\"documentlist\"_\"sort", 
+            "location": "/go_client/#func_documentlist_sort", 
             "text": "func   ( l   DocumentList )   Sort ()   Sort the DocumentList", 
             "title": "func (DocumentList) Sort"
         }, 
         {
-            "location": "/go_client/#func\"_\"documentlist\"_\"swap", 
+            "location": "/go_client/#func_documentlist_swap", 
             "text": "func   ( l   DocumentList )   Swap ( i ,   j   int )", 
             "title": "func (DocumentList) Swap"
         }, 
         {
-            "location": "/go_client/#type\"_\"field", 
+            "location": "/go_client/#type_field", 
             "text": "type   Field   struct   { \n     Name       string \n     Type       FieldType \n     Sortable   bool \n     Options    interface {}  }   Field represents a single field's Schema", 
             "title": "type Field"
         }, 
         {
-            "location": "/go_client/#func\"_\"newnumericfield", 
+            "location": "/go_client/#func_newnumericfield", 
             "text": "func   NewNumericField ( name   string )   Field   NewNumericField creates a new numeric field with the given name", 
             "title": "func  NewNumericField"
         }, 
         {
-            "location": "/go_client/#func\"_\"newnumericfieldoptions", 
+            "location": "/go_client/#func_newnumericfieldoptions", 
             "text": "func   NewNumericFieldOptions ( name   string ,   options   NumericFieldOptions )   Field   NewNumericFieldOptions defines a numeric field with additional options", 
             "title": "func  NewNumericFieldOptions"
         }, 
         {
-            "location": "/go_client/#func\"_\"newsortablenumericfield", 
+            "location": "/go_client/#func_newsortablenumericfield", 
             "text": "func   NewSortableNumericField ( name   string )   Field   NewSortableNumericField creates a new numeric field with the given name and a\nsortable flag", 
             "title": "func  NewSortableNumericField"
         }, 
         {
-            "location": "/go_client/#func\"_\"newsortabletextfield", 
+            "location": "/go_client/#func_newsortabletextfield", 
             "text": "func   NewSortableTextField ( name   string ,   weight   float32 )   Field   NewSortableTextField creates a text field with the sortable flag set", 
             "title": "func  NewSortableTextField"
         }, 
         {
-            "location": "/go_client/#func\"_\"newtagfield", 
+            "location": "/go_client/#func_newtagfield", 
             "text": "func   NewTagField ( name   string )   Field   NewTagField creates a new text field with default options (separator: ,)", 
             "title": "func  NewTagField"
         }, 
         {
-            "location": "/go_client/#func\"_\"newtagfieldoptions", 
+            "location": "/go_client/#func_newtagfieldoptions", 
             "text": "func   NewTagFieldOptions ( name   string ,   opts   TagFieldOptions )   Field   NewTagFieldOptions creates a new tag field with the given options", 
             "title": "func  NewTagFieldOptions"
         }, 
         {
-            "location": "/go_client/#func\"_\"newtextfield", 
+            "location": "/go_client/#func_newtextfield", 
             "text": "func   NewTextField ( name   string )   Field   NewTextField creates a new text field with the given weight", 
             "title": "func  NewTextField"
         }, 
         {
-            "location": "/go_client/#func\"_\"newtextfieldoptions", 
+            "location": "/go_client/#func_newtextfieldoptions", 
             "text": "func   NewTextFieldOptions ( name   string ,   opts   TextFieldOptions )   Field   NewTextFieldOptions creates a new text field with given options\n(weight/sortable)", 
             "title": "func  NewTextFieldOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"fieldtype", 
+            "location": "/go_client/#type_fieldtype", 
             "text": "type   FieldType   int   FieldType is an enumeration of field/property types  const   ( \n     // TextField full-text field \n     TextField   FieldType   =   iota \n\n     // NumericField numeric range field \n     NumericField \n\n     // GeoField geo-indexed point field \n     GeoField \n\n     // TagField is a field used for compact indexing of comma separated values \n     TagField  )", 
             "title": "type FieldType"
         }, 
         {
-            "location": "/go_client/#type\"_\"flag", 
+            "location": "/go_client/#type_flag", 
             "text": "type   Flag   uint64   Flag is a type for query flags  const   ( \n     // Treat the terms verbatim and do not perform expansion \n     QueryVerbatim   Flag   =   0x1 \n\n     // Do not load any content from the documents, return just IDs \n     QueryNoContent   Flag   =   0x2 \n\n     // Fetch document scores as well as IDs and fields \n     QueryWithScores   Flag   =   0x4 \n\n     // The query terms must appear in order in the document \n     QueryInOrder   Flag   =   0x08 \n\n     // Fetch document payloads as well as fields. See documentation for payloads on redisearch.io \n     QueryWithPayloads   Flag   =   0x10 \n\n     DefaultOffset   =   0 \n     DefaultNum      =   10  )   Query Flags", 
             "title": "type Flag"
         }, 
         {
-            "location": "/go_client/#type\"_\"highlightoptions", 
+            "location": "/go_client/#type_highlightoptions", 
             "text": "type   HighlightOptions   struct   { \n     Fields   [] string \n     Tags     [ 2 ] string  }   HighlightOptions represents the options to higlight specific document fields.\nSee http://redisearch.io/Highlight/", 
             "title": "type HighlightOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"indexinfo", 
+            "location": "/go_client/#type_indexinfo", 
             "text": "type   IndexInfo   struct   { \n     Schema                 Schema \n     Name                   string    `redis: index_name ` \n     DocCount               uint64    `redis: num_docs ` \n     RecordCount            uint64    `redis: num_records ` \n     TermCount              uint64    `redis: num_terms ` \n     MaxDocID               uint64    `redis: max_doc_id ` \n     InvertedIndexSizeMB    float64   `redis: inverted_sz_mb ` \n     OffsetVectorSizeMB     float64   `redis: offset_vector_sz_mb ` \n     DocTableSizeMB         float64   `redis: doc_table_size_mb ` \n     KeyTableSizeMB         float64   `redis: key_table_size_mb ` \n     RecordsPerDocAvg       float64   `redis: records_per_doc_avg ` \n     BytesPerRecordAvg      float64   `redis: bytes_per_record_avg ` \n     OffsetsPerTermAvg      float64   `redis: offsets_per_term_avg ` \n     OffsetBitsPerTermAvg   float64   `redis: offset_bits_per_record_avg `  }   IndexInfo - Structure showing information about an existing index", 
             "title": "type IndexInfo"
         }, 
         {
-            "location": "/go_client/#type\"_\"indexingoptions", 
+            "location": "/go_client/#type_indexingoptions", 
             "text": "type   IndexingOptions   struct   { \n     Language   string \n     NoSave     bool \n     Replace    bool \n     Partial    bool  }   IndexingOptions represent the options for indexing a single document", 
             "title": "type IndexingOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"multierror", 
+            "location": "/go_client/#type_multierror", 
             "text": "type   MultiError   [] error   MultiError Represents one or more errors", 
             "title": "type MultiError"
         }, 
         {
-            "location": "/go_client/#func\"_\"newmultierror", 
+            "location": "/go_client/#func_newmultierror", 
             "text": "func   NewMultiError ( len   int )   MultiError   NewMultiError initializes a multierror with the given len, and all sub-errors\nset to nil", 
             "title": "func  NewMultiError"
         }, 
         {
-            "location": "/go_client/#func\"_\"multierror\"_\"error", 
+            "location": "/go_client/#func_multierror_error", 
             "text": "func   ( e   MultiError )   Error ()   string   Error returns a string representation of the error, in this case it just chains\nall the sub errors if they are not nil", 
             "title": "func (MultiError) Error"
         }, 
         {
-            "location": "/go_client/#type\"_\"multihostpool", 
+            "location": "/go_client/#type_multihostpool", 
             "text": "type   MultiHostPool   struct   { \n     sync . Mutex  }", 
             "title": "type MultiHostPool"
         }, 
         {
-            "location": "/go_client/#func\"_\"newmultihostpool", 
+            "location": "/go_client/#func_newmultihostpool", 
             "text": "func   NewMultiHostPool ( hosts   [] string )   * MultiHostPool", 
             "title": "func  NewMultiHostPool"
         }, 
         {
-            "location": "/go_client/#func\"_\"multihostpool\"_\"get", 
+            "location": "/go_client/#func_multihostpool_get", 
             "text": "func   ( p   * MultiHostPool )   Get ()   redis . Conn", 
             "title": "func (*MultiHostPool) Get"
         }, 
         {
-            "location": "/go_client/#type\"_\"numericfieldoptions", 
+            "location": "/go_client/#type_numericfieldoptions", 
             "text": "type   NumericFieldOptions   struct   { \n     Sortable   bool \n     NoIndex    bool  }   NumericFieldOptions Options for numeric fields", 
             "title": "type NumericFieldOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"operator", 
+            "location": "/go_client/#type_operator", 
             "text": "type   Operator   string   const   ( \n     Eq   Operator   =   = \n\n     Gt    Operator   =   \n     Gte   Operator   =   = \n\n     Lt    Operator   =   \n     Lte   Operator   =   = \n\n     Between            Operator   =   BETWEEN \n     BetweenInclusive   Operator   =   BETWEEEN_EXCLUSIVE  )", 
             "title": "type Operator"
         }, 
         {
-            "location": "/go_client/#type\"_\"options", 
+            "location": "/go_client/#type_options", 
             "text": "type   Options   struct   { \n\n     // If set, we will not save the documents contents, just index them, for fetching ids only \n     NoSave   bool \n\n     NoFieldFlags   bool \n\n     NoFrequencies   bool \n\n     NoOffsetVectors   bool \n\n     Stopwords   [] string  }   Options are flags passed to the the abstract Index call, which receives them as\ninterface{}, allowing for implementation specific options", 
             "title": "type Options"
         }, 
         {
-            "location": "/go_client/#type\"_\"paging", 
+            "location": "/go_client/#type_paging", 
             "text": "type   Paging   struct   { \n     Offset   int \n     Num      int  }   Paging represents the offset paging of a search result", 
             "title": "type Paging"
         }, 
         {
-            "location": "/go_client/#type\"_\"predicate", 
+            "location": "/go_client/#type_predicate", 
             "text": "type   Predicate   struct   { \n     Property   string \n     Operator   Operator \n     Value      [] interface {}  }", 
             "title": "type Predicate"
         }, 
         {
-            "location": "/go_client/#func\"_\"equals", 
+            "location": "/go_client/#func_equals", 
             "text": "func   Equals ( property   string ,   value   interface {})   Predicate", 
             "title": "func  Equals"
         }, 
         {
-            "location": "/go_client/#func\"_\"greaterthan", 
+            "location": "/go_client/#func_greaterthan", 
             "text": "func   GreaterThan ( property   string ,   value   interface {})   Predicate", 
             "title": "func  GreaterThan"
         }, 
         {
-            "location": "/go_client/#func\"_\"greaterthanequals", 
+            "location": "/go_client/#func_greaterthanequals", 
             "text": "func   GreaterThanEquals ( property   string ,   value   interface {})   Predicate", 
             "title": "func  GreaterThanEquals"
         }, 
         {
-            "location": "/go_client/#func\"_\"inrange", 
+            "location": "/go_client/#func_inrange", 
             "text": "func   InRange ( property   string ,   min ,   max   interface {},   inclusive   bool )   Predicate", 
             "title": "func  InRange"
         }, 
         {
-            "location": "/go_client/#func\"_\"lessthan", 
+            "location": "/go_client/#func_lessthan", 
             "text": "func   LessThan ( property   string ,   value   interface {})   Predicate", 
             "title": "func  LessThan"
         }, 
         {
-            "location": "/go_client/#func\"_\"lessthanequals", 
+            "location": "/go_client/#func_lessthanequals", 
             "text": "func   LessThanEquals ( property   string ,   value   interface {})   Predicate", 
             "title": "func  LessThanEquals"
         }, 
         {
-            "location": "/go_client/#func\"_\"newpredicate", 
+            "location": "/go_client/#func_newpredicate", 
             "text": "func   NewPredicate ( property   string ,   operator   Operator ,   values   ... interface {})   Predicate", 
             "title": "func  NewPredicate"
         }, 
         {
-            "location": "/go_client/#type\"_\"query", 
+            "location": "/go_client/#type_query", 
             "text": "type   Query   struct   { \n     Raw   string \n\n     Paging   Paging \n     Flags    Flag \n     Slop     int \n\n     Filters         [] Predicate \n     InKeys          [] string \n     ReturnFields    [] string \n     Language        string \n     Expander        string \n     Scorer          string \n     Payload         [] byte \n     SortBy          * SortingKey \n     HighlightOpts   * HighlightOptions \n     SummarizeOpts   * SummaryOptions  }   Query is a single search query and all its parameters and predicates", 
             "title": "type Query"
         }, 
         {
-            "location": "/go_client/#func\"_\"newquery", 
+            "location": "/go_client/#func_newquery", 
             "text": "func   NewQuery ( raw   string )   * Query   NewQuery creates a new query for a given index with the given search term. For\ncurrently the index parameter is ignored", 
             "title": "func  NewQuery"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"highlight", 
+            "location": "/go_client/#func_query_highlight", 
             "text": "func   ( q   * Query )   Highlight ( fields   [] string ,   openTag ,   closeTag   string )   * Query   Highlight sets highighting on given fields. Highlighting marks all the query\nterms with the given open and close tags (i.e.   and   for HTML)", 
             "title": "func (*Query) Highlight"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"limit", 
+            "location": "/go_client/#func_query_limit", 
             "text": "func   ( q   * Query )   Limit ( offset ,   num   int )   * Query   Limit sets the paging offset and limit for the query", 
             "title": "func (*Query) Limit"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setexpander", 
+            "location": "/go_client/#func_query_setexpander", 
             "text": "func   ( q   * Query )   SetExpander ( exp   string )   * Query   SetExpander sets a custom user query expander to be used", 
             "title": "func (*Query) SetExpander"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setflags", 
+            "location": "/go_client/#func_query_setflags", 
             "text": "func   ( q   * Query )   SetFlags ( flags   Flag )   * Query   SetFlags sets the query's optional flags", 
             "title": "func (*Query) SetFlags"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setinkeys", 
+            "location": "/go_client/#func_query_setinkeys", 
             "text": "func   ( q   * Query )   SetInKeys ( keys   ... string )   * Query   SetInKeys sets the INKEYS argument of the query - limiting the search to a given\nset of IDs", 
             "title": "func (*Query) SetInKeys"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setlanguage", 
+            "location": "/go_client/#func_query_setlanguage", 
             "text": "func   ( q   * Query )   SetLanguage ( lang   string )   * Query   SetLanguage sets the query language, used by the stemmer to expand the query", 
             "title": "func (*Query) SetLanguage"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setpayload", 
+            "location": "/go_client/#func_query_setpayload", 
             "text": "func   ( q   * Query )   SetPayload ( payload   [] byte )   * Query   SetPayload sets a binary payload to the query, that can be used by custom\nscoring functions", 
             "title": "func (*Query) SetPayload"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setreturnfields", 
+            "location": "/go_client/#func_query_setreturnfields", 
             "text": "func   ( q   * Query )   SetReturnFields ( fields   ... string )   * Query   SetReturnFields sets the fields that should be returned from each result. By\ndefault we return everything", 
             "title": "func (*Query) SetReturnFields"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setscorer", 
+            "location": "/go_client/#func_query_setscorer", 
             "text": "func   ( q   * Query )   SetScorer ( scorer   string )   * Query   SetScorer sets an alternative scoring function to be used. The only pre-compiled\nsupported one at the moment is DISMAX", 
             "title": "func (*Query) SetScorer"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"setsortby", 
+            "location": "/go_client/#func_query_setsortby", 
             "text": "func   ( q   * Query )   SetSortBy ( field   string ,   ascending   bool )   * Query   SetSortBy sets the sorting key for the query", 
             "title": "func (*Query) SetSortBy"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"summarize", 
+            "location": "/go_client/#func_query_summarize", 
             "text": "func   ( q   * Query )   Summarize ( fields   ... string )   * Query   Summarize sets summarization on the given list of fields. It will instruct the\nengine to extract the most relevant snippets from the fields and return them as\nthe field content. This function works with the default values of the engine,\nand only sets the fields. There is a function that accepts all options -\nSummarizeOptions", 
             "title": "func (*Query) Summarize"
         }, 
         {
-            "location": "/go_client/#func\"_\"query\"_\"summarizeoptions", 
+            "location": "/go_client/#func_query_summarizeoptions", 
             "text": "func   ( q   * Query )   SummarizeOptions ( opts   SummaryOptions )   * Query   SummarizeOptions sets summarization on the given list of fields. It will\ninstruct the engine to extract the most relevant snippets from the fields and\nreturn them as the field content.  This function accepts advanced settings for snippet length, separators and\nnumber of snippets", 
             "title": "func (*Query) SummarizeOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"schema", 
+            "location": "/go_client/#type_schema", 
             "text": "type   Schema   struct   { \n     Fields    [] Field \n     Options   Options  }   Schema represents an index schema Schema, or how the index would treat documents\nsent to it.", 
             "title": "type Schema"
         }, 
         {
-            "location": "/go_client/#func\"_\"newschema", 
+            "location": "/go_client/#func_newschema", 
             "text": "func   NewSchema ( opts   Options )   * Schema   NewSchema creates a new Schema object", 
             "title": "func  NewSchema"
         }, 
         {
-            "location": "/go_client/#func\"_\"schema\"_\"addfield", 
+            "location": "/go_client/#func_schema_addfield", 
             "text": "func   ( m   * Schema )   AddField ( f   Field )   * Schema   AddField adds a field to the Schema object", 
             "title": "func (*Schema) AddField"
         }, 
         {
-            "location": "/go_client/#type\"_\"singlehostpool", 
+            "location": "/go_client/#type_singlehostpool", 
             "text": "type   SingleHostPool   struct   { \n     * redis . Pool  }", 
             "title": "type SingleHostPool"
         }, 
         {
-            "location": "/go_client/#func\"_\"newsinglehostpool", 
+            "location": "/go_client/#func_newsinglehostpool", 
             "text": "func   NewSingleHostPool ( host   string )   * SingleHostPool", 
             "title": "func  NewSingleHostPool"
         }, 
         {
-            "location": "/go_client/#type\"_\"sortingkey", 
+            "location": "/go_client/#type_sortingkey", 
             "text": "type   SortingKey   struct   { \n     Field       string \n     Ascending   bool  }   SortingKey represents the sorting option if the query needs to be sorted based\non a sortable fields and not a ranking function. See\nhttp://redisearch.io/Sorting/", 
             "title": "type SortingKey"
         }, 
         {
-            "location": "/go_client/#type\"_\"suggestion", 
+            "location": "/go_client/#type_suggestion", 
             "text": "type   Suggestion   struct   { \n     Term      string \n     Score     float64 \n     Payload   string  }   Suggestion is a single suggestion being added or received from the Autocompleter", 
             "title": "type Suggestion"
         }, 
         {
-            "location": "/go_client/#type\"_\"suggestionlist", 
+            "location": "/go_client/#type_suggestionlist", 
             "text": "type   SuggestionList   [] Suggestion   SuggestionList is a sortable list of suggestions returned from an engine", 
             "title": "type SuggestionList"
         }, 
         {
-            "location": "/go_client/#func\"_\"suggestionlist\"_\"len", 
+            "location": "/go_client/#func_suggestionlist_len", 
             "text": "func   ( l   SuggestionList )   Len ()   int", 
             "title": "func (SuggestionList) Len"
         }, 
         {
-            "location": "/go_client/#func\"_\"suggestionlist\"_\"less", 
+            "location": "/go_client/#func_suggestionlist_less", 
             "text": "func   ( l   SuggestionList )   Less ( i ,   j   int )   bool", 
             "title": "func (SuggestionList) Less"
         }, 
         {
-            "location": "/go_client/#func\"_\"suggestionlist\"_\"sort", 
+            "location": "/go_client/#func_suggestionlist_sort", 
             "text": "func   ( l   SuggestionList )   Sort ()   Sort the SuggestionList", 
             "title": "func (SuggestionList) Sort"
         }, 
         {
-            "location": "/go_client/#func\"_\"suggestionlist\"_\"swap", 
+            "location": "/go_client/#func_suggestionlist_swap", 
             "text": "func   ( l   SuggestionList )   Swap ( i ,   j   int )", 
             "title": "func (SuggestionList) Swap"
         }, 
         {
-            "location": "/go_client/#type\"_\"summaryoptions", 
+            "location": "/go_client/#type_summaryoptions", 
             "text": "type   SummaryOptions   struct   { \n     Fields         [] string \n     FragmentLen    int      // default 20 \n     NumFragments   int      // default 3 \n     Separator      string   // default  ...  }   SummaryOptions represents the configuration used to create field summaries. See\nhttp://redisearch.io/Highlight/", 
             "title": "type SummaryOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"tagfieldoptions", 
+            "location": "/go_client/#type_tagfieldoptions", 
             "text": "type   TagFieldOptions   struct   { \n     // Separator is the custom separator between tags. defaults to comma (,) \n     Separator   byte \n     NoIndex     bool  }   TagFieldOptions options for indexing tag fields", 
             "title": "type TagFieldOptions"
         }, 
         {
-            "location": "/go_client/#type\"_\"textfieldoptions", 
+            "location": "/go_client/#type_textfieldoptions", 
             "text": "type   TextFieldOptions   struct   { \n     Weight     float32 \n     Sortable   bool \n     NoStem     bool \n     NoIndex    bool  }   TextFieldOptions Options for text fields - weight and stemming enabled/disabled.", 
             "title": "type TextFieldOptions"
         }, 
@@ -2446,32 +2446,32 @@
             "title": "Garbage Collection"
         }, 
         {
-            "location": "/design/gc/#garbage\"_\"collection\"_\"in\"_\"redisearch", 
+            "location": "/design/gc/#garbage_collection_in_redisearch", 
             "text": "", 
             "title": "Garbage Collection in RediSearch"
         }, 
         {
-            "location": "/design/gc/#1\"_\"the\"_\"need\"_\"for\"_\"gc", 
+            "location": "/design/gc/#1_the_need_for_gc", 
             "text": "Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.  This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.  Thus all inverted index entries belonging to this document id are just garbage.   We do not want to go and explicitly delete them when deleting a document because it will make this operation very long and depending on the length of the document.  On top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.   All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory.   Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.", 
             "title": "1. The Need For GC"
         }, 
         {
-            "location": "/design/gc/#2\"_\"garbage\"_\"collecting\"_\"a\"_\"single\"_\"term\"_\"index", 
+            "location": "/design/gc/#2_garbage_collecting_a_single_term_index", 
             "text": "A single term inverted index is consisted of an array of \"blocks\" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage.   The algorithm is pretty simple:    Create a reader and writer for each block  Read each block's records one by one  If no record is invalid, do nothing  Once we found a garbage record, we advance the reader but not the writer.  Once we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.   Pseudo code:  foreach index_block as block:\n\n   reader = new_reader(block)\n   writer = new_write(block)\n   garbage = 0\n   while not reader.end():\n        record = reader.decode_next()\n        if record.is_valid():\n            if garbage != 0:\n                # Write the record at the writer s tip with a newly calculated delta\n                writer.write_record(record)\n            else:\n                writer.advance(record.length)\n        else:\n            garbage += record.length  NOTE : Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.", 
             "title": "2. Garbage Collecting a Single Term Index"
         }, 
         {
-            "location": "/design/gc/#21\"_\"garbage\"_\"collection\"_\"on\"_\"numeric\"_\"indexes", 
+            "location": "/design/gc/#21_garbage_collection_on_numeric_indexes", 
             "text": "Numeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.", 
             "title": "2.1 Garbage Collection on Numeric Indexes"
         }, 
         {
-            "location": "/design/gc/#3\"_\"gc\"_\"and\"_\"concurrency", 
+            "location": "/design/gc/#3_gc_and_concurrency", 
             "text": "Since RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us).   It GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.  This means, however, that we need to consider a few things:    From the Index Iterator's POV - a GC sweep might be performed while we are sleeping during iterating the index. This means that the offset of the reader in its current block might not be correct. In that case we need to do a slow search in the index for the last id we've read. This is an operation we don't want to do unless we have to.    From the GC thread's POC - an index might be written to or deleted while we are sleeping during a sweep.    To solve 1 we need to detect this in the reader, and adapt to this situation. Detection of a GC sweep while sleeping is simple:  Each inverted index key has a \"gc marker\" variable that increments each time it has been GC'ed.   Before starting an index iterator, we copy the index's gc marker to the iterator's context.  After waking up from sleep in the iterator, we check the gc markers in both objects.  If they are the same we can simply trust the byte offset of the reader in the current block.\n* IF not, we seek the reader to the previously read docId, which is slower.   To solve 2 is simpler:   The GC will of course operate only while the GIL is locked.  The GC will never yield execution while in the middle of a block.  The GC will check whether the key has been deleted while it slept.  The GC will get a new pointer to the next block on each read, assuring the pointer is safe.", 
             "title": "3. GC And Concurrency"
         }, 
         {
-            "location": "/design/gc/#4\"_\"scheduling\"_\"garbage\"_\"collection", 
+            "location": "/design/gc/#4_scheduling_garbage_collection", 
             "text": "While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. \nThe problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively.   So the GC will use sampling of random terms and collect them.   This leaves two problems:\n1. How to avoid GC when it's not needed (the user is not deleting any documents or doing it very little).\n2. How to make sure we hit terms that are more likely to contain garbage.   Solving 2 for now will be done by trying some sort of weighted random. We already have a dictionary with the frequency of terms in the index. However running a real weighted random on it is an expensive operation.  Thus, an approximation of a weighted random can be easily done by blindly selecting N terms in each round, and then applying a weighted random function to this small set of keys. This assures that even the least frequent terms will get visited.  Solving 1 can be done in the following way:  We start with a frequency F for the random sampler of the garbage collector. At first it is relatively infrequent or even 0. It can be configured.\nThen, we do the following:\n    * Each time a document is deleted or updated we increase the frequency a bit.\n    * Each time we find a key with garbage we increase the frequency a bit.\n    * Each time we sample a key with NO garbage found, we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.  The frequency is of course bounded to a maximum which we will never surpass. Thus when a lot of garbage is created, the frequency will be at its maximum, and will eventually decay to 0 or a pre-configured minimum - until more documents will be deleted.", 
             "title": "4. Scheduling Garbage Collection"
         }, 
@@ -2481,52 +2481,52 @@
             "title": "Multi-Threading in RediSearch"
         }, 
         {
-            "location": "/Threading/#multi-threading\"_\"in\"_\"redisearch", 
+            "location": "/Threading/#multi-threading_in_redisearch", 
             "text": "By Dvir Volk, July 2017", 
             "title": "Multi-Threading in RediSearch"
         }, 
         {
-            "location": "/Threading/#1\"_\"one\"_\"thread\"_\"to\"_\"rule\"_\"them\"_\"all", 
+            "location": "/Threading/#1_one_thread_to_rule_them_all", 
             "text": "Redis has been, from its inception, single threaded - and will remain so at least in 4.0. I'm not going to get into the reasons of why that is - but up until now it has been a reality that Redis apps, and more recently Redis Modules such as RediSearch - have to deal with.   While keeping things single-threaded makes Redis simple and fast - the down-side is that long running commands block the entire server for the duration of the query's execution. Most Redis commands are fast so that is not a problem, but commands like  ZUNIONSTORE ,  LRANGE ,  SINTER  and of course the infamous  KEYS , can block Redis for seconds or minutes, depending on the size of data they are handling.", 
             "title": "1. One Thread To Rule Them All"
         }, 
         {
-            "location": "/Threading/#2\"_\"redisearch\"_\"and\"_\"the\"_\"single\"_\"thread\"_\"issue", 
+            "location": "/Threading/#2_redisearch_and_the_single_thread_issue", 
             "text": "RediSearch  is a new search engine module written at Redis Labs. It leverages Redis' powerful infrastructure with efficient data structures, to create a fast and feature rich, real-time search engine.   While it is extremely fast and uses highly optimized data structures and algorithms, it was facing the same problem with regards to concurrency: Depending on the size of your data-set and the cardinality of search queries, they can take internally anywhere between a few microseconds, to hundreds of milliseconds to seconds in extreme cases. And when that happens - the entire Redis server that the engine is running on - is blocked.   Think, for example, on the a full-text query intersecting the terms \"hello\" and \"world\", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond,  which is impossible with current hardware . The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.  So taking into account that in the real world, search queries may not behave like your average Redis O(1) command, and block the entire server for long periods of time. Of course, you could and should split your search index into a cluster, and a cluster version of RediSearch will soon be available as part of Redis Labs Enterprise cluster - but even if we distribute the data across cluster nodes, some queries will be slow.", 
             "title": "2. RediSearch and the Single Thread Issue"
         }, 
         {
-            "location": "/Threading/#3\"_\"enter\"_\"the\"_\"redis\"_\"gil", 
+            "location": "/Threading/#3_enter_the_redis_gil", 
             "text": "Luckily, Redis BDFL  Salvatore Sanfilippo  has added a revolutionary change just near the finish line of Redis 4.0 and the release of the modules API -  Thread Safe Contexts  and the  Global Lock .  The idea is simple - while Redis in itself still remains single threaded, a module can run many threads - and any one of them can acquire the  Global Lock  when it needs to access Redis data, operate on it, and release it.   We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long running query will give other queries time to properly run by yielding this lock from time to time. Note that this limitation applies to our use case only - in other use cases such as training machine learning models, actual parallel processing the background is achievable and easy.", 
             "title": "3. Enter the Redis GIL"
         }, 
         {
-            "location": "/Threading/#4\"_\"making\"_\"search\"_\"concurrent", 
+            "location": "/Threading/#4_making_search_concurrent", 
             "text": "Up until now, the flow of a search query was simple - the query would arrive at a  Command Handler  callback in the Redis Module, and it would be the only thing running inside Redis right now. Then it would parse the query, execute it, taking as long as it takes - and return the result.   To allow concurrency, we adapted the following design:    RediSearch has a thread pool for running concurrent search queries.     When a search request arrives, it gets to the handler, gets parsed on the main thread, and a request object is passed to the thread pool via a queue.    The thread pool runs a query processing function in its own thread.    The function locks the Redis Global lock, and starts executing the query.    Since the search execution is basically an iterator running in a cycle, we simply sample the elapsed time every several iterations (sampling on each iteration would slow things down as it has a cost of its own).    If enough time has elapsed, the query processor releases the Global Lock, and immediately tries to acquire it again. When the lock is released, the kernel will schedule another thread to run - be it Redis' main thread, or another query thread.    When the lock is acquired again - we reopen all Redis resources we were holding before releasing the lock (keys might have been deleted while the thread has been \"sleeping\"), and continue work from the previous state.     Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iteration to finish, but will allow other queries to run concurrently.", 
             "title": "4. Making Search Concurrent"
         }, 
         {
-            "location": "/Threading/#figure\"_\"1\"_\"serial\"_\"vs\"_\"concurrent\"_\"search", 
+            "location": "/Threading/#figure_1_serial_vs_concurrent_search", 
             "text": "On the left-hand side, all queries are handled one after the other. On the right side, each query is given it time-slice to run. Notice that while the total time for all queries remain the same, queries 3 and 4 finish much faster.   The same approach is applied to indexing. If a document is big and tokenizing and indexing it will block Redis for a long time - we break that into many smaller iterations and allow Redis to do other things instead of blocking for a very long time. In fact, in the case of indexing there is enough work to be done in parallel using multiple cores - namely tokenizing and normalizing the document. This is especially effective for very big documents.  As a side note - this could have been implemented with a single thread switching between all the query execution loops, but the code refactoring required for that was much larger, and the effect with reasonable load would have remained similar, so we opted to keep this for a future release.", 
             "title": "Figure 1: Serial vs. Concurrent Search"
         }, 
         {
-            "location": "/Threading/#5\"_\"the\"_\"effect\"_\"of\"_\"concurrency", 
+            "location": "/Threading/#5_the_effect_of_concurrency", 
             "text": "While this is not magic, and if all your queries are slow they will remain slow, and no real parallel processing is done here - this is revolutionary in Redis terms. Think about the old problem of running  KEYS *  in a busy Redis instance. In single threaded operation, this will cause the instance to hang for seconds if not minutes. No it is possible to implement a concurrent version of KEYS in a module, that will hardly affect performance. In fact, Salvatore has already implemented one!  There is, however, a negative effect as well: we sacrifice atomicity of reads and writes for concurrency to a degree. Consider the following situation: One thread is processing a query that should retrieve document A, then yields the execution context; At the same time, another thread deletes or changes document A. The result - the query run by the first thread will not be able to retrieve the document, as it has already been changed or deleted while the thread was \"asleep\".   This is of course only relevant to high update/delete loads, and relatively slow and complex queries. In our view, for most use cases this is a sacrifice worth making, and usually query processing is fast enough that the probability of this happening is very low. However, this can be overcome easily: if strong atomicity of the operations is important, it is possible to have RediSearch operate in \"safe mode\", making all searches and updates atomic, thus making sure that each query refers to the sate of the index at the moment of its invocation.   To enable safe mode and disable query concurrency, you can configure RediSearch at load time:  redis-server --loadmodule redisearch.so SAFEMODE  in command line, or by adding  loadmodule redisearch.so SAFEMODE  to your redis.conf - depending on how you load the module.", 
             "title": "5. The Effect of Concurrency"
         }, 
         {
-            "location": "/Threading/#6\"_\"some\"_\"numbers", 
+            "location": "/Threading/#6_some_numbers", 
             "text": "I've benchmarked both versions of the module - simple single threaded, and concurrent multi threaded, over the same set up.   Benchmark Setup   The data-set consists of about 1,000,000 Reddit comments.  Two clients using Redis-benchmark were running  - first separately, then in parallel:  One client doing a very intensive query - \"i\" which has 200,000 results with 5 concurrent connections.  One client is doing a very light query - \"Obama\", which has about 500 results - with 10 concurrent connections (we assume in a normal situation there will be more lightweight queries than heavy queries).  Both clients and the server running on my personal laptop - MacBook Pro with an Intel Quad Core i7 @ 2.2Ghz.", 
             "title": "6. Some Numbers!"
         }, 
         {
-            "location": "/Threading/#the\"_\"results", 
+            "location": "/Threading/#the_results", 
             "text": "Note  While we can see that light queries are significantly slower when running in concurrent mode without contention, they are still very fast. But in contention, we see that lightweight queries run X40 faster in concurrent mode, since they are not blocked by the slow queries, as in single thread mode. In single thread mode we are only as fast as the slowest queries.", 
             "title": "The Results:"
         }, 
         {
-            "location": "/Threading/#7\"_\"parting\"_\"words", 
+            "location": "/Threading/#7_parting_words", 
             "text": "This little Global Lock feature and Thread Safe Contexts, is perhaps the most powerful thing that the Modules API offers. We touched only the problem of concurrency here, but it also enables background tasks, real parallel processing of data that does not touch the Redis keyspace, and more.  For RediSearch, it makes the difference between being a nice engine for small-ish use cases, to being a real beast that can handle huge data-sets at high loads. Combined with the up-and-coming distributed version of RediSearch (that also leverages the threading API, but that's a story for another post), it will make RediSearch a very powerful search and indexing engine.", 
             "title": "7. Parting Words"
         }, 
@@ -2536,17 +2536,17 @@
             "title": "Chinese Support"
         }, 
         {
-            "location": "/Chinese/#chinese\"_\"support\"_\"in\"_\"redisearch", 
+            "location": "/Chinese/#chinese_support_in_redisearch", 
             "text": "Support for adding documents in Chinese is available starting at version 0.99.0.  Chinese support allows Chinese documents to be added and tokenized using segmentation\nrather than simple tokenization using whitespace and/or punctuation.  Indexing a Chinese document is different than indexing a document in most other\nlanguages because of how tokens are extracted. While most languages can have\ntheir tokens distinguished by separation characters and whitespace, this\nis not common in Chinese.  Chinese tokenization is done by scanning the input text and checking every\ncharacter or sequence of characters against a dictionary of predefined terms\nand determining the most likely (based on the surrounding terms and characters)\nmatch.  RediSearch makes use of the  Friso \nchinese tokenization library for this purpose. This is largely transparent to\nthe user and often no additional configuration is required.", 
             "title": "Chinese support in RediSearch"
         }, 
         {
-            "location": "/Chinese/#example\"_\"using\"_\"chinese\"_\"in\"_\"redisearch", 
+            "location": "/Chinese/#example_using_chinese_in_redisearch", 
             "text": "In pseudo-code:  FT.CREATE idx SCHEMA txt TEXT\nFT.ADD idx docCn 1.0 LANGUAGE chinese FIELDS txt  Redis\u652f\u6301\u4e3b\u4ece\u540c\u6b65\u3002\u6570\u636e\u53ef\u4ee5\u4ece\u4e3b\u670d\u52a1\u5668\u5411\u4efb\u610f\u6570\u91cf\u7684\u4ece\u670d\u52a1\u5668\u4e0a\u540c\u6b65\uff0c\u4ece\u670d\u52a1\u5668\u53ef\u4ee5\u662f\u5173\u8054\u5176\u4ed6\u4ece\u670d\u52a1\u5668\u7684\u4e3b\u670d\u52a1\u5668\u3002\u8fd9\u4f7f\u5f97Redis\u53ef\u6267\u884c\u5355\u5c42\u6811\u590d\u5236\u3002\u4ece\u76d8\u53ef\u4ee5\u6709\u610f\u65e0\u610f\u7684\u5bf9\u6570\u636e\u8fdb\u884c\u5199\u64cd\u4f5c\u3002\u7531\u4e8e\u5b8c\u5168\u5b9e\u73b0\u4e86\u53d1\u5e03/\u8ba2\u9605\u673a\u5236\uff0c\u4f7f\u5f97\u4ece\u6570\u636e\u5e93\u5728\u4efb\u4f55\u5730\u65b9\u540c\u6b65\u6811\u65f6\uff0c\u53ef\u8ba2\u9605\u4e00\u4e2a\u9891\u9053\u5e76\u63a5\u6536\u4e3b\u670d\u52a1\u5668\u5b8c\u6574\u7684\u6d88\u606f\u53d1\u5e03\u8bb0\u5f55\u3002\u540c\u6b65\u5bf9\u8bfb\u53d6\u64cd\u4f5c\u7684\u53ef\u6269\u5c55\u6027\u548c\u6570\u636e\u5197\u4f59\u5f88\u6709\u5e2e\u52a9\u3002[8] \nFT.SEARCH idx  \u6570\u636e  LANGUAGE chinese HIGHLIGHT SUMMARIZE\n# Outputs:\n#  b \u6570\u636e /b ?...  b \u6570\u636e /b \u8fdb\u884c\u5199\u64cd\u4f5c\u3002\u7531\u4e8e\u5b8c\u5168\u5b9e\u73b0\u4e86\u53d1\u5e03...  b \u6570\u636e /b \u5197\u4f59\u5f88\u6709\u5e2e\u52a9\u3002[8...  Using the Python Client:  # -*- coding: utf-8 -*-  from   redisearch.client   import   Client ,   Query  from   redisearch   import   TextField  client   =   Client ( idx )  try : \n     client . drop_index ()  except : \n     pass  client . create_index ([ TextField ( txt )])  # Add a document  client . add_document ( docCn1 , \n                     txt = Redis\u652f\u6301\u4e3b\u4ece\u540c\u6b65\u3002\u6570\u636e\u53ef\u4ee5\u4ece\u4e3b\u670d\u52a1\u5668\u5411\u4efb\u610f\u6570\u91cf\u7684\u4ece\u670d\u52a1\u5668\u4e0a\u540c\u6b65\u4ece\u670d\u52a1\u5668\u53ef\u4ee5\u662f\u5173\u8054\u5176\u4ed6\u4ece\u670d\u52a1\u5668\u7684\u4e3b\u670d\u52a1\u5668\u3002\u8fd9\u4f7f\u5f97Redis\u53ef\u6267\u884c\u5355\u5c42\u6811\u590d\u5236\u3002\u4ece\u76d8\u53ef\u4ee5\u6709\u610f\u65e0\u610f\u7684\u5bf9\u6570\u636e\u8fdb\u884c\u5199\u64cd\u4f5c\u3002\u7531\u4e8e\u5b8c\u5168\u5b9e\u73b0\u4e86\u53d1\u5e03/\u8ba2\u9605\u673a\u5236\uff0c\u4f7f\u5f97\u4ece\u6570\u636e\u5e93\u5728\u4efb\u4f55\u5730\u65b9\u540c\u6b65\u6811\u65f6\uff0c\u53ef\u8ba2\u9605\u4e00\u4e2a\u9891\u9053\u5e76\u63a5\u6536\u4e3b\u670d\u52a1\u5668\u5b8c\u6574\u7684\u6d88\u606f\u53d1\u5e03\u8bb0\u5f55\u3002\u540c\u6b65\u5bf9\u8bfb\u53d6\u64cd\u4f5c\u7684\u53ef\u6269\u5c55\u6027\u548c\u6570\u636e\u5197\u4f59\u5f88\u6709\u5e2e\u52a9\u3002[8] , \n                     language = chinese )  print   client . search ( Query ( \u6570\u636e ) . summarize () . highlight () . language ( chinese )) . docs [ 0 ] . txt   Prints:  b \u6570\u636e /b ?...  b \u6570\u636e /b \u8fdb\u884c\u5199\u64cd\u4f5c\u3002\u7531\u4e8e\u5b8c\u5168\u5b9e\u73b0\u4e86\u53d1\u5e03...  b \u6570\u636e /b \u5197\u4f59\u5f88\u6709\u5e2e\u52a9\u3002[8...", 
             "title": "Example: Using Chinese in RediSearch"
         }, 
         {
-            "location": "/Chinese/#using\"_\"custom\"_\"dictionaries", 
+            "location": "/Chinese/#using_custom_dictionaries", 
             "text": "If you wish to use a custom dictionary, you can do so at the module level when\nloading the module. The  FRISOINI  setting can point to the location of a friso.ini  file which contains the relevant settings and paths to the dictionary\nfiles.  Note that there is no \"default\" friso.ini file location. RediSearch comes with\nits own  friso.ini  and dictionary files which are compiled into the module\nbinary at build-time.", 
             "title": "Using custom dictionaries"
         }, 
@@ -2556,7 +2556,7 @@
             "title": "Contributor agreement"
         }, 
         {
-            "location": "/contrib/#contributor\"_\"agreement", 
+            "location": "/contrib/#contributor_agreement", 
             "text": "Please refer to the following page for the agreement:  Redis Labs Software Grant and Contributor License Agreement", 
             "title": "Contributor agreement"
         }

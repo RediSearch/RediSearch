@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#stemming"_"support" tabindex="1" class="md-skip">
+      <a href="#stemming_support" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -454,21 +454,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#supported"_"languages" title="Supported languages" class="md-nav__link">
+  <a href="#supported_languages" title="Supported languages" class="md-nav__link">
     Supported languages
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#chinese"_"support" title="Chinese support" class="md-nav__link">
+  <a href="#chinese_support" title="Chinese support" class="md-nav__link">
     Chinese support
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
+  <a href="#using_custom_dictionaries" title="Using custom dictionaries" class="md-nav__link">
     Using custom dictionaries
   </a>
   
@@ -727,21 +727,21 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#supported"_"languages" title="Supported languages" class="md-nav__link">
+  <a href="#supported_languages" title="Supported languages" class="md-nav__link">
     Supported languages
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#chinese"_"support" title="Chinese support" class="md-nav__link">
+  <a href="#chinese_support" title="Chinese support" class="md-nav__link">
     Chinese support
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#using"_"custom"_"dictionaries" title="Using custom dictionaries" class="md-nav__link">
+  <a href="#using_custom_dictionaries" title="Using custom dictionaries" class="md-nav__link">
     Using custom dictionaries
   </a>
   
@@ -766,11 +766,11 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Stemming.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="stemming&quot;_&quot;support">Stemming Support<a class="headerlink" href="#stemming&quot;_&quot;support" title="Permanent link">&para;</a></h1>
+                <h1 id="stemming_support">Stemming Support<a class="headerlink" href="#stemming_support" title="Permanent link">&para;</a></h1>
 <p>RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for "going" to also return results for "go" and "gone", for example.</p>
 <p>The current stemming support is based on the Snowball stemmer library, which supports most European languages, as well as Arabic and other. We hope to include more languages soon (if you need a specific language support, please open an issue).</p>
 <p>For further details see the <a href="http://snowballstem.org/">Snowball Stemmer website</a>.</p>
-<h2 id="supported&quot;_&quot;languages">Supported languages<a class="headerlink" href="#supported&quot;_&quot;languages" title="Permanent link">&para;</a></h2>
+<h2 id="supported_languages">Supported languages<a class="headerlink" href="#supported_languages" title="Permanent link">&para;</a></h2>
 <p>The following languages are supported and can be passed to the engine when indexing or querying, with lowercase letters:</p>
 <ul>
 <li>arabic</li>
@@ -792,11 +792,11 @@
 <li>turkish</li>
 <li>chinese (see below)</li>
 </ul>
-<h2 id="chinese&quot;_&quot;support">Chinese support<a class="headerlink" href="#chinese&quot;_&quot;support" title="Permanent link">&para;</a></h2>
+<h2 id="chinese_support">Chinese support<a class="headerlink" href="#chinese_support" title="Permanent link">&para;</a></h2>
 <p>Indexing a Chinese document is different than indexing a document in most other languages because of how tokens are extracted. While most languages can have their tokens distinguished by separation characters and whitespace, this is not common in Chinese.</p>
 <p>Chinese tokenization is done by scanning the input text and checking every character or sequence of characters against a dictionary of predefined terms and determining the most likely (based on the surrounding terms and characters) match.</p>
 <p>RediSearch makes use of the <a href="https://github.com/lionsoul2014/friso">Friso</a> chinese tokenization library for this purpose. This is largely transparent to the user and often no additional configuration is required.</p>
-<h2 id="using&quot;_&quot;custom&quot;_&quot;dictionaries">Using custom dictionaries<a class="headerlink" href="#using&quot;_&quot;custom&quot;_&quot;dictionaries" title="Permanent link">&para;</a></h2>
+<h2 id="using_custom_dictionaries">Using custom dictionaries<a class="headerlink" href="#using_custom_dictionaries" title="Permanent link">&para;</a></h2>
 <p>If you wish to use a custom dictionary, you can do so at the module level when loading the module. The <code>FRISOINI</code> setting can point to the location of a <code>friso.ini</code> file which contains the relevant settings and paths to the dictionary files.</p>
 <p>Note that there is no "default" friso.ini file location. RedisSearch comes with its own <code>friso.ini</code> and dictionary files which are compiled into the module binary at build-time.</p>
                 

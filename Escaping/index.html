@@ -95,7 +95,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="drawer"></label>
     
-      <a href="#controlling"_"text"_"tokenization"_"and"_"escaping" tabindex="1" class="md-skip">
+      <a href="#controlling_text_tokenization_and_escaping" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -382,7 +382,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The rules of text field tokenization" class="md-nav__link">
+  <a href="#the_rules_of_text_field_tokenization" title="The rules of text field tokenization" class="md-nav__link">
     The rules of text field tokenization
   </a>
   
@@ -713,7 +713,7 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the"_"rules"_"of"_"text"_"field"_"tokenization" title="The rules of text field tokenization" class="md-nav__link">
+  <a href="#the_rules_of_text_field_tokenization" title="The rules of text field tokenization" class="md-nav__link">
     The rules of text field tokenization
   </a>
   
@@ -738,10 +738,10 @@
                   <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Escaping.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <h1 id="controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping">Controlling Text Tokenization and Escaping<a class="headerlink" href="#controlling&quot;_&quot;text&quot;_&quot;tokenization&quot;_&quot;and&quot;_&quot;escaping" title="Permanent link">&para;</a></h1>
+                <h1 id="controlling_text_tokenization_and_escaping">Controlling Text Tokenization and Escaping<a class="headerlink" href="#controlling_text_tokenization_and_escaping" title="Permanent link">&para;</a></h1>
 <p>At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. </p>
 <p>Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the <a href="../Tags">Tag Fields</a> documentation. </p>
-<h2 id="the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization">The rules of text field tokenization<a class="headerlink" href="#the&quot;_&quot;rules&quot;_&quot;of&quot;_&quot;text&quot;_&quot;field&quot;_&quot;tokenization" title="Permanent link">&para;</a></h2>
+<h2 id="the_rules_of_text_field_tokenization">The rules of text field tokenization<a class="headerlink" href="#the_rules_of_text_field_tokenization" title="Permanent link">&para;</a></h2>
 <ol>
 <li>
 <p>All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of <code>,.&lt;&gt;{}[]"':;!@#$%^&amp;*()-+=~</code> will break the text into terms.  So the text <code>foo-bar.baz...bag</code> will be tokenized into <code>[foo, bar, baz, bag]</code></p>
