@@ -60,7 +60,7 @@ void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
 
   Document_DetachFields(doc, srcCtx);
   if (doc->payload) {
-    char *tmp = malloc(sizeof(char) * doc->payloadSize);
+    char *tmp = malloc(doc->payloadSize);
     memcpy(tmp, doc->payload, doc->payloadSize);
     doc->payload = tmp;
   }

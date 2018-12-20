@@ -589,7 +589,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   return indexer;
 }
 
-static void FreeDocumentIndexer(DocumentIndexer *indexer) {
+static void DocumentIndexe_Free(DocumentIndexer *indexer) {
   free(indexer->name);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
@@ -604,7 +604,7 @@ void DropDocumentIndexer(const char *specname) {
   }
 
   if (match->options & INDEXER_THREADLESS) {
-    FreeDocumentIndexer(match);
+    DocumentIndexe_Free(match);
   }
 }
 
