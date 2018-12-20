@@ -60,7 +60,9 @@ void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
 
   Document_DetachFields(doc, srcCtx);
   if (doc->payload) {
-    doc->payload = strndup(doc->payload, doc->payloadSize);
+    char *tmp = malloc(sizeof(char) * doc->payloadSize);
+    memcpy(tmp, doc->payload, doc->payloadSize);
+    doc->payload = tmp;
   }
   if (doc->language) {
     doc->language = strdup(doc->language);

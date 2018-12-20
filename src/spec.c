@@ -12,6 +12,7 @@
 #include "config.h"
 #include "cursor.h"
 #include "tag_index.h"
+#include "indexer.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 
@@ -553,6 +554,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
+  DropDocumentIndexer(spec->name);
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
