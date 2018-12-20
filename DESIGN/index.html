@@ -1,0 +1,900 @@
+
+
+
+
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <meta http-equiv="x-ua-compatible" content="ie=edge">
+      
+      
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/DESIGN/">
+      
+      
+      
+        <meta name="lang:clipboard.copy" content="Copy to clipboard">
+      
+        <meta name="lang:clipboard.copied" content="Copied to clipboard">
+      
+        <meta name="lang:search.language" content="en">
+      
+        <meta name="lang:search.pipeline.stopwords" content="True">
+      
+        <meta name="lang:search.pipeline.trimmer" content="True">
+      
+        <meta name="lang:search.result.none" content="No matching documents">
+      
+        <meta name="lang:search.result.one" content="1 matching document">
+      
+        <meta name="lang:search.result.other" content="# matching documents">
+      
+        <meta name="lang:search.tokenizer" content="[\s\-]+">
+      
+      <link rel="shortcut icon" href="../img/favicon.png">
+      <meta name="generator" content="mkdocs-1.0.4, mkdocs-material-3.1.0">
+    
+    
+      
+        <title>RediSearch internal design - RediSearch Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/application.11e41852.css">
+      
+        <link rel="stylesheet" href="../assets/stylesheets/application-palette.22915126.css">
+      
+      
+        
+        
+        <meta name="theme-color" content="#3f51b5">
+      
+    
+    
+      <script src="../assets/javascripts/modernizr.20ef595d.js"></script>
+    
+    
+      
+        <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
+        <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
+      
+    
+    <link rel="stylesheet" href="../assets/fonts/material-icons.css">
+    
+    
+    
+  </head>
+  
+    
+    
+    <body dir="ltr" data-md-color-primary="indigo" data-md-color-accent="red">
+  
+    <svg class="md-svg">
+      <defs>
+        
+        
+          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448"
+    viewBox="0 0 416 448" id="__github">
+  <path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19-18.125
+        8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19 18.125-8.5
+        18.125 8.5 10.75 19 3.125 20.5zM320 304q0 10-3.125 20.5t-10.75
+        19-18.125 8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19
+        18.125-8.5 18.125 8.5 10.75 19 3.125 20.5zM360
+        304q0-30-17.25-51t-46.75-21q-10.25 0-48.75 5.25-17.75 2.75-39.25
+        2.75t-39.25-2.75q-38-5.25-48.75-5.25-29.5 0-46.75 21t-17.25 51q0 22 8
+        38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0
+        37.25-1.75t35-7.375 30.5-15 20.25-25.75 8-38.375zM416 260q0 51.75-15.25
+        82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5-41.75
+        1.125q-19.5 0-35.5-0.75t-36.875-3.125-38.125-7.5-34.25-12.875-30.25-20.25-21.5-28.75q-15.5-30.75-15.5-82.75
+        0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25
+        30.875q36.75-8.75 77.25-8.75 37 0 70 8 26.25-20.5
+        46.75-30.25t47.25-9.75q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34
+        99.5z" />
+</svg>
+        
+      </defs>
+    </svg>
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" data-md-component="overlay" for="__drawer"></label>
+    
+      <a href="#redisearch_internal_design" tabindex="1" class="md-skip">
+        Skip to content
+      </a>
+    
+    
+      <header class="md-header" data-md-component="header">
+  <nav class="md-header-nav md-grid">
+    <div class="md-flex">
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+          
+            <img src="../logo_small.png" width="24" height="24">
+          
+        </a>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <label class="md-icon md-icon--menu md-header-nav__button" for="__drawer"></label>
+      </div>
+      <div class="md-flex__cell md-flex__cell--stretch">
+        <div class="md-flex__ellipsis md-header-nav__title" data-md-component="title">
+          
+            
+              <span class="md-header-nav__topic">
+                RediSearch Documentation
+              </span>
+              <span class="md-header-nav__topic">
+                RediSearch internal design
+              </span>
+            
+          
+        </div>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        
+          
+            <label class="md-icon md-icon--search md-header-nav__button" for="__search"></label>
+            
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query" data-md-state="active">
+      <label class="md-icon md-search__icon" for="__search"></label>
+      <button type="reset" class="md-icon md-search__icon" data-md-component="reset" tabindex="-1">
+        &#xE5CD;
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="result">
+          <div class="md-search-result__meta">
+            Type to start searching
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+          
+        
+      </div>
+      
+        <div class="md-flex__cell md-flex__cell--shrink">
+          <div class="md-header-nav__source">
+            
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+          </div>
+        </div>
+      
+    </div>
+  </nav>
+</header>
+    
+    <div class="md-container">
+      
+        
+      
+      
+      <main class="md-main">
+        <div class="md-main__inner md-grid" data-md-component="container">
+          
+            
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    <nav class="md-nav md-nav--primary" data-md-level="0">
+  <label class="md-nav__title md-nav__title--site" for="__drawer">
+    <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-nav__button md-logo">
+      
+        <img src="../logo_small.png" width="48" height="48">
+      
+    </a>
+    RediSearch Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href=".." title="Home" class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Quick_Start/" title="Quick Start" class="md-nav__link">
+      Quick Start
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Commands/" title="Command Reference" class="md-nav__link">
+      Command Reference
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Configuring/" title="Configuration" class="md-nav__link">
+      Configuration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Administration/" title="Administration" class="md-nav__link">
+      Administration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Query_Syntax/" title="Query Syntax" class="md-nav__link">
+      Query Syntax
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Stopwords/" title="Stop-Words" class="md-nav__link">
+      Stop-Words
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Aggregations/" title="Aggregations" class="md-nav__link">
+      Aggregations
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Escaping/" title="Tokenization and Escaping" class="md-nav__link">
+      Tokenization and Escaping
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Sorting/" title="Sortable Values" class="md-nav__link">
+      Sortable Values
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Tags/" title="Tag Fields" class="md-nav__link">
+      Tag Fields
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Highlight/" title="Highlighting Results" class="md-nav__link">
+      Highlighting Results
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Scoring/" title="Scoring Documents" class="md-nav__link">
+      Scoring Documents
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Extensions/" title="Extension API" class="md-nav__link">
+      Extension API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Stemming/" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Synonyms/" title="Synonyms Support" class="md-nav__link">
+      Synonyms Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../payloads/" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Spellcheck/" title="Spelling Correction" class="md-nav__link">
+      Spelling Correction
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Phonetic_Matching/" title="Phonetic Matching" class="md-nav__link">
+      Phonetic Matching
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+    
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Clients/" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../python_client/" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../java_client/" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../go_client/" title="Go API" class="md-nav__link">
+      Go API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
+      Design Documents
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-8">
+        Design Documents
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../design/gc/" title="Garbage Collection" class="md-nav__link">
+      Garbage Collection
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
+    
+    <label class="md-nav__link" for="nav-9">
+      Articles
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-9">
+        Articles
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="../Threading/" title="Multi-Threading in RediSearch" class="md-nav__link">
+      Multi-Threading in RediSearch
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../Chinese/" title="Chinese Support" class="md-nav__link">
+      Chinese Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="../contrib/" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#intro_redis_string_dma" title="Intro: Redis String DMA" class="md-nav__link">
+    Intro: Redis String DMA
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inverted_index_encoding" title="Inverted index encoding" class="md-nav__link">
+    Inverted index encoding
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#document_and_result_ranking" title="Document and result ranking" class="md-nav__link">
+    Document and result ranking
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#index_specs_and_field_weights" title="Index Specs and field weights" class="md-nav__link">
+    Index Specs and field weights
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#document_data_storage" title="Document data storage" class="md-nav__link">
+    Document data storage
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query_execution_engine" title="Query Execution Engine" class="md-nav__link">
+    Query Execution Engine
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#numeric_filters" title="Numeric Filters" class="md-nav__link">
+    Numeric Filters
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auto-complete_and_fuzzy_suggestions" title="Auto-Complete and Fuzzy Suggestions" class="md-nav__link">
+    Auto-Complete and Fuzzy Suggestions
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/DESIGN.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                
+                
+                <h1 id="redisearch_internal_design">RediSearch internal design<a class="headerlink" href="#redisearch_internal_design" title="Permanent link">&para;</a></h1>
+<p>RediSearch implements inverted indexes on top of Redis, but unlike previous implementations of Redis inverted indexes, it uses custom data encoding, that allows more memory and CPU efficient searches, and more advanced search features.</p>
+<p>This document details some of the design choices and how these features are implemented.</p>
+<h2 id="intro_redis_string_dma">Intro: Redis String DMA<a class="headerlink" href="#intro_redis_string_dma" title="Permanent link">&para;</a></h2>
+<p>The main feature that this module takes advantage of, is Redis Modules Strings DMA, or Direct Memory Access.</p>
+<p>This feature is simple yet very powerful. It basically allows modules to allocate data on Redis string keys,then get a direct pointer to the data allocated by this key, without copying or serializing it. </p>
+<p>This allows very fast access to huge amounts of memory, and since from the module's perspective, the string value is exposed simply as <code>char *</code>, it can be cast to any data structure. </p>
+<p>You simply call <code>RedisModule_StringTruncate</code> to resize a memory chunk to the size needed, and <code>RedisModule_StringDMA</code> to get direct access to the memory in that key. See <a href="https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma">https://github.com/RedisLabs/RedisModulesSDK/blob/master/FUNCTIONS.md#redismodule_stringdma</a></p>
+<p>We use this API in the module mainly to encode inverted indexes, and for other auxiliary data structures besides that. </p>
+<p>A generic "Buffer" implementation using DMA strings can be found in <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/redis_buffer.c">redis_buffer.c</a>. It automatically resizes the Redis string it uses as raw memory when the capacity needs to grow.</p>
+<h2 id="inverted_index_encoding">Inverted index encoding<a class="headerlink" href="#inverted_index_encoding" title="Permanent link">&para;</a></h2>
+<p>An <a href="https://en.wikipedia.org/wiki/Inverted_index">Inverted Index</a> is the data structure at the heart of all search engines. The idea is simple - per each word or search term, we save a list of all the documents it appears in, and other data, such as term frequency, the offsets where the term appeared in the document, and more. Offsets are used for "exact match" type searches, or for ranking of results.</p>
+<p>When a search is performed, we need to either traverse such an index, or intersect or union two or more indexes. Classic Redis implementations of search engines use sorted sets as inverted indexes. This works but has significant memory overhead, and also does not allow for encoding of offsets, as explained above.</p>
+<p>RediSearch uses String DMA (see above) to efficiently encode inverted indexes. It combines <a href="https://en.wikipedia.org/wiki/Delta_encoding">Delta Encoding</a> and <a href="https://developers.google.com/protocol-buffers/docs/encoding#varints">Varint Encoding</a> to encode entries, minimizing space used for indexes, while keeping decompression and traversal efficient.</p>
+<p>For each "hit" (document/word entry), we encode:</p>
+<ul>
+<li>The document Id as a delta from the previous document.</li>
+<li>The term frequency, factored by the document's rank (see below)</li>
+<li>Flags, that can be used to filter only specific fields or other user-defined properties.</li>
+<li>An Offset Vector, of all the document offsets of the word.</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Document ids as entered by the user are converted to internal incremental document ids, that allow delta encoding to be efficient, and let the inverted indexes be sorted by document id.</p>
+</div>
+<p>This allows for a single index hit entry to be encoded in as little as 6 bytes 
+(Note that this is the best case. depending on the number of occurrences of the word in the document, this can get much higher).</p>
+<p>To optimize searches, we keep two additional auxiliary data structures in different DMA string keys:</p>
+<ol>
+<li><strong>Skip Index</strong>: We keep a table of the index offset of 1/50 of the index entries. This allows faster lookup when intersecting inverted indexes, as not the entire list must be traversed.</li>
+<li><strong>Score Index</strong>: In simple single-word searches, there is no real need to traverse all the results, just the top N results the user is interested in. So we keep an auxiliary index of the top 20 or so entries for each term and use them when applicable. </li>
+</ol>
+<h2 id="document_and_result_ranking">Document and result ranking<a class="headerlink" href="#document_and_result_ranking" title="Permanent link">&para;</a></h2>
+<p>Each document entered to the engine using <code>FT.ADD</code>, has a user assigned rank, between 0 and 1.0. This is used in combination with <a href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF</a> scoring of each word, to rank the results. </p>
+<p>As an optimization, each inverted index hit is encoded with TF*Document_rank as its score, and only IDF is applied during searches. This may change in the future.</p>
+<p>On top of that, in the case of intersection queries, we take the minimal distance between the terms in the query, and factor that into the ranking. The closest the terms are to each other, the better the result.</p>
+<p>When searching, we keep a priority queue of the top N results requested, and eventually return them, sorted by rank. </p>
+<h2 id="index_specs_and_field_weights">Index Specs and field weights<a class="headerlink" href="#index_specs_and_field_weights" title="Permanent link">&para;</a></h2>
+<p>When creating an "index" using <code>FT.CREATE</code>, the user specifies the fields to be indexed, and their respective weights. This can be used to give some document fields, like a title, more weight in ranking results. </p>
+<p>For example: </p>
+<div class="codehilite"><pre><span></span>FT.CREATE my_index title 10.0 body 1.0 url 2.0
+</pre></div>
+
+
+<p>Will create an index on fields named title, body and url, with scores of 10, 1 and 2 respectively.</p>
+<p>When documents are indexed, the weights are taken from the saved <em>Index Spec</em>, that is stored in a special redis key, and only fields that are specified in this spec are indexed.</p>
+<h2 id="document_data_storage">Document data storage<a class="headerlink" href="#document_data_storage" title="Permanent link">&para;</a></h2>
+<p>It is not mandatory to save the document data when indexing a document (specifying <code>NOSAVE</code> for <code>FT.ADD</code> will cause the document to be indexed but not saved). </p>
+<p>If the user does save the document, we simply create a HASH key in Redis, containing all fields (including ones not indexed), and upon search, we simply perform an <code>HGETALL</code> query on each retrieved document, returning its entire data. </p>
+<p><strong>TODO</strong>: Document snippets should be implemented down the road,</p>
+<h2 id="query_execution_engine">Query Execution Engine<a class="headerlink" href="#query_execution_engine" title="Permanent link">&para;</a></h2>
+<p>We use a chained-iterator based approach to query execution, similar to <a href="https://wiki.python.org/moin/Generators">Python generators</a> in concept.</p>
+<p>We simply chain iterators that yield index hits. Those can be:</p>
+<ol>
+<li><strong>Read Iterators</strong>, reading hits one by one from an inverted index. i.e. <code>hello</code></li>
+<li><strong>Intersect Iterators</strong>, aggregating two or more iterators, yielding only their intersection points. i.e. <code>hello AND world</code></li>
+<li><strong>Exact Intersect Iterators</strong> - same as above, but yielding results only if the intersection is an exact phrase. i.e. <code>hello NEAR world</code></li>
+<li><strong>Union Iterators</strong> - combining two or more iterators, and yielding a union of their hits. i.e. <code>hello OR world</code></li>
+</ol>
+<p>These are combined based on the query as an execution plan that is evaluated lazily. For example:</p>
+<div class="codehilite"><pre><span></span>hello ==&gt; read(&quot;hello&quot;)
+
+hello world ==&gt; intersect( read(&quot;hello&quot;), read(&quot;world&quot;) ) 
+
+&quot;hello world&quot; ==&gt; exact_intersect( read(&quot;hello&quot;), read(&quot;world&quot;) )
+
+&quot;hello world&quot; foo ==&gt; intersect( 
+                            exact_intersect(
+                                read(&quot;hello&quot;), 
+                                read(&quot;world&quot;)
+                            ), 
+                            read(&quot;foo&quot;)
+                      ) 
+</pre></div>
+
+
+<p>All these iterators are lazy evaluated, entry by entry, with constant memory overhead. </p>
+<p>The "root" iterator is read by the query execution engine, and filtered for the top N results in it.</p>
+<h2 id="numeric_filters">Numeric Filters<a class="headerlink" href="#numeric_filters" title="Permanent link">&para;</a></h2>
+<p>We support defining a field in the index schema as "NUMERIC", meaning you will be able to limit search results only to ones where the given value falls within a specific range. Filtering is done by adding <code>FILTER</code> predicates (more than one is supported) to your query. e.g.: </p>
+<div class="codehilite"><pre><span></span>FT.SEARCH products &quot;hd tv&quot; FILTER price 100 (300
+</pre></div>
+
+
+<p>The filter syntax follows the ZRANGEBYSCORE semantics of Redis, meaning <code>-inf</code> and <code>+inf</code> are supported, and prepending <code>(</code> to a number means an exclusive range. </p>
+<p>As of release 0.6, the implementation uses a multi-level range tree, saving ranges at multiple resolutions, to allow efficient range scanning. Adding numeric filters can accelerate slow queries if the numeric range is small relative to the entire span of the filtered field. For example, a filter on dates focusing on a few days out of years of data, can speed a heavy query by an order of magnitude.</p>
+<h2 id="auto-complete_and_fuzzy_suggestions">Auto-Complete and Fuzzy Suggestions<a class="headerlink" href="#auto-complete_and_fuzzy_suggestions" title="Permanent link">&para;</a></h2>
+<p>Another important feature for RediSearch is its auto-complete or suggest commands. It allows you to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix.  For example, if we put the term “lcd tv” into a dictionary, sending the prefix “lc” will return it as a result. The dictionary is modelled as a compressed trie (prefix tree) with weights, that is traversed to find the top suffixes of a prefix.</p>
+<p>RediSearch also allows for Fuzzy Suggestions, meaning you can get suggestions to user prefixes even if the user has a typo in the prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein distance of a term or prefix. Then suggested are weighted based on both their original score and distance from the prefix typed by the user. Currently we support (for performance reasons) only suggestions where the prefix is up to 1 Levenshtein distance away from the typed prefix.</p>
+<p>However, since searching for fuzzy prefixes, especially very short ones, will traverse an enormous amount of suggestions (in fact, fuzzy suggestions for any single letter will traverse the entire dictionary!), it is recommended to use this feature carefully, and only when considering the performance penalty it incurs. Since Redis is single threaded, blocking it for any amount of time means no other queries can be processed at that time. </p>
+<p>To support unicode fuzzy matching, we use 16-bit "runes" inside the trie and not bytes. This increases memory consumption if the text is purely ASCII, but allows completion with the same level of support to all modern languages. This is done in the following manner:</p>
+<ol>
+<li>We assume all input to FT.SUG* commands is valid utf-8.</li>
+<li>We convert the input strings to 32-bit Unicode, optionally normalizing, case-folding and removing accents on the way. If the conversion fails it's because the input is not valid utf-8.</li>
+<li>We trim the 32-bit runes to 16-bit runes using the lower 16 bits. These can be used for insertion, deletion, and search.</li>
+<li>We convert the output of searches back to utf-8.</li>
+</ol>
+                
+                  
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        
+<footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+        powered by
+        <a href="https://www.mkdocs.org">MkDocs</a>
+        and
+        <a href="https://squidfunk.github.io/mkdocs-material/">
+          Material for MkDocs</a>
+      </div>
+      
+        
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="../assets/javascripts/application.9e1f3b71.js"></script>
+      
+      <script>app.initialize({version:"1.0.4",url:{base:".."}})</script>
+      
+    
+    
+      
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(a){a.host!=document.location.host&&a.addEventListener("click",function(){var e=a.getAttribute("data-md-action")||"follow";ga("send","event","outbound",e,a.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
+      
+    
+  </body>
+</html>
