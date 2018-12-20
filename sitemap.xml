@@ -1,137 +1,137 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-     <loc>https://oss.redislabs.com/redisearch/</loc>
+     <loc>https://oss.redislabs.com/redisearch/index.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Quick_Start/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Quick_Start.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Commands/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Commands.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Configuring/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Configuring.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Administration/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Administration.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Query_Syntax/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Query_Syntax.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Stopwords/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Stopwords.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Aggregations/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Aggregations.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Escaping/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Escaping.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Sorting/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Sorting.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Tags/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Tags.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Highlight/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Highlight.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Scoring/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Scoring.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Extensions/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Extensions.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Stemming/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Stemming.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Synonyms/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Synonyms.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/payloads/</loc>
+     <loc>https://oss.redislabs.com/redisearch/payloads.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Spellcheck/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Spellcheck.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Phonetic_Matching/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Phonetic_Matching.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Clients/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Clients.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/python_client/</loc>
+     <loc>https://oss.redislabs.com/redisearch/python_client.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/java_client/</loc>
+     <loc>https://oss.redislabs.com/redisearch/java_client.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/go_client/</loc>
+     <loc>https://oss.redislabs.com/redisearch/go_client.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/design/gc/</loc>
+     <loc>https://oss.redislabs.com/redisearch/design/gc.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Threading/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Threading.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/Chinese/</loc>
+     <loc>https://oss.redislabs.com/redisearch/Chinese.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>
     <url>
-     <loc>https://oss.redislabs.com/redisearch/contrib/</loc>
+     <loc>https://oss.redislabs.com/redisearch/contrib.html</loc>
      <lastmod>2018-12-20</lastmod>
      <changefreq>daily</changefreq>
     </url>

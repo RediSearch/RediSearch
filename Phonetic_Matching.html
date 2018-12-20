@@ -11,6 +11,8 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Phonetic_Matching.html">
+      
       
       
         <meta name="lang:clipboard.copy" content="Copy to clipboard">
@@ -31,18 +33,18 @@
       
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
-      <link rel="shortcut icon" href="/redisearch/img/favicon.png">
+      <link rel="shortcut icon" href="img/favicon.png">
       <meta name="generator" content="mkdocs-1.0.4, mkdocs-material-3.1.0">
     
     
       
-        <title>RediSearch Documentation</title>
+        <title>Phonetic Matching - RediSearch Documentation</title>
       
     
     
-      <link rel="stylesheet" href="/redisearch/assets/stylesheets/application.11e41852.css">
+      <link rel="stylesheet" href="assets/stylesheets/application.11e41852.css">
       
-        <link rel="stylesheet" href="/redisearch/assets/stylesheets/application-palette.22915126.css">
+        <link rel="stylesheet" href="assets/stylesheets/application-palette.22915126.css">
       
       
         
@@ -51,7 +53,7 @@
       
     
     
-      <script src="/redisearch/assets/javascripts/modernizr.20ef595d.js"></script>
+      <script src="assets/javascripts/modernizr.20ef595d.js"></script>
     
     
       
@@ -60,7 +62,7 @@
         <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
       
     
-    <link rel="stylesheet" href="/redisearch/assets/fonts/material-icons.css">
+    <link rel="stylesheet" href="assets/fonts/material-icons.css">
     
     
     
@@ -99,6 +101,10 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="__drawer"></label>
     
+      <a href="#phonetic_matching" tabindex="1" class="md-skip">
+        Skip to content
+      </a>
+    
     
       <header class="md-header" data-md-component="header">
   <nav class="md-header-nav md-grid">
@@ -106,7 +112,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <img src="/redisearch/logo_small.png" width="24" height="24">
+            <img src="logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -121,7 +127,7 @@
                 RediSearch Documentation
               </span>
               <span class="md-header-nav__topic">
-                
+                Phonetic Matching
               </span>
             
           
@@ -202,7 +208,7 @@
   <label class="md-nav__title md-nav__title--site" for="__drawer">
     <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-nav__button md-logo">
       
-        <img src="/redisearch/logo_small.png" width="48" height="48">
+        <img src="logo_small.png" width="48" height="48">
       
     </a>
     RediSearch Documentation
@@ -238,7 +244,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/index.html" title="Home" class="md-nav__link">
+    <a href="index.html" title="Home" class="md-nav__link">
       Home
     </a>
   </li>
@@ -250,7 +256,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Quick_Start.html" title="Quick Start" class="md-nav__link">
+    <a href="Quick_Start.html" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
   </li>
@@ -262,7 +268,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Commands.html" title="Command Reference" class="md-nav__link">
+    <a href="Commands.html" title="Command Reference" class="md-nav__link">
       Command Reference
     </a>
   </li>
@@ -274,7 +280,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Configuring.html" title="Configuration" class="md-nav__link">
+    <a href="Configuring.html" title="Configuration" class="md-nav__link">
       Configuration
     </a>
   </li>
@@ -286,7 +292,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Administration.html" title="Administration" class="md-nav__link">
+    <a href="Administration.html" title="Administration" class="md-nav__link">
       Administration
     </a>
   </li>
@@ -296,10 +302,12 @@
       
       
 
+  
 
-  <li class="md-nav__item md-nav__item--nested">
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
     
     <label class="md-nav__link" for="nav-6">
       Reference
@@ -317,7 +325,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Query_Syntax.html" title="Query Syntax" class="md-nav__link">
+    <a href="Query_Syntax.html" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
@@ -329,7 +337,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Stopwords.html" title="Stop-Words" class="md-nav__link">
+    <a href="Stopwords.html" title="Stop-Words" class="md-nav__link">
       Stop-Words
     </a>
   </li>
@@ -341,7 +349,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Aggregations.html" title="Aggregations" class="md-nav__link">
+    <a href="Aggregations.html" title="Aggregations" class="md-nav__link">
       Aggregations
     </a>
   </li>
@@ -353,7 +361,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
+    <a href="Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
       Tokenization and Escaping
     </a>
   </li>
@@ -365,7 +373,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Sorting.html" title="Sortable Values" class="md-nav__link">
+    <a href="Sorting.html" title="Sortable Values" class="md-nav__link">
       Sortable Values
     </a>
   </li>
@@ -377,7 +385,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Tags.html" title="Tag Fields" class="md-nav__link">
+    <a href="Tags.html" title="Tag Fields" class="md-nav__link">
       Tag Fields
     </a>
   </li>
@@ -389,7 +397,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Highlight.html" title="Highlighting Results" class="md-nav__link">
+    <a href="Highlight.html" title="Highlighting Results" class="md-nav__link">
       Highlighting Results
     </a>
   </li>
@@ -401,7 +409,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Scoring.html" title="Scoring Documents" class="md-nav__link">
+    <a href="Scoring.html" title="Scoring Documents" class="md-nav__link">
       Scoring Documents
     </a>
   </li>
@@ -413,7 +421,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Extensions.html" title="Extension API" class="md-nav__link">
+    <a href="Extensions.html" title="Extension API" class="md-nav__link">
       Extension API
     </a>
   </li>
@@ -425,7 +433,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Stemming.html" title="Stemming Support" class="md-nav__link">
+    <a href="Stemming.html" title="Stemming Support" class="md-nav__link">
       Stemming Support
     </a>
   </li>
@@ -437,7 +445,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Synonyms.html" title="Synonyms Support" class="md-nav__link">
+    <a href="Synonyms.html" title="Synonyms Support" class="md-nav__link">
       Synonyms Support
     </a>
   </li>
@@ -449,7 +457,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/payloads.html" title="Document Payloads" class="md-nav__link">
+    <a href="payloads.html" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
   </li>
@@ -461,7 +469,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Spellcheck.html" title="Spelling Correction" class="md-nav__link">
+    <a href="Spellcheck.html" title="Spelling Correction" class="md-nav__link">
       Spelling Correction
     </a>
   </li>
@@ -471,11 +479,49 @@
           
           
 
+  
 
-  <li class="md-nav__item">
-    <a href="/redisearch/Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        Phonetic Matching
+      </label>
+    
+    <a href="Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link md-nav__link--active">
       Phonetic Matching
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#phonetic_algorithms_support" title="Phonetic algorithms support" class="md-nav__link">
+    Phonetic algorithms support
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
         
@@ -509,7 +555,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Clients.html" title="Client Libraries" class="md-nav__link">
+    <a href="Clients.html" title="Client Libraries" class="md-nav__link">
       Client Libraries
     </a>
   </li>
@@ -521,7 +567,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/python_client.html" title="Python API" class="md-nav__link">
+    <a href="python_client.html" title="Python API" class="md-nav__link">
       Python API
     </a>
   </li>
@@ -533,7 +579,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/java_client.html" title="Java API" class="md-nav__link">
+    <a href="java_client.html" title="Java API" class="md-nav__link">
       Java API
     </a>
   </li>
@@ -545,7 +591,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/go_client.html" title="Go API" class="md-nav__link">
+    <a href="go_client.html" title="Go API" class="md-nav__link">
       Go API
     </a>
   </li>
@@ -581,7 +627,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/design/gc.html" title="Garbage Collection" class="md-nav__link">
+    <a href="design/gc.html" title="Garbage Collection" class="md-nav__link">
       Garbage Collection
     </a>
   </li>
@@ -617,7 +663,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
+    <a href="Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
       Multi-Threading in RediSearch
     </a>
   </li>
@@ -634,7 +680,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/Chinese.html" title="Chinese Support" class="md-nav__link">
+    <a href="Chinese.html" title="Chinese Support" class="md-nav__link">
       Chinese Support
     </a>
   </li>
@@ -646,7 +692,7 @@
 
 
   <li class="md-nav__item">
-    <a href="/redisearch/contrib.html" title="Contributor agreement" class="md-nav__link">
+    <a href="contrib.html" title="Contributor agreement" class="md-nav__link">
       Contributor agreement
     </a>
   </li>
@@ -659,12 +705,56 @@
               </div>
             
             
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#phonetic_algorithms_support" title="Phonetic algorithms support" class="md-nav__link">
+    Phonetic algorithms support
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
           
           <div class="md-content">
             <article class="md-content__inner md-typeset">
               
-  <h1>404 - Not found</h1>
-
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Phonetic_Matching.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                
+                
+                <h1 id="phonetic_matching">Phonetic Matching<a class="headerlink" href="#phonetic_matching" title="Permanent link">&para;</a></h1>
+<p>Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronounciation. This capability can be a useful tool when searching for names of people.</p>
+<p>Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronounciation. This allows indexing terms, and consequently searching, by their pronounciation.</p>
+<p>As of v1.4 RediSearch provides phonetic matching via the definition of text fields with the <code>PHONETIC</code> attribute. This causes the terms in such fields to be indexed both by their textual value as well as their phonetic approximation.</p>
+<p>Performing a search on <code>PHONETIC</code> fields will, by default, also return results for phonetically similar terms. This behavior can be controlled with the <a href="Query_Syntax.html#query_attributes"><code>$phonetic</code> query attribute</a>.</p>
+<h2 id="phonetic_algorithms_support">Phonetic algorithms support<a class="headerlink" href="#phonetic_algorithms_support" title="Permanent link">&para;</a></h2>
+<p>RediSearch currently supports a single phonetic algorithm, the <a href="https://en.wikipedia.org/wiki/Metaphone#Double_Metaphone">Double Metaphone</a> (DM). It uses the implementation at <a href="https://github.com/slacy/double-metaphone">slacy/double-metaphone</a>, which provides general support for Latin languages.</p>
+                
+                  
+                
+              
               
                 
 
@@ -677,6 +767,41 @@
       
         
 <footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="Spellcheck.html" title="Spelling Correction" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                Spelling Correction
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="Clients.html" title="Client Libraries" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Client Libraries
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
@@ -697,9 +822,9 @@
       
     </div>
     
-      <script src="/redisearch/assets/javascripts/application.9e1f3b71.js"></script>
+      <script src="assets/javascripts/application.9e1f3b71.js"></script>
       
-      <script>app.initialize({version:"1.0.4",url:{base:"/redisearch"}})</script>
+      <script>app.initialize({version:"1.0.4",url:{base:"."}})</script>
       
     
     

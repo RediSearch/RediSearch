@@ -1,0 +1,1863 @@
+
+
+
+
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <meta http-equiv="x-ua-compatible" content="ie=edge">
+      
+      
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Aggregations.html">
+      
+      
+      
+        <meta name="lang:clipboard.copy" content="Copy to clipboard">
+      
+        <meta name="lang:clipboard.copied" content="Copied to clipboard">
+      
+        <meta name="lang:search.language" content="en">
+      
+        <meta name="lang:search.pipeline.stopwords" content="True">
+      
+        <meta name="lang:search.pipeline.trimmer" content="True">
+      
+        <meta name="lang:search.result.none" content="No matching documents">
+      
+        <meta name="lang:search.result.one" content="1 matching document">
+      
+        <meta name="lang:search.result.other" content="# matching documents">
+      
+        <meta name="lang:search.tokenizer" content="[\s\-]+">
+      
+      <link rel="shortcut icon" href="img/favicon.png">
+      <meta name="generator" content="mkdocs-1.0.4, mkdocs-material-3.1.0">
+    
+    
+      
+        <title>Aggregations - RediSearch Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/application.11e41852.css">
+      
+        <link rel="stylesheet" href="assets/stylesheets/application-palette.22915126.css">
+      
+      
+        
+        
+        <meta name="theme-color" content="#3f51b5">
+      
+    
+    
+      <script src="assets/javascripts/modernizr.20ef595d.js"></script>
+    
+    
+      
+        <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
+        <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
+      
+    
+    <link rel="stylesheet" href="assets/fonts/material-icons.css">
+    
+    
+    
+  </head>
+  
+    
+    
+    <body dir="ltr" data-md-color-primary="indigo" data-md-color-accent="red">
+  
+    <svg class="md-svg">
+      <defs>
+        
+        
+          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448"
+    viewBox="0 0 416 448" id="__github">
+  <path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19-18.125
+        8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19 18.125-8.5
+        18.125 8.5 10.75 19 3.125 20.5zM320 304q0 10-3.125 20.5t-10.75
+        19-18.125 8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19
+        18.125-8.5 18.125 8.5 10.75 19 3.125 20.5zM360
+        304q0-30-17.25-51t-46.75-21q-10.25 0-48.75 5.25-17.75 2.75-39.25
+        2.75t-39.25-2.75q-38-5.25-48.75-5.25-29.5 0-46.75 21t-17.25 51q0 22 8
+        38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0
+        37.25-1.75t35-7.375 30.5-15 20.25-25.75 8-38.375zM416 260q0 51.75-15.25
+        82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5-41.75
+        1.125q-19.5 0-35.5-0.75t-36.875-3.125-38.125-7.5-34.25-12.875-30.25-20.25-21.5-28.75q-15.5-30.75-15.5-82.75
+        0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25
+        30.875q36.75-8.75 77.25-8.75 37 0 70 8 26.25-20.5
+        46.75-30.25t47.25-9.75q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34
+        99.5z" />
+</svg>
+        
+      </defs>
+    </svg>
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" data-md-component="overlay" for="__drawer"></label>
+    
+      <a href="#redisearch_aggregations" tabindex="1" class="md-skip">
+        Skip to content
+      </a>
+    
+    
+      <header class="md-header" data-md-component="header">
+  <nav class="md-header-nav md-grid">
+    <div class="md-flex">
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+          
+            <img src="logo_small.png" width="24" height="24">
+          
+        </a>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <label class="md-icon md-icon--menu md-header-nav__button" for="__drawer"></label>
+      </div>
+      <div class="md-flex__cell md-flex__cell--stretch">
+        <div class="md-flex__ellipsis md-header-nav__title" data-md-component="title">
+          
+            
+              <span class="md-header-nav__topic">
+                RediSearch Documentation
+              </span>
+              <span class="md-header-nav__topic">
+                Aggregations
+              </span>
+            
+          
+        </div>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        
+          
+            <label class="md-icon md-icon--search md-header-nav__button" for="__search"></label>
+            
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query" data-md-state="active">
+      <label class="md-icon md-search__icon" for="__search"></label>
+      <button type="reset" class="md-icon md-search__icon" data-md-component="reset" tabindex="-1">
+        &#xE5CD;
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="result">
+          <div class="md-search-result__meta">
+            Type to start searching
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+          
+        
+      </div>
+      
+        <div class="md-flex__cell md-flex__cell--shrink">
+          <div class="md-header-nav__source">
+            
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+          </div>
+        </div>
+      
+    </div>
+  </nav>
+</header>
+    
+    <div class="md-container">
+      
+        
+      
+      
+      <main class="md-main">
+        <div class="md-main__inner md-grid" data-md-component="container">
+          
+            
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    <nav class="md-nav md-nav--primary" data-md-level="0">
+  <label class="md-nav__title md-nav__title--site" for="__drawer">
+    <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-nav__button md-logo">
+      
+        <img src="logo_small.png" width="48" height="48">
+      
+    </a>
+    RediSearch Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="index.html" title="Home" class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Quick_Start.html" title="Quick Start" class="md-nav__link">
+      Quick Start
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Commands.html" title="Command Reference" class="md-nav__link">
+      Command Reference
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Configuring.html" title="Configuration" class="md-nav__link">
+      Configuration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Administration.html" title="Administration" class="md-nav__link">
+      Administration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Query_Syntax.html" title="Query Syntax" class="md-nav__link">
+      Query Syntax
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Stopwords.html" title="Stop-Words" class="md-nav__link">
+      Stop-Words
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        Aggregations
+      </label>
+    
+    <a href="Aggregations.html" title="Aggregations" class="md-nav__link md-nav__link--active">
+      Aggregations
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core_concepts" title="Core concepts" class="md-nav__link">
+    Core concepts
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aggregate_request_format" title="Aggregate request format" class="md-nav__link">
+    Aggregate request format
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parameters_in_detail" title="Parameters in detail" class="md-nav__link">
+    Parameters in detail
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick_example" title="Quick example" class="md-nav__link">
+    Quick example
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example_1_unique_users_by_hour_ordered_chronologically" title="Example 1: unique users by hour, ordered chronologically." class="md-nav__link">
+    Example 1: unique users by hour, ordered chronologically.
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example_2_sort_visits_to_a_specific_url_by_day_and_country" title="Example 2: Sort visits to a specific URL by day and country:" class="md-nav__link">
+    Example 2: Sort visits to a specific URL by day and country:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#groupby_reducers" title="GROUPBY reducers" class="md-nav__link">
+    GROUPBY reducers
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported_groupby_reducers" title="Supported GROUPBY reducers" class="md-nav__link">
+    Supported GROUPBY reducers
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#count" title="COUNT" class="md-nav__link">
+    COUNT
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count_distinct" title="COUNT_DISTINCT" class="md-nav__link">
+    COUNT_DISTINCT
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count_distinctish" title="COUNT_DISTINCTISH" class="md-nav__link">
+    COUNT_DISTINCTISH
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sum" title="SUM" class="md-nav__link">
+    SUM
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#min" title="MIN" class="md-nav__link">
+    MIN
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#max" title="MAX" class="md-nav__link">
+    MAX
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#avg" title="AVG" class="md-nav__link">
+    AVG
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stddev" title="STDDEV" class="md-nav__link">
+    STDDEV
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantile" title="QUANTILE" class="md-nav__link">
+    QUANTILE
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tolist" title="TOLIST" class="md-nav__link">
+    TOLIST
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#first_value" title="FIRST_VALUE" class="md-nav__link">
+    FIRST_VALUE
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#random_sample" title="RANDOM_SAMPLE" class="md-nav__link">
+    RANDOM_SAMPLE
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#apply_expressions" title="APPLY expressions" class="md-nav__link">
+    APPLY expressions
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#literals_inside_expressions" title="Literals inside expressions" class="md-nav__link">
+    Literals inside expressions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arithmetic_operations" title="Arithmetic operations" class="md-nav__link">
+    Arithmetic operations
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_numeric_apply_functions" title="List of numeric APPLY functions" class="md-nav__link">
+    List of numeric APPLY functions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_string_apply_functions" title="List of string APPLY functions" class="md-nav__link">
+    List of string APPLY functions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_datetime_apply_functions" title="List of date/time APPLY functions" class="md-nav__link">
+    List of date/time APPLY functions
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#filter_expressions" title="FILTER expressions" class="md-nav__link">
+    FILTER expressions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cursor_api" title="Cursor API" class="md-nav__link">
+    Cursor API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cursor_settings" title="Cursor settings" class="md-nav__link">
+    Cursor settings
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#read_size" title="Read size" class="md-nav__link">
+    Read size
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts_and_limits" title="Timeouts and limits" class="md-nav__link">
+    Timeouts and limits
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other_cursor_commands" title="Other cursor commands" class="md-nav__link">
+    Other cursor commands
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
+      Tokenization and Escaping
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Sorting.html" title="Sortable Values" class="md-nav__link">
+      Sortable Values
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Tags.html" title="Tag Fields" class="md-nav__link">
+      Tag Fields
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Highlight.html" title="Highlighting Results" class="md-nav__link">
+      Highlighting Results
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Scoring.html" title="Scoring Documents" class="md-nav__link">
+      Scoring Documents
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Extensions.html" title="Extension API" class="md-nav__link">
+      Extension API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Stemming.html" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Synonyms.html" title="Synonyms Support" class="md-nav__link">
+      Synonyms Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="payloads.html" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Spellcheck.html" title="Spelling Correction" class="md-nav__link">
+      Spelling Correction
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link">
+      Phonetic Matching
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+    
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Clients.html" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="python_client.html" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="java_client.html" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="go_client.html" title="Go API" class="md-nav__link">
+      Go API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
+      Design Documents
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-8">
+        Design Documents
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="design/gc.html" title="Garbage Collection" class="md-nav__link">
+      Garbage Collection
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
+    
+    <label class="md-nav__link" for="nav-9">
+      Articles
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-9">
+        Articles
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
+      Multi-Threading in RediSearch
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Chinese.html" title="Chinese Support" class="md-nav__link">
+      Chinese Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="contrib.html" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core_concepts" title="Core concepts" class="md-nav__link">
+    Core concepts
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aggregate_request_format" title="Aggregate request format" class="md-nav__link">
+    Aggregate request format
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parameters_in_detail" title="Parameters in detail" class="md-nav__link">
+    Parameters in detail
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick_example" title="Quick example" class="md-nav__link">
+    Quick example
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example_1_unique_users_by_hour_ordered_chronologically" title="Example 1: unique users by hour, ordered chronologically." class="md-nav__link">
+    Example 1: unique users by hour, ordered chronologically.
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example_2_sort_visits_to_a_specific_url_by_day_and_country" title="Example 2: Sort visits to a specific URL by day and country:" class="md-nav__link">
+    Example 2: Sort visits to a specific URL by day and country:
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#groupby_reducers" title="GROUPBY reducers" class="md-nav__link">
+    GROUPBY reducers
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported_groupby_reducers" title="Supported GROUPBY reducers" class="md-nav__link">
+    Supported GROUPBY reducers
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#count" title="COUNT" class="md-nav__link">
+    COUNT
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count_distinct" title="COUNT_DISTINCT" class="md-nav__link">
+    COUNT_DISTINCT
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count_distinctish" title="COUNT_DISTINCTISH" class="md-nav__link">
+    COUNT_DISTINCTISH
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sum" title="SUM" class="md-nav__link">
+    SUM
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#min" title="MIN" class="md-nav__link">
+    MIN
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#max" title="MAX" class="md-nav__link">
+    MAX
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#avg" title="AVG" class="md-nav__link">
+    AVG
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stddev" title="STDDEV" class="md-nav__link">
+    STDDEV
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantile" title="QUANTILE" class="md-nav__link">
+    QUANTILE
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tolist" title="TOLIST" class="md-nav__link">
+    TOLIST
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#first_value" title="FIRST_VALUE" class="md-nav__link">
+    FIRST_VALUE
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#random_sample" title="RANDOM_SAMPLE" class="md-nav__link">
+    RANDOM_SAMPLE
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#apply_expressions" title="APPLY expressions" class="md-nav__link">
+    APPLY expressions
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#literals_inside_expressions" title="Literals inside expressions" class="md-nav__link">
+    Literals inside expressions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arithmetic_operations" title="Arithmetic operations" class="md-nav__link">
+    Arithmetic operations
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_numeric_apply_functions" title="List of numeric APPLY functions" class="md-nav__link">
+    List of numeric APPLY functions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_string_apply_functions" title="List of string APPLY functions" class="md-nav__link">
+    List of string APPLY functions
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_of_datetime_apply_functions" title="List of date/time APPLY functions" class="md-nav__link">
+    List of date/time APPLY functions
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#filter_expressions" title="FILTER expressions" class="md-nav__link">
+    FILTER expressions
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cursor_api" title="Cursor API" class="md-nav__link">
+    Cursor API
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cursor_settings" title="Cursor settings" class="md-nav__link">
+    Cursor settings
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#read_size" title="Read size" class="md-nav__link">
+    Read size
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts_and_limits" title="Timeouts and limits" class="md-nav__link">
+    Timeouts and limits
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other_cursor_commands" title="Other cursor commands" class="md-nav__link">
+    Other cursor commands
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Aggregations.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                
+                
+                <h1 id="redisearch_aggregations">RediSearch Aggregations<a class="headerlink" href="#redisearch_aggregations" title="Permanent link">&para;</a></h1>
+<p>Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform <a href="https://en.wikipedia.org/wiki/Faceted_search">Faceted Search</a> style queries. </p>
+<p>For example, indexing a web-server's logs, we can create a report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc. </p>
+<h2 id="core_concepts">Core concepts<a class="headerlink" href="#core_concepts" title="Permanent link">&para;</a></h2>
+<p>The basic idea of an aggregate query is this:</p>
+<ul>
+<li>Perform a search query, filtering for records you wish to process.</li>
+<li>Build a pipeline of operations that transform the results by zero or more steps of:</li>
+<li><strong>Group and Reduce</strong>: grouping by fields in the results, and applying reducer functions on each group.</li>
+<li><strong>Sort</strong>: sort the results based on one or more fields.</li>
+<li><strong>Apply Transformations</strong>: Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones</li>
+<li><strong>Limit</strong>: Limit the result, regardless of sorting the result. </li>
+<li><strong>Filter</strong>: Filter the results (post-query) based on predicates relating to its values. </li>
+</ul>
+<p>The pipeline is dynamic and reentrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. </p>
+<p>Figure 1: Aggregation Pipeline Example
+<img alt="Aggregation Pipeline" src="https://docs.google.com/drawings/d/e/2PACX-1vRFyP17ingsG86OYNaienojHHA8DwnlVVv67-WlKxv7a7xTJCluWvs3SzXYQSS6QqwB9QZ1vqDuoJ-0/pub?w=518&amp;h=163" /></p>
+<h2 id="aggregate_request_format">Aggregate request format<a class="headerlink" href="#aggregate_request_format" title="Permanent link">&para;</a></h2>
+<p>The aggregate request's syntax is defined as follows:</p>
+<div class="codehilite"><pre><span></span><span class="n">FT</span><span class="p">.</span><span class="k">AGGREGATE</span>
+  <span class="err">{</span><span class="n">index_name</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+  <span class="err">{</span><span class="n">query_string</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+  <span class="p">[</span><span class="n">WITHSCHEMA</span><span class="p">]</span> <span class="p">[</span><span class="n">VERBATIM</span><span class="p">]</span>
+  <span class="p">[</span><span class="k">LOAD</span> <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">property</span><span class="p">:</span><span class="n">string</span><span class="err">}</span> <span class="p">...]</span>
+  <span class="p">[</span><span class="n">GROUPBY</span>
+    <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">property</span><span class="p">:</span><span class="n">string</span><span class="err">}</span> <span class="p">...</span>
+    <span class="n">REDUCE</span>
+      <span class="err">{</span><span class="n">FUNC</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+      <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">arg</span><span class="p">:</span><span class="n">string</span><span class="err">}</span> <span class="p">...</span>
+      <span class="p">[</span><span class="k">AS</span> <span class="err">{</span><span class="n">name</span><span class="p">:</span><span class="n">string</span><span class="err">}</span><span class="p">]</span>
+    <span class="p">...</span>
+  <span class="p">]</span> <span class="p">...</span>
+  <span class="p">[</span><span class="n">SORTBY</span>
+    <span class="err">{</span><span class="n">nargs</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">string</span><span class="err">}</span> <span class="p">...</span>
+    <span class="p">[</span><span class="k">MAX</span> <span class="err">{</span><span class="n">num</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span><span class="p">]</span> <span class="p">...</span>
+  <span class="p">]</span> <span class="p">...</span>
+  <span class="p">[</span><span class="n">APPLY</span>
+    <span class="err">{</span><span class="n">EXPR</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+    <span class="k">AS</span> <span class="err">{</span><span class="n">name</span><span class="p">:</span><span class="n">string</span><span class="err">}</span>
+  <span class="p">]</span> <span class="p">...</span>
+  <span class="p">[</span><span class="n">FILTER</span> <span class="err">{</span><span class="n">EXPR</span><span class="p">:</span><span class="n">string</span><span class="err">}</span><span class="p">]</span> <span class="p">...</span>
+  <span class="p">[</span><span class="k">LIMIT</span> <span class="err">{</span><span class="k">offset</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="err">{</span><span class="n">num</span><span class="p">:</span><span class="nb">integer</span><span class="err">}</span> <span class="p">]</span> <span class="p">...</span>
+</pre></div>
+
+
+<h4 id="parameters_in_detail">Parameters in detail<a class="headerlink" href="#parameters_in_detail" title="Permanent link">&para;</a></h4>
+<p>Parameters which may take a variable number of arguments are expressed in the
+form of <code>param {nargs} {property_1... property_N}</code>. The first argument to the
+parameter is the number of arguments following the parameter. This allows
+RediSearch to avoid a parsing ambiguity in case one of your arguments has the
+name of another parameter. For example, to sort by first name, last name, and
+country, one would specify <code>SORTBY 6 firstName ASC lastName DESC country ASC</code>.</p>
+<ul>
+<li>
+<p><strong>index_name</strong>: The index the query is executed again.</p>
+</li>
+<li>
+<p><strong>query_string</strong>: The base filtering query that retrieves the documents. It follows <strong>the exact same syntax</strong> as the search query, including filters, unions, not, optional, etc.</p>
+</li>
+<li>
+<p><strong>LOAD {nargs} {property} …</strong>: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as <strong>SORTABLE</strong>, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. </p>
+</li>
+<li>
+<p><strong>GROUPBY {nargs} {property}</strong>: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).</p>
+</li>
+<li>
+<p><strong>REDUCE {func} {nargs} {arg} … [AS {name}]</strong>: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.</p>
+<p>The reducers can have their own property names using the <code>AS {name}</code> optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property <code>@foo</code>, the resulting name will be <code>count_distinct(@foo)</code>. </p>
+</li>
+<li>
+<p><strong>SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]</strong>: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but <code>ASC</code> or <code>DESC</code> can be added for each property. <code>nargs</code> is the number of sorting parameters, including ASC and DESC. for example: <code>SORTBY 4 @foo ASC @bar DESC</code>. </p>
+<p><code>MAX</code> is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to <code>LIMIT</code>, you usually need just <code>SORTBY … MAX</code> for common queries. </p>
+</li>
+<li>
+<p><strong>APPLY {expr} AS {name}</strong>: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. <code>expr</code> is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: <code>APPLY "sqrt(@foo)/log(@bar) + 5" AS baz</code> will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. </p>
+</li>
+<li>
+<p><strong>LIMIT {offset} {num}</strong>. Limit the number of results to return just <code>num</code> results starting at index <code>offset</code> (zero based). AS mentioned above, it is much more efficient to use <code>SORTBY … MAX</code> if you are interested in just limiting the optput of a sort operation.</p>
+<p>However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by <code>SORTBY MAX</code>. For example, getting results 50-100 of the top 100 results is most efficiently expressed as <code>SORTBY 1 @foo MAX 100 LIMIT 50 50</code>. Removing the MAX from SORTBY will result in the pipeline sorting <em>all</em> the records and then paging over results 50-100. </p>
+</li>
+<li>
+<p><strong>FILTER {expr}</strong>. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.</p>
+</li>
+</ul>
+<h2 id="quick_example">Quick example<a class="headerlink" href="#quick_example" title="Permanent link">&para;</a></h2>
+<p>Let's assume we have log of visits to our website, each record containing the following fields/properties:</p>
+<ul>
+<li><strong>url</strong> (text, sortable)</li>
+<li><strong>timestamp</strong> (numeric, sortable) - unix timestamp of visit entry. </li>
+<li><strong>country</strong> (tag, sortable)</li>
+<li><strong>user_id</strong> (text, sortable, not indexed)</li>
+</ul>
+<h3 id="example_1_unique_users_by_hour_ordered_chronologically">Example 1: unique users by hour, ordered chronologically.<a class="headerlink" href="#example_1_unique_users_by_hour_ordered_chronologically" title="Permanent link">&para;</a></h3>
+<p>First of all, we want <em>all</em> records in the index, because why not. The first step is to determine the index name and the filtering query. A filter query of <code>*</code> means "get all records":</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
+</pre></div>
+
+
+<p>Now we want to group the results by hour. Since we have the visit times as unix timestamps in second resolution, we need to extract the hour component of the timestamp. So we first add an APPLY step, that strips the sub-hour information from the timestamp and stores is as a new property, <code>hour</code>:</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
+  APPLY &quot;@timestamp - (@timestamp % 3600)&quot; AS hour
+</pre></div>
+
+
+<p>Now we want to group the results by hour, and count the distinct user ids in each hour. This is done by a GROUPBY/REDUCE  step:</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
+  APPLY &quot;@timestamp - (@timestamp % 3600)&quot; AS hour
+
+  GROUPBY 1 @hour
+    REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+</pre></div>
+
+
+<p>Now we'd like to sort the results by hour, ascending:</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
+  APPLY &quot;@timestamp - (@timestamp % 3600)&quot; AS hour
+
+  GROUPBY 1 @hour
+    REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+
+  SORTBY 2 @hour ASC
+</pre></div>
+
+
+<p>And as a final step, we can format the hour as a human readable timestamp. This is done by calling the transformation function <code>timefmt</code> that formats unix timestamps. You can specify a format to be passed to the system's <code>strftime</code> function (<a href="http://strftime.org/">see documentation</a>), but not specifying one  is equivalent to specifying <code>%FT%TZ</code> to <code>strftime</code>.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;*&quot;
+  APPLY &quot;@timestamp - (@timestamp % 3600)&quot; AS hour
+
+  GROUPBY 1 @hour
+    REDUCE COUNT_DISTINCT 1 @user_id AS num_users
+
+  SORTBY 2 @hour ASC
+
+  APPLY timefmt(@hour) AS hour
+</pre></div>
+
+
+<h3 id="example_2_sort_visits_to_a_specific_url_by_day_and_country">Example 2: Sort visits to a specific URL by day and country:<a class="headerlink" href="#example_2_sort_visits_to_a_specific_url_by_day_and_country" title="Permanent link">&para;</a></h3>
+<p>In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending. </p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE myIndex &quot;@url:\&quot;about.html\&quot;&quot;
+    APPLY &quot;@timestamp - (@timestamp % 86400)&quot; AS day
+    GROUPBY 2 @day @country
+        REDUCE count 0 AS num_visits 
+    SORTBY 4 @day ASC @country DESC
+</pre></div>
+
+
+<h2 id="groupby_reducers">GROUPBY reducers<a class="headerlink" href="#groupby_reducers" title="Permanent link">&para;</a></h2>
+<p><code>GROUPBY</code> step work similarly to SQL <code>GROUP BY</code> clauses, and create groups of results based on one or more properties in each record. For each group, we return the "group keys", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more <code>REDUCE</code> clauses.</p>
+<p>Each <code>GROUPBY</code> step in the pipeline may be accompanied by zero or more <code>REDUCE</code> clauses. Reducers apply some accumulation function to each record in the group and reduce them into a single record representing the group. When we are finished processing all the records upstream of the <code>GROUPBY</code> step, each group emits its reduced record. </p>
+<p>For example, the simplest reducer is COUNT, which simply counts the number of records in each group. </p>
+<p>If multiple <code>REDUCE</code> clauses exist for a single <code>GROUPBY</code> step, each reducer works independently on each result and writes its final output once. Each reducer may have its own alias determined using the <code>AS</code> optional parameter. If <code>AS</code> is not specified, the alias is the reduce function and its parameters, e.g. <code>count_distinct(foo,bar)</code>.</p>
+<h3 id="supported_groupby_reducers">Supported GROUPBY reducers<a class="headerlink" href="#supported_groupby_reducers" title="Permanent link">&para;</a></h3>
+<h4 id="count">COUNT<a class="headerlink" href="#count" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT 0
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Count the number of records in each group </p>
+<h4 id="count_distinct">COUNT_DISTINCT<a class="headerlink" href="#count_distinct" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT_DISTINCT 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Count the number of distinct values for <code>property</code>. </p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.</p>
+</div>
+<h4 id="count_distinctish">COUNT_DISTINCTISH<a class="headerlink" href="#count_distinctish" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong> </p>
+<div class="codehilite"><pre><span></span>REDUCE COUNT_DISTINCTISH 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. </p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The reducer uses <a href="https://en.wikipedia.org/wiki/HyperLogLog">HyperLogLog</a> counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. </p>
+</div>
+<h4 id="sum">SUM<a class="headerlink" href="#sum" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE SUM 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the sum of all numeric values of a given property in a group. Non numeric values if the group are counted as 0.</p>
+<h4 id="min">MIN<a class="headerlink" href="#min" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE MIN 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the minimal value of a property, whether it is a string, number or NULL.</p>
+<h4 id="max">MAX<a class="headerlink" href="#max" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE MAX 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the maximal value of a property, whether it is a string, number or NULL.</p>
+<h4 id="avg">AVG<a class="headerlink" href="#avg" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE AVG 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the average value of a numeric property. This is equivalent to reducing by sum and count, and later on applying the ratio of them as an APPLY step.</p>
+<h4 id="stddev">STDDEV<a class="headerlink" href="#stddev" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE STDDEV 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the <a href="https://en.wikipedia.org/wiki/Standard_deviation">standard deviation</a> of a numeric property in the group.</p>
+<h4 id="quantile">QUANTILE<a class="headerlink" href="#quantile" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE QUANTILE 2 {property} {quantile}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. <code>REDUCE QUANTILE 2 @foo 0.5 AS median</code> .</p>
+<p>If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. <code>REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99</code> </p>
+<h4 id="tolist">TOLIST<a class="headerlink" href="#tolist" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE TOLIST 1 {property}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Merge all <strong>distinct</strong> values of a given property into a single array. </p>
+<h4 id="first_value">FIRST_VALUE<a class="headerlink" href="#first_value" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE FIRST_VALUE {nargs} {property} [BY {property} [ASC|DESC]]
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Return the first or top value of a given property in the group, optionally by comparing that or another property. For example, you can extract the name of the oldest user in the group:</p>
+<div class="codehilite"><pre><span></span>REDUCE FIRST_VALUE 4 @name BY @age DESC
+</pre></div>
+
+
+<p>If no <code>BY</code> is specified, we return the first value we encounter in the group.</p>
+<p>If you with to get the top or bottom value in the group sorted by the same value, you are better off using the <code>MIN/MAX</code> reducers, but the same effect will be achieved by doing <code>REDUCE FIRST_VALUE 4 @foo BY @foo DESC</code>.</p>
+<h4 id="random_sample">RANDOM_SAMPLE<a class="headerlink" href="#random_sample" title="Permanent link">&para;</a></h4>
+<p><strong>Format</strong></p>
+<div class="codehilite"><pre><span></span>REDUCE RANDOM_SAMPLE {nargs} {property} {sample_size}
+</pre></div>
+
+
+<p><strong>Description</strong></p>
+<p>Perform a reservoir sampling of the group elements with a given size, and return an array of the sampled items with an even distribution.</p>
+<h2 id="apply_expressions">APPLY expressions<a class="headerlink" href="#apply_expressions" title="Permanent link">&para;</a></h2>
+<p><code>APPLY</code> performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. </p>
+<p>The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example: <code>sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)</code> or simply <code>@foo/@bar</code>.</p>
+<p>If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result. </p>
+<p>APPLY steps must have an explicit alias determined by the <code>AS</code> parameter.</p>
+<h3 id="literals_inside_expressions">Literals inside expressions<a class="headerlink" href="#literals_inside_expressions" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Numbers are expressed as integers or floating point numbers, i.e. <code>2</code>, <code>3.141</code>, <code>-34</code>, etc. <code>inf</code> and <code>-inf</code> are acceptable as well.</li>
+<li>Strings are quoted with either single or double quotes. Single quotes are acceptable inside strings quoted with double quotes and vice versa. Punctuation marks can be escaped with backslashes. e.g. <code>"foo's bar"</code> ,<code>'foo\'s bar'</code>, <code>"foo \"bar\""</code> .</li>
+<li>Any literal or sub expression can be wrapped in parentheses to resolve ambiguities of operator precedence.</li>
+</ul>
+<h3 id="arithmetic_operations">Arithmetic operations<a class="headerlink" href="#arithmetic_operations" title="Permanent link">&para;</a></h3>
+<p>For numeric expressions and properties, we support addition (<code>+</code>), subtraction (<code>-</code>), multiplication (<code>*</code>), division (<code>/</code>), modulo (<code>%</code>) and power (<code>^</code>). We currently do not support bitwise logical operators.  </p>
+<p>Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.</p>
+<h3 id="list_of_numeric_apply_functions">List of numeric APPLY functions<a class="headerlink" href="#list_of_numeric_apply_functions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Description</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>log(x)</td>
+<td>Return the logarithm of a number, property or sub-expression</td>
+<td><code>log(@foo)</code></td>
+</tr>
+<tr>
+<td>abs(x)</td>
+<td>Return the absolute number of a numeric expression</td>
+<td><code>abs(@foo-@bar)</code></td>
+</tr>
+<tr>
+<td>ceil(x)</td>
+<td>Round to the smallest value not less than x</td>
+<td><code>ceil(@foo/3.14)</code></td>
+</tr>
+<tr>
+<td>floor(x)</td>
+<td>Round to largest value not greater than x</td>
+<td><code>floor(@foo/3.14)</code></td>
+</tr>
+<tr>
+<td>log2(x)</td>
+<td>Return the  logarithm of x to base 2</td>
+<td><code>log2(2^@foo)</code></td>
+</tr>
+<tr>
+<td>exp(x)</td>
+<td>Return the exponent of x, i.e. <code>e^x</code></td>
+<td><code>exp(@foo)</code></td>
+</tr>
+<tr>
+<td>sqrt(x)</td>
+<td>Return the square root of x</td>
+<td><code>sqrt(@foo)</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="list_of_string_apply_functions">List of string APPLY functions<a class="headerlink" href="#list_of_string_apply_functions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>upper(s)</td>
+<td>Return the uppercase conversion of s</td>
+<td><code>upper('hello world')</code></td>
+</tr>
+<tr>
+<td>lower(s)</td>
+<td>Return the lowercase conversion of 2</td>
+<td><code>lower("HELLO WORLD")</code></td>
+</tr>
+<tr>
+<td>substr(s, offset, count)</td>
+<td>Return the substring of s, starting at <em>offset</em> and having <em>count</em> characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset".</td>
+<td><code>substr("hello", 0, 3)</code> <br> <code>substr("hello", -2, -1)</code></td>
+</tr>
+<tr>
+<td>format( fmt, ...)</td>
+<td>Use the arguments following <code>fmt</code> to format a string. <br />Currently the only format argument supported is <code>%s</code> and it applies to all types of arguments.</td>
+<td><code>format("Hello, %s, you are %s years old", @name, @age)</code></td>
+</tr>
+<tr>
+<td>matched_terms([max_terms=100])</td>
+<td>Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order.</td>
+<td><code>matched_terms()</code></td>
+</tr>
+<tr>
+<td>split(s, [sep=","], [strip=" "])</td>
+<td>Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array.</td>
+<td>split("foo,bar")</td>
+</tr>
+</tbody>
+</table>
+<h3 id="list_of_datetime_apply_functions">List of date/time APPLY functions<a class="headerlink" href="#list_of_datetime_apply_functions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>timefmt(x, [fmt])</td>
+<td>Return a formatted time string based on a numeric timestamp value x. <br /> See <a href="http://strftime.org/">strftime</a> for formatting options. <br />Not specifying <code>fmt</code> is equivalent to <code>%FT%TZ</code>.</td>
+</tr>
+<tr>
+<td>parsetime(timesharing, [fmt])</td>
+<td>The opposite of timefmt() - parse a time format using a given format string</td>
+</tr>
+<tr>
+<td>day(timestamp)</td>
+<td>Round a Unix timestamp to midnight (00:00) start of the current day.</td>
+</tr>
+<tr>
+<td>hour(timestamp)</td>
+<td>Round a Unix timestamp to the beginning of the current hour.</td>
+</tr>
+<tr>
+<td>minute(timestamp)</td>
+<td>Round a Unix timestamp to the beginning of the current minute.</td>
+</tr>
+<tr>
+<td>month(timestamp)</td>
+<td>Round a unix timestamp to the beginning of the current month.</td>
+</tr>
+<tr>
+<td>dayofweek(timestamp)</td>
+<td>Convert a Unix timestamp to the day number (Sunday = 0).</td>
+</tr>
+<tr>
+<td>dayofmonth(timestamp)</td>
+<td>Convert a Unix timestamp to the day of month number (1 .. 31).</td>
+</tr>
+<tr>
+<td>dayofyear(timestamp)</td>
+<td>Convert a Unix timestamp to the day of year number (0 .. 365).</td>
+</tr>
+<tr>
+<td>year(timestamp)</td>
+<td>Convert a Unix timestamp to the current year (e.g. 2018).</td>
+</tr>
+<tr>
+<td>monthofyear(timestamp)</td>
+<td>Convert a Unix timestamp to the current month (0 .. 11).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="filter_expressions">FILTER expressions<a class="headerlink" href="#filter_expressions" title="Permanent link">&para;</a></h2>
+<p>FILTER expressions filter the results using predicates relating to values in the result set.</p>
+<p>The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se. </p>
+<p>Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>. Two or more predicates can be combined with logical AND (<code>&amp;&amp;</code>) and OR (<code>||</code>). A single predicate can be negated with a NOT prefix (<code>!</code>).  </p>
+<p>For example, filtering all results where the user name is 'foo' and the age is less than 20 is expressed  as:</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE 
+  ...
+  FILTER &quot;@name==&#39;foo&#39; &amp;&amp; @age &lt; 20&quot;
+  ...
+</pre></div>
+
+
+<p>Several filter steps can be added, although at the same stage in the pipeline, it is more efficient to combine several predicates into a single filter step.</p>
+<h2 id="cursor_api">Cursor API<a class="headerlink" href="#cursor_api" title="Permanent link">&para;</a></h2>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE ... WITHCURSOR [COUNT {read size} MAXIDLE {idle timeout}]
+FT.CURSOR READ {idx} {cid} [COUNT {read size}]
+FT.CURSOR DEL {idx} {cid}
+</pre></div>
+
+
+<p>You can use cursors with <code>FT.AGGREGATE</code>, with the <code>WITHCURSOR</code> keyword. Cursors allow you to
+consume only part of the response, allowing you to fetch additional results as needed.
+This is much quicker than using <code>LIMIT</code> with offset, since the query is executed only
+once, and its state is stored on the server.</p>
+<p>To use cursors, specify the <code>WITHCURSOR</code> keyword in <code>FT.AGGREGATE</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx * WITHCURSOR
+</pre></div>
+
+
+<p>This will return a response of an array with two elements. The first element is
+the actual (partial) results, and the second is the cursor ID. The cursor ID
+can then be fed to <code>FT.CURSOR READ</code> repeatedly, until the cursor ID is 0, in
+which case all results have been returned.</p>
+<p>To read from an existing cursor, use <code>FT.CURSOR READ</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR READ idx 342459320
+</pre></div>
+
+
+<p>Assuming <code>342459320</code> is the cursor ID returned from the <code>FT.AGGREGATE</code> request.</p>
+<p>Here is an example in pseudo-code:</p>
+<div class="codehilite"><pre><span></span>response, cursor = FT.AGGREGATE &quot;idx&quot; &quot;redis&quot; &quot;WITHCURSOR&quot;;
+while (1) {
+  processResponse(response)
+  if (!cursor) {
+    break;
+  }
+  response, cursor = FT.CURSOR read &quot;idx&quot; cursor
+}
+</pre></div>
+
+
+<p>Note that even if the cursor is 0, a partial result may still be returned.</p>
+<h3 id="cursor_settings">Cursor settings<a class="headerlink" href="#cursor_settings" title="Permanent link">&para;</a></h3>
+<h4 id="read_size">Read size<a class="headerlink" href="#read_size" title="Permanent link">&para;</a></h4>
+<p>You can control how many rows are read per each cursor fetch by using the
+<code>COUNT</code> parameter. This parameter can be specified both in <code>FT.AGGREGATE</code>
+(immediately after <code>WITHCURSOR</code>) or in <code>FT.CURSOR READ</code>.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx query WITHCURSOR COUNT 10
+</pre></div>
+
+
+<p>Will read 10 rows at a time.</p>
+<p>You can override this setting by also specifying <code>COUNT</code> in <code>CURSOR READ</code>, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR READ idx 342459320 COUNT 50
+</pre></div>
+
+
+<p>Will return at most 50 results.</p>
+<p>The default read size is 1000</p>
+<h4 id="timeouts_and_limits">Timeouts and limits<a class="headerlink" href="#timeouts_and_limits" title="Permanent link">&para;</a></h4>
+<p>Because cursors are stateful resources which occupy memory on the server, they
+have a limited lifetime. In order to safeguard against orphaned/stale cursors,
+cursors have an idle timeout value. If no activity occurs on the cursor before
+the idle timeout, the cursor is deleted. The idle timer resets to 0 whenever
+the cursor is read from using <code>CURSOR READ</code>.</p>
+<p>The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify
+the idle timeout using the <code>MAXIDLE</code> keyword when creating the cursor. Note that
+the value cannot exceed the default 30s.</p>
+<div class="codehilite"><pre><span></span>FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
+</pre></div>
+
+
+<p>Will set the limit for 10 seconds.</p>
+<h3 id="other_cursor_commands">Other cursor commands<a class="headerlink" href="#other_cursor_commands" title="Permanent link">&para;</a></h3>
+<p>Cursors can be explicity deleted using the <code>CURSOR DEL</code> command, e.g.</p>
+<div class="codehilite"><pre><span></span>FT.CURSOR DEL idx 342459320
+</pre></div>
+
+
+<p>Note that cursors are automatically deleted if all their results have been
+returned, or if they have been timed out.</p>
+<p>All idle cursors can be forcefully purged at once using <code>FT.CURSOR GC idx 0</code> command.
+By default, RediSearch uses a lazy throttled approach to garbage collection, which
+collects idle cursors every 500 operations, or every second - whichever is later.</p>
+                
+                  
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="Stopwords.html" title="Stop-Words" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                Stop-Words
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="Escaping.html" title="Tokenization and Escaping" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Tokenization and Escaping
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+        powered by
+        <a href="https://www.mkdocs.org">MkDocs</a>
+        and
+        <a href="https://squidfunk.github.io/mkdocs-material/">
+          Material for MkDocs</a>
+      </div>
+      
+        
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="assets/javascripts/application.9e1f3b71.js"></script>
+      
+      <script>app.initialize({version:"1.0.4",url:{base:"."}})</script>
+      
+    
+    
+      
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(a){a.host!=document.location.host&&a.addEventListener("click",function(){var e=a.getAttribute("data-md-action")||"follow";ga("send","event","outbound",e,a.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
+      
+    
+  </body>
+</html>

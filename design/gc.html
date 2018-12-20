@@ -11,7 +11,7 @@
       <meta http-equiv="x-ua-compatible" content="ie=edge">
       
       
-        <link rel="canonical" href="https://oss.redislabs.com/redisearch/index.html">
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/design/gc.html">
       
       
       
@@ -33,18 +33,18 @@
       
         <meta name="lang:search.tokenizer" content="[\s\-]+">
       
-      <link rel="shortcut icon" href="img/favicon.png">
+      <link rel="shortcut icon" href="../img/favicon.png">
       <meta name="generator" content="mkdocs-1.0.4, mkdocs-material-3.1.0">
     
     
       
-        <title>RediSearch Documentation</title>
+        <title>Garbage Collection - RediSearch Documentation</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/application.11e41852.css">
+      <link rel="stylesheet" href="../assets/stylesheets/application.11e41852.css">
       
-        <link rel="stylesheet" href="assets/stylesheets/application-palette.22915126.css">
+        <link rel="stylesheet" href="../assets/stylesheets/application-palette.22915126.css">
       
       
         
@@ -53,7 +53,7 @@
       
     
     
-      <script src="assets/javascripts/modernizr.20ef595d.js"></script>
+      <script src="../assets/javascripts/modernizr.20ef595d.js"></script>
     
     
       
@@ -62,7 +62,7 @@
         <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
       
     
-    <link rel="stylesheet" href="assets/fonts/material-icons.css">
+    <link rel="stylesheet" href="../assets/fonts/material-icons.css">
     
     
     
@@ -101,7 +101,7 @@
     <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
     <label class="md-overlay" data-md-component="overlay" for="__drawer"></label>
     
-      <a href="#redisearch_-_redis_powered_search_engine" tabindex="1" class="md-skip">
+      <a href="#garbage_collection_in_redisearch" tabindex="1" class="md-skip">
         Skip to content
       </a>
     
@@ -112,7 +112,7 @@
       <div class="md-flex__cell md-flex__cell--shrink">
         <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
           
-            <img src="logo_small.png" width="24" height="24">
+            <img src="../logo_small.png" width="24" height="24">
           
         </a>
       </div>
@@ -127,7 +127,7 @@
                 RediSearch Documentation
               </span>
               <span class="md-header-nav__topic">
-                Home
+                Garbage Collection
               </span>
             
           
@@ -208,7 +208,7 @@
   <label class="md-nav__title md-nav__title--site" for="__drawer">
     <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-nav__button md-logo">
       
-        <img src="logo_small.png" width="48" height="48">
+        <img src="../logo_small.png" width="48" height="48">
       
     </a>
     RediSearch Documentation
@@ -242,70 +242,11 @@
       
       
 
-  
 
-
-  <li class="md-nav__item md-nav__item--active">
-    
-    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="__toc">
-    
-      
-    
-    
-      <label class="md-nav__link md-nav__link--active" for="__toc">
-        Home
-      </label>
-    
-    <a href="index.html" title="Home" class="md-nav__link md-nav__link--active">
+  <li class="md-nav__item">
+    <a href="../index.html" title="Home" class="md-nav__link">
       Home
     </a>
-    
-      
-<nav class="md-nav md-nav--secondary">
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">Table of contents</label>
-    <ul class="md-nav__list" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#overview" title="Overview" class="md-nav__link">
-    Overview
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#client_libraries" title="Client Libraries" class="md-nav__link">
-    Client Libraries
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cluster_support_and_commercial_version" title="Cluster Support and Commercial Version" class="md-nav__link">
-    Cluster Support and Commercial Version
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#primary_features" title="Primary Features" class="md-nav__link">
-    Primary Features
-  </a>
-  
-</li>
-      
-      
-      
-      
-      
-    </ul>
-  
-</nav>
-    
   </li>
 
     
@@ -315,7 +256,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Quick_Start.html" title="Quick Start" class="md-nav__link">
+    <a href="../Quick_Start.html" title="Quick Start" class="md-nav__link">
       Quick Start
     </a>
   </li>
@@ -327,7 +268,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Commands.html" title="Command Reference" class="md-nav__link">
+    <a href="../Commands.html" title="Command Reference" class="md-nav__link">
       Command Reference
     </a>
   </li>
@@ -339,7 +280,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Configuring.html" title="Configuration" class="md-nav__link">
+    <a href="../Configuring.html" title="Configuration" class="md-nav__link">
       Configuration
     </a>
   </li>
@@ -351,7 +292,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Administration.html" title="Administration" class="md-nav__link">
+    <a href="../Administration.html" title="Administration" class="md-nav__link">
       Administration
     </a>
   </li>
@@ -382,7 +323,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Query_Syntax.html" title="Query Syntax" class="md-nav__link">
+    <a href="../Query_Syntax.html" title="Query Syntax" class="md-nav__link">
       Query Syntax
     </a>
   </li>
@@ -394,7 +335,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Stopwords.html" title="Stop-Words" class="md-nav__link">
+    <a href="../Stopwords.html" title="Stop-Words" class="md-nav__link">
       Stop-Words
     </a>
   </li>
@@ -406,7 +347,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Aggregations.html" title="Aggregations" class="md-nav__link">
+    <a href="../Aggregations.html" title="Aggregations" class="md-nav__link">
       Aggregations
     </a>
   </li>
@@ -418,7 +359,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
+    <a href="../Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
       Tokenization and Escaping
     </a>
   </li>
@@ -430,7 +371,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Sorting.html" title="Sortable Values" class="md-nav__link">
+    <a href="../Sorting.html" title="Sortable Values" class="md-nav__link">
       Sortable Values
     </a>
   </li>
@@ -442,7 +383,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Tags.html" title="Tag Fields" class="md-nav__link">
+    <a href="../Tags.html" title="Tag Fields" class="md-nav__link">
       Tag Fields
     </a>
   </li>
@@ -454,7 +395,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Highlight.html" title="Highlighting Results" class="md-nav__link">
+    <a href="../Highlight.html" title="Highlighting Results" class="md-nav__link">
       Highlighting Results
     </a>
   </li>
@@ -466,7 +407,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Scoring.html" title="Scoring Documents" class="md-nav__link">
+    <a href="../Scoring.html" title="Scoring Documents" class="md-nav__link">
       Scoring Documents
     </a>
   </li>
@@ -478,7 +419,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Extensions.html" title="Extension API" class="md-nav__link">
+    <a href="../Extensions.html" title="Extension API" class="md-nav__link">
       Extension API
     </a>
   </li>
@@ -490,7 +431,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Stemming.html" title="Stemming Support" class="md-nav__link">
+    <a href="../Stemming.html" title="Stemming Support" class="md-nav__link">
       Stemming Support
     </a>
   </li>
@@ -502,7 +443,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Synonyms.html" title="Synonyms Support" class="md-nav__link">
+    <a href="../Synonyms.html" title="Synonyms Support" class="md-nav__link">
       Synonyms Support
     </a>
   </li>
@@ -514,7 +455,7 @@
 
 
   <li class="md-nav__item">
-    <a href="payloads.html" title="Document Payloads" class="md-nav__link">
+    <a href="../payloads.html" title="Document Payloads" class="md-nav__link">
       Document Payloads
     </a>
   </li>
@@ -526,7 +467,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Spellcheck.html" title="Spelling Correction" class="md-nav__link">
+    <a href="../Spellcheck.html" title="Spelling Correction" class="md-nav__link">
       Spelling Correction
     </a>
   </li>
@@ -538,7 +479,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link">
+    <a href="../Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link">
       Phonetic Matching
     </a>
   </li>
@@ -574,7 +515,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Clients.html" title="Client Libraries" class="md-nav__link">
+    <a href="../Clients.html" title="Client Libraries" class="md-nav__link">
       Client Libraries
     </a>
   </li>
@@ -586,7 +527,7 @@
 
 
   <li class="md-nav__item">
-    <a href="python_client.html" title="Python API" class="md-nav__link">
+    <a href="../python_client.html" title="Python API" class="md-nav__link">
       Python API
     </a>
   </li>
@@ -598,7 +539,7 @@
 
 
   <li class="md-nav__item">
-    <a href="java_client.html" title="Java API" class="md-nav__link">
+    <a href="../java_client.html" title="Java API" class="md-nav__link">
       Java API
     </a>
   </li>
@@ -610,7 +551,7 @@
 
 
   <li class="md-nav__item">
-    <a href="go_client.html" title="Go API" class="md-nav__link">
+    <a href="../go_client.html" title="Go API" class="md-nav__link">
       Go API
     </a>
   </li>
@@ -625,10 +566,12 @@
       
       
 
+  
 
-  <li class="md-nav__item md-nav__item--nested">
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
     
-      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8" checked>
     
     <label class="md-nav__link" for="nav-8">
       Design Documents
@@ -644,11 +587,83 @@
           
           
 
+  
 
-  <li class="md-nav__item">
-    <a href="design/gc.html" title="Garbage Collection" class="md-nav__link">
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        Garbage Collection
+      </label>
+    
+    <a href="gc.html" title="Garbage Collection" class="md-nav__link md-nav__link--active">
       Garbage Collection
     </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1_the_need_for_gc" title="1. The Need For GC" class="md-nav__link">
+    1. The Need For GC
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2_garbage_collecting_a_single_term_index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+    2. Garbage Collecting a Single Term Index
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21_garbage_collection_on_numeric_indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+    2.1 Garbage Collection on Numeric Indexes
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3_gc_and_concurrency" title="3. GC And Concurrency" class="md-nav__link">
+    3. GC And Concurrency
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4_scheduling_garbage_collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+    4. Scheduling Garbage Collection
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
   </li>
 
         
@@ -682,7 +697,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
+    <a href="../Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
       Multi-Threading in RediSearch
     </a>
   </li>
@@ -699,7 +714,7 @@
 
 
   <li class="md-nav__item">
-    <a href="Chinese.html" title="Chinese Support" class="md-nav__link">
+    <a href="../Chinese.html" title="Chinese Support" class="md-nav__link">
       Chinese Support
     </a>
   </li>
@@ -711,7 +726,7 @@
 
 
   <li class="md-nav__item">
-    <a href="contrib.html" title="Contributor agreement" class="md-nav__link">
+    <a href="../contrib.html" title="Contributor agreement" class="md-nav__link">
       Contributor agreement
     </a>
   </li>
@@ -738,29 +753,42 @@
     <ul class="md-nav__list" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" title="Overview" class="md-nav__link">
-    Overview
+  <a href="#1_the_need_for_gc" title="1. The Need For GC" class="md-nav__link">
+    1. The Need For GC
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#client_libraries" title="Client Libraries" class="md-nav__link">
-    Client Libraries
+  <a href="#2_garbage_collecting_a_single_term_index" title="2. Garbage Collecting a Single Term Index" class="md-nav__link">
+    2. Garbage Collecting a Single Term Index
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21_garbage_collection_on_numeric_indexes" title="2.1 Garbage Collection on Numeric Indexes" class="md-nav__link">
+    2.1 Garbage Collection on Numeric Indexes
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3_gc_and_concurrency" title="3. GC And Concurrency" class="md-nav__link">
+    3. GC And Concurrency
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#cluster_support_and_commercial_version" title="Cluster Support and Commercial Version" class="md-nav__link">
-    Cluster Support and Commercial Version
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#primary_features" title="Primary Features" class="md-nav__link">
-    Primary Features
+  <a href="#4_scheduling_garbage_collection" title="4. Scheduling Garbage Collection" class="md-nav__link">
+    4. Scheduling Garbage Collection
   </a>
   
 </li>
@@ -781,58 +809,91 @@
             <article class="md-content__inner md-typeset">
               
                 
-                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/index.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/design/gc.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
                 
                 
-                <p><center><img alt="logo.png" src="logo.png" /></center></p>
-<h1 id="redisearch_-_redis_powered_search_engine">RediSearch - Redis Powered Search Engine<a class="headerlink" href="#redisearch_-_redis_powered_search_engine" title="Permanent link">&para;</a></h1>
-<p>RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by <a href="http://redislabs.com">Redis Labs</a>. </p>
-<div class="admonition note">
-<p class="admonition-title">Quick Links:</p>
+                <h1 id="garbage_collection_in_redisearch">Garbage Collection in RediSearch<a class="headerlink" href="#garbage_collection_in_redisearch" title="Permanent link">&para;</a></h1>
+<h2 id="1_the_need_for_gc">1. The Need For GC<a class="headerlink" href="#1_the_need_for_gc" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="https://github.com/RedisLabsModules/RediSearch">Source Code at GitHub</a>.</li>
-<li><a href="https://github.com/RedisLabsModules/RediSearch/releases">Latest Release: 1.4.2</a></li>
-<li><a href="https://hub.docker.com/r/redislabs/redisearch/">Docker Image: redislabs/redisearch</a></li>
-<li><a href="Quick_Start.html">Quick Start Guide</a></li>
-<li><a href="https://groups.google.com/forum/#!forum/redisearch">Mailing list / Forum</a></li>
+<li>Deleting documents is not really deleting them. It marks the document as deleted in the global document table, to make it fast.</li>
+<li>This means that basically an internal numeric id is no longer assigned to a document. When we traverse the index we check for deletion.</li>
+<li>Thus all inverted index entries belonging to this document id are just garbage. </li>
+<li>We do not want to go and explicitly delete them when deleting a document because it will make this operation very long and depending on the length of the document.</li>
+<li>On top of that, updating a document is basically deleting it, and then adding it again with a new incremental internal id. We do not do any diffing, and only append to the indexes, so the ids remain incremental, and the updates fast.</li>
 </ul>
-</div>
-<div class="admonition tip">
-<p class="admonition-title">Supported Platforms</p>
-<p>RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.</p>
-<p>i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. </p>
-</div>
-<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>Redisearch implements a search engine on top of Redis, but unlike other Redis 
-search libraries, it does not use internal data structures like sorted sets.</p>
-<p>This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
-that are not possible or efficient with traditional Redis search approaches.</p>
-<h2 id="client_libraries">Client Libraries<a class="headerlink" href="#client_libraries" title="Permanent link">&para;</a></h2>
-<p>Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. </p>
-<p>See the <a href="Clients.html">Clients page</a> for the full list.</p>
-<h2 id="cluster_support_and_commercial_version">Cluster Support and Commercial Version<a class="headerlink" href="#cluster_support_and_commercial_version" title="Permanent link">&para;</a></h2>
-<p>RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the <a href="https://redislabs.com/redis-enterprise/technology/redis-search/#sds">Redis Labs Website</a> for more info and contact information. </p>
-<h2 id="primary_features">Primary Features<a class="headerlink" href="#primary_features" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Full-Text indexing of multiple fields in documents.</li>
-<li>Incremental indexing without performance loss.</li>
-<li>Document ranking (provided manually by the user at index time).</li>
-<li>Complex boolean queries with AND, OR, NOT operators between sub-queries.</li>
-<li>Optional query clauses.</li>
-<li>Prefix based searches.</li>
-<li>Field weights.</li>
-<li>Auto-complete suggestions (with fuzzy prefix suggestions).</li>
-<li>Exact Phrase Search, Slop based search.</li>
-<li>Stemming based query expansion in <a href="Stemming.html">many languages</a> (using <a href="http://snowballstem.org/">Snowball</a>).</li>
-<li>Support for custom functions for query expansion and scoring (see <a href="Extensions.html">Extensions</a>).</li>
-<li>Limiting searches to specific document fields.</li>
-<li>Numeric filters and ranges.</li>
-<li>Geo filtering using Redis' own Geo-commands. </li>
-<li>Unicode support (UTF-8 input required).</li>
-<li>Retrieve full document content or just ids</li>
-<li>Document deletion and updating with index garbage collection.</li>
-<li>Partial and conditional document updates.</li>
-</ul>
+<p>All of the above means that if we have a lot of updates and deletes, a large portion of our inverted index will become garbage - both slowing things down and consuming unnecessary memory. </p>
+<p>Thus we want to optimize the index. But we also do not want to disturb the normal operation. This means that optimization or garbage collection should be a background process, that is non intrusive. It only needs to be faster than the deletion rate over a long enough period of time so that we don't create more garbage than we can collect.</p>
+<h2 id="2_garbage_collecting_a_single_term_index">2. Garbage Collecting a Single Term Index<a class="headerlink" href="#2_garbage_collecting_a_single_term_index" title="Permanent link">&para;</a></h2>
+<p>A single term inverted index is consisted of an array of "blocks" each containing an encoded list of records - document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents, this is called garbage. </p>
+<p>The algorithm is pretty simple: </p>
+<ol>
+<li>Create a reader and writer for each block</li>
+<li>Read each block's records one by one</li>
+<li>If no record is invalid, do nothing</li>
+<li>Once we found a garbage record, we advance the reader but not the writer.</li>
+<li>Once we found at least one garbage record, we encode the next records to the writer, recalculating the deltas.</li>
+</ol>
+<p>Pseudo code:</p>
+<div class="codehilite"><pre><span></span>foreach index_block as block:
+
+   reader = new_reader(block)
+   writer = new_write(block)
+   garbage = 0
+   while not reader.end():
+        record = reader.decode_next()
+        if record.is_valid():
+            if garbage != 0:
+                # Write the record at the writer&#39;s tip with a newly calculated delta
+                writer.write_record(record)
+            else:
+                writer.advance(record.length)
+        else:
+            garbage += record.length
+</pre></div>
+
+
+<p><strong>NOTE</strong>: Currently the algorithm does not delete empty blocks and does not merge small ones, this is a future improvement that shouldn't be very hard to do.</p>
+<h3 id="21_garbage_collection_on_numeric_indexes">2.1 Garbage Collection on Numeric Indexes<a class="headerlink" href="#21_garbage_collection_on_numeric_indexes" title="Permanent link">&para;</a></h3>
+<p>Numeric indexes are now a tree of inverted indexes with a special encoding of (docId delta,value). This means the same algorithm can be applied to them, only traversing each inverted index object in the tree.</p>
+<h2 id="3_gc_and_concurrency">3. GC And Concurrency<a class="headerlink" href="#3_gc_and_concurrency" title="Permanent link">&para;</a></h2>
+<p>Since RediSearch 0.17, we are using a multi threaded concurrent query execution model. This means that index iterators yield execution to other threads every given time (currently configured at 50us). </p>
+<p>It GC should also take advantage of this ability, and perform its task from a side thread, blocking the global redis lock for a short periods of time, incrementally processing indexes without interrupting execution and indexing.</p>
+<p>This means, however, that we need to consider a few things:</p>
+<ol>
+<li>
+<p>From the Index Iterator's POV - a GC sweep might be performed while we are sleeping during iterating the index. This means that the offset of the reader in its current block might not be correct. In that case we need to do a slow search in the index for the last id we've read. This is an operation we don't want to do unless we have to.</p>
+</li>
+<li>
+<p>From the GC thread's POC - an index might be written to or deleted while we are sleeping during a sweep.</p>
+</li>
+</ol>
+<p>To solve 1 we need to detect this in the reader, and adapt to this situation. Detection of a GC sweep while sleeping is simple:
+<em> Each inverted index key has a "gc marker" variable that increments each time it has been GC'ed. 
+</em> Before starting an index iterator, we copy the index's gc marker to the iterator's context.
+<em> After waking up from sleep in the iterator, we check the gc markers in both objects.
+</em> If they are the same we can simply trust the byte offset of the reader in the current block.
+* IF not, we seek the reader to the previously read docId, which is slower. </p>
+<p>To solve 2 is simpler: 
+<em> The GC will of course operate only while the GIL is locked.
+</em> The GC will never yield execution while in the middle of a block.
+<em> The GC will check whether the key has been deleted while it slept.
+</em> The GC will get a new pointer to the next block on each read, assuring the pointer is safe.</p>
+<h2 id="4_scheduling_garbage_collection">4. Scheduling Garbage Collection<a class="headerlink" href="#4_scheduling_garbage_collection" title="Permanent link">&para;</a></h2>
+<p>While the  GC process will run on a side thread and not interfere with normal operations, we do want to avoid running it when not necessary. 
+The problem is that we do not know, when a document has been deleted, which terms now hold garbage, becuase for that we need a forward index or to re-tokenize the document, which are expensive in RAM and CPU respectively. </p>
+<p>So the GC will use sampling of random terms and collect them. </p>
+<p>This leaves two problems:
+1. How to avoid GC when it's not needed (the user is not deleting any documents or doing it very little).
+2. How to make sure we hit terms that are more likely to contain garbage. </p>
+<p>Solving 2 for now will be done by trying some sort of weighted random. We already have a dictionary with the frequency of terms in the index. However running a real weighted random on it is an expensive operation.</p>
+<p>Thus, an approximation of a weighted random can be easily done by blindly selecting N terms in each round, and then applying a weighted random function to this small set of keys. This assures that even the least frequent terms will get visited.</p>
+<p>Solving 1 can be done in the following way:</p>
+<p>We start with a frequency F for the random sampler of the garbage collector. At first it is relatively infrequent or even 0. It can be configured.
+Then, we do the following:
+    * Each time a document is deleted or updated we increase the frequency a bit.
+    * Each time we find a key with garbage we increase the frequency a bit.
+    * Each time we sample a key with NO garbage found, we decrease the frequency a bit. This can be related to the frequency of the key, which can be seen as a hint to the probability of finding garbage in it. So if we don't find garbage in the most frequent term, it is a very strong indicator that the index contains little to no garbage.</p>
+<p>The frequency is of course bounded to a maximum which we will never surpass. Thus when a lot of garbage is created, the frequency will be at its maximum, and will eventually decay to 0 or a pre-configured minimum - until more documents will be deleted. </p>
                 
                   
                 
@@ -853,14 +914,28 @@ that are not possible or efficient with traditional Redis search approaches.</p>
     <div class="md-footer-nav">
       <nav class="md-footer-nav__inner md-grid">
         
+          <a href="../go_client.html" title="Go API" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                Go API
+              </span>
+            </div>
+          </a>
         
-          <a href="Quick_Start.html" title="Quick Start" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+        
+          <a href="../Threading.html" title="Multi-Threading in RediSearch" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
             <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
               <span class="md-flex__ellipsis">
                 <span class="md-footer-nav__direction">
                   Next
                 </span>
-                Quick Start
+                Multi-Threading in RediSearch
               </span>
             </div>
             <div class="md-flex__cell md-flex__cell--shrink">
@@ -890,9 +965,9 @@ that are not possible or efficient with traditional Redis search approaches.</p>
       
     </div>
     
-      <script src="assets/javascripts/application.9e1f3b71.js"></script>
+      <script src="../assets/javascripts/application.9e1f3b71.js"></script>
       
-      <script>app.initialize({version:"1.0.4",url:{base:"."}})</script>
+      <script>app.initialize({version:"1.0.4",url:{base:".."}})</script>
       
     
     

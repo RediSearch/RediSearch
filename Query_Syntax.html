@@ -1,0 +1,1352 @@
+
+
+
+
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <meta http-equiv="x-ua-compatible" content="ie=edge">
+      
+      
+        <link rel="canonical" href="https://oss.redislabs.com/redisearch/Query_Syntax.html">
+      
+      
+      
+        <meta name="lang:clipboard.copy" content="Copy to clipboard">
+      
+        <meta name="lang:clipboard.copied" content="Copied to clipboard">
+      
+        <meta name="lang:search.language" content="en">
+      
+        <meta name="lang:search.pipeline.stopwords" content="True">
+      
+        <meta name="lang:search.pipeline.trimmer" content="True">
+      
+        <meta name="lang:search.result.none" content="No matching documents">
+      
+        <meta name="lang:search.result.one" content="1 matching document">
+      
+        <meta name="lang:search.result.other" content="# matching documents">
+      
+        <meta name="lang:search.tokenizer" content="[\s\-]+">
+      
+      <link rel="shortcut icon" href="img/favicon.png">
+      <meta name="generator" content="mkdocs-1.0.4, mkdocs-material-3.1.0">
+    
+    
+      
+        <title>Query Syntax - RediSearch Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/application.11e41852.css">
+      
+        <link rel="stylesheet" href="assets/stylesheets/application-palette.22915126.css">
+      
+      
+        
+        
+        <meta name="theme-color" content="#3f51b5">
+      
+    
+    
+      <script src="assets/javascripts/modernizr.20ef595d.js"></script>
+    
+    
+      
+        <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
+        <style>body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}</style>
+      
+    
+    <link rel="stylesheet" href="assets/fonts/material-icons.css">
+    
+    
+    
+  </head>
+  
+    
+    
+    <body dir="ltr" data-md-color-primary="indigo" data-md-color-accent="red">
+  
+    <svg class="md-svg">
+      <defs>
+        
+        
+          <svg xmlns="http://www.w3.org/2000/svg" width="416" height="448"
+    viewBox="0 0 416 448" id="__github">
+  <path fill="currentColor" d="M160 304q0 10-3.125 20.5t-10.75 19-18.125
+        8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19 18.125-8.5
+        18.125 8.5 10.75 19 3.125 20.5zM320 304q0 10-3.125 20.5t-10.75
+        19-18.125 8.5-18.125-8.5-10.75-19-3.125-20.5 3.125-20.5 10.75-19
+        18.125-8.5 18.125 8.5 10.75 19 3.125 20.5zM360
+        304q0-30-17.25-51t-46.75-21q-10.25 0-48.75 5.25-17.75 2.75-39.25
+        2.75t-39.25-2.75q-38-5.25-48.75-5.25-29.5 0-46.75 21t-17.25 51q0 22 8
+        38.375t20.25 25.75 30.5 15 35 7.375 37.25 1.75h42q20.5 0
+        37.25-1.75t35-7.375 30.5-15 20.25-25.75 8-38.375zM416 260q0 51.75-15.25
+        82.75-9.5 19.25-26.375 33.25t-35.25 21.5-42.5 11.875-42.875 5.5-41.75
+        1.125q-19.5 0-35.5-0.75t-36.875-3.125-38.125-7.5-34.25-12.875-30.25-20.25-21.5-28.75q-15.5-30.75-15.5-82.75
+        0-59.25 34-99-6.75-20.5-6.75-42.5 0-29 12.75-54.5 27 0 47.5 9.875t47.25
+        30.875q36.75-8.75 77.25-8.75 37 0 70 8 26.25-20.5
+        46.75-30.25t47.25-9.75q12.75 25.5 12.75 54.5 0 21.75-6.75 42 34 40 34
+        99.5z" />
+</svg>
+        
+      </defs>
+    </svg>
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" data-md-component="overlay" for="__drawer"></label>
+    
+      <a href="#search_query_syntax" tabindex="1" class="md-skip">
+        Skip to content
+      </a>
+    
+    
+      <header class="md-header" data-md-component="header">
+  <nav class="md-header-nav md-grid">
+    <div class="md-flex">
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-header-nav__button md-logo">
+          
+            <img src="logo_small.png" width="24" height="24">
+          
+        </a>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        <label class="md-icon md-icon--menu md-header-nav__button" for="__drawer"></label>
+      </div>
+      <div class="md-flex__cell md-flex__cell--stretch">
+        <div class="md-flex__ellipsis md-header-nav__title" data-md-component="title">
+          
+            
+              <span class="md-header-nav__topic">
+                RediSearch Documentation
+              </span>
+              <span class="md-header-nav__topic">
+                Query Syntax
+              </span>
+            
+          
+        </div>
+      </div>
+      <div class="md-flex__cell md-flex__cell--shrink">
+        
+          
+            <label class="md-icon md-icon--search md-header-nav__button" for="__search"></label>
+            
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="query" data-md-state="active">
+      <label class="md-icon md-search__icon" for="__search"></label>
+      <button type="reset" class="md-icon md-search__icon" data-md-component="reset" tabindex="-1">
+        &#xE5CD;
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="result">
+          <div class="md-search-result__meta">
+            Type to start searching
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+          
+        
+      </div>
+      
+        <div class="md-flex__cell md-flex__cell--shrink">
+          <div class="md-header-nav__source">
+            
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+          </div>
+        </div>
+      
+    </div>
+  </nav>
+</header>
+    
+    <div class="md-container">
+      
+        
+      
+      
+      <main class="md-main">
+        <div class="md-main__inner md-grid" data-md-component="container">
+          
+            
+              <div class="md-sidebar md-sidebar--primary" data-md-component="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    <nav class="md-nav md-nav--primary" data-md-level="0">
+  <label class="md-nav__title md-nav__title--site" for="__drawer">
+    <a href="https://oss.redislabs.com/redisearch" title="RediSearch Documentation" class="md-nav__button md-logo">
+      
+        <img src="logo_small.png" width="48" height="48">
+      
+    </a>
+    RediSearch Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      
+
+
+  
+
+
+  <a href="https://github.com/RedisLabsModules/RediSearch/" title="Go to repository" class="md-source" data-md-source="github">
+    
+      <div class="md-source__icon">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <use xlink:href="#__github" width="24" height="24"></use>
+        </svg>
+      </div>
+    
+    <div class="md-source__repository">
+      RedisLabsModules/RediSearch
+    </div>
+  </a>
+
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="index.html" title="Home" class="md-nav__link">
+      Home
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Quick_Start.html" title="Quick Start" class="md-nav__link">
+      Quick Start
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Commands.html" title="Command Reference" class="md-nav__link">
+      Command Reference
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Configuring.html" title="Configuration" class="md-nav__link">
+      Configuration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Administration.html" title="Administration" class="md-nav__link">
+      Administration
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-6" type="checkbox" id="nav-6" checked>
+    
+    <label class="md-nav__link" for="nav-6">
+      Reference
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-6">
+        Reference
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+  
+
+
+  <li class="md-nav__item md-nav__item--active">
+    
+    <input class="md-toggle md-nav__toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+    
+      
+    
+    
+      <label class="md-nav__link md-nav__link--active" for="__toc">
+        Query Syntax
+      </label>
+    
+    <a href="Query_Syntax.html" title="Query Syntax" class="md-nav__link md-nav__link--active">
+      Query Syntax
+    </a>
+    
+      
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pure_negative_queries" title="Pure negative queries" class="md-nav__link">
+    Pure negative queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field_modifiers" title="Field modifiers" class="md-nav__link">
+    Field modifiers
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#numeric_filters_in_query" title="Numeric filters in query" class="md-nav__link">
+    Numeric filters in query
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a_few_notes_on_numeric_predicates" title="A few notes on numeric predicates" class="md-nav__link">
+    A few notes on numeric predicates
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tag_filters" title="Tag filters" class="md-nav__link">
+    Tag filters
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#geo_filters_in_query" title="Geo filters in query" class="md-nav__link">
+    Geo filters in query
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefix_matching" title="Prefix matching" class="md-nav__link">
+    Prefix matching
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a_few_notes_on_prefix_searches" title="A few notes on prefix searches" class="md-nav__link">
+    A few notes on prefix searches
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuzzy_matching" title="Fuzzy matching" class="md-nav__link">
+    Fuzzy matching
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wildcard_queries" title="Wildcard queries" class="md-nav__link">
+    Wildcard queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query_attributes" title="Query attributes" class="md-nav__link">
+    Query attributes
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a_few_query_examples" title="A few query examples" class="md-nav__link">
+    A few query examples
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping_common_sql_predicates_to_redisearch" title="Mapping common SQL predicates to RediSearch" class="md-nav__link">
+    Mapping common SQL predicates to RediSearch
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical_note" title="Technical note" class="md-nav__link">
+    Technical note
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+    
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Stopwords.html" title="Stop-Words" class="md-nav__link">
+      Stop-Words
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Aggregations.html" title="Aggregations" class="md-nav__link">
+      Aggregations
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Escaping.html" title="Tokenization and Escaping" class="md-nav__link">
+      Tokenization and Escaping
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Sorting.html" title="Sortable Values" class="md-nav__link">
+      Sortable Values
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Tags.html" title="Tag Fields" class="md-nav__link">
+      Tag Fields
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Highlight.html" title="Highlighting Results" class="md-nav__link">
+      Highlighting Results
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Scoring.html" title="Scoring Documents" class="md-nav__link">
+      Scoring Documents
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Extensions.html" title="Extension API" class="md-nav__link">
+      Extension API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Stemming.html" title="Stemming Support" class="md-nav__link">
+      Stemming Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Synonyms.html" title="Synonyms Support" class="md-nav__link">
+      Synonyms Support
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="payloads.html" title="Document Payloads" class="md-nav__link">
+      Document Payloads
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Spellcheck.html" title="Spelling Correction" class="md-nav__link">
+      Spelling Correction
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Phonetic_Matching.html" title="Phonetic Matching" class="md-nav__link">
+      Phonetic Matching
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-7" type="checkbox" id="nav-7">
+    
+    <label class="md-nav__link" for="nav-7">
+      Clients
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-7">
+        Clients
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Clients.html" title="Client Libraries" class="md-nav__link">
+      Client Libraries
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="python_client.html" title="Python API" class="md-nav__link">
+      Python API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="java_client.html" title="Java API" class="md-nav__link">
+      Java API
+    </a>
+  </li>
+
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="go_client.html" title="Go API" class="md-nav__link">
+      Go API
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-8" type="checkbox" id="nav-8">
+    
+    <label class="md-nav__link" for="nav-8">
+      Design Documents
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-8">
+        Design Documents
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="design/gc.html" title="Garbage Collection" class="md-nav__link">
+      Garbage Collection
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item md-nav__item--nested">
+    
+      <input class="md-toggle md-nav__toggle" data-md-toggle="nav-9" type="checkbox" id="nav-9">
+    
+    <label class="md-nav__link" for="nav-9">
+      Articles
+    </label>
+    <nav class="md-nav" data-md-component="collapsible" data-md-level="1">
+      <label class="md-nav__title" for="nav-9">
+        Articles
+      </label>
+      <ul class="md-nav__list" data-md-scrollfix>
+        
+        
+          
+          
+          
+
+
+  <li class="md-nav__item">
+    <a href="Threading.html" title="Multi-Threading in RediSearch" class="md-nav__link">
+      Multi-Threading in RediSearch
+    </a>
+  </li>
+
+        
+      </ul>
+    </nav>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="Chinese.html" title="Chinese Support" class="md-nav__link">
+      Chinese Support
+    </a>
+  </li>
+
+    
+      
+      
+      
+
+
+  <li class="md-nav__item">
+    <a href="contrib.html" title="Contributor agreement" class="md-nav__link">
+      Contributor agreement
+    </a>
+  </li>
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary">
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">Table of contents</label>
+    <ul class="md-nav__list" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pure_negative_queries" title="Pure negative queries" class="md-nav__link">
+    Pure negative queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field_modifiers" title="Field modifiers" class="md-nav__link">
+    Field modifiers
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#numeric_filters_in_query" title="Numeric filters in query" class="md-nav__link">
+    Numeric filters in query
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a_few_notes_on_numeric_predicates" title="A few notes on numeric predicates" class="md-nav__link">
+    A few notes on numeric predicates
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tag_filters" title="Tag filters" class="md-nav__link">
+    Tag filters
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#geo_filters_in_query" title="Geo filters in query" class="md-nav__link">
+    Geo filters in query
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefix_matching" title="Prefix matching" class="md-nav__link">
+    Prefix matching
+  </a>
+  
+    <nav class="md-nav">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a_few_notes_on_prefix_searches" title="A few notes on prefix searches" class="md-nav__link">
+    A few notes on prefix searches
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuzzy_matching" title="Fuzzy matching" class="md-nav__link">
+    Fuzzy matching
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wildcard_queries" title="Wildcard queries" class="md-nav__link">
+    Wildcard queries
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query_attributes" title="Query attributes" class="md-nav__link">
+    Query attributes
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a_few_query_examples" title="A few query examples" class="md-nav__link">
+    A few query examples
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapping_common_sql_predicates_to_redisearch" title="Mapping common SQL predicates to RediSearch" class="md-nav__link">
+    Mapping common SQL predicates to RediSearch
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technical_note" title="Technical note" class="md-nav__link">
+    Technical note
+  </a>
+  
+</li>
+      
+      
+      
+      
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                  <a href="https://github.com/RedisLabsModules/RediSearch/edit/master/docs/Query_Syntax.md" title="Edit this page" class="md-icon md-content__icon">&#xE3C9;</a>
+                
+                
+                <h1 id="search_query_syntax">Search Query Syntax<a class="headerlink" href="#search_query_syntax" title="Permanent link">&para;</a></h1>
+<p>We support a simple syntax for complex queries with the following rules:</p>
+<ul>
+<li>Multi-word phrases simply a list of tokens, e.g. <code>foo bar baz</code>, and imply intersection (AND) of the terms.</li>
+<li>Exact phrases are wrapped in quotes, e.g <code>"hello world"</code>.</li>
+<li>OR Unions (i.e <code>word1 OR word2</code>), are expressed with a pipe (<code>|</code>), e.g. <code>hello|hallo|shalom|hola</code>.</li>
+<li>NOT negation (i.e. <code>word1 NOT word2</code>) of expressions or sub-queries. e.g. <code>hello -world</code>. As of version 0.19.3, purely negative queries (i.e. <code>-foo</code> or <code>-@title:(foo|bar)</code>) are supported.</li>
+<li>Prefix matches (all terms starting with a prefix) are expressed with a <code>*</code>. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)</li>
+<li>A special "wildcard query" that returns all results in the index - <code>*</code> (cannot be combined with anything else).</li>
+<li>Selection of specific fields using the syntax <code>@field:hello world</code>.</li>
+<li>Numeric Range matches on numeric fields with the syntax <code>@field:[{min} {max}]</code>.</li>
+<li>Geo radius matches on geo fields with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code></li>
+<li>Tag field filters with the syntax <code>@field:{tag | tag | ...}</code>. See the full documentation on [tag fields|/Tags].</li>
+<li>Optional terms or clauses: <code>foo ~bar</code> means bar is optional but documents with bar in them will rank higher.</li>
+<li>Fuzzy matching on terms (as of v1.2.0): <code>%hello%</code> means all terms with Levenshtein distance of 1 from it.</li>
+<li>An expression in a query can be wrapped in parentheses to disambiguate, e.g. <code>(hello|hella) (world|werld)</code>.</li>
+<li>Query attributes can be applied to individual clauses, e.g. <code>(foo bar) =&gt; { $weight: 2.0; $slop: 1; $inorder: false; }</code></li>
+<li>Combinations of the above can be used together, e.g <code>hello (world|foo) "bar baz" bbbb</code></li>
+</ul>
+<h2 id="pure_negative_queries">Pure negative queries<a class="headerlink" href="#pure_negative_queries" title="Permanent link">&para;</a></h2>
+<p>As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. <code>-hello</code> or <code>-(@title:foo|bar)</code>. The results will be all the documents <em>NOT</em> containing the query terms.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Any complex expression can be negated this way, however, caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.</p>
+</div>
+<h2 id="field_modifiers">Field modifiers<a class="headerlink" href="#field_modifiers" title="Permanent link">&para;</a></h2>
+<p>As of version 0.12 it is possible to specify field modifiers in the query and not just using the INFIELDS global keyword.</p>
+<p>Per query expression or sub-expression, it is possible to specify which fields it matches, by prepending the expression with the <code>@</code> symbol, the field name and a <code>:</code> (colon) symbol.</p>
+<p>If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier.</p>
+<p>If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses.</p>
+<p>Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH cars &quot;@country:korea @engine:(diesel|hybrid) @class:suv&quot;
+</pre></div>
+
+
+<p>Multiple modifiers can be applied to the same term or grouped terms. e.g.:</p>
+<div class="codehilite"><pre><span></span>FT.SEARCH idx &quot;@title|body:(hello world) @url|image:mydomain&quot;
+</pre></div>
+
+
+<p>This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.</p>
+<h2 id="numeric_filters_in_query">Numeric filters in query<a class="headerlink" href="#numeric_filters_in_query" title="Permanent link">&para;</a></h2>
+<p>If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is <code>@field:[{min} {max}]</code> - e.g. <code>@price:[100 200]</code>.</p>
+<h3 id="a_few_notes_on_numeric_predicates">A few notes on numeric predicates<a class="headerlink" href="#a_few_notes_on_numeric_predicates" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>It is possible to specify a numeric predicate as the entire query, whereas it is impossible to do it with the FILTER argument.</p>
+</li>
+<li>
+<p>It is possible to intersect or union multiple numeric filters in the same query, be it for the same field or different ones.</p>
+</li>
+<li>
+<p><code>-inf</code>, <code>inf</code> and <code>+inf</code> are acceptable numbers in a range. Thus greater-than 100 is expressed as <code>[(100 inf]</code>.</p>
+</li>
+<li>
+<p>Numeric filters are inclusive. Exclusive min or max are expressed with <code>(</code> prepended to the number, e.g. <code>[(100 (200]</code>.</p>
+</li>
+<li>
+<p>It is possible to negate a numeric filter by prepending a <code>-</code> sign to the filter, e.g. returning a result where price differs from 100 is expressed as: <code>@title:foo -@price:[100 100]</code>.</p>
+</li>
+</ol>
+<h2 id="tag_filters">Tag filters<a class="headerlink" href="#tag_filters" title="Permanent link">&para;</a></h2>
+<p>RediSearch (starting with version 0.91) allows a special field type called "tag field", with simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search, and can be used only with a special syntax:</p>
+<div class="codehilite"><pre><span></span>@field:{ tag | tag | ...}
+
+e.g.
+
+@cities:{ New York | Los Angeles | Barcelona }
+</pre></div>
+
+
+<p>Tags can have multiple words or include other punctuation marks other than the field's separator (<code>,</code> by default). Punctuation marks in tags should be escaped with a backslash (<code>\</code>). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.</p>
+<p>Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing <em>all</em> tags, you should repeat the tag filter several times, e.g.:</p>
+<div class="codehilite"><pre><span></span># This will return all documents containing all three cities as tags:
+@cities:{ New York } @cities:{Los Angeles} @cities:{ Barcelona }
+
+# This will return all documents containing either city:
+@cities:{ New York | Los Angeles | Barcelona }
+</pre></div>
+
+
+<p>Tag clauses can be combined into any sub-clause, used as negative expressions, optional expressions, etc.</p>
+<h2 id="geo_filters_in_query">Geo filters in query<a class="headerlink" href="#geo_filters_in_query" title="Permanent link">&para;</a></h2>
+<p>As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax <code>@field:[{lon} {lat} {radius} {m|km|mi|ft}]</code>. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own <a href="https://redis.io/commands/georadiys"><code>GEORADIUS</code></a> command for more details as it is used internally for that).</p>
+<p>Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: <code>chinese restaurant @location:[-122.41 37.77 5 km]</code>.</p>
+<h2 id="prefix_matching">Prefix matching<a class="headerlink" href="#prefix_matching" title="Permanent link">&para;</a></h2>
+<p>On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending <code>*</code> to a prefix token. For example:</p>
+<div class="codehilite"><pre><span></span>hel* world
+</pre></div>
+
+
+<p>Will be expanded to cover <code>(hello|help|helm|...) world</code>.</p>
+<h3 id="a_few_notes_on_prefix_searches">A few notes on prefix searches<a class="headerlink" href="#a_few_notes_on_prefix_searches" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.</p>
+</li>
+<li>
+<p>As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:</p>
+</li>
+<li>
+<p>Prefixes are limited to 2 letters or more. You can change this number by using the <code>MINPREFIX</code> setting on the module command line.</p>
+</li>
+<li>
+<p>Expansion is limited to 200 terms or less. You can change this number by using the <code>MAXEXPANSIONS</code> setting on the module command line.</p>
+</li>
+<li>
+<p>Prefix matching fully supports Unicode and is case insensitive.</p>
+</li>
+<li>
+<p>Currently, there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.</p>
+</li>
+</ol>
+<h2 id="fuzzy_matching">Fuzzy matching<a class="headerlink" href="#fuzzy_matching" title="Permanent link">&para;</a></h2>
+<p>As of v1.2.0, the dictionary of all terms in the index can also be used to perform <a href="https://en.wikipedia.org/wiki/Approximate_string_matching">Fuzzy Matching</a>. Fuzzy matches are performed based on <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a> (LD). Fuzzy matching on a term is performed by surrounding the term with '%', for example:</p>
+<div class="codehilite"><pre><span></span><span class="nf">%hello</span><span class="o">%</span> <span class="n">world</span>
+</pre></div>
+
+
+<p>Will perform fuzzy matching on 'hello' for all terms where LD is 1.</p>
+<p>As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' surrounding it, so that <code>%%hello%%</code> will perform fuzzy matching on 'hello' for all terms where LD is 2.</p>
+<p>The maximal LD for fuzzy matching is 3.</p>
+<h2 id="wildcard_queries">Wildcard queries<a class="headerlink" href="#wildcard_queries" title="Permanent link">&para;</a></h2>
+<p>As of version 1.1.0, we provide a special query to retrieve all the documents in an index. This is meant mostly for the aggregation engine. You can call it by specifying only a single star sign as the query string - i.e. <code>FT.SEARCH myIndex *</code>.</p>
+<p>This cannot be combined with any other filters, field modifiers or anything inside the query. It is technically possible to use the deprecated FILTER and GEOFILTER request parameters outside the query string in conjunction with a wildcard, but this makes the wildcard meaningless and only hurts performance.</p>
+<h2 id="query_attributes">Query attributes<a class="headerlink" href="#query_attributes" title="Permanent link">&para;</a></h2>
+<p>As of version 1.2.0, it is possible to apply specific query modifying attributes to specific clauses of the query.</p>
+<p>The syntax is <code>(foo bar) =&gt; { $attribute: value; $attribute:value; ...}</code>, e.g:</p>
+<div class="codehilite"><pre><span></span><span class="o">(</span><span class="nt">foo</span> <span class="nt">bar</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="err">$</span><span class="n">weight</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">;</span> <span class="err">$</span><span class="n">slop</span><span class="p">:</span> <span class="mi">1</span><span class="p">;</span> <span class="err">$</span><span class="n">inorder</span><span class="p">:</span> <span class="n">true</span><span class="p">;</span> <span class="p">}</span>
+<span class="o">~(</span><span class="nt">bar</span> <span class="nt">baz</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="err">$</span><span class="n">weight</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">;</span> <span class="p">}</span>
+</pre></div>
+
+
+<p>The supported attributes are:</p>
+<ul>
+<li><strong>$weight</strong>: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).</li>
+<li><strong>$slop</strong>: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).</li>
+<li><strong>$inorder</strong>: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with <code>$slop</code> (default: false).</li>
+<li><strong>$phonetic</strong>: whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as <code>PHONETIC</code> will produce an error.</li>
+</ul>
+<h2 id="a_few_query_examples">A few query examples<a class="headerlink" href="#a_few_query_examples" title="Permanent link">&para;</a></h2>
+<ul>
+<li>
+<p>Simple phrase query - hello AND world</p>
+<div class="codehilite"><pre><span></span>hello world
+</pre></div>
+
+
+</li>
+<li>
+<p>Exact phrase query - <strong>hello</strong> FOLLOWED BY <strong>world</strong></p>
+<div class="codehilite"><pre><span></span>&quot;hello world&quot;
+</pre></div>
+
+
+</li>
+<li>
+<p>Union: documents containing either <strong>hello</strong> OR <strong>world</strong></p>
+<div class="codehilite"><pre><span></span>hello|world
+</pre></div>
+
+
+</li>
+<li>
+<p>Not: documents containing <strong>hello</strong> but not <strong>world</strong></p>
+<div class="codehilite"><pre><span></span>hello -world
+</pre></div>
+
+
+</li>
+<li>
+<p>Intersection of unions</p>
+<div class="codehilite"><pre><span></span>(hello|halo) (world|werld)
+</pre></div>
+
+
+</li>
+<li>
+<p>Negation of union</p>
+<div class="codehilite"><pre><span></span>hello -(world|werld)
+</pre></div>
+
+
+</li>
+<li>
+<p>Union inside phrase</p>
+<div class="codehilite"><pre><span></span>(barack|barrack) obama
+</pre></div>
+
+
+</li>
+<li>
+<p>Optional terms with higher priority to ones containing more matches:</p>
+<div class="codehilite"><pre><span></span>obama ~barack ~michelle
+</pre></div>
+
+
+</li>
+<li>
+<p>Exact phrase in one field, one word in another field:</p>
+<div class="codehilite"><pre><span></span>@title:&quot;barack obama&quot; @job:president
+</pre></div>
+
+
+</li>
+<li>
+<p>Combined AND, OR with field specifiers:</p>
+<div class="codehilite"><pre><span></span>@title:hello world @body:(foo bar) @category:(articles|biographies)
+</pre></div>
+
+
+</li>
+<li>
+<p>Prefix Queries:</p>
+<div class="codehilite"><pre><span></span>hello worl*
+
+hel* worl*
+
+hello -worl*
+</pre></div>
+
+
+</li>
+<li>
+<p>Numeric Filtering - products named "tv" with a price range of 200-500:</p>
+<div class="codehilite"><pre><span></span>@name:tv @price:[200 500]
+</pre></div>
+
+
+</li>
+<li>
+<p>Numeric Filtering - users with age greater than 18:</p>
+<div class="codehilite"><pre><span></span>@age:[(18 +inf]
+</pre></div>
+
+
+</li>
+</ul>
+<h2 id="mapping_common_sql_predicates_to_redisearch">Mapping common SQL predicates to RediSearch<a class="headerlink" href="#mapping_common_sql_predicates_to_redisearch" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>SQL Condition</th>
+<th>RediSearch Equivalent</th>
+<th>Comments</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WHERE x='foo' AND y='bar'</td>
+<td>@x:foo @y:bar</td>
+<td>for less ambiguity use (@x:foo) (@y:bar)</td>
+</tr>
+<tr>
+<td>WHERE x='foo' AND y!='bar'</td>
+<td>@x:foo -@y:bar</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x='foo' OR y='bar'</td>
+<td>(@x:foo)|(@y:bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x IN ('foo', 'bar','hello world')</td>
+<td>@x:(foo|bar|"hello world")</td>
+<td>quotes mean exact phrase</td>
+</tr>
+<tr>
+<td>WHERE y='foo' AND x NOT IN ('foo','bar')</td>
+<td>@y:foo (-@x:foo) (-@x:bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE x NOT IN ('foo','bar')</td>
+<td>-@x:(foo|bar)</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num BETWEEN 10 AND 20</td>
+<td>@num:[10 20]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &gt;= 10</td>
+<td>@num:[10 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &gt; 10</td>
+<td>@num:[(10 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt; 10</td>
+<td>@num:[-inf (10]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt;= 10</td>
+<td>@num:[-inf 10]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE num &lt; 10 OR num &gt; 20</td>
+<td>@num:[-inf (10] | @num:[(20 +inf]</td>
+<td></td>
+</tr>
+<tr>
+<td>WHERE name LIKE 'john%'</td>
+<td>@name:john*</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="technical_note">Technical note<a class="headerlink" href="#technical_note" title="Permanent link">&para;</a></h2>
+<p>The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition <a href="https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y">at the git repo</a>.</p>
+                
+                  
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+      </main>
+      
+        
+<footer class="md-footer">
+  
+    <div class="md-footer-nav">
+      <nav class="md-footer-nav__inner md-grid">
+        
+          <a href="Administration.html" title="Administration" class="md-flex md-footer-nav__link md-footer-nav__link--prev" rel="prev">
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-back md-footer-nav__button"></i>
+            </div>
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Previous
+                </span>
+                Administration
+              </span>
+            </div>
+          </a>
+        
+        
+          <a href="Stopwords.html" title="Stop-Words" class="md-flex md-footer-nav__link md-footer-nav__link--next" rel="next">
+            <div class="md-flex__cell md-flex__cell--stretch md-footer-nav__title">
+              <span class="md-flex__ellipsis">
+                <span class="md-footer-nav__direction">
+                  Next
+                </span>
+                Stop-Words
+              </span>
+            </div>
+            <div class="md-flex__cell md-flex__cell--shrink">
+              <i class="md-icon md-icon--arrow-forward md-footer-nav__button"></i>
+            </div>
+          </a>
+        
+      </nav>
+    </div>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+        powered by
+        <a href="https://www.mkdocs.org">MkDocs</a>
+        and
+        <a href="https://squidfunk.github.io/mkdocs-material/">
+          Material for MkDocs</a>
+      </div>
+      
+        
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    
+      <script src="assets/javascripts/application.9e1f3b71.js"></script>
+      
+      <script>app.initialize({version:"1.0.4",url:{base:"."}})</script>
+      
+    
+    
+      
+        <script>!function(e,a,t,n,o,c,i){e.GoogleAnalyticsObject=o,e.ga=e.ga||function(){(e.ga.q=e.ga.q||[]).push(arguments)},e.ga.l=1*new Date,c=a.createElement(t),i=a.getElementsByTagName(t)[0],c.async=1,c.src="https://www.google-analytics.com/analytics.js",i.parentNode.insertBefore(c,i)}(window,document,"script",0,"ga"),ga("create","UA-92003007-1","auto"),ga("set","anonymizeIp",!0),ga("send","pageview");var links=document.getElementsByTagName("a");if(Array.prototype.map.call(links,function(a){a.host!=document.location.host&&a.addEventListener("click",function(){var e=a.getAttribute("data-md-action")||"follow";ga("send","event","outbound",e,a.href)})}),document.forms.search){var query=document.forms.search.query;query.addEventListener("blur",function(){if(this.value){var e=document.location.pathname;ga("send","pageview",e+"?q="+this.value)}})}</script>
+      
+    
+  </body>
+</html>
