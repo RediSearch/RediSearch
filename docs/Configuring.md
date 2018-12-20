@@ -26,7 +26,7 @@ $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 
 ## Setting Configuration Options In Run-Time
 
-As of v1.4.1, the [`FT.CONFIG`](Commands/#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
+As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -89,7 +89,7 @@ $ redis-server --loadmodule ./redisearch.so SAFEMODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](Extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](Extensions.md) for details.
 
 ### Default
 
@@ -169,7 +169,7 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese/#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
 
 ### Default
 
