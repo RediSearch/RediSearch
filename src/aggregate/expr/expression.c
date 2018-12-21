@@ -379,13 +379,13 @@ RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl) {
   switch (expr->t) {
     case RSExpr_Function:
       return RSFunctionRegistry_GetType(expr->func.name, strlen(expr->func.name));
-      break;
     case RSExpr_Op:
       return RSValue_Number;
     case RSExpr_Predicate:
       return RSValue_Number;
     case RSExpr_Literal:
       return expr->literal.t;
+    default:
     case RSExpr_Property: {
       // best effort based on sorting table, default to string
       // safe if tbl is null

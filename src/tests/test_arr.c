@@ -35,7 +35,7 @@ int testScalar() {
   for (int i = 0; i < array_len(ia); i++) {
     ASSERT_EQUAL(i, ia[i]);
 
-    printf("%d %zd\n", ia[i], array_len(ia));
+    printf("%d %u\n", ia[i], array_len(ia));
   }
   array_free(ia);
   RETURN_TEST_SUCCESS;

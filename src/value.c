@@ -689,7 +689,7 @@ void RSFieldMap_Reset(RSFieldMap *m) {
     for (size_t i = 0; i < m->len; i++) {
       RSValue_Free(m->fields[i].val);
       if (m->isKeyAlloc) {
-        free(m->fields[i].key);
+        free((char *)m->fields[i].key);
       }
     }
     m->isKeyAlloc = 0;

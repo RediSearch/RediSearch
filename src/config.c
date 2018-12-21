@@ -229,7 +229,7 @@ CONFIG_SETTER(setForkGcInterval) {
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
