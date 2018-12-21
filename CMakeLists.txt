@@ -86,7 +86,7 @@ SET(FINAL_OBJECTS
 ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 ADD_EXECUTABLE(sizes src/c_utils/sizes.cpp)
-TARGET_LINK_LIBRARIES(sizes redisearch)
+TARGET_LINK_LIBRARIES(sizes redisearch dl)
 
 SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
