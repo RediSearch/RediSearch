@@ -451,12 +451,13 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       rm_free(tmp);
     }
 
-    // We always save deleted docs to rdb, but we don't want to load them back to the id map
-    if (!(dmd->flags & Document_Deleted)) {
+    if (dmd->flags & Document_Deleted) {
+      DMD_Free(dmd);
+    } else {
       DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      DocTable_Set(t, dmd->id, dmd);
+      t->memsize += sizeof(RSDocumentMetadata) + len;
     }
-    DocTable_Set(t, dmd->id, dmd);
-    t->memsize += sizeof(RSDocumentMetadata) + len;
   }
 }
 
