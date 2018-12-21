@@ -12,6 +12,7 @@
 #include "config.h"
 #include "cursor.h"
 #include "tag_index.h"
+#include "redis_index.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 

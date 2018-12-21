@@ -135,6 +135,8 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
   // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
   // we do not allow empty indexes when loading an existing index
+  RedisModule_FreeString(ctx, keyName);
+
   if (k == NULL || RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
     return NULL;
   }
@@ -143,8 +145,7 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){.spec = sp,  // newline
                            .redisCtx = ctx,
-                           .key = k,
-                           .keyName = keyName,
+                           .key_ = k,
                            .refcount = 1};
   return sctx;
 }
@@ -156,7 +157,6 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) 
 
 RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
   // First we close the relevant keys we're touching
-  RedisModule_CloseKey(sctx->key);
   RedisModuleCtx *redisCtx = sctx->redisCtx;
   SearchCtx_Free(sctx);
   // now release the global lock
@@ -174,6 +174,10 @@ RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
+  if (sctx->key_) {
+    RedisModule_CloseKey(sctx->key_);
+    sctx->key_ = NULL;
+  }
   rm_free(sctx);
 }
 /*

@@ -166,18 +166,16 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   // Prepare the query.. this is where the context is applied.
+  if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
+    RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
+    ctx = thctx = newctx;  // In case of error!
+  }
+
   sctx = NewSearchCtxC(ctx, indexname);
   if (!sctx) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
-  }
-
-  if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
-    RedisModuleCtx *oldctx = sctx->redisCtx;
-    RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
-    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(oldctx));
-    sctx->redisCtx = newctx;
-    thctx = newctx;  // In case of error!
   }
 
   if (AREQ_ApplyContext(*r, sctx, status) != REDISMODULE_OK) {
@@ -206,6 +204,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisModuleCtx *thctx = NULL;
   AREQ *r = NULL;
   QueryError status = {0};
 
@@ -216,9 +215,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = startCursor(r, r->sctx, ctx, &status);
     if (rc != REDISMODULE_OK) {
-      // Free the thread safe context, since it's no longer owned by the cursor
-      RedisModule_FreeThreadSafeContext(r->sctx->redisCtx);
-      r->sctx->redisCtx = NULL;
+      thctx = r->sctx->redisCtx;
       goto error;
     }
   } else {
@@ -230,6 +227,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 error:
   if (r) {
     AREQ_Free(r);
+  }
+  if (thctx) {
+    RedisModule_FreeThreadSafeContext(thctx);
   }
 
   return QueryError_ReplyAndClear(ctx, &status);
@@ -301,6 +301,9 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
 
 delcursor:
   AREQ_Free(req);
+  if (cursor) {
+    cursor->execState = NULL;
+  }
   Cursor_Free(cursor);
 }
 
@@ -366,4 +369,8 @@ void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
+}
+
+void Cursor_FreeExecState(void *p) {
+  AREQ_Free(p);
 }

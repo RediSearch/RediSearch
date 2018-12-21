@@ -63,11 +63,18 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   kh_del(cursors, cur->parent->lookup, khi);
   assert(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup));
   cur->specInfo->used--;
-  if (cur->sctx->redisCtx) {
-    RedisModule_FreeThreadSafeContext(cur->sctx->redisCtx);
-    cur->sctx->redisCtx = NULL;
+  if (cur->execState) {
+    Cursor_FreeExecState(cur->execState);
+    cur->execState = NULL;
   }
+  RedisModuleCtx *thctx = cur->sctx->redisCtx;
+  cur->sctx->redisCtx = NULL;
   SearchCtx_Decref(cur->sctx);
+  cur->sctx = NULL;
+
+  if (thctx) {
+    RedisModule_FreeThreadSafeContext(thctx);
+  }
   rm_free(cur);
 }
 

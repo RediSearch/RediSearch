@@ -3,7 +3,6 @@
 
 #include <unistd.h>
 #include <pthread.h>
-#include "aggregate/aggregate.h"
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
@@ -166,4 +165,5 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
 void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
 
+void Cursor_FreeExecState(void *);
 #endif

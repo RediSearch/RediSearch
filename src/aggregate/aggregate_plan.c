@@ -43,11 +43,17 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   dllist_insert(posstp->llnodePln.prev, posstp->llnodePln.next, &newstp->llnodePln);
 }
 
+static void rootStepDtor(PLN_BaseStep *bstp) {
+  PLN_FirstStep *fstp = (PLN_FirstStep *)bstp;
+  RLookup_Cleanup(&fstp->lookup);
+}
+
 void AGPLN_Init(AGGPlan *plan) {
   memset(plan, 0, sizeof *plan);
   dllist_init(&plan->steps);
   dllist_append(&plan->steps, &plan->firstStep_s.base.llnodePln);
   plan->firstStep_s.base.type = PLN_T_ROOT;
+  plan->firstStep_s.base.dtor = rootStepDtor;
 }
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {

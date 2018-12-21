@@ -149,7 +149,6 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 end:
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
   if (idxKey) RedisModule_CloseKey(idxKey);
@@ -284,7 +283,6 @@ end:
   }
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
 
@@ -374,7 +372,6 @@ end:
   }
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
 

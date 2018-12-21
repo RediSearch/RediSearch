@@ -15,8 +15,7 @@ extern "C" {
 
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key;
-  RedisModuleString *keyName;
+  RedisModuleKey *key_;
   IndexSpec *spec;
   ConcurrentSearchCtx *conc;
   uint32_t refcount;
@@ -24,7 +23,7 @@ typedef struct RedisSearchCtx {
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, NULL, sp, NULL, 0, 1 }
+  { ctx, NULL, sp, NULL, 0, 1 }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap

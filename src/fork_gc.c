@@ -301,7 +301,6 @@ static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
   ForkGc_CollectGarbageFromTagIdx(gc, sctx);
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
     RedisModule_FreeThreadSafeContext(rctx);
   }
@@ -418,7 +417,6 @@ cleanup:
     RedisModule_CloseKey(idxKey);
   }
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
   if (term) {
@@ -516,7 +514,6 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
   loop_cleanup:
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
-      RedisModule_CloseKey(sctx->key);
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {
@@ -581,7 +578,6 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
   loop_cleanup:
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
-      RedisModule_CloseKey(sctx->key);
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {
@@ -729,7 +725,10 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
   ForkGCCtx *forkGc = malloc(sizeof(*forkGc));
 
   *forkGc = (ForkGCCtx){
-      .keyName = k, .stats = {}, .rdbPossiblyLoading = 1, .specUniqueId = specUniqueId,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
+      .specUniqueId = specUniqueId,
   };
 
   callbacks->onDelete = ForkGc_OnDelete;

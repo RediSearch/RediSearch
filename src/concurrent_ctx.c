@@ -108,6 +108,7 @@ static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
     if (ctx->openKeys[i].key &&  // if this is a shared key, don't do anything
         !(ctx->openKeys[i].opts & ConcurrentKey_SharedKey)) {
       RedisModule_CloseKey(ctx->openKeys[i].key);
+      ctx->openKeys[i].key = NULL;
     }
   }
 }

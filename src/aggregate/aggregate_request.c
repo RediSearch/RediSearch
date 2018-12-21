@@ -539,6 +539,12 @@ error:
   return REDISMODULE_ERR;
 }
 
+static void loadDtor(PLN_BaseStep *bstp) {
+  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
+  free(lstp->keys);
+  free(lstp);
+}
+
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
@@ -549,6 +555,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   PLN_LoadStep *lstp = calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
+  lstp->base.dtor = loadDtor;
   lstp->args = loadfields;
   lstp->keys = calloc(loadfields.argc, sizeof(*lstp->keys));
 
@@ -1085,5 +1092,9 @@ void AREQ_Free(AREQ *req) {
   if (req->sctx) {
     SearchCtx_Decref(req->sctx);
   }
+  for (size_t ii = 0; ii < req->nargs; ++ii) {
+    sdsfree(req->args[ii]);
+  }
+  free(req->args);
   free(req);
 }
