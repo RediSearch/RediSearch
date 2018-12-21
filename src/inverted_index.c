@@ -32,7 +32,7 @@ static IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = firstId, .numDocs = 0};
-  INDEX_LAST_BLOCK(idx).data = NewBuffer(INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
   return &INDEX_LAST_BLOCK(idx);
 }
 
@@ -51,10 +51,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 }
 
 void indexBlock_Free(IndexBlock *blk) {
-  if (blk->data) {
-    Buffer_Free(blk->data);
-    free(blk->data);
-  }
+  Buffer_Free(&blk->buf);
 }
 
 void InvertedIndex_Free(void *ctx) {
@@ -86,7 +83,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
     ir->br.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
@@ -94,7 +91,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
     // reset the state of the reader
     t_docId lastId = ir->lastId;
-    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
     ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 
     // seek to the previous last id
@@ -415,7 +412,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     delta = 0;
   }
 
-  BufferWriter bw = NewBufferWriter(blk->data);
+  BufferWriter bw = NewBufferWriter(&blk->buf);
 
   // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, entry);
@@ -463,7 +460,7 @@ int IR_HasNext(void *ctx) {
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
@@ -773,7 +770,7 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
 found:
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   return 1;
 }
 
@@ -838,7 +835,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
   ret->atEnd = 0;
   ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
-  ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
+  ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoder = decoder;
   ret->decoderCtx = decoderCtx;
   return ret;
@@ -896,7 +893,7 @@ void IR_Rewind(void *ctx) {
   ir->atEnd = 0;
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
@@ -924,14 +921,14 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   bool isFirstRes = true;
 
   blk->lastId = blk->firstId = 0;
-  Buffer repair = *blk->data;
+  Buffer repair = blk->buf;
   repair.offset = 0;
 
-  BufferReader br = NewBufferReader(blk->data);
+  BufferReader br = NewBufferReader(&blk->buf);
   BufferWriter bw = NewBufferWriter(&repair);
 
   RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-  int frags = 0;
+  size_t frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
@@ -996,8 +993,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     blk->numDocs -= frags;
-    *blk->data = repair;
-    Buffer_Truncate(blk->data, 0);
+    blk->buf = repair;
+    Buffer_ShrinkToSize(&blk->buf);
   }
   IndexResult_Free(res);
   return frags;

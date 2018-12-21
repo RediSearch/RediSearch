@@ -33,14 +33,9 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
     blk->numDocs = RedisModule_LoadUnsigned(rdb);
-
-    size_t cap;
-    char *data = RedisModule_LoadStringBuffer(rdb, &cap);
-
-    blk->data = Buffer_Wrap(cap > 0 ? data : NULL, cap);
-    blk->data->offset = cap;
+    blk->buf.data = RedisModule_LoadStringBuffer(rdb, &blk->buf.offset);
+    blk->buf.cap = blk->buf.offset;
     // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
-    if (!cap && data) RedisModule_Free(data);
   }
   return idx;
 }
@@ -57,7 +52,11 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
     RedisModule_SaveUnsigned(rdb, blk->numDocs);
-    RedisModule_SaveStringBuffer(rdb, blk->data->data ? blk->data->data : "", blk->data->offset);
+    if (IndexBlock_DataLen(blk)) {
+      RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    } else {
+      RedisModule_SaveStringBuffer(rdb, "", 0);
+    }
   }
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
@@ -68,8 +67,7 @@ unsigned long InvertedIndex_MemUsage(const void *value) {
   unsigned long ret = sizeof(InvertedIndex);
   for (size_t i = 0; i < idx->size; i++) {
     ret += sizeof(IndexBlock);
-    ret += sizeof(Buffer);
-    ret += Buffer_Offset(idx->blocks[i].data);
+    ret += IndexBlock_DataLen(&idx->blocks[i]);
   }
   return ret;
 }

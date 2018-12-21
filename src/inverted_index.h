@@ -20,8 +20,8 @@ extern "C" {
 typedef struct {
   t_docId firstId;
   t_docId lastId;
+  Buffer buf;
   uint16_t numDocs;
-  Buffer *data;
 } IndexBlock;
 
 typedef struct {
@@ -66,6 +66,10 @@ typedef struct {
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
+
+#define IndexBlock_DataBuf(b) (b)->buf.data
+#define IndexBlock_DataLen(b) (b)->buf.offset
+
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
                          IndexRepairParams *params);
 

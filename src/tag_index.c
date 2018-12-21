@@ -137,7 +137,7 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(ir->idx->blocks[ir->currentBlock].data);
+    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
     ir->br.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
@@ -145,7 +145,7 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
     // reset the state of the reader
     t_docId lastId = ir->lastId;
-    ir->br = NewBufferReader(ir->idx->blocks[ir->currentBlock].data);
+    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
     ir->lastId = 0;
 
     // seek to the previous last id
