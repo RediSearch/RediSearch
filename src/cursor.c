@@ -28,9 +28,12 @@ void CursorList_Init(CursorList *cl) {
   srand48(getpid());
 }
 
-static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName) {
+static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName, size_t *index) {
   for (size_t ii = 0; ii < cl->specsCount; ++ii) {
     if (!strcmp(cl->specs[ii]->keyName, keyName)) {
+      if (index) {
+        *index = ii;
+      }
       return cl->specs[ii];
     }
   }
@@ -140,7 +143,7 @@ int Cursors_CollectIdle(CursorList *cl) {
 }
 
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
-  CursorSpecInfo *info = findInfo(cl, k);
+  CursorSpecInfo *info = findInfo(cl, k, NULL);
   if (!info) {
     info = malloc(sizeof(*info));
     info->keyName = strdup(k);
@@ -149,6 +152,17 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
     cl->specs[cl->specsCount - 1] = info;
   }
   info->cap = capacity;
+}
+
+void CursorList_RemoveSpec(CursorList *cl, const char *k) {
+  size_t index;
+  CursorSpecInfo *info = findInfo(cl, k, &index);
+  if (info) {
+    cl->specs[index] = cl->specs[cl->specsCount - 1];
+    cl->specs = realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
+    free(info->keyName);
+    free(info);
+  }
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
@@ -165,7 +179,7 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1; // 0 should never be returned as cursor id
+  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
   return id;
 }
 
@@ -173,7 +187,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
                         unsigned interval, char **err) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  CursorSpecInfo *spec = findInfo(cl, lookupName);
+  CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
@@ -277,7 +291,7 @@ int Cursor_Free(Cursor *cur) {
 
 void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name);
+  CursorSpecInfo *info = findInfo(cl, name, NULL);
   size_t n = 0;
 
   /** Output total information */
@@ -315,7 +329,7 @@ static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
 }
 
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
-  CursorSpecInfo *info = findInfo(cl, lookupName);
+  CursorSpecInfo *info = findInfo(cl, lookupName, NULL);
   if (!info) {
     return;
   }

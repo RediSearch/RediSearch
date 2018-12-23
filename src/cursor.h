@@ -9,9 +9,9 @@
 #include "search_ctx.h"
 
 typedef struct {
-  const char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;          /** Maximum number of cursors for the spec */
-  size_t used;         /** Number of cursors currently open */
+  char *keyName; /** Name of the key that refers to the spec */
+  size_t cap;    /** Maximum number of cursors for the spec */
+  size_t used;   /** Number of cursors currently open */
 } CursorSpecInfo;
 
 struct CursorList;
@@ -125,6 +125,8 @@ void CursorList_Init(CursorList *cl);
  * spec (via its key) along with its capacity
  */
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
+
+void CursorList_RemoveSpec(CursorList *cl, const char *k);
 
 /**
  * Reserve a cursor for use with a given query.
