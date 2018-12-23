@@ -534,6 +534,22 @@ typedef struct {
 static IndexerList indexers_g = {NULL, 0};
 
 // Returns the given indexer, if it exists
+static DocumentIndexer *findAndRemoveDocumentIndexer(const char *specname) {
+  DocumentIndexer *prev = NULL;
+  for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
+    if (strcmp(specname, cur->name) == 0) {
+      if (prev) {
+        prev->next = cur->next;
+      } else {
+        indexers_g.first = cur->next;
+      }
+      return cur;
+    }
+    prev = cur;
+  }
+  return NULL;
+}
+
 static DocumentIndexer *findDocumentIndexer(const char *specname) {
   for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
     if (strcmp(specname, cur->name) == 0) {
@@ -548,6 +564,7 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 // todo: remove the withIndexThread var once we switch to threadpool
 static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  indexer->options = options;
   indexer->head = indexer->tail = NULL;
 
   BlkAlloc_Init(&indexer->alloc);
@@ -570,6 +587,25 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx,
                                  REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
+}
+
+static void DocumentIndexe_Free(DocumentIndexer *indexer) {
+  free(indexer->name);
+  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
+  KHTable_Clear(&indexer->mergeHt);
+  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
+  free(indexer);
+}
+
+void DropDocumentIndexer(const char *specname) {
+  DocumentIndexer *match = findAndRemoveDocumentIndexer(specname);
+  if (!match) {
+    return;
+  }
+
+  if (match->options & INDEXER_THREADLESS) {
+    DocumentIndexe_Free(match);
+  }
 }
 
 // Get the document indexer for the given index name. If the indexer does not

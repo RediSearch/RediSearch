@@ -31,9 +31,12 @@ typedef struct DocumentIndexer {
   struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
+  int options;
 } DocumentIndexer;
 
 #define INDEXER_THREADLESS 0x01
+
+void DropDocumentIndexer(const char *specname);
 
 /**
  * Get the indexing thread for the given spec `specname`. If no such thread is
