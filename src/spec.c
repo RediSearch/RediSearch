@@ -13,7 +13,6 @@
 #include "cursor.h"
 #include "tag_index.h"
 #include "indexer.h"
-#include "curses.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 
