@@ -658,7 +658,9 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
+  RedisModule_ThreadSafeContextLock(ctx);
   cpid = fork();     // duplicate the current process
+  RedisModule_ThreadSafeContextUnlock(ctx);
   if (cpid == 0) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
