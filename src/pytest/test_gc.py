@@ -97,6 +97,8 @@ def testDeleteEntireBlock(env):
 
 
 def testDeleteDocWithGoeField(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'GEO').ok()
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
