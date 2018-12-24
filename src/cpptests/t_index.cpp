@@ -813,12 +813,13 @@ TEST_F(IndexTest, testIndexSpec) {
   IndexSpec_Free(s);
 }
 
-void fillSchema(char **args, int N, int *sz) {
+static void fillSchema(std::vector<char *> &args, size_t nfields) {
+  args.resize(2 + nfields * 3);
   args[0] = strdup("mySpec");
   args[1] = strdup("SCHEMA");
-  int n = 2;
-  for (int i = 0; i < N; i++) {
-    asprintf(&args[n++], "field%d", i);
+  size_t n = 2;
+  for (unsigned i = 0; i < nfields; i++) {
+    asprintf(&args[n++], "field%u", i);
     if (i % 2 == 0) {
       args[n++] = strdup("TEXT");
     } else {
@@ -832,7 +833,7 @@ void fillSchema(char **args, int N, int *sz) {
       }
     }
   }
-  *sz = n;
+  args.resize(n);
 
   for (int i = 0; i < n; i++) {
     printf("%s ", args[i]);
@@ -840,31 +841,36 @@ void fillSchema(char **args, int N, int *sz) {
   printf("\n");
 }
 
+static void freeSchemaArgs(std::vector<char *> &args) {
+  for (auto s : args) {
+    free(s);
+  }
+  args.clear();
+}
+
 TEST_F(IndexTest, testHugeSpec) {
   int N = 64;
-  int n = 2;
-  char *args[n + N * 3];
-  fillSchema(args, N, &n);
+  std::vector<char *> args;
+  fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)args, n, &err);
+  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
   IndexSpec_Free(s);
+  freeSchemaArgs(args);
 
   // test too big a schema
   N = 300;
-  n = 2;
-  char *args2[n + N * 3];
-
-  fillSchema(args2, N, &n);
+  fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", (const char **)args2, n, &err);
+  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
+  freeSchemaArgs(args);
 }
 
 typedef union {

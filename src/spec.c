@@ -231,7 +231,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
         // phonetic with no matcher
         if (++*offset == argc) {
-          return 0;
+          goto error;
         }
         // try and parse the matcher
         char *matcher = strdup(argv[*offset]);
@@ -245,7 +245,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
               "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
               "double metaphone (dm). Supported languages: English (en), French (fr), "
               "Portuguese (pt) and Spanish (es)");
-          return 0;
+          goto error;
         }
 
         sp->options |= FieldSpec_Phonetics;
@@ -306,6 +306,10 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   return 1;
 
 error:
+  if (!QueryError_HasError(status)) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
+                           argv[0]);
+  }
   if (sp->name) {
     rm_free(sp->name);
     sp->name = NULL;
@@ -340,8 +344,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   }
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
-
   int textId = -1;
+  FieldSpec *fs = NULL;
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
@@ -352,7 +356,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
 
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
     sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-    FieldSpec *fs = sp->fields + sp->numFields;
+    fs = sp->fields + sp->numFields;
     memset(fs, 0, sizeof(*fs));
 
     fs->index = sp->numFields;
@@ -398,6 +402,17 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   return 1;
 
 reset:
+  // If the current field spec exists, but was not added (i.e. we got an error)
+  // and reached this block, then free it
+  if (fs && fs->name) {
+    rm_free(fs->name);
+  }
+  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    if (sp->fields[ii].name) {
+      rm_free(sp->fields[ii].name);
+    }
+  }
+
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
   return 0;
