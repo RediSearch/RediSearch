@@ -453,6 +453,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
 
   NumericRangeNode *currNode = NULL;
   bool shouldReturn = false;
+  RedisModuleString *keyName = NULL;
   while ((currNode = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
 
     ForkGc_InvertedIndexData idxData = {0};
@@ -475,7 +476,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
       RETURN;
     }
 
-    RedisModuleString *keyName = fmtRedisNumericIndexKey(sctx, fieldName);
+    keyName = fmtRedisNumericIndexKey(sctx, fieldName);
     RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
@@ -555,19 +556,21 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
   uint64_t tagUniqueId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   bool shouldReturn = false;
   InvertedIndex *value = NULL;
+  RedisModuleString *keyName = NULL;
   while ((value = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
     ForkGc_InvertedIndexData idxData = {0};
     if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
       continue;
     }
 
+    RedisModule_ThreadSafeContextLock(rctx);
     RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
     }
 
     RedisModuleKey *idxKey = NULL;
-    RedisModuleString *keyName = TagIndex_FormatName(sctx, fieldName);
+    keyName = TagIndex_FormatName(sctx, fieldName);
     TagIndex *tagIdx = TagIndex_Open(sctx->redisCtx, keyName, false, &idxKey);
 
     if (tagIdx->uniqueId != tagUniqueId) {
@@ -659,7 +662,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
   RedisModule_ThreadSafeContextLock(ctx);
-  cpid = fork();     // duplicate the current process
+  cpid = fork();  // duplicate the current process
   RedisModule_ThreadSafeContextUnlock(ctx);
   if (cpid == 0) {
     // fork process
@@ -731,7 +734,10 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
   ForkGCCtx *forkGc = malloc(sizeof(*forkGc));
 
   *forkGc = (ForkGCCtx){
-      .keyName = k, .stats = {}, .rdbPossiblyLoading = 1, .specUniqueId = specUniqueId,
+      .keyName = k,
+      .stats = {},
+      .rdbPossiblyLoading = 1,
+      .specUniqueId = specUniqueId,
   };
 
   callbacks->onDelete = ForkGc_OnDelete;
