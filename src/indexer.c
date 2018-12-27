@@ -591,8 +591,13 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
 
 static void DocumentIndexe_Free(DocumentIndexer *indexer) {
   free(indexer->name);
+  //  BlkAlloc_FreeAll(&indexer->alloc);
+  pthread_cond_destroy(&indexer->cond);
+  pthread_mutex_destroy(&indexer->lock);
+  free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
+  KHTable_Free(&indexer->mergeHt);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
   free(indexer);
 }

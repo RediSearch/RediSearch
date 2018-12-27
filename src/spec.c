@@ -571,6 +571,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   Cursors_PurgeWithName(&RSCursors, spec->name);
+  CursorList_RemoveSpec(&RSCursors, spec->name);
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -598,7 +599,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   rm_free(spec);
 }
 
-static void *IndexSpec_FreeAsync(void *data) {
+static void IndexSpec_FreeAsync(void *data) {
   IndexSpec *spec = data;
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
@@ -610,16 +611,19 @@ static void *IndexSpec_FreeAsync(void *data) {
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
-  return NULL;
 }
+
+static struct thpool_ *cleanPool = NULL;
 
 void IndexSpec_Free(void *ctx) {
 
   IndexSpec *spec = ctx;
 
   if (spec->flags & Index_Temporary) {
-    static pthread_t dummyThr;
-    pthread_create(&dummyThr, NULL, IndexSpec_FreeAsync, ctx);
+    if (!cleanPool) {
+      cleanPool = thpool_init(1);
+    }
+    thpool_add_work(cleanPool, IndexSpec_FreeAsync, ctx);
     return;
   }
 
