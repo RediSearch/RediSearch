@@ -613,7 +613,7 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
 
-struct thpool_ *cleanPool = NULL;
+static struct thpool_ *cleanPool = NULL;
 
 void IndexSpec_Free(void *ctx) {
 
