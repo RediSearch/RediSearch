@@ -111,7 +111,11 @@ typedef struct indexReadCtx {
   /* The record we are decoding into */
   RSIndexResult *record;
 
-  int atEnd;
+  int atEnd_;
+
+  // If present, this pointer is updated when the end has been reached. This is
+  // an optimization to avoid calling IR_HasNext() each time
+  uint8_t *isValidP;
 
   /* This marker lets us know whether the garbage collector has visited this index while the reading
    * thread was asleep, and reset the state in a deeper way
@@ -168,9 +172,6 @@ int IR_Read(void *ctx, RSIndexResult **e);
 /* Move to the next entry in an inverted index, without reading the whole entry
  */
 int IR_Next(void *ctx);
-
-/* Can we read more from an index reader? */
-int IR_HasNext(void *ctx);
 
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */

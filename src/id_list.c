@@ -3,46 +3,52 @@
 #include "rmalloc.h"
 
 typedef struct {
+  IndexIterator base;
   t_docId *docIds;
   t_docId lastDocId;
   t_offset size;
   t_offset offset;
-  int atEOF;
-  RSIndexResult *res;
 } IdListIterator;
+
+static inline void setEof(IdListIterator *it, int value) {
+  it->base.isValid = !value;
+}
+
+static inline int isEof(const IdListIterator *it) {
+  return !it->base.isValid;
+}
 
 /* Read the next entry from the iterator, into hit *e.
  *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->offset >= it->size) {
-    it->atEOF = 1;
+  if (isEof(it) || it->offset >= it->size) {
+    setEof(it, 1);
     return INDEXREAD_EOF;
   }
 
   it->lastDocId = it->docIds[it->offset++];
 
   // TODO: Filter here
-  it->res->docId = it->lastDocId;
-  *r = it->res;
-
+  it->base.current->docId = it->lastDocId;
+  *r = it->base.current;
   return INDEXREAD_OK;
 }
 
 void IL_Abort(void *ctx) {
-  ((IdListIterator *)ctx)->atEOF = 1;
+  ((IdListIterator *)ctx)->base.isValid = 0;
 }
 
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
 int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   IdListIterator *it = ctx;
-  if (it->atEOF || it->offset >= it->size) {
+  if (isEof(it) || it->offset >= it->size) {
     return INDEXREAD_EOF;
   }
 
   if (docId > it->docIds[it->size - 1]) {
-    it->atEOF = 1;
+    it->base.isValid = 0;
     return INDEXREAD_EOF;
   }
 
@@ -66,13 +72,13 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   }
   it->offset = i + 1;
   if (it->offset >= it->size) {
-    it->atEOF = 1;
+    setEof(it, 1);
   }
 
   it->lastDocId = it->docIds[i];
-  it->res->docId = it->lastDocId;
+  it->base.current->docId = it->lastDocId;
 
-  *r = it->res;
+  *r = it->base.current;
 
   if (it->lastDocId == docId) {
     return INDEXREAD_OK;
@@ -85,21 +91,11 @@ t_docId IL_LastDocId(void *ctx) {
   return ((IdListIterator *)ctx)->lastDocId;
 }
 
-/* can we continue iteration? */
-int IL_HasNext(void *ctx) {
-  return !((IdListIterator *)ctx)->atEOF;
-}
-
-RSIndexResult *IL_Current(void *ctx) {
-  return ((IdListIterator *)ctx)->res;
-}
-
 /* release the iterator's context and free everything needed */
 void IL_Free(struct indexIterator *self) {
   IdListIterator *it = self->ctx;
-  IndexResult_Free(it->res);
+  IndexResult_Free(it->base.current);
   rm_free(it->docIds);
-  rm_free(it);
   rm_free(self);
 }
 
@@ -117,9 +113,9 @@ static int cmp_docids(const void *p1, const void *p2) {
 
 void IL_Rewind(void *p) {
   IdListIterator *il = p;
-  il->atEOF = 0;
+  setEof(il, 0);
   il->lastDocId = 0;
-  il->res->docId = 0;
+  il->base.current->docId = 0;
   il->offset = 0;
 }
 
@@ -133,23 +129,24 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   it->size = num;
   it->docIds = rm_calloc(num, sizeof(t_docId));
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  it->atEOF = 0;
+  setEof(it, 0);
   it->lastDocId = 0;
-  it->res = NewVirtualResult(weight);
-  it->res->fieldMask = RS_FIELDMASK_ALL;
+  it->base.current = NewVirtualResult(weight);
+  it->base.current->fieldMask = RS_FIELDMASK_ALL;
 
   it->offset = 0;
 
-  IndexIterator *ret = rm_new(IndexIterator);
+  IndexIterator *ret = &it->base;
   ret->ctx = it;
   ret->Free = IL_Free;
-  ret->HasNext = IL_HasNext;
   ret->LastDocId = IL_LastDocId;
   ret->Len = IL_Len;
   ret->Read = IL_Read;
-  ret->Current = IL_Current;
   ret->SkipTo = IL_SkipTo;
   ret->Abort = IL_Abort;
   ret->Rewind = IL_Rewind;
+
+  ret->HasNext = NULL;
+  ret->GetCurrent = NULL;
   return ret;
 }

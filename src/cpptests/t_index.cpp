@@ -177,7 +177,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
     int n = 0;
     int rc;
-    while (IR_HasNext(ir)) {
+    while (!ir->atEnd_) {
       if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
         break;
       }
@@ -255,7 +255,7 @@ TEST_F(IndexTest, testReadIterator) {
 
   IndexIterator *it = NewReadIterator(r1);
   int i = 1;
-  while (it->HasNext(it->ctx)) {
+  while (IITER_HAS_NEXT(it)) {
     if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
       break;
     }

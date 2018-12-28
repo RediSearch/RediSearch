@@ -63,6 +63,14 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
+static void IR_SetAtEnd(IndexReader *r, int value) {
+  if (r->isValidP) {
+    *r->isValidP = !value;
+  }
+  r->atEnd_ = value;
+}
+#define IR_IS_AT_END(ir) (ir)->atEnd_
+
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
@@ -70,7 +78,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   IndexReader *ir = privdata;
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
   if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-    ir->atEnd = 1;
+    IR_SetAtEnd(ir, 1);
     ir->idx = NULL;
     ir->br.buf = NULL;
     return;
@@ -453,11 +461,6 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
 
-int IR_HasNext(void *ctx) {
-  IndexReader *ir = ctx;
-  return !ir->atEnd;
-}
-
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
@@ -682,7 +685,7 @@ IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt) {
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
-  if (ir->atEnd) {
+  if (IR_IS_AT_END(ir)) {
     goto eof;
   }
   do {
@@ -722,13 +725,10 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
   } while (1);
 eof:
-  ir->atEnd = 1;
+  IR_SetAtEnd(ir, 1);
   return INDEXREAD_EOF;
 }
 
-RSIndexResult *IR_Current(void *ctx) {
-  return ((IndexReader *)ctx)->record;
-}
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   Buffer_Seek(&ir->br, offset);
   ir->lastId = docId;
@@ -792,7 +792,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (!docId) {
     return IR_Read(ctx, hit);
   }
-  if (ir->atEnd) goto eof;
+  if (IR_IS_AT_END(ir)) goto eof;
   if (docId > ir->idx->lastId) goto eof;
 
   // try to skip to the current block
@@ -812,7 +812,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_NOTFOUND;
   }
 eof:
-  ir->atEnd = 1;
+  IR_SetAtEnd(ir, 1);
   return INDEXREAD_EOF;
 }
 
@@ -822,22 +822,27 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
-                                          IndexDecoderCtx decoderCtx, RSIndexResult *record,
-                                          double weight) {
-  IndexReader *ret = rm_malloc(sizeof(IndexReader));
+static void IndexReader_Init(IndexReader *ret, InvertedIndex *idx, IndexDecoder decoder,
+                             IndexDecoderCtx decoderCtx, RSIndexResult *record, double weight) {
   ret->currentBlock = 0;
   ret->idx = idx;
-
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
-  ret->atEnd = 0;
   ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoder = decoder;
   ret->decoderCtx = decoderCtx;
+  ret->isValidP = NULL;
+  IR_SetAtEnd(ret, 0);
+}
+
+static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+                                          IndexDecoderCtx decoderCtx, RSIndexResult *record,
+                                          double weight) {
+  IndexReader *ret = rm_malloc(sizeof(IndexReader));
+  IndexReader_Init(ret, idx, decoder, decoderCtx, record, weight);
   return ret;
 }
 
@@ -871,7 +876,7 @@ void IR_Free(IndexReader *ir) {
 
 void IR_Abort(void *ctx) {
   IndexReader *it = ctx;
-  it->atEnd = 1;
+  IR_SetAtEnd(it, 1);
 }
 
 void ReadIterator_Free(IndexIterator *it) {
@@ -890,12 +895,17 @@ inline t_docId IR_LastDocId(void *ctx) {
 void IR_Rewind(void *ctx) {
 
   IndexReader *ir = ctx;
-  ir->atEnd = 0;
+  IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
+
+typedef struct {
+  IndexIterator it;
+  IndexReader ir;
+} IRIndexIterator;
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
@@ -903,12 +913,15 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;
   ri->LastDocId = IR_LastDocId;
-  ri->HasNext = IR_HasNext;
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
-  ri->Current = IR_Current;
   ri->Abort = IR_Abort;
   ri->Rewind = IR_Rewind;
+  ri->HasNext = NULL;
+  ri->isValid = !ir->atEnd_;
+  ri->current = ir->record;
+
+  ir->isValidP = &ri->isValid;
   return ri;
 }
 

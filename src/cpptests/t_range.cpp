@@ -93,7 +93,7 @@ TEST_F(RangeTest, testRangeIterator) {
     int xcount = 0;
     RSIndexResult *res = NULL;
 
-    while (it->HasNext(it->ctx)) {
+    while (IITER_HAS_NEXT(it)) {
 
       int rc = it->Read(it->ctx, &res);
       if (rc == INDEXREAD_EOF) {
