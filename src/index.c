@@ -25,7 +25,15 @@ static t_docId II_LastDocId(void *ctx);
 
 typedef struct {
   IndexIterator base;
+  /**
+   * We maintain two iterator arrays. One is the original iterator list, and
+   * the other is the list of currently active iterators. When an iterator
+   * reaches EOF, it is set to NULL in the `its` list, but is still retained in
+   * the `origits` list, for the purpose of supporting things like Rewind() and
+   * Free()
+   */
   IndexIterator **its;
+  IndexIterator **origits;
   t_docId *docIds;
   uint32_t num;
   t_docId minDocId;
@@ -38,6 +46,10 @@ typedef struct {
 
 static inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionIterator *)ctx)->minDocId;
+}
+
+static void UI_SyncIterList(UnionIterator *ui) {
+  memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->num);
 }
 
 static void UI_Abort(void *ctx) {
@@ -56,6 +68,8 @@ static void UI_Rewind(void *ctx) {
   ui->minDocId = 0;
   CURRENT_RECORD(ui)->docId = 0;
 
+  UI_SyncIterList(ui);
+
   // rewind all child iterators
   for (int i = 0; i < ui->num; i++) {
     ui->docIds[i] = 0;
@@ -69,7 +83,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
                                 double weight) {
   // create union context
   UnionIterator *ctx = calloc(1, sizeof(UnionIterator));
-  ctx->its = its;
+  ctx->origits = its;
   ctx->weight = weight;
   ctx->num = num;
   IITER_CLEAR_EOF(&ctx->base);
@@ -77,6 +91,8 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
   ctx->len = 0;
   ctx->quickExit = quickExit;
+  ctx->its = calloc(ctx->num, sizeof(*ctx->its));
+
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
   it->ctx = ctx;
@@ -88,6 +104,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->Len = UI_Len;
   it->Abort = UI_Abort;
   it->Rewind = UI_Rewind;
+  UI_SyncIterList(ctx);
 
   return it;
 }
@@ -112,9 +129,11 @@ static inline int UI_Read(void *ctx, RSIndexResult **hit) {
     int rc = INDEXREAD_EOF;
     for (int i = 0; i < ui->num; i++) {
       IndexIterator *it = ui->its[i];
-      if (it == NULL || !IITER_HAS_NEXT(it)) continue;
-      RSIndexResult *res = IITER_CURRENT_RECORD(it);
+      if (it == NULL) {
+        continue;
+      }
 
+      RSIndexResult *res = IITER_CURRENT_RECORD(it);
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
       // printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
@@ -130,6 +149,8 @@ static inline int UI_Read(void *ctx, RSIndexResult **hit) {
       if (rc != INDEXREAD_EOF) {
         numActive++;
       } else {
+        // Remove this from the active list
+        ui->its[i] = NULL;
         continue;
       }
 
@@ -198,15 +219,13 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   for (int i = 0; i < num; i++) {
     // this happens for non existent words
     if (NULL == (it = ui->its[i])) continue;
-    if (!IITER_HAS_NEXT(it)) {
-      continue;
-    }
 
     res = NULL;
     // If the requested docId is larger than the last read id from the iterator,
     // we need to read an entry from the iterator, seeking to this docId
     if (ui->docIds[i] < docId) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
+        ui->its[i] = NULL;
         continue;
       }
       if (res) ui->docIds[i] = res->docId;
@@ -267,14 +286,16 @@ void UnionIterator_Free(IndexIterator *itbase) {
 
   UnionIterator *ui = itbase->ctx;
   for (int i = 0; i < ui->num; i++) {
-    if (ui->its[i]) {
-      ui->its[i]->Free(ui->its[i]);
+    IndexIterator *it = ui->origits[i];
+    if (it) {
+      it->Free(it);
     }
   }
 
   free(ui->docIds);
   IndexResult_Free(CURRENT_RECORD(ui));
   free(ui->its);
+  free(ui->origits);
   free(ui);
 }
 
