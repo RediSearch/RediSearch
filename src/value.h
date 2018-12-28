@@ -172,7 +172,9 @@ RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 static inline RSValue *RS_StringValC(char *s) {
   return RS_StringVal(s, strlen(s));
 }
-#define RS_ConstStringVal(s, n) RS_StringValT(s, n, RSString_Const)
+static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
+  return RS_StringValT((char *)s, n, RSString_Const);
+}
 #define RS_ConstStringValC(s) RS_ConstStringVal(s, strlen(s))
 
 /* Wrap a redis string value */

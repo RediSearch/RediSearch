@@ -3,7 +3,8 @@
 #include <assert.h>
 #include <util/arr.h>
 
-static RLookupKey *createNewKey(RLookup *lookup, const char *name, int flags, uint16_t idx) {
+static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
+                                uint16_t idx) {
   RLookupKey *ret = calloc(1, sizeof(*ret));
 
   ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
@@ -11,7 +12,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, int flags, ui
   ret->refcnt = 1;
 
   if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = strdup(name);
+    ret->name = strndup(name, n);
   } else {
     ret->name = name;
   }
@@ -46,7 +47,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
   uint16_t idx = lookup->rowlen++;
 
-  RLookupKey *ret = createNewKey(lookup, name, flags, idx);
+  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
   if (FieldSpec_IsSortable(fs)) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
@@ -56,12 +57,12 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
   return ret;
 }
 
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
+RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->name, name)) {
+    if (!strncmp(kk->name, name, n)) {
       ret = kk;
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
@@ -78,7 +79,7 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
     if (!(flags & RLOOKUP_F_OCREAT)) {
       return NULL;
     } else {
-      ret = createNewKey(lookup, name, flags, lookup->rowlen++);
+      ret = createNewKey(lookup, name, n, flags, lookup->rowlen++);
     }
   }
 
@@ -86,6 +87,10 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
     ret->refcnt++;
   }
   return ret;
+}
+
+RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
+  return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
 }
 
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
@@ -117,6 +122,11 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, 
       RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
   assert(k);
   RLookup_WriteKey(k, dst, v);
+}
+
+void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value) {
+  RLookup_WriteKeyByName(lookup, name, row, value);
+  RSValue_Decref(value);
 }
 
 void RLookupRow_Wipe(RLookupRow *r) {
@@ -210,6 +220,45 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type, int 
   }
 }
 
+static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype,
+                                 int copyStrings) {
+  switch (RedisModule_CallReplyType(rep)) {
+    case REDISMODULE_REPLY_STRING: {
+      if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
+        goto create_int;
+      }
+
+    create_string:;
+      size_t len;
+      const char *s = RedisModule_CallReplyStringPtr(rep, &len);
+      if (otype == RLOOKUP_C_DBL) {
+        // Convert to double -- calling code should check if NULL
+        return RSValue_ParseNumber(s, len);
+      }
+
+      if (copyStrings) {
+        return RS_NewCopiedString(s, len);
+      } else {
+        return RS_ConstStringVal(s, len);
+      }
+    }
+
+    case REDISMODULE_REPLY_INTEGER:
+    create_int:
+      if (otype == RLOOKUP_C_STR) {
+        goto create_string;
+      }
+      return RS_Int64Val(RedisModule_CallReplyInteger(rep));
+
+    case REDISMODULE_REPLY_UNKNOWN:
+    case REDISMODULE_REPLY_NULL:
+    case REDISMODULE_REPLY_ARRAY:
+    default:
+      // Nothing
+      return RS_NullVal();
+  }
+}
+
 static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options) {
   if (kk->flags & RLOOKUP_F_SVSRC) {
     // No need to "write" this key. It's always implicitly loaded!
@@ -286,28 +335,48 @@ error:
 }
 
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
-  Document dd = {0};
-  int rv =
-      Redis_LoadDocumentC(options->sctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr), &dd);
-  if (rv != REDISMODULE_OK) {
-    return rv;
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = NULL;
+  RedisModuleCtx *ctx = options->sctx->redisCtx;
+  RedisModuleString *krstr =
+      RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+
+  rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
+
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    goto done;
   }
 
-  for (size_t ii = 0; ii < dd.numFields; ++ii) {
-    RLookupKey *kk = RLookup_GetKey(it, dd.fields[ii].name, RLOOKUP_F_OCREAT);
-    if (!kk) {
-      // wtf?
-      abort();
-    }
-    if (kk->flags & RLOOKUP_F_SVSRC) {
+  size_t len = RedisModule_CallReplyLength(rep);
+  // Zero means the document does not exist in redis
+  if (len == 0) {
+    goto done;
+  }
+
+  for (size_t i = 0; i < len; i += 2) {
+    size_t klen = 0;
+    RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
+    RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
+
+    const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
+    RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+    if (rlk->flags & RLOOKUP_F_SVSRC) {
       continue;  // Can load it from the sort vector on demand.
     }
-    RSValue *vv = hvalToValue(dd.fields[ii].text, kk->fieldtype, 1);
-    RLookup_WriteKey(kk, dst, vv);
-    RSValue_Decref(vv);
+    RSValue *vptr = replyElemToValue(repv, rlk->fieldtype, options->copyStrings);
+    RLookup_WriteOwnKey(rlk, dst, vptr);
   }
-  Document_Free(&dd);
-  return REDISMODULE_OK;
+
+  rc = REDISMODULE_OK;
+
+done:
+  if (krstr) {
+    RedisModule_FreeString(ctx, krstr);
+  }
+  if (rep && (options->copyStrings || rc != REDISMODULE_OK)) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
 }
 
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {

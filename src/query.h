@@ -72,9 +72,10 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @return an iterator.
  */
 IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, QueryError *status);
+                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
 
-void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx);
+int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+                QueryError *status);
 
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!

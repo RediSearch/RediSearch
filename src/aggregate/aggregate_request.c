@@ -716,10 +716,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   applyGlobalFilters(opts, ast, sctx);
 
   if (!(opts->flags & Search_Verbatim)) {
-    QAST_Expand(ast, opts->expanderName, opts, sctx);
+    if (QAST_Expand(ast, opts->expanderName, opts, sctx, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, status);
+  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
   if (!req->rootiter) {
     return REDISMODULE_ERR;
   }
@@ -898,7 +901,7 @@ static int hasQuerySortby(const AGGPlan *pln) {
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   AGGPlan *pln = &req->ap;
   RedisSearchCtx *sctx = req->sctx;
-  req->qiter.conc = sctx->conc;
+  req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
@@ -1087,6 +1090,8 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.stopwords) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
+
+  ConcurrentSearchCtx_Free(&req->conc);
 
   // Finally, free the context
   if (req->sctx) {

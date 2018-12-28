@@ -305,37 +305,46 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
   IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, term, weight);
   if (csx) {
-    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL,
-                            ConcurrentKey_SharedNothing);
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL);
   }
+  RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;
 }
 
 int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = NULL;
   doc->numFields = 0;
   doc->fields = NULL;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
+
+  rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    return REDISMODULE_ERR;
+    goto done;
   }
 
   size_t len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis
   if (len == 0) {
-    return REDISMODULE_ERR;
+    goto done;
   }
+
   doc->fields = calloc(len / 2, sizeof(DocumentField));
   doc->numFields = len / 2;
-  int n = 0;
+  size_t n = 0;
   RedisModuleCallReply *k, *v;
-  for (int i = 0; i < len; i += 2, ++n) {
+  for (size_t i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     doc->fields[n].name = RedisModule_StringPtrLen(RedisModule_CreateStringFromCallReply(k), NULL);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
   }
+  rc = REDISMODULE_OK;
 
-  return REDISMODULE_OK;
+done:
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
 }
 
 int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc) {

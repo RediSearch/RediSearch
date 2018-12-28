@@ -165,6 +165,8 @@ class ModuleValue : public Value {
     std::cerr << indent << "Type=" << std::hex << mtype << " Value=" << std::hex << value
               << std::endl;
   }
+
+  virtual ~ModuleValue();
 };
 
 struct RedisModuleKey {
@@ -214,6 +216,13 @@ struct KVDB {
     Value *v = e->second;
     db.erase(e);
     v->decref();
+  }
+
+  ~KVDB() {
+    for (auto it : db) {
+      it.second->decref();
+    }
+    db.clear();
   }
 
   void debugDump() const;
@@ -266,4 +275,15 @@ class Command {
   RedisModuleCmdFunc handler;
   static CommandMap commands;
 };
+
+struct RedisModuleType {
+  typedef std::map<std::string, RedisModuleType *> TypemapType;
+  std::string name;
+  int encver;
+  RedisModuleTypeMethods typemeths;
+  static TypemapType typemap;
+};
+
+typedef struct RedisModuleType Datatype;
+
 #endif

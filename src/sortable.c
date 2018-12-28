@@ -64,29 +64,34 @@ char *normalizeStr(const char *str) {
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
-  if (idx <= RS_SORTABLES_MAX) {
-    switch (type) {
-      case RS_SORTABLE_NUM:
-        tbl->values[idx] = RS_NumVal(*(double *)p);
+  if (idx > RS_SORTABLES_MAX) {
+    return;
+  }
+  if (tbl->values[idx]) {
+    RSValue_Decref(tbl->values[idx]);
+    tbl->values[idx] = NULL;
+  }
+  switch (type) {
+    case RS_SORTABLE_NUM:
+      tbl->values[idx] = RS_NumVal(*(double *)p);
 
-        break;
-      case RS_SORTABLE_STR: {
-        char *ns = normalizeStr((const char *)p);
-        tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
-        break;
-      }
-      case RS_SORTABLE_NIL:
-      default:
-        tbl->values[idx] = RS_NullVal();
-        break;
+      break;
+    case RS_SORTABLE_STR: {
+      char *ns = normalizeStr((const char *)p);
+      tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
+      break;
     }
+    case RS_SORTABLE_NIL:
+    default:
+      tbl->values[idx] = RS_NullVal();
+      break;
   }
 }
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
-  for (int i = 0; i < v->len; i++) {
-    RSValue_Free(v->values[i]);
+  for (size_t i = 0; i < v->len; i++) {
+    RSValue_Decref(v->values[i]);
   }
   rm_free(v);
 }

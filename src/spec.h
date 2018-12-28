@@ -135,6 +135,9 @@ typedef enum {
   Index_WideSchema = 0x080,
   Index_HasSmap = 0x100,
   Index_DocIdsOnly = 0x00,
+
+  // If any of the fields has phonetics. This is just a cache for quick lookup
+  Index_HasPhonetic = 0x200
 } IndexFlags;
 
 /**
@@ -242,11 +245,23 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 const FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
 
+/**
+ * Case-sensitive version of GetField()
+ */
+const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n);
+
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
+
+/**
+ * Check if phonetic matching is enabled on any field within the fieldmask.
+ * Returns true if any field has phonetics, and false if none of the fields
+ * require it.
+ */
+int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */
@@ -302,6 +317,9 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  */
 void IndexSpec_Free(void *spec);
 
+/** Delete the redis key from Redis */
+void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
+
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
@@ -311,6 +329,7 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs);
+RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s);
 
 IndexSpec *NewIndexSpec(const char *name, size_t numFields);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);

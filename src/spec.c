@@ -19,26 +19,64 @@ void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 RedisModuleType *IndexSpecType;
 uint64_t spec_unique_ids = 0;
 
+static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
+                                       int useCase) {
+  for (size_t i = 0; i < spec->numFields; i++) {
+    if (len != strlen(spec->fields[i].name)) {
+      continue;
+    }
+    const FieldSpec *fs = spec->fields + i;
+    if (useCase) {
+      if (!strncmp(fs->name, name, len)) {
+        return fs;
+      }
+    } else {
+      if (!strncasecmp(fs->name, name, len)) {
+        return fs;
+      }
+    }
+  }
+  return NULL;
+}
+
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
 const FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
-  for (int i = 0; i < spec->numFields; i++) {
-    if (len != strlen(spec->fields[i].name)) continue;
-    if (!strncasecmp(spec->fields[i].name, name, len)) {
-      return &spec->fields[i];
-    }
-  }
-
-  return NULL;
+  return getFieldCommon(spec, name, len, 0);
 };
+
+const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n) {
+  return getFieldCommon(spec, name, n, 1);
+}
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
   if (!sp || sp->type != FIELD_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
 
   return FIELD_BIT(sp);
+}
+
+int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
+  if (!(sp->flags & Index_HasPhonetic)) {
+    return 0;
+  }
+
+  if (fm == 0 || fm == (t_fieldMask)-1) {
+    // No fields -- implicit phonetic match!
+    return 1;
+  }
+
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (fm & ((t_fieldMask)1 << ii)) {
+      const FieldSpec *fs = sp->fields + ii;
+      if (fs->type == FIELD_FULLTEXT && (FieldSpec_IsPhonetics(fs))) {
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
@@ -397,6 +435,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     if (FieldSpec_IsSortable(fs)) {
       fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
     }
+    if (FieldSpec_IsPhonetics(fs)) {
+      sp->flags |= Index_HasPhonetic;
+    }
     sp->numFields++;
   }
   return 1;
@@ -589,6 +630,23 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   return samples[selection];
 }
 
+void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
+  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
+  RedisModule_FreeString(ctx, s);
+  if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
+      RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
+    if (kk != NULL) {
+      RedisModule_CloseKey(kk);
+    }
+    IndexSpec_Free(sp);
+    return;
+  }
+  assert(RedisModule_ModuleTypeGetValue(kk) == sp);
+  RedisModule_DeleteKey(kk);
+  RedisModule_CloseKey(kk);
+}
+
 void IndexSpec_Free(void *ctx) {
   IndexSpec *spec = ctx;
 
@@ -673,6 +731,8 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs)
       ret = fmtRedisNumericIndexKey(&sctx, fs->name);
     } else if (fs->type == FIELD_TAG) {
       ret = TagIndex_FormatName(&sctx, fs->name);
+    } else if (fs->type == FIELD_GEO) {
+      ret = RedisModule_CreateStringPrintf(sp->strCtx, GEOINDEX_KEY_FMT, sp->name, fs->name);
     } else {
       // Unknown
       ret = NULL;
@@ -683,6 +743,14 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs)
   }
   sp->indexStrs[fs->index] = ret;
   return ret;
+}
+
+RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s) {
+  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
+  if (!fs) {
+    return NULL;
+  }
+  return IndexSpec_GetFormattedKey(sp, fs);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {

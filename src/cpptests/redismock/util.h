@@ -18,10 +18,16 @@ class ArgvList {
     m_list = CreateArgv(ctx, s, n);
   }
   ArgvList(ArgvList &) = delete;
-  ~ArgvList() {
+
+  void clear() {
     for (auto ss : m_list) {
       RedisModule_FreeString(m_ctx, ss);
     }
+    m_list.clear();
+  }
+
+  ~ArgvList() {
+    clear();
   }
 
   operator RedisModuleString **() {

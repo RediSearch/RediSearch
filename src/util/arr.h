@@ -96,19 +96,33 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
 }
 
 /* Ensure capacity for the array to grow by one */
-static inline array_t array_grow(array_t arr) {
-  return array_ensure_cap(arr, ++array_hdr(arr)->len);
+static inline array_t array_grow(array_t arr, size_t n) {
+  array_hdr(arr)->len += n;
+  return array_ensure_cap(arr, array_hdr(arr)->len);
 }
 
 /* Ensures that array_tail will always point to a valid element. */
-#define array_ensure_tail(arrpp, T)         \
-  ({                                        \
-    if (!*(arrpp)) {                        \
-      *(arrpp) = array_newlen(T, 1);        \
-    } else {                                \
-      *(arrpp) = (T *)array_grow(*(arrpp)); \
-    }                                       \
-    &(array_tail(*(arrpp)));                \
+#define array_ensure_tail(arrpp, T)            \
+  ({                                           \
+    if (!*(arrpp)) {                           \
+      *(arrpp) = array_newlen(T, 1);           \
+    } else {                                   \
+      *(arrpp) = (T *)array_grow(*(arrpp), 1); \
+    }                                          \
+    &(array_tail(*(arrpp)));                   \
+  })
+
+#define array_ensure_append(arrpp, src, n, T)      \
+  ({                                               \
+    size_t a__oldlen = 0;                          \
+    if (!arrpp) {                                  \
+      arrpp = array_newlen(T, n);                  \
+    } else {                                       \
+      a__oldlen = array_len(arrpp);                \
+      arrpp = (T *)array_grow(arrpp, n);           \
+    }                                              \
+    memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
+    arrpp;                                         \
   })
 
 /*
@@ -142,11 +156,11 @@ static inline array_t array_grow(array_t arr) {
 #define array_tail(arr) ((arr)[array_hdr(arr)->len - 1])
 
 /* Append an element to the array, returning the array which may have been reallocated */
-#define array_append(arr, x)                    \
-  ({                                            \
-    (arr) = (__typeof__(arr))array_grow((arr)); \
-    array_tail((arr)) = (x);                    \
-    (arr);                                      \
+#define array_append(arr, x)                       \
+  ({                                               \
+    (arr) = (__typeof__(arr))array_grow((arr), 1); \
+    array_tail((arr)) = (x);                       \
+    (arr);                                         \
   })
 
 /* Get the length of the array */

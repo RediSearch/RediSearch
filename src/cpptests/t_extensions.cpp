@@ -34,8 +34,9 @@ double myScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *
   return 3.141;
 }
 
-void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  return REDISMODULE_OK;
 }
 
 static int numFreed = 0;
@@ -129,7 +130,7 @@ TEST_F(ExtTest, testQueryExpander) {
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
-  QAST_Expand(&qast, opts.expanderName, &opts, NULL);
+  ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));
   ASSERT_EQ(qast.numTokens, 4);
 
   QueryNode *n = qast.root;

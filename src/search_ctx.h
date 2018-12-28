@@ -17,13 +17,12 @@ typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  ConcurrentSearchCtx *conc;
   uint32_t refcount;
   int isStatic;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, sp, NULL, 0, 1 }
+  { ctx, NULL, sp, 0, 1 }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap

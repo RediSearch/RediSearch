@@ -125,6 +125,9 @@ typedef struct RSQueryExpanderCtx {
   /* Opaque query node object used internally by the engine, and should not be accessed */
   struct RSQueryNode **currentNode;
 
+  /* Error object. Can be used to signal an error to the user */
+  struct QueryError *status;
+
   /* Private data of the extension, set on extension initialization or during expansion. If a Free
    * calback is provided, it will be used automatically to free this data */
   void *privdata;
@@ -155,7 +158,7 @@ typedef struct RSQueryExpanderCtx {
 } RSQueryExpanderCtx;
 
 /* The signature for a query expander instance */
-typedef void (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
+typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
 

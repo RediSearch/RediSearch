@@ -276,11 +276,11 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     expander(expCtx, &qn->tn);
 
   } else if (qn->type == QN_PHRASE && !qn->pn.exact) {  // do not expand exact phrases
-    for (int i = 0; i < qn->pn.numChildren; i++) {
+    for (size_t i = 0; i < qn->pn.numChildren; i++) {
       QueryNode_Expand(expander, expCtx, &qn->pn.children[i]);
     }
   } else if (qn->type == QN_UNION) {
-    for (int i = 0; i < qn->un.numChildren; i++) {
+    for (size_t i = 0; i < qn->un.numChildren; i++) {
       QueryNode_Expand(expander, expCtx, &qn->un.children[i]);
     }
   }
@@ -534,10 +534,11 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
+typedef IndexIterator **IndexIteratorArray;
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              RedisModuleKey *k, RedisModuleString *kn,
-                                              double weight) {
+                                              IndexIteratorArray *iterout, double weight) {
   if (qn->type != QN_PREFX) {
     return NULL;
   }
@@ -561,7 +562,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   // Find all completions of the prefix
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) && itsSz < RSGlobalConfig.maxPrefixExpansions) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, q->conc, k, kn, 1);
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -579,19 +580,21 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     free(its);
     return NULL;
   }
+
+  *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
   return NewUnionIterator(its, itsSz, q->docTable, 1, weight);
 }
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
-                                              RedisModuleKey *k, RedisModuleString *kn,
-                                              double weight) {
-
+                                              IndexIteratorArray *iterout, double weight) {
+  IndexIterator *ret = NULL;
   switch (n->type) {
-    case QN_TOKEN:
-
-      return TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, q->conc, k, kn, weight);
+    case QN_TOKEN: {
+      ret = TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, weight);
+      break;
+    }
     case QN_PREFX:
-      return Query_EvalTagPrefixNode(q, idx, n, k, kn, weight);
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight);
 
     case QN_PHRASE: {
       char *terms[n->pn.numChildren];
@@ -605,15 +608,19 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, n->pn.numChildren, " ");
 
-      IndexIterator *ret =
-          TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), q->conc, k, kn, weight);
+      ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), weight);
       sdsfree(s);
-      return ret;
+      break;
     }
 
     default:
       return NULL;
   }
+
+  if (ret) {
+    *array_ensure_tail(iterout, IndexIterator *) = ret;
+  }
+  return ret;
 }
 
 static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -622,19 +629,34 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryTagNode *node = &qn->tag;
   RedisModuleKey *k = NULL;
-  RedisModuleString *str = TagIndex_FormatName(q->sctx, node->fieldName);
-  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, str, 0, &k);
-  if (!idx) return NULL;
+  const FieldSpec *fs =
+      IndexSpec_GetFieldCase(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  if (!fs) {
+    return NULL;
+  }
+  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs);
+  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, kstr, 0, &k);
+  IndexIterator **total_its = NULL;
+
+  if (!idx) {
+    return NULL;
+  }
   // a union stage with one child is the same as the child, so we just return it
   if (node->numChildren == 1) {
-    return query_EvalSingleTagNode(q, idx, node->children[0], k, str, qn->opts.weight);
+    IndexIterator *ret =
+        query_EvalSingleTagNode(q, idx, node->children[0], &total_its, qn->opts.weight);
+    if (ret && q->conc) {
+      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+    }
+    return ret;
   }
 
   // recursively eval the children
   IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
-  int n = 0;
-  for (int i = 0; i < node->numChildren; i++) {
-    IndexIterator *it = query_EvalSingleTagNode(q, idx, node->children[i], k, str, qn->opts.weight);
+  size_t n = 0;
+  for (size_t i = 0; i < node->numChildren; i++) {
+    IndexIterator *it =
+        query_EvalSingleTagNode(q, idx, node->children[i], &total_its, qn->opts.weight);
     if (it) {
       iters[n++] = it;
     }
@@ -642,6 +664,14 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (n == 0) {
     free(iters);
     return NULL;
+  }
+
+  if (total_its) {
+    if (q->conc) {
+      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+    } else {
+      array_free(total_its);
+    }
   }
 
   IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
@@ -730,9 +760,9 @@ static IndexIterator *getEOFIterator(void) {
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            QueryError *status) {
+                            ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
-      .conc = sctx->conc,
+      .conc = conc,
       .opts = opts,
       .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
@@ -757,10 +787,15 @@ void QAST_Destroy(QueryAST *q) {
   q->query = NULL;
 }
 
-void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx) {
-  if (!q->root) return;
-  RSQueryExpanderCtx expCtx = {
-      .qast = q, .language = opts->language ? opts->language : DEFAULT_LANGUAGE, .handle = sctx};
+int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+                QueryError *status) {
+  if (!q->root) {
+    return REDISMODULE_OK;
+  }
+  RSQueryExpanderCtx expCtx = {.qast = q,
+                               .language = opts->language ? opts->language : DEFAULT_LANGUAGE,
+                               .handle = sctx,
+                               .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
@@ -770,6 +805,11 @@ void QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, Redis
       xpc->ff(expCtx.privdata);
     }
   }
+  if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+  ;
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle

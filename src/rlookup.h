@@ -207,6 +207,11 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
  */
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
 
+/**
+ * Like WriteKeyByName, but consumes a refcount
+ */
+void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+
 /** Get a value from the row, provided the key.
  *
  * This does not actually "search" for the key, but simply performs array

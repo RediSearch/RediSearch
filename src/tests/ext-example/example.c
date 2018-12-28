@@ -15,8 +15,9 @@ double filterOutScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMet
   return RS_SCORE_FILTEROUT;
 }
 
-void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  return REDISEARCH_OK;
 }
 
 int numFreed = 0;

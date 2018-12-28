@@ -88,6 +88,14 @@ const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin
   return NULL;
 }
 
+static void arrangeDtor(PLN_BaseStep *bstp) {
+  PLN_ArrangeStep *astp = (PLN_ArrangeStep *)bstp;
+  if (astp->sortKeys) {
+    array_free(astp->sortKeys);
+  }
+  free(bstp);
+}
+
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   // Go backwards.. and stop at the cutoff
   for (const DLLIST_node *nn = pln->steps.prev; nn != &pln->steps; nn = nn->prev) {
@@ -101,6 +109,7 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   // If we are still here, then an arrange step does not exist. Create one!
   PLN_ArrangeStep *ret = calloc(1, sizeof(*ret));
   ret->base.type = PLN_T_ARRANGE;
+  ret->base.dtor = arrangeDtor;
   AGPLN_AddStep(pln, &ret->base);
   return ret;
 }

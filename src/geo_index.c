@@ -3,21 +3,14 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 
-RedisModuleString *fmtGeoIndexKey(const GeoIndex *gi) {
-  return RedisModule_CreateStringPrintf(gi->ctx->redisCtx, GEOINDEX_KEY_FMT, gi->ctx->spec->name,
-                                        gi->sp->name);
-}
-
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
 
-  RedisModuleString *ks = fmtGeoIndexKey(gi);
-
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
 
   /* GEOADD key longitude latitude member*/
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
-  RedisModule_FreeString(gi->ctx->redisCtx, ks);
   if (rep == NULL) {
     return REDISMODULE_ERR;
   }
@@ -91,24 +84,23 @@ static int cmp_docids(const void *p1, const void *p2) {
 }
 
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-
   *num = 0;
+  t_docId *docIds = NULL;
+  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp);
+  assert(s);
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleString *ks = fmtGeoIndexKey(gi);
-  RedisModuleCallReply *rep = RedisModule_Call(
-      gi->ctx->redisCtx, "GEORADIUS", "ssssc", ks,
-      RedisModule_CreateStringPrintf(ctx, "%f", gf->lon),
-      RedisModule_CreateStringPrintf(ctx, "%f", gf->lat),
-      RedisModule_CreateStringPrintf(ctx, "%f", gf->radius), gf->unit ? gf->unit : "km");
-
+  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
+  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
+  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
+  RedisModuleCallReply *rep =
+      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, gf->unit ? gf->unit : "km");
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-
-    return NULL;
+    goto done;
   }
 
   size_t sz = RedisModule_CallReplyLength(rep);
-  t_docId *docIds = rm_calloc(sz, sizeof(t_docId));
+  docIds = rm_calloc(sz, sizeof(t_docId));
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
     if (!s) continue;
@@ -117,6 +109,15 @@ static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *nu
   }
 
   *num = sz;
+
+done:
+  RedisModule_FreeString(ctx, slon);
+  RedisModule_FreeString(ctx, slat);
+  RedisModule_FreeString(ctx, srad);
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+
   return docIds;
 }
 

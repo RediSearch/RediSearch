@@ -255,7 +255,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
@@ -264,7 +264,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (!ctx->privdata) {
     if (!strcasecmp(ctx->language, "chinese")) {
       expandCn(ctx, token);
-      return;
+      return REDISMODULE_OK;
     } else {
       dd = ctx->privdata = calloc(1, sizeof(*dd));
       dd->isCn = 0;
@@ -274,7 +274,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   if (dd->isCn) {
     expandCn(ctx, token);
-    return;
+    return REDISMODULE_OK;
   }
 
   sb = dd->data.latin;
@@ -282,7 +282,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
-    return;
+    return REDISMODULE_OK;
   }
 
   const sb_symbol *b = (const sb_symbol *)token->str;
@@ -300,6 +300,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl, 0x0);
     }
   }
+  return REDISMODULE_OK;
 }
 
 void StemmerExpanderFree(void *p) {
@@ -321,7 +322,7 @@ void StemmerExpanderFree(void *p) {
  * phonetic based query expander
  *
  ******************************************************************************************/
-void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   char *primary = NULL;
 
   PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
@@ -329,9 +330,7 @@ void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
   }
-}
-
-void PhoneticExpanderFree(void *p) {
+  return REDISMODULE_OK;
 }
 
 /******************************************************************************************
@@ -339,17 +338,17 @@ void PhoneticExpanderFree(void *p) {
  * Synonyms based query expander
  *
  ******************************************************************************************/
-void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 #define BUFF_LEN 100
   IndexSpec *spec = ctx->handle->spec;
   if (!spec->smap) {
-    return;
+    return REDISMODULE_OK;
   }
 
   TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
 
   if (t_data == NULL) {
-    return;
+    return REDISMODULE_OK;
   }
 
   for (int i = 0; i < array_len(t_data->ids); ++i) {
@@ -357,9 +356,7 @@ void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
     ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
   }
-}
-
-void SynonymExpanderFree(void *p) {
+  return REDISMODULE_OK;
 }
 
 /******************************************************************************************
@@ -367,11 +364,41 @@ void SynonymExpanderFree(void *p) {
  * Default query expander
  *
  ******************************************************************************************/
-void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
   SynonymExpand(ctx, token);
-  // todo: if phonetic default check if the field spec has phonetics
-  if (phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED) {
+
+  if (phonetic == PHONETIC_DEFAULT) {
+    // Eliminate the phonetic expansion if we know that none of the fields
+    // actually use phonetic matching
+    if (IndexSpec_CheckPhoneticEnabled(ctx->handle->spec, (*ctx->currentNode)->opts.fieldMask)) {
+      phonetic = PHONETIC_ENABLED;
+    }
+  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
+    // Verify that the field is actually phonetic
+    int isValid = 0;
+    if ((*ctx->currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {
+      if (ctx->handle->spec->flags & Index_HasPhonetic) {
+        isValid = 1;
+      }
+    } else {
+      t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
+      for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
+        if (!(fm & (t_fieldMask)1 << ii)) {
+          continue;
+        }
+        const FieldSpec *fs = ctx->handle->spec->fields + ii;
+        if (FieldSpec_IsPhonetics(fs)) {
+          isValid = 1;
+        }
+      }
+    }
+    if (!isValid) {
+      QueryError_SetError(ctx->status, QUERY_EINVAL, "field does not support phonetics");
+      return REDISMODULE_ERR;
+    }
+  }
+  if (phonetic == PHONETIC_ENABLED) {
     PhoneticExpand(ctx, token);
   }
 
@@ -380,12 +407,11 @@ void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
   //       expnders ordering!!
   StemmerExpander(ctx, token);
+  return REDISMODULE_OK;
 }
 
 void DefaultExpanderFree(void *p) {
   StemmerExpanderFree(p);
-  SynonymExpanderFree(p);
-  PhoneticExpanderFree(p);
 }
 
 /* Register the default extension */
@@ -431,14 +457,14 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Synonyms expender */
-  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, NULL, NULL) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
   /* Phonetic expender */
-  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, PhoneticExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, NULL, NULL) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

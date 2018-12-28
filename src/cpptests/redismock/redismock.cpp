@@ -88,7 +88,8 @@ int RMCK_DeleteKey(RedisModuleKey *k) {
   }
   // Delete the key from the db
   k->parent->db->erase(k->key);
-  RedisModule_CloseKey(k);
+  k->ref->decref();
+  k->ref = NULL;
   return REDISMODULE_OK;
 }
 
@@ -392,16 +393,16 @@ void RMCK_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {
 }
 
 /** MODULE TYPES */
-struct RedisModuleType {
-  std::string name;
-  int encver;
-  RedisModuleTypeMethods typemeths;
-};
 RedisModuleType *RMCK_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
                                      RedisModuleTypeMethods *meths) {
+  if (Datatype::typemap.find(name) != Datatype::typemap.end()) {
+    return NULL;
+  }
   RedisModuleType *ret = new RedisModuleType();
   ret->name = name;
   ret->encver = encver;
+  ret->typemeths = *meths;
+  Datatype::typemap[name] = ret;
   return ret;
 }
 
@@ -410,6 +411,7 @@ int RMCK_ModuleTypeSetValue(RedisModuleKey *k, RedisModuleType *mt, void *value)
   if (!k->ref) {
     mv = new ModuleValue(k->key, mt);
     k->parent->db->set(mv);
+    mv->decref();
   } else if (k->ref->typecode() != REDISMODULE_KEYTYPE_MODULE) {
     return REDISMODULE_ERR;
   }
@@ -431,6 +433,14 @@ void *RMCK_ModuleTypeGetValue(RedisModuleKey *key) {
   return static_cast<ModuleValue *>(key->ref)->value;
 }
 
+ModuleValue::~ModuleValue() {
+  if (mtype->typemeths.free) {
+    mtype->typemeths.free(value);
+    value = NULL;
+  }
+}
+
+Datatype::TypemapType Datatype::typemap;
 Command::CommandMap Command::commands;
 
 int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc handler, const char *,
@@ -494,6 +504,10 @@ void RMCK_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int) 
 RedisModuleCtx *RMCK_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
   assert(bc == NULL);
   return new RedisModuleCtx();
+}
+
+void RMCK_FreeThreadSafeContext(RedisModuleCtx *ctx) {
+  delete ctx;
 }
 
 Module::ModuleMap Module::modules;
@@ -571,6 +585,7 @@ static void registerApis() {
   REGISTER_API(Log);
 
   REGISTER_API(GetThreadSafeContext);
+  REGISTER_API(FreeThreadSafeContext);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -598,6 +613,12 @@ void RMCK_Shutdown(void) {
   for (auto c : Command::commands) {
     delete c.second;
   }
+
+  for (auto c : Datatype::typemap) {
+    delete c.second;
+  }
+  Datatype::typemap.clear();
+
   Command::commands.clear();
 }
 }

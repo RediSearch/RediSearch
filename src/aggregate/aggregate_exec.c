@@ -318,7 +318,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  AggregateRequest *req = cursor->execState;
+  AREQ *req = cursor->execState;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }

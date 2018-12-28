@@ -95,5 +95,13 @@ TEST_F(ArrTest, testEnsure) {
   f->y = 990;
   tail->x = 100;
   tail->y = 200;
+
+  // ensure_append
+  Foo threeFoos[] = {{10, 11}, {20, 21}, {30, 31}};
+  size_t prevlen = array_len(f);
+  f = array_ensure_append(f, &threeFoos, 3, Foo);
+  ASSERT_EQ(10, f[prevlen].x);
+  ASSERT_EQ(20, f[prevlen + 1].x);
+  ASSERT_EQ(30, f[prevlen + 2].x);
   array_free(f);
 }

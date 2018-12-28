@@ -395,11 +395,15 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx) {
-  RedisModuleString *s = fmtRedisNumericIndexKey(ctx, flt->fieldName);
+  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName);
+  if (!s) {
+    return NULL;
+  }
   RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
   if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
     return NULL;
   }
+
   NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
 
   IndexIterator *it = createNumericIterator(t, flt);
@@ -411,8 +415,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   uc->lastRevId = t->revisionId;
   uc->it = it;
   if (csx) {
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free,
-                            ConcurrentKey_SharedNothing);
+    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free);
   }
   return it;
 }

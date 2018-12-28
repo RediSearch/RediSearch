@@ -310,7 +310,6 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    DMD_Incref(h->dmd);
     mmh_insert(self->pq, h);
     self->pooledResult = NULL;
     if (h->score < rp->parent->minScore) {

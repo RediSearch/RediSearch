@@ -91,7 +91,10 @@ TEST_F(AggTest, testBasic) {
 
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
-  IndexSpec_Free(spec);
+  IndexSpec_FreeWithKey(spec, ctx);
+  args.clear();
+  aggArgs.clear();
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 class RPMock : public ResultProcessor {
