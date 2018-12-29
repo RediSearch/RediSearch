@@ -15,7 +15,11 @@ recursively */
 typedef struct indexIterator {
   // Cached value - used if HasNext() is not set.
   uint8_t isValid;
+
   void *ctx;
+
+  // Used by union iterator. Cached here for performance
+  t_docId minId;
 
   // Cached value - used if Current() is not set
   RSIndexResult *current;

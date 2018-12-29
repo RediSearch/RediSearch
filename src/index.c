@@ -34,8 +34,8 @@ typedef struct {
    */
   IndexIterator **its;
   IndexIterator **origits;
-  t_docId *docIds;
   uint32_t num;
+  uint32_t norig;
   t_docId minDocId;
 
   // If set to 1, we exit skips after the first hit found and not merge further results
@@ -49,7 +49,28 @@ static inline t_docId UI_LastDocId(void *ctx) {
 }
 
 static void UI_SyncIterList(UnionIterator *ui) {
-  memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->num);
+  ui->num = ui->norig;
+  memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->norig);
+  for (size_t ii = 0; ii < ui->num; ++ii) {
+    ui->its[ii]->minId = 0;
+  }
+}
+
+/**
+ * Removes the exhausted iterator from the active list, so that future
+ * reads will no longer iterate over it
+ */
+static size_t UI_RemoveExhausted(UnionIterator *it, size_t badix) {
+  // e.g. assume we have 10 entries, and we want to remove index 8, which means
+  // one more valid entry at the end. This means we use
+  // source: its + 8 + 1
+  // destination: its + 8
+  // number: it->len (10) - (8) - 1 == 1
+  memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));
+  it->num--;
+  // Repeat the same index again, because we have a new iterator at the same
+  // position
+  return badix - 1;
 }
 
 static void UI_Abort(void *ctx) {
@@ -71,11 +92,9 @@ static void UI_Rewind(void *ctx) {
   UI_SyncIterList(ui);
 
   // rewind all child iterators
-  for (int i = 0; i < ui->num; i++) {
-    ui->docIds[i] = 0;
-    if (ui->its[i]) {
-      ui->its[i]->Rewind(ui->its[i]->ctx);
-    }
+  for (size_t i = 0; i < ui->num; i++) {
+    ui->its[i]->minId = 0;
+    ui->its[i]->Rewind(ui->its[i]->ctx);
   }
 }
 
@@ -86,8 +105,8 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->origits = its;
   ctx->weight = weight;
   ctx->num = num;
+  ctx->norig = num;
   IITER_CLEAR_EOF(&ctx->base);
-  ctx->docIds = calloc(num, sizeof(t_docId));
   CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
   ctx->len = 0;
   ctx->quickExit = quickExit;
@@ -124,25 +143,23 @@ static inline int UI_Read(void *ctx, RSIndexResult **hit) {
 
     // find the minimal iterator
     t_docId minDocId = UINT32_MAX;
-    int minIdx = -1;
+    IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
-    for (int i = 0; i < ui->num; i++) {
-      IndexIterator *it = ui->its[i];
-      if (it == NULL) {
-        continue;
-      }
+    unsigned nits = ui->num;
 
+    for (unsigned i = 0; i < nits; i++) {
+      IndexIterator *it = ui->its[i];
       RSIndexResult *res = IITER_CURRENT_RECORD(it);
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
       // printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
-      while (ui->docIds[i] <= ui->minDocId && rc != INDEXREAD_EOF) {
+      while (it->minId <= ui->minDocId && rc != INDEXREAD_EOF) {
         rc = INDEXREAD_NOTFOUND;
         // read while we're not at the end and perhaps the flags do not match
         while (rc == INDEXREAD_NOTFOUND) {
           rc = it->Read(it->ctx, &res);
-          ui->docIds[i] = res->docId;
+          it->minId = res->docId;
         }
       }
 
@@ -150,22 +167,22 @@ static inline int UI_Read(void *ctx, RSIndexResult **hit) {
         numActive++;
       } else {
         // Remove this from the active list
-        ui->its[i] = NULL;
+        i = UI_RemoveExhausted(ui, i);
+        nits = ui->num;
         continue;
       }
 
       if (rc == INDEXREAD_OK && res->docId <= minDocId) {
         minDocId = res->docId;
-        minIdx = i;
+        minIt = it;
       }
     }
 
     // take the minimum entry and collect all results matching to it
-    if (minIdx != -1) {
-
-      UI_SkipTo(ui, ui->docIds[minIdx], hit);
+    if (minIt) {
+      UI_SkipTo(ui, minIt->minId, hit);
       // return INDEXREAD_OK;
-      ui->minDocId = ui->docIds[minIdx];
+      ui->minDocId = minIt->minId;
       ui->len++;
       return INDEXREAD_OK;
     }
@@ -209,39 +226,41 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   int numActive = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
-  const int num = ui->num;
+  unsigned num = ui->num;
   const int quickExit = ui->quickExit;
   t_docId minDocId = UINT32_MAX;
   IndexIterator *it;
   RSIndexResult *res;
   RSIndexResult *minResult = NULL;
   // skip all iterators to docId
-  for (int i = 0; i < num; i++) {
+  for (unsigned i = 0; i < num; i++) {
+    it = ui->its[i];
     // this happens for non existent words
-    if (NULL == (it = ui->its[i])) continue;
-
     res = NULL;
     // If the requested docId is larger than the last read id from the iterator,
     // we need to read an entry from the iterator, seeking to this docId
-    if (ui->docIds[i] < docId) {
+    if (it->minId < docId) {
       if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
-        ui->its[i] = NULL;
+        i = UI_RemoveExhausted(ui, i);
+        num = ui->num;
         continue;
       }
-      if (res) ui->docIds[i] = res->docId;
+      if (res) {
+        it->minId = res->docId;
+      }
 
     } else {
       // if the iterator is ahead of docId - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
-      rc = (ui->docIds[i] == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+      rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
       res = IITER_CURRENT_RECORD(it);
     }
 
     // if we've read successfully, update the minimal docId we've found
-    if (ui->docIds[i] && rc != INDEXREAD_EOF) {
-      if (ui->docIds[i] < minDocId || !minResult) {
+    if (it->minId && rc != INDEXREAD_EOF) {
+      if (it->minId < minDocId || !minResult) {
         minResult = res;
-        minDocId = ui->docIds[i];
+        minDocId = it->minId;
       }
       // sminDocId = MIN(ui->docIds[i], minDocId);
     }
@@ -253,7 +272,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       if (hit) {
         AggregateResult_AddChild(CURRENT_RECORD(ui), res ? res : IITER_CURRENT_RECORD(it));
       }
-      ui->minDocId = ui->docIds[i];
+      ui->minDocId = it->minId;
       ++found;
     }
     ++numActive;
@@ -285,14 +304,13 @@ void UnionIterator_Free(IndexIterator *itbase) {
   if (itbase == NULL) return;
 
   UnionIterator *ui = itbase->ctx;
-  for (int i = 0; i < ui->num; i++) {
+  for (int i = 0; i < ui->norig; i++) {
     IndexIterator *it = ui->origits[i];
     if (it) {
       it->Free(it);
     }
   }
 
-  free(ui->docIds);
   IndexResult_Free(CURRENT_RECORD(ui));
   free(ui->its);
   free(ui->origits);
