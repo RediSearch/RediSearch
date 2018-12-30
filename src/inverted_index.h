@@ -43,6 +43,7 @@ struct indexReadCtx;
 typedef union {
   void *ptr;
   t_fieldMask num;
+  t_docId matchId;
 } IndexDecoderCtx;
 
 /**
@@ -83,7 +84,7 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef int (*IndexDecoder)(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res);
+typedef int (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Get the decoder for the index based on the index flags. This is used to externally inject the
  * endoder/decoder when reading and writing */

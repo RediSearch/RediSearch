@@ -478,9 +478,10 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
  *
  ******************************************************************************/
 
-#define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
+#define DECODER(name) \
+  static int name(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res)
 
-#define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx.num) != 0)
+#define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx->num) != 0)
 
 DECODER(readFreqsFlags) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask);
@@ -498,8 +499,8 @@ DECODER(readFreqsFlagsWide) {
 DECODER(readFreqOffsetsFlags) {
   qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
                &res->offsetsSz);
-
-  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
+  res->term.offsets.data = BufferReader_Current(br);
+  res->term.offsets.len = res->offsetsSz;
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
 }
@@ -551,7 +552,7 @@ DECODER(readNumeric) {
 
   // printf("res->num.value: %lf\n", res->num.value);
 
-  NumericFilter *f = ctx.ptr;
+  NumericFilter *f = ctx->ptr;
   if (f) {
     int rv = NumericFilter_Match(f, res->num.value);
     // printf("Checking against filter: %d\n", rv);
@@ -700,18 +701,19 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     size_t pos = ir->br.pos;
-    int rv = ir->decoder(&ir->br, ir->decoderCtx, ir->record);
+    int rv = ir->decoder(&ir->br, &ir->decoderCtx, ir->record);
+    RSIndexResult *record = ir->record;
 
     // We write the docid as a 32 bit number when decoding it with qint.
-    uint32_t delta = *(uint32_t *)&ir->record->docId;
+    uint32_t delta = *(uint32_t *)&record->docId;
     if (pos == 0 && delta != 0) {
       // this is an old version rdb, the first entry is the docid itself and
       // not the delta
-      ir->record->docId = delta;
+      record->docId = delta;
     } else {
-      ir->record->docId = delta + ir->lastId;
+      record->docId = delta + ir->lastId;
     }
-    ir->lastId = ir->record->docId;
+    ir->lastId = record->docId;
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -720,7 +722,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     ++ir->len;
-    *e = ir->record;
+    *e = record;
     return INDEXREAD_OK;
 
   } while (1);
@@ -953,8 +955,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   }
 
   while (!BufferReader_AtEnd(&br)) {
+    static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
-    decoder(&br, (IndexDecoderCtx){}, res);
+    decoder(&br, &empty, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here

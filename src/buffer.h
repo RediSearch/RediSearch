@@ -78,9 +78,7 @@ static inline size_t Buffer_Offset(const Buffer *ctx) {
   return ctx->offset;
 }
 
-static inline int BufferReader_AtEnd(const BufferReader *br) {
-  return br->pos >= br->buf->offset;
-}
+#define BufferReader_AtEnd(br) ((br)->pos >= (br)->buf->offset)
 
 static inline size_t Buffer_Capacity(const Buffer *ctx) {
   return ctx->cap;
@@ -94,10 +92,7 @@ static inline int Buffer_AtEnd(const Buffer *ctx) {
 Skip forward N bytes, returning the resulting offset on success or the end
 position if where is outside bounds
 */
-static inline size_t Buffer_Skip(BufferReader *br, int bytes) {
-  br->pos += bytes;
-  return br->pos;
-}
+#define Buffer_Skip(br, n) ((br)->pos += (n))
 
 typedef struct {
   Buffer *buf;
@@ -164,9 +159,7 @@ static inline uint8_t Buffer_ReadU8(BufferReader *r) {
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);
 
-static inline char *BufferReader_Current(BufferReader *b) {
-  return b->buf->data + b->pos;
-}
+#define BufferReader_Current(b) (b)->buf->data + (b)->pos
 
 static inline size_t BufferWriter_Offset(BufferWriter *b) {
   return b->pos - b->buf->data;
