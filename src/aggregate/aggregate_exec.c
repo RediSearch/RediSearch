@@ -18,7 +18,12 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
   if (!astp) {
     return NULL;
   }
-  return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+  const RLookupKey *kk = astp->sortkeysLK[0];
+  if (kk->flags & RLOOKUP_F_SVSRC) {
+    return r->rowdata.sv->values[kk->svidx];
+  } else {
+    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+  }
 }
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r) {

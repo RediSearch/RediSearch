@@ -297,6 +297,12 @@ typedef struct {
    */
   int copyStrings;
 
+  /**
+   * Don't use sortables when loading documents. This might be used to ensure
+   * that only the exact document and not a normalized version is employed
+   */
+  int noSortables;
+
   struct QueryError *status;
 } RLookupLoadOptions;
 

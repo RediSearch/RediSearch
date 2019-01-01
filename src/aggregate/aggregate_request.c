@@ -991,14 +991,16 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             s++;
           }
           const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
-          if (!kk) {
+          if (!kk || (kk->flags & RLOOKUP_F_SVSRC)) {
             // printf("Ignoring already-loaded key %s\n", s);
             continue;
           }
           lstp->keys[lstp->nkeys++] = kk;
         }
-        rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
-        PUSH_RP();
+        if (lstp->nkeys) {
+          rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          PUSH_RP();
+        }
         break;
       }
       case PLN_T_ROOT:

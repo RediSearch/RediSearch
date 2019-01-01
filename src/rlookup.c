@@ -51,9 +51,8 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
   if (FieldSpec_IsSortable(fs)) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
-  } else {
-    ret->flags |= RLOOKUP_F_DOCSRC;
   }
+  ret->flags |= RLOOKUP_F_DOCSRC;
   return ret;
 }
 
@@ -260,7 +259,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
 }
 
 static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options) {
-  if (kk->flags & RLOOKUP_F_SVSRC) {
+  if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
@@ -308,11 +307,12 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   } else {
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
-        printf("Skipping over %s -> not a docsrc key\n", kk->name);
         continue;
       }
-      if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & RLOOKUP_F_SVSRC)) {
-        continue;
+      if (!options->noSortables) {
+        if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & RLOOKUP_F_SVSRC)) {
+          continue;
+        }
       }
       if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
         goto error;
@@ -360,7 +360,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
 
     const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
     RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
-    if (rlk->flags & RLOOKUP_F_SVSRC) {
+    if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
       continue;  // Can load it from the sort vector on demand.
     }
     RSValue *vptr = replyElemToValue(repv, rlk->fieldtype, options->copyStrings);
